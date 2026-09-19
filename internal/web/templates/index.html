@@ -32,7 +32,7 @@
 
     <!-- Main Container -->
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
-        
+
         <!-- Search Console Form -->
         <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
             <h2 class="text-lg font-semibold text-white mb-2">Agentic Web Research Console</h2>
@@ -58,7 +58,7 @@
                     <!-- Primary Query -->
                     <div class="space-y-2 md:col-span-2">
                         <label id="query-label" class="text-xs font-medium text-slate-300">Company Name / Domain</label>
-                        <input type="text" name="query" required placeholder="e.g. Anthropic, Stripe, Datadog..." 
+                        <input type="text" name="query" required placeholder="e.g. Anthropic, Stripe, Datadog..."
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
                     </div>
                 </div>
@@ -67,12 +67,12 @@
                 <div id="person-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
                     <div>
                         <label class="text-xs font-medium text-slate-400">Current / Known Company (Optional)</label>
-                        <input type="text" name="company_name" placeholder="e.g. Google, DeepMind..." 
+                        <input type="text" name="company_name" placeholder="e.g. Google, DeepMind..."
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
                     </div>
                     <div>
                         <label class="text-xs font-medium text-slate-400">Location / Region (Optional)</label>
-                        <input type="text" name="location" placeholder="e.g. San Francisco, London, Singapore..." 
+                        <input type="text" name="location" placeholder="e.g. San Francisco, London, Singapore..."
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
                     </div>
                 </div>
@@ -110,6 +110,14 @@
                 qi.placeholder = 'e.g. Anthropic, Stripe, Datadog...';
             }
         }
+
+        // Auto-scroll the log terminal to bottom as new event lines stream in
+        document.addEventListener('htmx:afterSwap', function(evt) {
+            const term = document.getElementById('log-terminal');
+            if (term) {
+                term.scrollTop = term.scrollHeight;
+            }
+        });
     </script>
 </body>
 </html>

@@ -1,0 +1,16 @@
+# Binaries
+/websearch
+*.exe
+bin/
+
+# Secrets & local environment
+.env
+cookies*.json
+
+# Go tooling
+coverage.out
+*.test
+
+# OS noise
+.DS_Store
+Thumbs.db

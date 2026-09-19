@@ -55,7 +55,7 @@ func (pa *PersonAgent) ResearchPerson(
 		Content:   fmt.Sprintf("Searching for professional profile: %s", query1),
 	})
 
-	searchResults, err := pa.engine.SearchCached(ctx, query1, 8)
+	searchResults, err := pa.engine.SearchCached(ctx, query1, pa.engine.MaxSearchResults())
 	if err != nil {
 		Emit(eventCh, models.AgentEvent{
 			SessionID: sessionID,
@@ -80,7 +80,7 @@ func (pa *PersonAgent) ResearchPerson(
 	var sources []string
 	scrapeCount := 0
 	for _, sr := range searchResults {
-		if scrapeCount >= 3 {
+		if scrapeCount >= pa.engine.MaxScrapes() {
 			break
 		}
 		// Prioritize bio pages, interviews, personal sites, github, wiki
@@ -95,7 +95,7 @@ func (pa *PersonAgent) ResearchPerson(
 			})
 
 			scrapeRes, err := pa.engine.ScrapeCached(ctx, sr.Link)
-			if err == nil && len(scrapeRes.Content) > 80 {
+			if err == nil && len(scrapeRes.Content) > minScrapeContentLen {
 				gatheredContext.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, scrapeRes.Content))
 				sources = append(sources, sr.Link)
 				scrapeCount++
@@ -105,7 +105,7 @@ func (pa *PersonAgent) ResearchPerson(
 
 	// Step 2: Query for conference talks, articles, or career milestones
 	query2 := fmt.Sprintf("%s speaker interview articles career education", query1)
-	secResults, err := pa.engine.SearchCached(ctx, query2, 5)
+	secResults, err := pa.engine.SearchCached(ctx, query2, pa.engine.MaxSearchResults())
 	if err == nil {
 		gatheredContext.WriteString("\n=== ADDITIONAL CAREER SNIPPETS ===\n")
 		gatheredContext.WriteString(FormatSearchSnippets(secResults))

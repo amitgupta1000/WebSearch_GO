@@ -1,12 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/agent"
@@ -15,17 +22,26 @@ import (
 	"github.com/amitgupta1000/WebSearch_GO/internal/llm"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
+	"github.com/amitgupta1000/WebSearch_GO/internal/web"
 )
+
+// maxFormBytes caps the accepted request body size (DoS protection).
+const maxFormBytes = 1 << 20 // 1 MiB
 
 type Server struct {
 	cfg          *config.Config
 	companyAgent *agent.CompanyAgent
 	personAgent  *agent.PersonAgent
+	hub          *agent.SessionHub
 	tmpl         *template.Template
 }
 
 func main() {
 	cfg := config.Load()
+
+	if cfg.SerperAPIKey == "" {
+		log.Printf("[WARN] SERPER_API_KEY is not configured; search requests will fail until it is set")
+	}
 
 	ctx := context.Background()
 
@@ -36,189 +52,287 @@ func main() {
 	}
 
 	// 2. Initialize Cache, Scraper and Serper
-	memCache := cache.NewMemoryCache()
+	memCache := cache.NewMemoryCache(cfg.CacheMaxEntries)
+	defer memCache.Close()
 	scraper := tools.NewScraper(cookieJar, 15*time.Second)
 	serper := tools.NewSerperClient(cfg.SerperAPIKey)
 
-	// 3. Initialize Gemini LLM client
+	// 3. Initialize Gemini LLM client. Fail fast: research cannot run without it.
 	gemini, err := llm.NewGeminiClient(ctx, cfg.GeminiModel)
 	if err != nil {
-		log.Printf("[WARN] Gemini client initialization error (check GCP credentials/API keys): %v", err)
+		log.Fatalf("Gemini client initialization failed (check GCP credentials or GOOGLE_API_KEY): %v", err)
 	}
 
 	// 4. Initialize Core Engine & Domain Agents
-	eng := agent.NewEngine(gemini, serper, scraper, memCache)
+	eng := agent.NewEngine(gemini, serper, scraper, memCache, cfg.MaxScrapesPerRun, cfg.MaxSearchResults, cfg.MaxSteps)
 	compAgent := agent.NewCompanyAgent(eng)
 	persAgent := agent.NewPersonAgent(eng)
+	sessionHub := agent.NewSessionHub()
 
-	// 5. Parse templates
-	tmpl := template.Must(template.ParseGlob("web/templates/*.html"))
+	// 5. Parse templates embedded into the binary (independent of working directory)
+	tmpl, err := web.Templates()
+	if err != nil {
+		log.Fatalf("Template parsing failed: %v", err)
+	}
 
 	srv := &Server{
 		cfg:          cfg,
 		companyAgent: compAgent,
 		personAgent:  persAgent,
+		hub:          sessionHub,
 		tmpl:         tmpl,
 	}
 
-	http.HandleFunc("/", srv.handleIndex)
-	http.HandleFunc("/api/research", srv.handleResearch)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", srv.handleIndex)
+	mux.HandleFunc("POST /api/research", srv.handleResearch)
+	mux.HandleFunc("GET /api/events", srv.handleEvents)
+	mux.HandleFunc("GET /healthz", srv.handleHealth)
 
-	addr := ":" + cfg.Port
-	log.Printf("🚀 WebSearch_GO server starting on http://localhost%s", addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("Server failed: %v", err)
-	}
-}
-
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	_ = s.tmpl.ExecuteTemplate(w, "index.html", nil)
-}
-
-func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+	httpServer := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           securityHeaders(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      cfg.ResearchTimeout + 30*time.Second,
+		IdleTimeout:       90 * time.Second,
 	}
 
-	mode := r.FormValue("mode")
-	query := r.FormValue("query")
-	company := r.FormValue("company_name")
-	location := r.FormValue("location")
+	// Graceful shutdown on SIGINT/SIGTERM (Cloud Run sends SIGTERM on scale-in).
+	serverCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	sessionID := fmt.Sprintf("sess_%d", time.Now().Unix())
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	go func() {
+		log.Printf("🚀 WebSearch_GO server starting on http://localhost%s", httpServer.Addr)
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	<-serverCtx.Done()
+	log.Printf("Shutting down, waiting up to 30s for in-flight research requests...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("[WARN] Graceful shutdown failed: %v", err)
+	}
+}
 
-	if mode == "person" {
-		profile, err := s.personAgent.ResearchPerson(ctx, sessionID, query, company, location, nil)
-		if err != nil {
-			fmt.Fprintf(w, `<div class="p-4 bg-red-950/50 border border-red-800 text-red-300 rounded-xl">Error: %s</div>`, err.Error())
+// handleIndex serves the embedded research console.
+func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
+	if err := s.tmpl.ExecuteTemplate(w, "index.html", nil); err != nil {
+		log.Printf("[ERROR] index template execution failed: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
+// handleResearch runs a research task and renders the result as an HTML fragment
+// handleResearch initializes a live research task and renders the workflow console
+// for HTMX. If sync=1 query parameter is passed, it executes synchronously.
+func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
+
+	mode := strings.TrimSpace(r.FormValue("mode"))
+	query := strings.TrimSpace(r.FormValue("query"))
+	company := strings.TrimSpace(r.FormValue("company_name"))
+	location := strings.TrimSpace(r.FormValue("location"))
+
+	if query == "" {
+		s.renderError(w, "Please provide a non-empty query.")
+		return
+	}
+
+	sessionID := newSessionID()
+
+	// Synchronous mode for CLI or automated testing
+	if r.URL.Query().Get("sync") == "1" {
+		ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ResearchTimeout)
+		defer cancel()
+
+		if mode == "person" {
+			profile, err := s.personAgent.ResearchPerson(ctx, sessionID, query, company, location, nil)
+			if err != nil {
+				log.Printf("[ERROR] person research failed (session %s): %v", sessionID, err)
+				s.renderError(w, "Person research failed: "+err.Error())
+				return
+			}
+			s.render(w, "person_dossier", profile)
 			return
 		}
-		renderPersonDossier(w, profile)
-	} else {
+
 		chart, err := s.companyAgent.ResearchCompany(ctx, sessionID, query, nil)
 		if err != nil {
-			fmt.Fprintf(w, `<div class="p-4 bg-red-950/50 border border-red-800 text-red-300 rounded-xl">Error: %s</div>`, err.Error())
+			log.Printf("[ERROR] company research failed (session %s): %v", sessionID, err)
+			s.renderError(w, "Company research failed: "+err.Error())
 			return
 		}
-		renderCompanyChart(w, chart)
-	}
-}
-
-func renderCompanyChart(w http.ResponseWriter, c *models.OrgChart) {
-	fmt.Fprintf(w, `
-	<div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
-		<div class="flex items-start justify-between border-b border-slate-800 pb-4">
-			<div>
-				<h3 class="text-2xl font-bold text-white">%s</h3>
-				<p class="text-xs text-slate-400 mt-1">HQ: %s • Domain: %s</p>
-			</div>
-			<span class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full">Research Complete</span>
-		</div>
-		<div>
-			<h4 class="text-sm font-semibold text-slate-300 mb-1">Company Overview</h4>
-			<p class="text-sm text-slate-400 leading-relaxed">%s</p>
-		</div>
-		<div>
-			<h4 class="text-sm font-semibold text-slate-300 mb-3">Executive Leadership</h4>
-			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">`,
-		c.CompanyName, c.Headquarters, c.Domain, c.Overview)
-
-	for _, l := range c.Leadership {
-		fmt.Fprintf(w, `
-			<div class="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
-				<div class="font-medium text-white text-sm">%s</div>
-				<div class="text-xs text-indigo-400">%s</div>
-				<div class="text-xs text-slate-500 mt-1">%s</div>
-			</div>`, l.Name, l.Title, l.Bio)
+		s.render(w, "company_chart", chart)
+		return
 	}
 
-	fmt.Fprintf(w, `</div></div>
-		<div>
-			<h4 class="text-sm font-semibold text-slate-300 mb-3">Departments & Functions</h4>
-			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">`)
+	// Interactive mode: create session and start research in background
+	session := s.hub.Create(sessionID, mode, query)
 
-	for _, d := range c.Departments {
-		fmt.Fprintf(w, `
-			<div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
-				<div class="flex items-center justify-between mb-2">
-					<span class="font-semibold text-white text-sm">%s</span>
-					<span class="text-xs text-slate-500">%d members</span>
-				</div>
-				<p class="text-xs text-slate-400 mb-3">%s</p>
-				<div class="space-y-1">`, d.Name, len(d.Members), d.Description)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), s.cfg.ResearchTimeout)
+		defer cancel()
 
-		for _, m := range d.Members {
-			fmt.Fprintf(w, `<div class="text-xs text-slate-300 flex justify-between"><span>%s</span><span class="text-slate-500">%s</span></div>`, m.Name, m.Title)
+		if mode == "person" {
+			profile, err := s.personAgent.ResearchPerson(ctx, sessionID, query, company, location, session.EventCh)
+			session.Complete(profile, err)
+		} else {
+			chart, err := s.companyAgent.ResearchCompany(ctx, sessionID, query, session.EventCh)
+			session.Complete(chart, err)
 		}
-		fmt.Fprintf(w, `</div></div>`)
+	}()
+
+	displayMode := "Company"
+	if mode == "person" {
+		displayMode = "Person"
 	}
 
-	fmt.Fprintf(w, `</div></div>
-		<div class="border-t border-slate-800/60 pt-3 flex flex-wrap gap-2 items-center text-xs text-slate-500">
-			<span>Sources:</span>`)
-	for _, s := range c.Sources {
-		fmt.Fprintf(w, `<a href="%s" target="_blank" class="text-indigo-400 hover:underline truncate max-w-xs">%s</a>`, s, s)
-	}
-	fmt.Fprintf(w, `</div></div>`)
+	s.render(w, "workflow_console", map[string]string{
+		"SessionID": sessionID,
+		"Mode":      displayMode,
+		"Query":     query,
+	})
 }
 
-func renderPersonDossier(w http.ResponseWriter, p *models.PersonProfile) {
-	fmt.Fprintf(w, `
-	<div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
-		<div class="flex items-start justify-between border-b border-slate-800 pb-4">
-			<div>
-				<h3 class="text-2xl font-bold text-white">%s</h3>
-				<p class="text-sm text-indigo-400 mt-0.5">%s • %s</p>
-				<p class="text-xs text-slate-500 mt-0.5">Location: %s</p>
-			</div>
-			<div class="text-right">
-				<span class="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-3 py-1 rounded-full font-medium">Score: %.0f%%</span>
-			</div>
-		</div>
-
-		<div>
-			<h4 class="text-sm font-semibold text-slate-300 mb-1">Executive Summary</h4>
-			<p class="text-sm text-slate-400 leading-relaxed">%s</p>
-		</div>
-
-		<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-			<div>
-				<h4 class="text-sm font-semibold text-slate-300 mb-3">Career History</h4>
-				<div class="space-y-3">`,
-		p.FullName, p.CurrentTitle, p.CurrentCompany, p.Location, p.ConfidenceScore*100, p.ExecutiveSummary)
-
-	for _, exp := range p.Experiences {
-		fmt.Fprintf(w, `
-			<div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
-				<div class="text-sm font-medium text-white">%s</div>
-				<div class="text-xs text-indigo-400">%s (%s)</div>
-			</div>`, exp.Role, exp.Company, exp.Period)
+// handleEvents streams live agent workflow events and final synthesis to HTMX via SSE.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
+	if sessionID == "" {
+		http.Error(w, "missing session_id", http.StatusBadRequest)
+		return
 	}
 
-	fmt.Fprintf(w, `</div></div>
-			<div>
-				<h4 class="text-sm font-semibold text-slate-300 mb-3">Education & Skills</h4>
-				<div class="space-y-3">`)
-
-	for _, edu := range p.Education {
-		fmt.Fprintf(w, `
-			<div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
-				<div class="text-sm font-medium text-white">%s</div>
-				<div class="text-xs text-slate-400">%s in %s (%s)</div>
-			</div>`, edu.Institution, edu.Degree, edu.Field, edu.Year)
+	session, ok := s.hub.Get(sessionID)
+	if !ok {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
 	}
 
-	fmt.Fprintf(w, `<div class="flex flex-wrap gap-1.5 pt-2">`)
-	for _, s := range p.KeySkills {
-		fmt.Fprintf(w, `<span class="text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-md">%s</span>`, s)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
 	}
 
-	fmt.Fprintf(w, `</div></div></div></div>`)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	sendSSE := func(eventType, htmlContent string) {
+		lines := strings.Split(htmlContent, "\n")
+		var sb strings.Builder
+		sb.WriteString("event: " + eventType + "\n")
+		for _, line := range lines {
+			sb.WriteString("data: " + line + "\n")
+		}
+		sb.WriteString("\n")
+		_, _ = w.Write([]byte(sb.String()))
+		flusher.Flush()
+	}
+
+	renderFragment := func(name string, data any) string {
+		var buf bytes.Buffer
+		if err := s.tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+			log.Printf("[ERROR] fragment %q execution failed: %v", name, err)
+			return fmt.Sprintf("<div>Render error: %v</div>", err)
+		}
+		return buf.String()
+	}
+
+	// Stream any events that were already recorded before SSE connected
+	for _, ev := range session.GetHistory() {
+		sendSSE("log", renderFragment("log_entry", ev))
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev, ok := <-session.EventCh:
+			if ok {
+				session.AddHistory(ev)
+				sendSSE("log", renderFragment("log_entry", ev))
+			}
+		case <-session.Done:
+			// Drain any remaining buffered events in EventCh
+			for {
+				select {
+				case ev, ok := <-session.EventCh:
+					if ok {
+						session.AddHistory(ev)
+						sendSSE("log", renderFragment("log_entry", ev))
+						continue
+					}
+				default:
+				}
+				break
+			}
+
+			// Render final result
+			if session.Err != nil {
+				sendSSE("result", renderFragment("error_box", session.Err.Error()))
+				sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">● Failed</span>`)
+			} else if session.Mode == "person" {
+				if profile, ok := session.Result.(*models.PersonProfile); ok {
+					sendSSE("result", renderFragment("person_dossier", profile))
+				}
+				sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
+			} else {
+				if chart, ok := session.Result.(*models.OrgChart); ok {
+					sendSSE("result", renderFragment("company_chart", chart))
+				}
+				sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
+			}
+			sendSSE("close", "done")
+			return
+		}
+	}
+}
+
+// render executes a named template fragment, escaping all interpolated data.
+func (s *Server) render(w http.ResponseWriter, name string, data any) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
+		log.Printf("[ERROR] template %q execution failed: %v", name, err)
+	}
+}
+
+func (s *Server) renderError(w http.ResponseWriter, msg string) {
+	s.render(w, "error_box", msg)
+}
+
+// handleHealth serves a liveness probe for Cloud Run / load balancers.
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("ok"))
+}
+
+// securityHeaders sets baseline defensive headers on every response.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		// The UI loads Tailwind/HTMX from CDNs and uses one inline script.
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; "+
+				"script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com; "+
+				"style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "+
+				"connect-src 'self'; img-src 'self' data:")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// newSessionID returns a random session identifier that is safe under concurrency.
+func newSessionID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatalf("failed to generate session id: %v", err)
+	}
+	return "sess_" + hex.EncodeToString(b)
 }

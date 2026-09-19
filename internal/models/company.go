@@ -4,15 +4,15 @@ import "time"
 
 // OrgChart represents the synthesized organizational structure of a company.
 type OrgChart struct {
-	CompanyName   string        `json:"company_name"`
-	Domain        string        `json:"domain,omitempty"`
-	Overview      string        `json:"overview"`
-	Headquarters  string        `json:"headquarters,omitempty"`
-	Leadership    []Employee    `json:"leadership"`
-	Departments   []Department  `json:"departments"`
-	Locations     []Location    `json:"locations,omitempty"`
-	Sources       []string      `json:"sources"`
-	LastUpdated   time.Time     `json:"last_updated"`
+	CompanyName  string       `json:"company_name"`
+	Domain       string       `json:"domain,omitempty"`
+	Overview     string       `json:"overview"`
+	Headquarters string       `json:"headquarters,omitempty"`
+	Leadership   []Employee   `json:"leadership"`
+	Departments  []Department `json:"departments"`
+	Locations    []Location   `json:"locations,omitempty"`
+	Sources      []string     `json:"sources"`
+	LastUpdated  time.Time    `json:"last_updated"`
 }
 
 // Department groups employees by function (Engineering, Sales, etc.).
@@ -37,8 +37,8 @@ type Employee struct {
 
 // Location represents an office or regional operational hub.
 type Location struct {
-	City        string `json:"city"`
-	Country     string `json:"country"`
-	Address     string `json:"address,omitempty"`
+	City         string `json:"city"`
+	Country      string `json:"country"`
+	Address      string `json:"address,omitempty"`
 	HeadcountEst string `json:"headcount_est,omitempty"`
 }

@@ -1,0 +1,171 @@
+{{define "error_box"}}<div class="p-4 bg-red-950/50 border border-red-800 text-red-300 rounded-xl">Error: {{.}}</div>{{end}}
+
+{{define "log_entry"}}
+<div class="flex items-start gap-2.5 py-1.5 font-mono text-xs leading-relaxed border-b border-slate-900/60">
+	<span class="text-slate-500 select-none shrink-0">[{{.FormattedTime}}]</span>
+	{{if eq .Type "thinking"}}
+		<span class="px-1.5 py-0.5 text-[10px] uppercase font-semibold rounded bg-purple-500/15 text-purple-400 border border-purple-500/30 shrink-0">Thinking</span>
+		<span class="text-purple-200 break-words">{{.Content}}</span>
+	{{else if eq .Type "tool_call"}}
+		<span class="px-1.5 py-0.5 text-[10px] uppercase font-semibold rounded bg-sky-500/15 text-sky-400 border border-sky-500/30 shrink-0">Tool Call</span>
+		<span class="text-sky-200 break-words"><strong class="text-sky-300">{{.ToolName}}</strong>{{if .ToolInput}} &rarr; <code class="text-sky-100 bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-800">{{.ToolInput}}</code>{{end}} {{if .Content}}<span class="text-slate-400">({{.Content}})</span>{{end}}</span>
+	{{else if eq .Type "tool_result"}}
+		<span class="px-1.5 py-0.5 text-[10px] uppercase font-semibold rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">Tool Result</span>
+		<span class="text-emerald-200 break-words">{{.Content}}</span>
+	{{else if eq .Type "complete"}}
+		<span class="px-1.5 py-0.5 text-[10px] uppercase font-semibold rounded bg-teal-500/15 text-teal-300 border border-teal-500/30 shrink-0">Complete</span>
+		<span class="text-teal-200 font-semibold break-words">{{.Content}}</span>
+	{{else if eq .Type "error"}}
+		<span class="px-1.5 py-0.5 text-[10px] uppercase font-semibold rounded bg-red-500/15 text-red-400 border border-red-500/30 shrink-0">Error</span>
+		<span class="text-red-300 font-semibold break-words">{{.Content}}</span>
+	{{else}}
+		<span class="px-1.5 py-0.5 text-[10px] uppercase font-semibold rounded bg-slate-500/15 text-slate-400 border border-slate-500/30 shrink-0">Event</span>
+		<span class="text-slate-300 break-words">{{.Content}}</span>
+	{{end}}
+</div>
+{{end}}
+
+{{define "workflow_console"}}
+<div class="space-y-6">
+	<!-- Workflow Console Container -->
+	<div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+		<!-- Console Header -->
+		<div class="bg-slate-950/90 px-5 py-3.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+			<div class="flex items-center gap-3">
+				<div class="flex items-center gap-1.5">
+					<span class="w-3 h-3 rounded-full bg-red-500/80 inline-block"></span>
+					<span class="w-3 h-3 rounded-full bg-amber-500/80 inline-block"></span>
+					<span class="w-3 h-3 rounded-full bg-emerald-500/80 inline-block"></span>
+				</div>
+				<div class="h-4 w-px bg-slate-800 mx-1"></div>
+				<div class="flex items-center gap-2">
+					<span class="text-xs font-mono font-medium text-white">Live Workflow Stream</span>
+					<span class="text-[11px] font-mono bg-slate-800 text-indigo-300 px-2 py-0.5 rounded border border-slate-700/50">{{.Mode}}: {{.Query}}</span>
+				</div>
+			</div>
+			<div id="status-indicator-{{.SessionID}}">
+				<span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+					<span class="h-1.5 w-1.5 rounded-full bg-indigo-400 animate-ping"></span>
+					Autonomous Agent Running...
+				</span>
+			</div>
+		</div>
+
+		<!-- Terminal Log Window with SSE Connection -->
+		<div hx-ext="sse" sse-connect="/api/events?session_id={{.SessionID}}" sse-close="close">
+			<div id="log-terminal" sse-swap="log" hx-swap="beforeend" class="p-4 font-mono text-xs max-h-80 min-h-40 overflow-y-auto bg-slate-950 space-y-1">
+				<div class="text-slate-500 italic pb-1">⚡ Connecting to autonomous agent session [{{.SessionID}}]...</div>
+			</div>
+			
+			<div sse-swap="status" hx-target="#status-indicator-{{.SessionID}}" hx-swap="innerHTML" class="hidden"></div>
+			
+			<!-- Target for Final Synthesis Result -->
+			<div id="final-result-container" sse-swap="result" hx-swap="innerHTML" class="border-t border-slate-800 bg-slate-900/40 p-6">
+				<div class="py-8 text-center text-slate-500 text-sm flex flex-col items-center justify-center gap-3">
+					<div class="inline-block animate-spin rounded-full h-6 w-6 border-2 border-indigo-500 border-t-transparent"></div>
+					<p class="animate-pulse">Autonomous research steps executing in real time. Final output will appear below when complete.</p>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+{{end}}
+
+{{define "company_chart"}}
+<div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+	<div class="flex items-start justify-between border-b border-slate-800 pb-4">
+		<div>
+			<h3 class="text-2xl font-bold text-white">{{.CompanyName}}</h3>
+			<p class="text-xs text-slate-400 mt-1">HQ: {{.Headquarters}} • Domain: {{.Domain}}</p>
+		</div>
+		<span class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full">Research Complete</span>
+	</div>
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-1">Company Overview</h4>
+		<p class="text-sm text-slate-400 leading-relaxed">{{.Overview}}</p>
+	</div>
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Executive Leadership</h4>
+		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+			{{range .Leadership}}
+			<div class="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+				<div class="font-medium text-white text-sm">{{.Name}}</div>
+				<div class="text-xs text-indigo-400">{{.Title}}</div>
+				<div class="text-xs text-slate-500 mt-1">{{.Bio}}</div>
+			</div>
+			{{end}}
+		</div>
+	</div>
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Departments &amp; Functions</h4>
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+			{{range .Departments}}
+			<div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+				<div class="flex items-center justify-between mb-2">
+					<span class="font-semibold text-white text-sm">{{.Name}}</span>
+					<span class="text-xs text-slate-500">{{len .Members}} members</span>
+				</div>
+				<p class="text-xs text-slate-400 mb-3">{{.Description}}</p>
+				<div class="space-y-1">
+					{{range .Members}}
+					<div class="text-xs text-slate-300 flex justify-between"><span>{{.Name}}</span><span class="text-slate-500">{{.Title}}</span></div>
+					{{end}}
+				</div>
+			</div>
+			{{end}}
+		</div>
+	</div>
+	<div class="border-t border-slate-800/60 pt-3 flex flex-wrap gap-2 items-center text-xs text-slate-500">
+		<span>Sources:</span>
+		{{range .Sources}}<a href="{{.}}" target="_blank" class="text-indigo-400 hover:underline truncate max-w-xs">{{.}}</a>{{end}}
+	</div>
+</div>
+{{end}}
+
+{{define "person_dossier"}}
+<div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+	<div class="flex items-start justify-between border-b border-slate-800 pb-4">
+		<div>
+			<h3 class="text-2xl font-bold text-white">{{.FullName}}</h3>
+			<p class="text-sm text-indigo-400 mt-0.5">{{.CurrentTitle}} • {{.CurrentCompany}}</p>
+			<p class="text-xs text-slate-500 mt-0.5">Location: {{.Location}}</p>
+		</div>
+		<div class="text-right">
+			<span class="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-3 py-1 rounded-full font-medium">Score: {{.ScorePercent}}%</span>
+		</div>
+	</div>
+
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-1">Executive Summary</h4>
+		<p class="text-sm text-slate-400 leading-relaxed">{{.ExecutiveSummary}}</p>
+	</div>
+
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+		<div>
+			<h4 class="text-sm font-semibold text-slate-300 mb-3">Career History</h4>
+			<div class="space-y-3">
+				{{range .Experiences}}
+				<div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
+					<div class="text-sm font-medium text-white">{{.Role}}</div>
+					<div class="text-xs text-indigo-400">{{.Company}}{{if .Period}} ({{.Period}}){{end}}</div>
+				</div>
+				{{end}}
+			</div>
+		</div>
+		<div>
+			<h4 class="text-sm font-semibold text-slate-300 mb-3">Education &amp; Skills</h4>
+			<div class="space-y-3">
+				{{range .Education}}
+				<div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
+					<div class="text-sm font-medium text-white">{{.Institution}}</div>
+					<div class="text-xs text-slate-400">{{.Degree}}{{if .Field}} in {{.Field}}{{end}}{{if .Year}} ({{.Year}}){{end}}</div>
+				</div>
+				{{end}}
+				<div class="flex flex-wrap gap-1.5 pt-2">
+					{{range .KeySkills}}<span class="text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-md">{{.}}</span>{{end}}
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+{{end}}

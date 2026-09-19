@@ -6,12 +6,11 @@ import "time"
 type EventType string
 
 const (
-	EventThinking    EventType = "thinking"
-	EventToolCall    EventType = "tool_call"
-	EventToolResult  EventType = "tool_result"
-	EventDisambiguate EventType = "disambiguate"
-	EventComplete    EventType = "complete"
-	EventError       EventType = "error"
+	EventThinking   EventType = "thinking"
+	EventToolCall   EventType = "tool_call"
+	EventToolResult EventType = "tool_result"
+	EventComplete   EventType = "complete"
+	EventError      EventType = "error"
 )
 
 // AgentEvent represents a single step or output stream emitted during research.
@@ -25,29 +24,28 @@ type AgentEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// ResearchRequest holds the input parameters for a research task.
-type ResearchRequest struct {
-	Mode        string `json:"mode"` // "company" or "person"
-	Query       string `json:"query"`
-	CompanyName string `json:"company_name,omitempty"` // for person disambiguation
-	Location    string `json:"location,omitempty"`     // for person disambiguation
-	MaxSteps    int    `json:"max_steps,omitempty"`
+// FormattedTime returns a 24-hour HH:MM:SS string for UI display.
+func (e AgentEvent) FormattedTime() string {
+	if e.Timestamp.IsZero() {
+		return time.Now().Format("15:04:05")
+	}
+	return e.Timestamp.Format("15:04:05")
 }
 
 // SearchResult represents a normalized web search hit from Serper API.
 type SearchResult struct {
-	Title       string `json:"title"`
-	Link        string `json:"link"`
-	Snippet     string `json:"snippet"`
-	Position    int    `json:"position"`
-	Date        string `json:"date,omitempty"`
+	Title    string `json:"title"`
+	Link     string `json:"link"`
+	Snippet  string `json:"snippet"`
+	Position int    `json:"position"`
+	Date     string `json:"date,omitempty"`
 }
 
 // ScrapeResult represents the extracted text content of a webpage.
 type ScrapeResult struct {
-	URL         string    `json:"url"`
-	Title       string    `json:"title"`
-	Content     string    `json:"content"`
-	ByteSize    int       `json:"byte_size"`
-	FetchedAt   time.Time `json:"fetched_at"`
+	URL       string    `json:"url"`
+	Title     string    `json:"title"`
+	Content   string    `json:"content"`
+	ByteSize  int       `json:"byte_size"`
+	FetchedAt time.Time `json:"fetched_at"`
 }

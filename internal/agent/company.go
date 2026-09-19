@@ -44,7 +44,7 @@ func (ca *CompanyAgent) ResearchCompany(
 		Content:   "Searching for company leadership and overview pages...",
 	})
 
-	searchResults, err := ca.engine.SearchCached(ctx, query1, 8)
+	searchResults, err := ca.engine.SearchCached(ctx, query1, ca.engine.MaxSearchResults())
 	if err != nil {
 		Emit(eventCh, models.AgentEvent{
 			SessionID: sessionID,
@@ -71,7 +71,7 @@ func (ca *CompanyAgent) ResearchCompany(
 	var sources []string
 	scrapeCount := 0
 	for _, sr := range searchResults {
-		if scrapeCount >= 3 {
+		if scrapeCount >= ca.engine.MaxScrapes() {
 			break
 		}
 		// Skip generic aggregators if possible or pick high confidence URLs
@@ -86,7 +86,7 @@ func (ca *CompanyAgent) ResearchCompany(
 			})
 
 			scrapeRes, err := ca.engine.ScrapeCached(ctx, sr.Link)
-			if err == nil && len(scrapeRes.Content) > 100 {
+			if err == nil && len(scrapeRes.Content) > minScrapeContentLen {
 				gatheredContext.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, scrapeRes.Content))
 				sources = append(sources, sr.Link)
 				scrapeCount++
@@ -105,7 +105,7 @@ func (ca *CompanyAgent) ResearchCompany(
 		Content:   "Searching for departmental heads and functional leads...",
 	})
 
-	secResults, err := ca.engine.SearchCached(ctx, query2, 6)
+	secResults, err := ca.engine.SearchCached(ctx, query2, ca.engine.MaxSearchResults())
 	if err == nil {
 		gatheredContext.WriteString("\n=== FUNCTIONAL SEARCH SNIPPETS ===\n")
 		gatheredContext.WriteString(FormatSearchSnippets(secResults))

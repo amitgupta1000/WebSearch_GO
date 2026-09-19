@@ -3,36 +3,107 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
-	"github.com/amitgupta1000/WebSearch_GO/internal/llm"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
-	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
+)
+
+// Searcher performs web searches. *tools.SerperClient satisfies this interface.
+type Searcher interface {
+	Search(ctx context.Context, query string, maxResults int) ([]models.SearchResult, error)
+}
+
+// PageFetcher extracts readable page content. *tools.Scraper satisfies this interface.
+type PageFetcher interface {
+	ScrapeURL(ctx context.Context, targetURL string) (*models.ScrapeResult, error)
+}
+
+// LLMClient generates structured output. *llm.GeminiClient satisfies this interface.
+type LLMClient interface {
+	GenerateStructured(ctx context.Context, systemPrompt, userPrompt string, target any) error
+}
+
+const (
+	// searchResultsTTL is how long Serper search results stay cached.
+	searchResultsTTL = 48 * time.Hour
+	// scrapeTTL is how long scraped page content stays cached.
+	scrapeTTL = 7 * 24 * time.Hour
+	// defaultMaxScrapesPerResearch is the default cap on page scrapes per run.
+	defaultMaxScrapesPerResearch = 3
+	// defaultMaxSearchResults is the default cap on search results returned per query.
+	defaultMaxSearchResults = 8
+	// defaultMaxSteps is the default cap on agent/tool iterations per run.
+	defaultMaxSteps = 10
+	// minScrapeContentLen is the minimum useful scraped content size in bytes.
+	minScrapeContentLen = 80
 )
 
 // Engine orchestrates multi-turn ReAct loops, coordinating tools and LLM responses.
 type Engine struct {
-	llmClient    *llm.GeminiClient
-	serperClient *tools.SerperClient
-	scraper      *tools.Scraper
-	cache        *cache.MemoryCache
+	llmClient             LLMClient
+	serperClient          Searcher
+	scraper               PageFetcher
+	cache                 *cache.MemoryCache
+	maxScrapesPerResearch int
+	maxSearchResults      int
+	maxSteps              int
 }
 
 // NewEngine initializes the agentic ReAct engine.
 func NewEngine(
-	llmClient *llm.GeminiClient,
-	serperClient *tools.SerperClient,
-	scraper *tools.Scraper,
+	llmClient LLMClient,
+	serperClient Searcher,
+	scraper PageFetcher,
 	cache *cache.MemoryCache,
+	maxScrapes int,
+	maxSearchResults int,
+	maxSteps int,
 ) *Engine {
-	return &Engine{
-		llmClient:    llmClient,
-		serperClient: serperClient,
-		scraper:      scraper,
-		cache:        cache,
+	if maxScrapes <= 0 {
+		maxScrapes = defaultMaxScrapesPerResearch
 	}
+	if maxSearchResults <= 0 {
+		maxSearchResults = defaultMaxSearchResults
+	}
+	if maxSteps <= 0 {
+		maxSteps = defaultMaxSteps
+	}
+	return &Engine{
+		llmClient:             llmClient,
+		serperClient:          serperClient,
+		scraper:               scraper,
+		cache:                 cache,
+		maxScrapesPerResearch: maxScrapes,
+		maxSearchResults:      maxSearchResults,
+		maxSteps:              maxSteps,
+	}
+}
+
+// MaxScrapes returns the maximum number of URLs to scrape during a research run.
+func (e *Engine) MaxScrapes() int {
+	if e == nil || e.maxScrapesPerResearch <= 0 {
+		return defaultMaxScrapesPerResearch
+	}
+	return e.maxScrapesPerResearch
+}
+
+// MaxSearchResults returns the maximum number of search results to fetch per query.
+func (e *Engine) MaxSearchResults() int {
+	if e == nil || e.maxSearchResults <= 0 {
+		return defaultMaxSearchResults
+	}
+	return e.maxSearchResults
+}
+
+// MaxSteps returns the maximum number of agent/tool iterations per research run.
+func (e *Engine) MaxSteps() int {
+	if e == nil || e.maxSteps <= 0 {
+		return defaultMaxSteps
+	}
+	return e.maxSteps
 }
 
 // SearchCached performs a Google search with TTL caching.
@@ -49,7 +120,7 @@ func (e *Engine) SearchCached(ctx context.Context, query string, maxResults int)
 		return nil, err
 	}
 
-	e.cache.Set(cacheKey, results, 48*time.Hour)
+	e.cache.Set(cacheKey, results, searchResultsTTL)
 	return results, nil
 }
 
@@ -67,23 +138,30 @@ func (e *Engine) ScrapeCached(ctx context.Context, targetURL string) (*models.Sc
 		return nil, err
 	}
 
-	e.cache.Set(cacheKey, res, 7*24*time.Hour)
+	e.cache.Set(cacheKey, res, scrapeTTL)
 	return res, nil
 }
 
-// Emit sends an event to the provided event channel if available.
+// Emit sends an event to the provided event channel if available. Events are
+// sent non-blocking: if a consumer is not keeping up, the event is dropped and
+// logged, but the research flow itself is never blocked by a slow consumer.
 func Emit(ch chan<- models.AgentEvent, event models.AgentEvent) {
-	if ch != nil {
-		event.Timestamp = time.Now()
-		select {
-		case ch <- event:
-		default:
-		}
+	if ch == nil {
+		return
+	}
+	event.Timestamp = time.Now()
+	select {
+	case ch <- event:
+	default:
+		log.Printf("[WARN] agent event dropped (channel full): %s %s", event.Type, event.Content)
 	}
 }
 
 // SynthesizeJSON instructs Gemini to generate clean structured JSON given aggregated notes.
 func (e *Engine) SynthesizeJSON(ctx context.Context, systemPrompt, contextData string, target any) error {
+	if e.llmClient == nil {
+		return fmt.Errorf("LLM client is not configured")
+	}
 	prompt := fmt.Sprintf("Context Data gathered from research:\n\n%s\n\nGenerate the complete structured output according to the system specification.", contextData)
 	return e.llmClient.GenerateStructured(ctx, systemPrompt, prompt, target)
 }

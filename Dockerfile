@@ -1,19 +1,22 @@
 # Build stage
-FROM golang:1.22-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
 # Install git and ca-certificates
 RUN apk add --no-cache git ca-certificates
 
-COPY go.mod ./
+# go.sum is required for reproducible module downloads.
+# Run `go mod tidy` locally and commit go.sum before building this image.
+COPY go.mod go.sum ./
+
 # Download modules
-RUN go mod download || true
+RUN go mod download
 
 COPY . .
 
-# Build static binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o websearch cmd/server/main.go
+# Build static binary (HTML templates are embedded via internal/web)
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-w -s" -o websearch ./cmd/server
 
 # Production runtime stage (Distroless for minimal attack surface & fast cold-start)
 FROM gcr.io/distroless/static-debian12:nonroot
@@ -21,7 +24,6 @@ FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 
 COPY --from=builder /app/websearch /app/websearch
-COPY --from=builder /app/web/templates /app/web/templates
 
 EXPOSE 8080
 
