@@ -46,6 +46,12 @@ func TestCompanyChartEscapesUntrustedContent(t *testing.T) {
 	if !strings.Contains(out.String(), "&lt;script&gt;") {
 		t.Error("expected escaped payload in company_chart output")
 	}
+	if !strings.Contains(out.String(), "Open dossier") {
+		t.Error("expected company chart drilldown controls")
+	}
+	if !strings.Contains(out.String(), `hx-post="/api/research?sync=1"`) {
+		t.Error("expected company chart drilldown endpoint")
+	}
 }
 
 func TestPersonDossierEscapesAndRendersScore(t *testing.T) {
