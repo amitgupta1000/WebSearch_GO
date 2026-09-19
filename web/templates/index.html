@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSearch_GO | Agentic Research Intelligence</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- HTMX CDN -->
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
+</head>
+<body class="h-full flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+    <!-- Header Navigation -->
+    <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-sky-400 flex items-center justify-center font-bold text-slate-950 shadow-lg shadow-indigo-500/20">
+                    G
+                </div>
+                <div>
+                    <span class="font-bold tracking-tight text-white">WebSearch_GO</span>
+                    <span class="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full ml-2">Gemini 2.5 Flash Lite</span>
+                </div>
+            </div>
+            <div class="text-xs text-slate-400">
+                GCP Cloud Native • Serper API • HTMX
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+        
+        <!-- Search Console Form -->
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+            <h2 class="text-lg font-semibold text-white mb-2">Agentic Web Research Console</h2>
+            <p class="text-sm text-slate-400 mb-6">Choose an autonomous research mode and specify your query.</p>
+
+            <form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <!-- Mode Radio Selection -->
+                    <div class="space-y-2">
+                        <label class="text-xs font-medium text-slate-300">Research Target</label>
+                        <div class="flex items-center gap-4 bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                            <label class="flex items-center gap-2 cursor-pointer text-sm">
+                                <input type="radio" name="mode" value="company" checked class="accent-indigo-500" onclick="toggleFields('company')">
+                                <span>Company / Org</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer text-sm">
+                                <input type="radio" name="mode" value="person" class="accent-indigo-500" onclick="toggleFields('person')">
+                                <span>Person Dossier</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Primary Query -->
+                    <div class="space-y-2 md:col-span-2">
+                        <label id="query-label" class="text-xs font-medium text-slate-300">Company Name / Domain</label>
+                        <input type="text" name="query" required placeholder="e.g. Anthropic, Stripe, Datadog..." 
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                    </div>
+                </div>
+
+                <!-- Disambiguation fields for Person Mode -->
+                <div id="person-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Current / Known Company (Optional)</label>
+                        <input type="text" name="company_name" placeholder="e.g. Google, DeepMind..." 
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Location / Region (Optional)</label>
+                        <input type="text" name="location" placeholder="e.g. San Francisco, London, Singapore..." 
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                </div>
+
+                <div class="flex justify-end pt-2">
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-6 py-2.5 rounded-lg text-sm transition-colors flex items-center gap-2 shadow-lg shadow-indigo-600/20">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        Launch Autonomous Agent
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Dynamic Results Container -->
+        <div id="results-container" class="flex-1 flex flex-col gap-6">
+            <div class="border border-dashed border-slate-800 rounded-2xl p-12 text-center text-slate-500">
+                <p>Run a research session above to observe the ReAct agent's live reasoning trace and synthesized findings.</p>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        function toggleFields(mode) {
+            const pf = document.getElementById('person-fields');
+            const ql = document.getElementById('query-label');
+            const qi = document.querySelector('input[name="query"]');
+            if (mode === 'person') {
+                pf.classList.remove('hidden');
+                ql.innerText = 'Person Full Name';
+                qi.placeholder = 'e.g. Demis Hassabis, Ilya Sutskever...';
+            } else {
+                pf.classList.add('hidden');
+                ql.innerText = 'Company Name / Domain';
+                qi.placeholder = 'e.g. Anthropic, Stripe, Datadog...';
+            }
+        }
+    </script>
+</body>
+</html>
