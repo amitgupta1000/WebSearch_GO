@@ -84,6 +84,19 @@
 		<h4 class="text-sm font-semibold text-slate-300 mb-1">Company Overview</h4>
 		<p class="text-sm text-slate-400 leading-relaxed">{{.Overview}}</p>
 	</div>
+	{{if .Images}}
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Images from selected sources</h4>
+		<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+			{{range .Images}}
+			<a href="{{.URL}}" target="_blank" rel="noreferrer" class="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+				<img src="{{.URL}}" alt="{{.Alt}}" title="{{.Title}}" loading="lazy" class="w-full aspect-square object-cover">
+				{{if or .Alt .Caption}}<span class="block p-2 text-[11px] text-slate-400">{{if .Caption}}{{.Caption}}{{else}}{{.Alt}}{{end}}</span>{{end}}
+			</a>
+			{{end}}
+		</div>
+	</div>
+	{{end}}
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Executive Leadership</h4>
 		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -26,6 +27,8 @@ const (
 	maxContentBytes = 40000
 	// minTextRunes filters tiny fragments and navigation noise.
 	minTextRunes = 25
+	// minQualityRunes rejects pages that contain only shells or consent text.
+	minQualityRunes = 160
 )
 
 // excessiveBlankLines collapses 3+ consecutive newlines left behind by
@@ -103,16 +106,39 @@ func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.Scra
 	}
 
 	title := strings.TrimSpace(doc.Find("title").Text())
+	canonicalURL := targetURL
+	if canonical, exists := doc.Find("link[rel='canonical']").First().Attr("href"); exists {
+		canonicalURL = resolveURL(targetURL, canonical)
+	}
+	var jsonLD []string
+	doc.Find("script[type='application/ld+json']").Each(func(_ int, sel *goquery.Selection) {
+		if value := strings.TrimSpace(sel.Text()); value != "" {
+			jsonLD = append(jsonLD, value)
+		}
+	})
+
+	contentRoot := doc.Find("main, article, [role='main']").First()
+	if contentRoot.Length() == 0 {
+		contentRoot = doc.Find("body").First()
+	}
 
 	// Strip noise and non-content elements
-	doc.Find("script, style, noscript, nav, footer, header, svg, form, iframe, button, [role='navigation'], [role='banner']").Remove()
+	noise := "script, style, noscript, nav, footer, header, aside, svg, form, iframe, button, dialog, [role='navigation'], [role='banner'], [role='dialog'], [aria-modal='true'], [class*='cookie'], [id*='cookie'], [class*='consent'], [id*='consent'], [class*='sidebar'], [id*='sidebar'], [class*='advert'], [id*='advert'], [class*='related'], [id*='related'], [class*='social-share'], [id*='social-share']"
+	doc.Find(noise).Remove()
 
 	var builder strings.Builder
+	var headings []string
+	contentRoot.Find("h1, h2, h3, h4").Each(func(_ int, sel *goquery.Selection) {
+		if heading := strings.TrimSpace(sel.Text()); heading != "" {
+			headings = append(headings, heading)
+		}
+	})
+	images := extractImages(contentRoot, targetURL)
 	// Select only "leaf" content blocks. Excluding any element that itself
 	// contains one of the content tags prevents nested duplicates (e.g. an
 	// <article> whose text was previously re-emitted for every child <p>),
 	// which inflated the context sent to the LLM by 2-10x.
-	doc.Find("h1, h2, h3, h4, p, li, article, section").
+	contentRoot.Find("h1, h2, h3, h4, p, li, article, section").
 		Not(":has(h1, h2, h3, h4, p, li, article, section)").
 		Each(func(_ int, sel *goquery.Selection) {
 			text := strings.TrimSpace(sel.Text())
@@ -124,21 +150,105 @@ func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.Scra
 		})
 
 	content := strings.TrimSpace(builder.String())
-	if len(content) == 0 {
+	if utf8.RuneCountInString(content) < minQualityRunes {
 		// Fallback to body text if headings/paragraphs were sparse
 		content = strings.TrimSpace(doc.Find("body").Text())
 	}
 
 	content = excessiveBlankLines.ReplaceAllString(content, "\n\n")
 	content = runeSafeTruncate(content, maxContentBytes)
+	wordCount := len(strings.Fields(content))
+	qualityScore := scraperQualityScore(content, headings, jsonLD)
 
 	return &models.ScrapeResult{
-		URL:       targetURL,
-		Title:     title,
-		Content:   content,
-		ByteSize:  len(content),
-		FetchedAt: time.Now(),
+		URL:          targetURL,
+		CanonicalURL: canonicalURL,
+		Title:        title,
+		Content:      content,
+		Headings:     headings,
+		JSONLD:       jsonLD,
+		Images:       images,
+		WordCount:    wordCount,
+		ContentType:  resp.Header.Get("Content-Type"),
+		Extractor:    "goquery-content-root",
+		QualityScore: qualityScore,
+		ByteSize:     len(content),
+		FetchedAt:    time.Now(),
 	}, nil
+}
+
+const maxExtractedImages = 24
+
+func extractImages(root *goquery.Selection, baseURL string) []models.Image {
+	images := make([]models.Image, 0, maxExtractedImages)
+	seen := make(map[string]bool)
+	root.Find("img").EachWithBreak(func(_ int, sel *goquery.Selection) bool {
+		source := ""
+		for _, attribute := range []string{"src", "data-src", "data-lazy-src"} {
+			if value, exists := sel.Attr(attribute); exists && strings.TrimSpace(value) != "" {
+				source = strings.TrimSpace(value)
+				break
+			}
+		}
+		resolved := resolveURL(baseURL, source)
+		parsed, err := url.Parse(resolved)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || seen[resolved] {
+			return true
+		}
+		seen[resolved] = true
+		caption := strings.TrimSpace(sel.Closest("figure").Find("figcaption").First().Text())
+		images = append(images, models.Image{
+			URL:     resolved,
+			Alt:     strings.TrimSpace(attrValue(sel, "alt")),
+			Title:   strings.TrimSpace(attrValue(sel, "title")),
+			Caption: caption,
+		})
+		return true
+	})
+	return images
+}
+
+func attrValue(selection *goquery.Selection, name string) string {
+	value, _ := selection.Attr(name)
+	return value
+}
+
+func resolveURL(base, reference string) string {
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		return reference
+	}
+	refURL, err := url.Parse(strings.TrimSpace(reference))
+	if err != nil {
+		return reference
+	}
+	return baseURL.ResolveReference(refURL).String()
+}
+
+func scraperQualityScore(content string, headings, jsonLD []string) float64 {
+	score := 0.25
+	words := len(strings.Fields(content))
+	if words >= 40 {
+		score += 0.35
+	} else if words >= 15 {
+		score += 0.15
+	}
+	if len(headings) > 0 {
+		score += 0.2
+	}
+	if len(jsonLD) > 0 {
+		score += 0.15
+	}
+	if strings.Contains(strings.ToLower(content), "accept cookies") || strings.Contains(strings.ToLower(content), "cookie policy") {
+		score -= 0.2
+	}
+	if score < 0 {
+		return 0
+	}
+	if score > 1 {
+		return 1
+	}
+	return score
 }
 
 // runeSafeTruncate limits s to maxBytes without ever splitting a UTF-8 rune.

@@ -47,6 +47,41 @@ func TestScrapeURLExtractsContentWithoutDuplicates(t *testing.T) {
 	}
 }
 
+func TestScrapeURLExtractsMetadataAndRemovesBoilerplate(t *testing.T) {
+	page := `<!DOCTYPE html><html><head><title>Leadership</title><link rel="canonical" href="/leadership"></head><body>
+		<div class="cookie-banner">Accept cookies to continue</div>
+		<aside class="sidebar">Related stories and ads</aside>
+		<main><h1>Executive Leadership</h1><h2>Chief Executive Officer</h2><figure><img src="/images/ceo.jpg" alt="Acme CEO portrait" title="Chief executive officer"><figcaption>Acme chief executive officer</figcaption></figure><p>Acme's chief executive officer leads the company and its global operations.</p></main>
+		<script type="application/ld+json">{"@type":"Organization","name":"Acme"}</script>
+	</body></html>`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(page))
+	}))
+	defer srv.Close()
+
+	result, err := NewScraper(nil, time.Second).ScrapeURL(context.Background(), srv.URL+"/page")
+	if err != nil {
+		t.Fatalf("ScrapeURL returned error: %v", err)
+	}
+	if !strings.HasSuffix(result.CanonicalURL, "/leadership") {
+		t.Errorf("canonical URL = %q", result.CanonicalURL)
+	}
+	if len(result.Headings) != 2 || len(result.JSONLD) != 1 {
+		t.Errorf("expected headings and JSON-LD metadata, got headings=%v jsonld=%v", result.Headings, result.JSONLD)
+	}
+	if len(result.Images) != 1 || !strings.HasSuffix(result.Images[0].URL, "/images/ceo.jpg") || result.Images[0].Caption != "Acme chief executive officer" {
+		t.Errorf("expected image metadata, got %+v", result.Images)
+	}
+	if strings.Contains(result.Content, "Accept cookies") || strings.Contains(result.Content, "Related stories") {
+		t.Errorf("boilerplate was not removed: %q", result.Content)
+	}
+	if result.QualityScore <= 0.5 {
+		t.Errorf("expected quality score above 0.5, got %v", result.QualityScore)
+	}
+}
+
 func TestScrapeURLRejectsNonHTMLContent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/pdf")

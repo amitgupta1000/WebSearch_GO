@@ -17,6 +17,7 @@ type OrgChart struct {
 	Leadership   []Employee   `json:"leadership"`
 	Departments  []Department `json:"departments"`
 	Locations    []Location   `json:"locations,omitempty"`
+	Images       []Image      `json:"images,omitempty"`
 	Sources      []string     `json:"sources"`
 	LastUpdated  time.Time    `json:"last_updated"`
 }

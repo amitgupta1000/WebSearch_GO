@@ -96,7 +96,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 
 func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.CompanyBrief, evidence []models.Evidence, results []models.SearchResult, sessionID string, eventCh chan<- models.AgentEvent) (*models.OrgChart, error) {
 	Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 8, Content: "Synthesizing the organization chart from selected evidence..."})
-	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string.`
+	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string. Image metadata is supporting evidence; do not invent visual facts from image URLs.`
 	var chart models.OrgChart
 	contextData := fmt.Sprintf("Research brief: %+v\n\nSearch snippets:\n%s\n\nSelected evidence:\n%s", brief, FormatSearchSnippets(results), formatEvidence(evidence))
 	llmCtx, cancel := context.WithTimeout(ctx, companySynthesisTimeout)
@@ -110,6 +110,7 @@ func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.Compan
 	if chart.Domain == "" {
 		chart.Domain = brief.Domain
 	}
+	chart.Images = evidenceImages(evidence)
 	chart.Sources = evidenceSources(evidence)
 	chart.LastUpdated = time.Now()
 	return &chart, nil
@@ -221,6 +222,23 @@ func evidenceSources(evidence []models.Evidence) []string {
 	return sources
 }
 
+func evidenceImages(evidence []models.Evidence) []models.Image {
+	const maxImages = 24
+	images := make([]models.Image, 0, maxImages)
+	seen := make(map[string]bool)
+	for _, item := range evidence {
+		for _, image := range item.Images {
+			key := normalizeURL(image.URL)
+			if key == "" || seen[key] || len(images) >= maxImages {
+				continue
+			}
+			seen[key] = true
+			images = append(images, image)
+		}
+	}
+	return images
+}
+
 func searchSnippetEvidence(ranked []models.RankedResult, results []models.SearchResult, limit int) []models.Evidence {
 	byURL := make(map[string]models.SearchResult, len(results))
 	for _, result := range results {
@@ -320,6 +338,7 @@ func (ca *CompanyAgent) rankResults(ctx context.Context, brief models.CompanyBri
 	if len(bm25Ranked) == 0 {
 		return bm25Ranked
 	}
+	bm25Ranked = applySourceSignals(brief, bm25Ranked)
 
 	semanticCandidates := bm25Ranked
 	if len(semanticCandidates) > 8 {
@@ -411,6 +430,118 @@ func bm25RankResults(brief models.CompanyBrief, results []models.SearchResult) [
 	}
 	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Score > ranked[j].Score })
 	return ranked
+}
+
+func applySourceSignals(brief models.CompanyBrief, ranked []models.RankedResult) []models.RankedResult {
+	if brief.Domain == "" {
+		brief.Domain = inferOfficialDomain(brief.CompanyName, ranked)
+	}
+	for index := range ranked {
+		item := &ranked[index]
+		profile := classifySource(brief, item.URL)
+		item.SourceType = profile.sourceType
+		item.Official = profile.official
+		item.QualityScore = profile.quality
+		item.Score += 0.18 * (profile.quality - 0.5)
+		if profile.official {
+			item.Score += 0.12
+		}
+		if profile.primary {
+			item.Score += 0.14
+			item.Reason += "; primary domain"
+		}
+		if profile.quality < 0.25 {
+			item.Score -= 0.2
+			item.Relevant = false
+		}
+		item.Reason += "; source=" + profile.sourceType
+		if item.Score < 0 {
+			item.Score = 0
+		}
+		if item.Score > 1 {
+			item.Score = 1
+		}
+	}
+	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Score > ranked[j].Score })
+	return ranked
+}
+
+func inferOfficialDomain(companyName string, ranked []models.RankedResult) string {
+	tokens := tokenize(companyName)
+	if len(tokens) == 0 {
+		return ""
+	}
+	for _, item := range ranked {
+		parsed, err := url.Parse(item.URL)
+		if err != nil {
+			continue
+		}
+		host := rootHost(parsed.Hostname())
+		joinedHost := strings.NewReplacer(".", "", "-", "", "_", "").Replace(host)
+		matched := false
+		for _, token := range tokens {
+			if len(token) >= 4 && strings.Contains(joinedHost, token) {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			return host
+		}
+	}
+	return ""
+}
+
+type sourceProfile struct {
+	sourceType string
+	official   bool
+	primary    bool
+	quality    float64
+}
+
+func classifySource(brief models.CompanyBrief, targetURL string) sourceProfile {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return sourceProfile{sourceType: "unknown", quality: 0.1}
+	}
+	rawHost := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+	host := rootHost(rawHost)
+	path := strings.ToLower(parsed.Path)
+	official := false
+	primary := false
+	if brief.Domain != "" {
+		domain := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(brief.Domain), "www."))
+		official = rawHost == domain || strings.HasSuffix(rawHost, "."+domain)
+		primary = rawHost == domain
+	}
+	if strings.Contains(host, "ziprecruiter") || strings.Contains(host, "indeed.") || strings.Contains(host, "glassdoor.") || strings.Contains(host, "zoominfo.") || strings.Contains(host, "rocketreach.") {
+		return sourceProfile{sourceType: "aggregator", quality: 0.1}
+	}
+	if official && containsAny(path, "leadership", "executive", "management", "board", "team") {
+		return sourceProfile{sourceType: "official_leadership", official: true, primary: primary, quality: 1}
+	}
+	if official && containsAny(path, "location", "office", "contact", "where-we-are") {
+		return sourceProfile{sourceType: "official_locations", official: true, primary: primary, quality: 0.95}
+	}
+	if official && containsAny(path, "annual", "investor", "filing", "report") {
+		return sourceProfile{sourceType: "official_report", official: true, primary: primary, quality: 0.95}
+	}
+	if official {
+		return sourceProfile{sourceType: "official", official: true, primary: primary, quality: 0.9}
+	}
+	if containsAny(path, "leadership", "executive", "management", "board", "team") {
+		return sourceProfile{sourceType: "leadership", quality: 0.7}
+	}
+	return sourceProfile{sourceType: "external", quality: 0.55}
+}
+
+func containsAny(value string, terms ...string) bool {
+	for _, term := range terms {
+		if strings.Contains(value, term) {
+			return true
+		}
+	}
+	return false
 }
 
 func bm25Score(query, document []string, documentFrequency map[string]int, documentCount int, averageLength float64) float64 {
@@ -524,34 +655,146 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 	sources := make([]string, 0, ca.engine.MaxScrapes())
 	known := make(map[string]bool, len(existing))
 	for _, item := range existing {
-		known[item.URL] = true
+		known[normalizeURL(item.URL)] = true
 	}
-	for _, item := range ranked {
+	for _, item := range selectScrapeCandidates(ranked, ca.engine.MaxScrapes()) {
 		if len(evidence) >= ca.engine.MaxScrapes() {
 			break
 		}
-		if known[item.URL] {
+		if known[normalizeURL(item.URL)] {
 			continue
 		}
 		parsed, err := url.ParseRequestURI(item.URL)
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 			continue
 		}
-		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolCall, Step: 8 + len(evidence), ToolName: "web_scraper", ToolInput: item.URL, Content: "Scraping selected relevant source..."})
+		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolCall, Step: 8 + len(evidence), ToolName: "web_scraper", ToolInput: item.URL, Content: "Scraping " + item.SourceType + " source..."})
 		scrape, err := ca.engine.ScrapeCached(ctx, item.URL)
 		if err != nil || len(scrape.Content) <= minScrapeContentLen {
 			continue
 		}
-		evidence = append(evidence, models.Evidence{URL: item.URL, Title: scrape.Title, Content: scrape.Content, Score: item.Score, EvidenceType: item.EvidenceType})
+		evidence = append(evidence, models.Evidence{URL: scrape.CanonicalURL, Title: scrape.Title, Content: scrape.Content, Headings: scrape.Headings, JSONLD: scrape.JSONLD, Images: scrape.Images, Score: item.Score, EvidenceType: item.EvidenceType, SourceType: item.SourceType, QualityScore: scrape.QualityScore})
+		if evidence[len(evidence)-1].URL == "" {
+			evidence[len(evidence)-1].URL = item.URL
+		}
 		sources = append(sources, item.URL)
 	}
 	return evidence, sources
+}
+
+func selectScrapeCandidates(ranked []models.RankedResult, limit int) []models.RankedResult {
+	candidates := append([]models.RankedResult(nil), ranked...)
+	priority := func(sourceType string) int {
+		switch sourceType {
+		case "official_leadership":
+			return 0
+		case "official_report":
+			return 1
+		case "official_locations":
+			return 2
+		case "official":
+			return 3
+		case "leadership":
+			return 4
+		case "external":
+			return 5
+		default:
+			return 6
+		}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		pi, pj := priority(candidates[i].SourceType), priority(candidates[j].SourceType)
+		if pi != pj {
+			return pi < pj
+		}
+		return candidates[i].Score > candidates[j].Score
+	})
+	selected := make([]models.RankedResult, 0, limit)
+	domainCounts := make(map[string]int)
+	for _, candidate := range candidates {
+		if len(selected) >= limit {
+			break
+		}
+		domain := sourceDomain(candidate.URL)
+		if domain != "" && domainCounts[domain] > 0 && !(candidate.Official && domainCounts[domain] < 2) {
+			continue
+		}
+		selected = append(selected, candidate)
+		if domain != "" {
+			domainCounts[domain]++
+		}
+	}
+	if len(selected) < limit {
+		for _, candidate := range candidates {
+			if len(selected) >= limit {
+				break
+			}
+			alreadySelected := false
+			for _, chosen := range selected {
+				if normalizeURL(chosen.URL) == normalizeURL(candidate.URL) {
+					alreadySelected = true
+					break
+				}
+			}
+			if !alreadySelected {
+				selected = append(selected, candidate)
+			}
+		}
+	}
+	return selected
+}
+
+func sourceDomain(targetURL string) string {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return ""
+	}
+	return rootHost(parsed.Hostname())
+}
+
+func rootHost(host string) string {
+	host = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(host), "www."))
+	parts := strings.Split(host, ".")
+	if len(parts) > 2 {
+		return strings.Join(parts[len(parts)-2:], ".")
+	}
+	return host
 }
 
 func formatEvidence(evidence []models.Evidence) string {
 	var builder strings.Builder
 	for index, item := range evidence {
 		builder.WriteString(fmt.Sprintf("\n--- Evidence %d: %s (%s), score %.2f ---\n%s\n", index+1, item.Title, item.URL, item.Score, item.Content))
+		if len(item.Headings) > 0 {
+			builder.WriteString("Headings: ")
+			builder.WriteString(strings.Join(item.Headings, " | "))
+			builder.WriteString("\n")
+		}
+		for _, metadata := range item.JSONLD {
+			metadata = strings.TrimSpace(metadata)
+			if metadata == "" {
+				continue
+			}
+			if len(metadata) > 2000 {
+				metadata = metadata[:2000]
+			}
+			builder.WriteString("Structured metadata: ")
+			builder.WriteString(metadata)
+			builder.WriteString("\n")
+		}
+		for _, image := range item.Images {
+			builder.WriteString("Image: ")
+			builder.WriteString(image.URL)
+			if image.Alt != "" {
+				builder.WriteString(" | alt: ")
+				builder.WriteString(image.Alt)
+			}
+			if image.Caption != "" {
+				builder.WriteString(" | caption: ")
+				builder.WriteString(image.Caption)
+			}
+			builder.WriteString("\n")
+		}
 	}
 	return builder.String()
 }

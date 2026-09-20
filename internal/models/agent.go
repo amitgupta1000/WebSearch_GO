@@ -43,9 +43,25 @@ type SearchResult struct {
 
 // ScrapeResult represents the extracted text content of a webpage.
 type ScrapeResult struct {
-	URL       string    `json:"url"`
-	Title     string    `json:"title"`
-	Content   string    `json:"content"`
-	ByteSize  int       `json:"byte_size"`
-	FetchedAt time.Time `json:"fetched_at"`
+	URL          string    `json:"url"`
+	CanonicalURL string    `json:"canonical_url,omitempty"`
+	Title        string    `json:"title"`
+	Content      string    `json:"content"`
+	Headings     []string  `json:"headings,omitempty"`
+	JSONLD       []string  `json:"json_ld,omitempty"`
+	Images       []Image   `json:"images,omitempty"`
+	WordCount    int       `json:"word_count"`
+	ContentType  string    `json:"content_type,omitempty"`
+	Extractor    string    `json:"extractor,omitempty"`
+	QualityScore float64   `json:"quality_score"`
+	ByteSize     int       `json:"byte_size"`
+	FetchedAt    time.Time `json:"fetched_at"`
+}
+
+// Image records image metadata discovered in a webpage without downloading the asset.
+type Image struct {
+	URL     string `json:"url"`
+	Alt     string `json:"alt,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Caption string `json:"caption,omitempty"`
 }

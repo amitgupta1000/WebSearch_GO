@@ -38,15 +38,23 @@ type RankedResult struct {
 	Score        float64 `json:"score"`
 	Reason       string  `json:"reason"`
 	EvidenceType string  `json:"evidence_type"`
+	SourceType   string  `json:"source_type,omitempty"`
+	Official     bool    `json:"official"`
+	QualityScore float64 `json:"quality_score"`
 }
 
 // Evidence is a selected source prepared for final synthesis.
 type Evidence struct {
-	URL          string  `json:"url"`
-	Title        string  `json:"title"`
-	Content      string  `json:"content"`
-	Score        float64 `json:"score"`
-	EvidenceType string  `json:"evidence_type"`
+	URL          string   `json:"url"`
+	Title        string   `json:"title"`
+	Content      string   `json:"content"`
+	Headings     []string `json:"headings,omitempty"`
+	JSONLD       []string `json:"json_ld,omitempty"`
+	Images       []Image  `json:"images,omitempty"`
+	Score        float64  `json:"score"`
+	EvidenceType string   `json:"evidence_type"`
+	SourceType   string   `json:"source_type,omitempty"`
+	QualityScore float64  `json:"quality_score,omitempty"`
 }
 
 // QualityReview records a meta-agent evaluation of a completed research pass.

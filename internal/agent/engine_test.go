@@ -26,9 +26,11 @@ type mockScraper struct {
 func (m *mockScraper) ScrapeURL(ctx context.Context, targetURL string) (*models.ScrapeResult, error) {
 	m.calledURLs = append(m.calledURLs, targetURL)
 	return &models.ScrapeResult{
-		URL:     targetURL,
-		Title:   "Test Page",
-		Content: "This is valid scraped content for testing purposes that exceeds the minimum required length.",
+		URL:      targetURL,
+		Title:    "Test Page",
+		Content:  "This is valid scraped content for testing purposes that exceeds the minimum required length.",
+		Headings: []string{"Leadership"},
+		JSONLD:   []string{`{"@type":"Organization","name":"Acme"}`},
 	}, nil
 }
 

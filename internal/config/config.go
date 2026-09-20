@@ -47,7 +47,7 @@ func Load() *Config {
 		CookieFile:       os.Getenv("COOKIE_FILE_PATH"),
 		CacheMaxEntries:  envInt("CACHE_MAX_ENTRIES", 2048),
 		ResearchTimeout:  time.Duration(envInt("RESEARCH_TIMEOUT_SECONDS", 180)) * time.Second,
-		MaxScrapesPerRun: envInt("MAX_SCRAPES_PER_RUN", 3),
+		MaxScrapesPerRun: envInt("MAX_SCRAPES_PER_RUN", 6),
 		MaxSearchResults: envInt("MAX_SEARCH_RESULTS", 8),
 		MaxSteps:         envInt("MAX_AGENT_STEPS", 10),
 	}

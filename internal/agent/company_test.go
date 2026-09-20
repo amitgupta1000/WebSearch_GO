@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,6 +116,27 @@ func TestSearchSnippetEvidenceHandlesScrapeFailure(t *testing.T) {
 	}
 }
 
+func TestScrapeRankedRetainsStructuredMetadata(t *testing.T) {
+	cacheStore := cache.NewMemoryCache(100)
+	defer cacheStore.Close()
+
+	engine := NewEngine(&mockLLM{}, &mockSearcher{}, &mockScraper{}, cacheStore, 1, 3, 10)
+	agent := NewCompanyAgent(engine)
+	evidence, _ := agent.scrapeRanked(context.Background(), "session", []models.RankedResult{{
+		URL:        "https://acme.com/leadership",
+		Relevant:   true,
+		Score:      0.9,
+		SourceType: "official_leadership",
+	}}, nil, nil)
+	if len(evidence) != 1 || len(evidence[0].Headings) != 1 || len(evidence[0].JSONLD) != 1 {
+		t.Fatalf("expected structured metadata to be retained, got %+v", evidence)
+	}
+	formatted := formatEvidence(evidence)
+	if !strings.Contains(formatted, "Headings: Leadership") || !strings.Contains(formatted, "Structured metadata:") {
+		t.Fatalf("expected structured metadata in formatted evidence, got %q", formatted)
+	}
+}
+
 func TestNormalizeRankedResultsAcceptsTrailingSlash(t *testing.T) {
 	ranked := normalizeRankedResults(
 		[]models.RankedResult{{URL: "HTTPS://ACME.COM/leadership/", Relevant: true, Score: 0.9}},
@@ -136,6 +158,43 @@ func TestBM25RanksOfficialCompanyResult(t *testing.T) {
 	}
 	if ranked[0].EvidenceType != "bm25" {
 		t.Errorf("expected BM25 evidence type, got %q", ranked[0].EvidenceType)
+	}
+}
+
+func TestSourceSignalsPreferOfficialLeadershipOverAggregator(t *testing.T) {
+	results := []models.SearchResult{
+		{Title: "Acme executives", Link: "https://www.ziprecruiter.com/company/acme", Snippet: "Acme leadership information"},
+		{Title: "Acme leadership", Link: "https://acme.com/about/leadership", Snippet: "Acme executive team"},
+	}
+	ranked := applySourceSignals(models.CompanyBrief{CompanyName: "Acme", Domain: "acme.com"}, bm25RankResults(models.CompanyBrief{CompanyName: "Acme", Domain: "acme.com"}, results))
+	if len(ranked) != 2 || ranked[0].SourceType != "official_leadership" || !ranked[0].Official {
+		t.Fatalf("expected official leadership first, got %+v", ranked)
+	}
+	if ranked[1].Relevant {
+		t.Errorf("expected aggregator to be excluded, got %+v", ranked[1])
+	}
+}
+
+func TestSourceSignalsPreferPrimaryDomainOverOfficialSubdomain(t *testing.T) {
+	ranked := applySourceSignals(models.CompanyBrief{CompanyName: "Acme", Domain: "acme.com"}, []models.RankedResult{
+		{URL: "https://europe.acme.com/leadership", Relevant: true, Score: 0.70},
+		{URL: "https://acme.com/about/leadership", Relevant: true, Score: 0.68},
+	})
+	if len(ranked) != 2 || ranked[0].URL != "https://acme.com/about/leadership" {
+		t.Fatalf("expected primary domain first, got %+v", ranked)
+	}
+	if !strings.Contains(ranked[0].Reason, "primary domain") {
+		t.Errorf("expected primary-domain reason, got %q", ranked[0].Reason)
+	}
+}
+
+func TestInferOfficialDomainFromSearchResults(t *testing.T) {
+	ranked := []models.RankedResult{
+		{URL: "https://www.chevron.com/who-we-are/leadership"},
+		{URL: "https://energydigital.com/news/chevron"},
+	}
+	if got := inferOfficialDomain("Chevron", ranked); got != "chevron.com" {
+		t.Errorf("expected chevron.com, got %q", got)
 	}
 }
 
