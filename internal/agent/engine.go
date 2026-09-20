@@ -159,10 +159,15 @@ func (e *Engine) ScrapeCached(ctx context.Context, targetURL string) (*models.Sc
 // sent non-blocking: if a consumer is not keeping up, the event is dropped and
 // logged, but the research flow itself is never blocked by a slow consumer.
 func Emit(ch chan<- models.AgentEvent, event models.AgentEvent) {
+	event.Timestamp = time.Now()
+	if event.ToolInput != "" {
+		log.Printf("[AGENT][%s][step %d] %s: %s -> %s", event.SessionID, event.Step, event.Type, event.Content, event.ToolInput)
+	} else {
+		log.Printf("[AGENT][%s][step %d] %s: %s", event.SessionID, event.Step, event.Type, event.Content)
+	}
 	if ch == nil {
 		return
 	}
-	event.Timestamp = time.Now()
 	select {
 	case ch <- event:
 	default:

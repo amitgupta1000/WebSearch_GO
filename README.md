@@ -41,6 +41,16 @@ It watches Go and embedded template files under `cmd` and `internal`, then
 restarts `go run ./cmd/server` after changes. The same watcher is available in
 VS Code as the `Go: Watch Server` task.
 
+Research events are also printed in the terminal with `[AGENT]` prefixes. The
+browser at `http://localhost:8080` remains the full results view, including the
+organization chart and post-run questions; the terminal shows the live trace
+and final result summary.
+
+Company result ranking uses a hybrid path: an in-memory BM25 pass ranks all
+search snippets immediately, then Gemini semantically reranks only the top
+eight candidates with an eight-second deadline. If Gemini times out or returns
+invalid URLs, the BM25 ranking continues directly to scraping.
+
 ## Environment variables
 
 | Variable | Default | Description |

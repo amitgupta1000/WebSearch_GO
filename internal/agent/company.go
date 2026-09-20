@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/url"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
@@ -17,6 +19,14 @@ type CompanyAgent struct {
 }
 
 const maxCompanyReviewIterations = 3
+
+const (
+	companyPlanningTimeout  = 20 * time.Second
+	companySemanticTimeout  = 8 * time.Second
+	companySynthesisTimeout = 45 * time.Second
+	companyReviewTimeout    = 30 * time.Second
+	companyQuestionTimeout  = 45 * time.Second
+)
 
 // NewCompanyAgent initializes the company research specialist agent.
 func NewCompanyAgent(engine *Engine) *CompanyAgent {
@@ -56,9 +66,14 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 			return nil, state, err
 		}
 		state.SearchResults = appendUniqueSearchResults(state.SearchResults, results)
+		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 7, Content: fmt.Sprintf("Evaluating relevance of %d search results...", len(state.SearchResults))})
 		state.RankedResults = ca.rankResults(ctx, brief, state.SearchResults)
+		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolResult, Step: 7, ToolName: "relevance_ranker", Content: fmt.Sprintf("Selected %d relevant candidates.", len(state.RankedResults))})
 		newEvidence, _ := ca.scrapeRanked(ctx, sessionID, state.RankedResults, state.Evidence, eventCh)
 		state.Evidence = appendUniqueEvidence(state.Evidence, newEvidence)
+		if len(state.Evidence) == 0 {
+			state.Evidence = appendUniqueEvidence(state.Evidence, searchSnippetEvidence(state.RankedResults, state.SearchResults, ca.engine.MaxScrapes()))
+		}
 		if len(state.Evidence) == 0 {
 			return nil, state, fmt.Errorf("no usable company evidence was collected")
 		}
@@ -81,10 +96,12 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 
 func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.CompanyBrief, evidence []models.Evidence, results []models.SearchResult, sessionID string, eventCh chan<- models.AgentEvent) (*models.OrgChart, error) {
 	Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 8, Content: "Synthesizing the organization chart from selected evidence..."})
-	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return an OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations.`
+	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string.`
 	var chart models.OrgChart
 	contextData := fmt.Sprintf("Research brief: %+v\n\nSearch snippets:\n%s\n\nSelected evidence:\n%s", brief, FormatSearchSnippets(results), formatEvidence(evidence))
-	if err := ca.engine.SynthesizeJSON(ctx, prompt, contextData, &chart); err != nil {
+	llmCtx, cancel := context.WithTimeout(ctx, companySynthesisTimeout)
+	defer cancel()
+	if err := ca.engine.SynthesizeJSON(llmCtx, prompt, contextData, &chart); err != nil {
 		return nil, fmt.Errorf("synthesis failed: %w", err)
 	}
 	if chart.CompanyName == "" {
@@ -101,7 +118,9 @@ func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.Compan
 func (ca *CompanyAgent) reviewChart(ctx context.Context, brief models.CompanyBrief, chart *models.OrgChart, evidence []models.Evidence, sessionID string, eventCh chan<- models.AgentEvent) models.QualityReview {
 	var review models.QualityReview
 	request := fmt.Sprintf("Brief:\n%+v\n\nDraft chart:\n%+v\n\nEvidence:\n%s", brief, *chart, formatEvidence(evidence))
-	err := ca.engine.GenerateStructured(ctx, `Act as a strict research quality reviewer. Evaluate whether the draft answers the brief and whether claims are supported by the supplied evidence. Return JSON with verdict (pass or revise), score from 0 to 1, gaps, contradictions, unsupported_claims, reason, and at most four focused follow_up_queries. Use revise only for material gaps or contradictions. Never invent facts.`, request, &review)
+	llmCtx, cancel := context.WithTimeout(ctx, companyReviewTimeout)
+	defer cancel()
+	err := ca.engine.GenerateStructured(llmCtx, `Act as a strict research quality reviewer. Evaluate whether the draft answers the brief and whether claims are supported by the supplied evidence. Return JSON with verdict (pass or revise), score from 0 to 1, gaps, contradictions, unsupported_claims, reason, and at most four focused follow_up_queries. Use revise only for material gaps or contradictions. Never invent facts.`, request, &review)
 	review.Verdict = strings.ToLower(strings.TrimSpace(review.Verdict))
 	if err != nil || review.Verdict == "" {
 		review.Verdict = "pass"
@@ -124,7 +143,9 @@ func (ca *CompanyAgent) AnswerQuestion(ctx context.Context, state *models.Compan
 
 	var answer models.QuestionAnswer
 	cachedPrompt := fmt.Sprintf("Company brief:\n%+v\n\nOrg chart:\n%+v\n\nCached evidence:\n%s\n\nQuestion: %s", state.Brief, *chart, formatEvidence(state.Evidence), question)
-	err := ca.engine.GenerateStructured(ctx, `Answer the user's question using only the supplied company research and cached evidence. If the evidence is insufficient or contradictory, set needs_fresh_search to true and provide a focused search_query. Otherwise answer directly, cite relevant source URLs in sources, and set needs_fresh_search to false. Return JSON.`, cachedPrompt, &answer)
+	cachedCtx, cancel := context.WithTimeout(ctx, companyQuestionTimeout)
+	defer cancel()
+	err := ca.engine.GenerateStructured(cachedCtx, `Answer the user's question using only the supplied company research and cached evidence. If the evidence is insufficient or contradictory, set needs_fresh_search to true and provide a focused search_query. Otherwise answer directly, cite relevant source URLs in sources, and set needs_fresh_search to false. Return JSON.`, cachedPrompt, &answer)
 	if err == nil && strings.TrimSpace(answer.Answer) != "" && !answer.NeedsFreshSearch {
 		answer.Question = question
 		answer.Sources = evidenceSources(state.Evidence)
@@ -150,7 +171,9 @@ func (ca *CompanyAgent) AnswerQuestion(ctx context.Context, state *models.Compan
 	combinedEvidence := append(append([]models.Evidence{}, state.Evidence...), freshEvidence...)
 	var finalAnswer models.QuestionAnswer
 	finalPrompt := fmt.Sprintf("Company brief:\n%+v\n\nOrg chart:\n%+v\n\nOriginal evidence:\n%s\n\nFresh search query: %s\nFresh search results:\n%s\n\nFresh evidence:\n%s\n\nQuestion: %s", state.Brief, *chart, formatEvidence(state.Evidence), query, FormatSearchSnippets(freshResults), formatEvidence(freshEvidence), question)
-	if err := ca.engine.GenerateStructured(ctx, `Answer the user's company research question using the supplied original and fresh evidence. Prefer direct evidence, acknowledge uncertainty, and cite source URLs in sources. Return JSON with question, answer, confidence, and sources.`, finalPrompt, &finalAnswer); err != nil {
+	finalCtx, finalCancel := context.WithTimeout(ctx, companyQuestionTimeout)
+	defer finalCancel()
+	if err := ca.engine.GenerateStructured(finalCtx, `Answer the user's company research question using the supplied original and fresh evidence. Prefer direct evidence, acknowledge uncertainty, and cite source URLs in sources. Return JSON with question, answer, confidence, and sources.`, finalPrompt, &finalAnswer); err != nil {
 		return nil, fmt.Errorf("question answer synthesis failed: %w", err)
 	}
 	finalAnswer.Question = question
@@ -198,10 +221,37 @@ func evidenceSources(evidence []models.Evidence) []string {
 	return sources
 }
 
+func searchSnippetEvidence(ranked []models.RankedResult, results []models.SearchResult, limit int) []models.Evidence {
+	byURL := make(map[string]models.SearchResult, len(results))
+	for _, result := range results {
+		byURL[normalizeURL(result.Link)] = result
+	}
+	evidence := make([]models.Evidence, 0, limit)
+	for _, item := range ranked {
+		if len(evidence) >= limit {
+			break
+		}
+		result, ok := byURL[normalizeURL(item.URL)]
+		if !ok || strings.TrimSpace(result.Snippet) == "" {
+			continue
+		}
+		evidence = append(evidence, models.Evidence{
+			URL:          result.Link,
+			Title:        result.Title,
+			Content:      result.Snippet,
+			Score:        item.Score * 0.75,
+			EvidenceType: "search_snippet",
+		})
+	}
+	return evidence
+}
+
 func (ca *CompanyAgent) planQueries(ctx context.Context, brief models.CompanyBrief) models.QueryPlan {
 	var plan models.QueryPlan
 	request := fmt.Sprintf("Company: %s\nDomain: %s\nIndustry: %s\nCountry: %s\nCity: %s\nAreas: %s\nOutput: %s\nTime: %s\nNotes: %s", brief.CompanyName, brief.Domain, brief.Industry, brief.Country, brief.City, strings.Join(brief.AreasOfInterest, ", "), strings.Join(brief.DesiredOutput, ", "), brief.TimeScope, brief.UserNotes)
-	err := ca.engine.GenerateStructured(ctx, `Create a focused company web research query plan. Return JSON with a queries array. Each query needs query, purpose, target_area, and priority from 1 to 5. Cover leadership, departments, locations, and user-requested areas.`, request, &plan)
+	llmCtx, cancel := context.WithTimeout(ctx, companyPlanningTimeout)
+	defer cancel()
+	err := ca.engine.GenerateStructured(llmCtx, `Create a focused company web research query plan. Return JSON with a queries array. Each query needs query, purpose, target_area, and priority from 1 to 5. Cover leadership, departments, locations, and user-requested areas.`, request, &plan)
 	if err == nil && len(plan.Queries) > 0 {
 		return limitQueryPlan(plan, 6)
 	}
@@ -266,19 +316,167 @@ func (ca *CompanyAgent) searchPlan(ctx context.Context, sessionID string, plan m
 }
 
 func (ca *CompanyAgent) rankResults(ctx context.Context, brief models.CompanyBrief, results []models.SearchResult) []models.RankedResult {
+	bm25Ranked := bm25RankResults(brief, results)
+	if len(bm25Ranked) == 0 {
+		return bm25Ranked
+	}
+
+	semanticCandidates := bm25Ranked
+	if len(semanticCandidates) > 8 {
+		semanticCandidates = semanticCandidates[:8]
+	}
+	candidateResults := make([]models.SearchResult, 0, len(semanticCandidates))
+	byURL := make(map[string]models.SearchResult, len(results))
+	for _, result := range results {
+		byURL[normalizeURL(result.Link)] = result
+	}
+	for _, candidate := range semanticCandidates {
+		if result, ok := byURL[normalizeURL(candidate.URL)]; ok {
+			candidateResults = append(candidateResults, result)
+		}
+	}
+
 	var response struct {
 		RankedResults []models.RankedResult `json:"ranked_results"`
 	}
-	err := ca.engine.GenerateStructured(ctx, `Rank search results for company research. Return JSON with ranked_results. Use only URLs present in the input. Mark results relevant only when they plausibly concern the requested company, location, and areas. Score from 0 to 1 and explain each decision.`, fmt.Sprintf("Brief: %+v\nResults:\n%s", brief, FormatSearchSnippets(results)), &response)
-	if err == nil && len(response.RankedResults) > 0 {
-		return normalizeRankedResults(response.RankedResults, results)
+	llmCtx, cancel := context.WithTimeout(ctx, companySemanticTimeout)
+	defer cancel()
+	semanticDone := make(chan error, 1)
+	go func() {
+		semanticDone <- ca.engine.GenerateStructured(llmCtx, `Rerank these top company research results semantically. Return JSON with ranked_results. Use only URLs present in the input. Mark results relevant only when they plausibly concern the requested company, location, and areas. Score from 0 to 1 and explain each decision.`, fmt.Sprintf("Brief: %+v\nTop BM25 results:\n%s", brief, FormatSearchSnippets(candidateResults)), &response)
+	}()
+	select {
+	case err := <-semanticDone:
+		if err == nil && len(response.RankedResults) > 0 {
+			if normalized := normalizeRankedResults(response.RankedResults, candidateResults); len(normalized) > 0 {
+				return mergeRankings(bm25Ranked, normalized)
+			}
+		}
+	case <-llmCtx.Done():
 	}
+	return bm25Ranked
+}
+
+func bm25RankResults(brief models.CompanyBrief, results []models.SearchResult) []models.RankedResult {
+	if len(results) == 0 {
+		return nil
+	}
+	query := tokenize(strings.Join([]string{
+		brief.CompanyName,
+		brief.Domain,
+		brief.Industry,
+		brief.Country,
+		brief.City,
+		strings.Join(brief.AreasOfInterest, " "),
+	}, " "))
+	if len(query) == 0 {
+		return nil
+	}
+
+	documents := make([][]string, len(results))
+	documentFrequency := make(map[string]int)
+	totalLength := 0
+	for index, result := range results {
+		documents[index] = tokenize(result.Title + " " + result.Snippet + " " + result.Link)
+		totalLength += len(documents[index])
+		seen := make(map[string]bool)
+		for _, token := range documents[index] {
+			if !seen[token] {
+				documentFrequency[token]++
+				seen[token] = true
+			}
+		}
+	}
+	averageLength := float64(totalLength) / float64(len(documents))
+	if averageLength == 0 {
+		averageLength = 1
+	}
+
 	ranked := make([]models.RankedResult, 0, len(results))
-	for _, result := range results {
-		ranked = append(ranked, deterministicRank(brief, result))
+	for index, result := range results {
+		rawScore := bm25Score(query, documents[index], documentFrequency, len(documents), averageLength)
+		score := rawScore / (rawScore + 2)
+		reason := fmt.Sprintf("BM25 lexical score %.2f", rawScore)
+		if brief.Domain != "" && strings.Contains(strings.ToLower(result.Link), strings.ToLower(brief.Domain)) {
+			score += 0.15
+			reason += "; official domain match"
+		}
+		if strings.Contains(strings.ToLower(result.Title+" "+result.Snippet), strings.ToLower(brief.CompanyName)) {
+			score += 0.1
+		}
+		if score > 1 {
+			score = 1
+		}
+		ranked = append(ranked, models.RankedResult{URL: result.Link, Relevant: score >= 0.2, Score: score, Reason: reason, EvidenceType: "bm25"})
 	}
 	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Score > ranked[j].Score })
 	return ranked
+}
+
+func bm25Score(query, document []string, documentFrequency map[string]int, documentCount int, averageLength float64) float64 {
+	termFrequency := make(map[string]int)
+	for _, token := range document {
+		termFrequency[token]++
+	}
+	const k1 = 1.2
+	const b = 0.75
+	documentLength := float64(len(document))
+	score := 0.0
+	seenQueryTerms := make(map[string]bool)
+	for _, term := range query {
+		if seenQueryTerms[term] {
+			continue
+		}
+		seenQueryTerms[term] = true
+		frequency := float64(termFrequency[term])
+		if frequency == 0 {
+			continue
+		}
+		df := float64(documentFrequency[term])
+		idf := math.Log(1 + (float64(documentCount)-df+0.5)/(df+0.5))
+		normalizer := frequency + k1*(1-b+b*documentLength/averageLength)
+		score += idf * (frequency * (k1 + 1) / normalizer)
+	}
+	return score
+}
+
+func tokenize(value string) []string {
+	var tokens []string
+	var builder strings.Builder
+	flush := func() {
+		if builder.Len() > 1 {
+			tokens = append(tokens, builder.String())
+		}
+		builder.Reset()
+	}
+	for _, character := range strings.ToLower(value) {
+		if unicode.IsLetter(character) || unicode.IsDigit(character) {
+			builder.WriteRune(character)
+		} else {
+			flush()
+		}
+	}
+	flush()
+	return tokens
+}
+
+func mergeRankings(bm25Ranked, semanticRanked []models.RankedResult) []models.RankedResult {
+	semanticByURL := make(map[string]models.RankedResult, len(semanticRanked))
+	for _, item := range semanticRanked {
+		semanticByURL[normalizeURL(item.URL)] = item
+	}
+	merged := make([]models.RankedResult, 0, len(bm25Ranked))
+	for _, item := range bm25Ranked {
+		if semantic, ok := semanticByURL[normalizeURL(item.URL)]; ok {
+			item.Score = 0.65*item.Score + 0.35*semantic.Score
+			item.Relevant = semantic.Relevant && item.Relevant
+			item.Reason += "; semantic rerank: " + semantic.Reason
+			item.EvidenceType = "bm25+semantic"
+		}
+		merged = append(merged, item)
+	}
+	sort.SliceStable(merged, func(i, j int) bool { return merged[i].Score > merged[j].Score })
+	return merged
 }
 
 func deterministicRank(brief models.CompanyBrief, result models.SearchResult) models.RankedResult {
@@ -305,16 +503,20 @@ func deterministicRank(brief models.CompanyBrief, result models.SearchResult) mo
 func normalizeRankedResults(ranked []models.RankedResult, results []models.SearchResult) []models.RankedResult {
 	known := make(map[string]bool, len(results))
 	for _, result := range results {
-		known[result.Link] = true
+		known[normalizeURL(result.Link)] = true
 	}
 	filtered := ranked[:0]
 	for _, item := range ranked {
-		if known[item.URL] && item.Relevant {
+		if known[normalizeURL(item.URL)] && item.Relevant {
 			filtered = append(filtered, item)
 		}
 	}
 	sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].Score > filtered[j].Score })
 	return filtered
+}
+
+func normalizeURL(value string) string {
+	return strings.TrimRight(strings.ToLower(strings.TrimSpace(value)), "/")
 }
 
 func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, ranked []models.RankedResult, existing []models.Evidence, eventCh chan<- models.AgentEvent) ([]models.Evidence, []string) {

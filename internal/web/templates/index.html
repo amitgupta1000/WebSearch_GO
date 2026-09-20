@@ -58,7 +58,7 @@
                     <!-- Primary Query -->
                     <div class="space-y-2 md:col-span-2">
                         <label id="query-label" class="text-xs font-medium text-slate-300">Company Name / Domain</label>
-                        <input type="text" name="query" required placeholder="e.g. Anthropic, Stripe, Datadog..."
+                        <input id="primary-query" type="text" name="query" required autocomplete="organization" placeholder="e.g. Anthropic, Stripe, Datadog..."
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
                     </div>
                 </div>
@@ -143,7 +143,7 @@
             const pf = document.getElementById('person-fields');
             const cf = document.getElementById('company-fields');
             const ql = document.getElementById('query-label');
-            const qi = document.querySelector('input[name="query"]');
+            const qi = document.getElementById('primary-query');
             if (mode === 'person') {
                 pf.classList.remove('hidden');
                 cf.classList.add('hidden');

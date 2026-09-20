@@ -19,6 +19,20 @@ func TestTemplatesParseAndLookup(t *testing.T) {
 	}
 }
 
+func TestIndexHasStableQueryControls(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "index.html", nil); err != nil {
+		t.Fatalf("execute index template: %v", err)
+	}
+	if !strings.Contains(out.String(), `id="primary-query"`) {
+		t.Error("expected stable primary query input id")
+	}
+}
+
 func TestCompanyChartEscapesUntrustedContent(t *testing.T) {
 	tmpl, err := Templates()
 	if err != nil {
@@ -51,6 +65,9 @@ func TestCompanyChartEscapesUntrustedContent(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `hx-post="/api/research?sync=1"`) {
 		t.Error("expected company chart drilldown endpoint")
+	}
+	if !strings.Contains(out.String(), `id="company-drilldown-result"`) || !strings.Contains(out.String(), "Loading dossier...") {
+		t.Error("expected visible company drilldown target and loading state")
 	}
 }
 

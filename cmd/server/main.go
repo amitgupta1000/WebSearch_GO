@@ -198,9 +198,19 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 
 		if mode == "person" {
 			profile, err := s.personAgent.ResearchPerson(ctx, sessionID, query, company, location, session.EventCh)
+			if err != nil {
+				log.Printf("[ERROR][session %s] person research failed: %v", sessionID, err)
+			} else {
+				log.Printf("[RESULT][session %s] person research completed", sessionID)
+			}
 			session.Complete(profile, err)
 		} else {
 			chart, companyContext, err := s.companyAgent.ResearchCompanyRun(ctx, sessionID, companyBrief, session.EventCh)
+			if err != nil {
+				log.Printf("[ERROR][session %s] company research failed: %v", sessionID, err)
+			} else {
+				log.Printf("[RESULT][session %s] company=%s leadership=%d departments=%d", sessionID, chart.CompanyName, len(chart.Leadership), len(chart.Departments))
+			}
 			session.SetCompanyContext(companyContext)
 			session.Complete(chart, err)
 		}
@@ -326,6 +336,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		case <-session.Done:
 			// Drain any remaining buffered events in EventCh
+		drain:
 			for {
 				select {
 				case ev, ok := <-session.EventCh:
@@ -336,7 +347,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 					}
 				default:
 				}
-				break
+				break drain
 			}
 
 			// Render final result
