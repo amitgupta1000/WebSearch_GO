@@ -19,6 +19,7 @@ type Session struct {
 	CompanyContext *models.CompanyResearchContext
 	Done           chan struct{}
 	CreatedAt      time.Time
+	finalSent      bool
 	mu             sync.Mutex
 	doneOnce       sync.Once
 }
@@ -70,6 +71,17 @@ func (s *Session) GetResult() (any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.Result, s.Err
+}
+
+// ClaimFinalEvent allows only one SSE connection to render the terminal result.
+func (s *Session) ClaimFinalEvent() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.finalSent {
+		return false
+	}
+	s.finalSent = true
+	return true
 }
 
 // SessionHub provides thread-safe lifecycle tracking for active SSE research sessions.

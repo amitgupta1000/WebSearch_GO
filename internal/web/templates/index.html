@@ -58,7 +58,7 @@
                     <!-- Primary Query -->
                     <div class="space-y-2 md:col-span-2">
                         <label id="query-label" class="text-xs font-medium text-slate-300">Company Name / Domain</label>
-                        <input id="primary-query" type="text" name="query" required autocomplete="organization" placeholder="e.g. Anthropic, Stripe, Datadog..."
+                        <input id="primary-query" type="text" name="query" required autocomplete="organization" spellcheck="false" placeholder="e.g. Anthropic, Stripe, Datadog..."
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
                     </div>
                 </div>
@@ -139,6 +139,37 @@
     </main>
 
     <script>
+        async function submitDossier(event, form) {
+            event.preventDefault();
+            const target = document.getElementById('company-drilldown-result');
+            const loading = document.getElementById('drilldown-loading');
+            if (!target) return false;
+            if (loading) loading.classList.remove('hidden');
+            target.innerHTML = '';
+            try {
+                const response = await fetch('/api/research?sync=1', {
+                    method: 'POST',
+                    body: new FormData(form),
+                    headers: {'X-Requested-With': 'XMLHttpRequest'}
+                });
+                const html = await response.text();
+                if (!response.ok) throw new Error('Request failed (' + response.status + ')');
+                const currentTarget = document.getElementById('company-drilldown-result');
+                if (!currentTarget) throw new Error('Dossier result area is no longer available');
+                currentTarget.innerHTML = html;
+                currentTarget.scrollIntoView({behavior: 'smooth', block: 'start'});
+            } catch (error) {
+                const currentTarget = document.getElementById('company-drilldown-result');
+                if (currentTarget) {
+                    currentTarget.innerHTML = '<div class="p-4 bg-red-950/50 border border-red-800 text-red-300 rounded-xl">Dossier request failed. Please try again.</div>';
+                }
+                console.error('Dossier request failed:', error);
+            } finally {
+                if (loading) loading.classList.add('hidden');
+            }
+            return false;
+        }
+
         function toggleFields(mode) {
             const pf = document.getElementById('person-fields');
             const cf = document.getElementById('company-fields');
@@ -162,6 +193,12 @@
             const term = document.getElementById('log-terminal');
             if (term) {
                 term.scrollTop = term.scrollHeight;
+            }
+        });
+
+        document.addEventListener('input', function(evt) {
+            if (evt.target.id === 'primary-query') {
+                evt.target.dataset.hasValue = evt.target.value.trim() ? 'true' : 'false';
             }
         });
     </script>

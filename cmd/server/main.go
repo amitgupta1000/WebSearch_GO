@@ -320,11 +320,6 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return buf.String()
 	}
 
-	// Stream any events that were already recorded before SSE connected
-	for _, ev := range session.GetHistory() {
-		sendSSE("log", renderFragment("log_entry", ev))
-	}
-
 	for {
 		select {
 		case <-r.Context().Done():
@@ -350,21 +345,24 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				break drain
 			}
 
-			// Render final result
-			result, sessionErr := session.GetResult()
-			if sessionErr != nil {
-				sendSSE("result", renderFragment("error_box", sessionErr.Error()))
-				sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">● Failed</span>`)
-			} else if session.Mode == "person" {
-				if profile, ok := result.(*models.PersonProfile); ok {
-					sendSSE("result", renderFragment("person_dossier", profile))
+			// Render the terminal result once. Reconnecting SSE clients must not
+			// replace a dossier or chart that the user has already opened.
+			if session.ClaimFinalEvent() {
+				result, sessionErr := session.GetResult()
+				if sessionErr != nil {
+					sendSSE("result", renderFragment("error_box", sessionErr.Error()))
+					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">● Failed</span>`)
+				} else if session.Mode == "person" {
+					if profile, ok := result.(*models.PersonProfile); ok {
+						sendSSE("result", renderFragment("person_dossier", profile))
+					}
+					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
+				} else {
+					if chart, ok := result.(*models.OrgChart); ok {
+						sendSSE("result", renderFragment("company_result", companyResultView{Chart: chart, SessionID: session.ID}))
+					}
+					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 				}
-				sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
-			} else {
-				if chart, ok := result.(*models.OrgChart); ok {
-					sendSSE("result", renderFragment("company_result", companyResultView{Chart: chart, SessionID: session.ID}))
-				}
-				sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 			}
 			sendSSE("close", "done")
 			return

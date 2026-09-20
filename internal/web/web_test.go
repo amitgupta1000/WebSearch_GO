@@ -63,8 +63,8 @@ func TestCompanyChartEscapesUntrustedContent(t *testing.T) {
 	if !strings.Contains(out.String(), "Open dossier") {
 		t.Error("expected company chart drilldown controls")
 	}
-	if !strings.Contains(out.String(), `hx-post="/api/research?sync=1"`) {
-		t.Error("expected company chart drilldown endpoint")
+	if !strings.Contains(out.String(), `onsubmit="return submitDossier(event, this)"`) {
+		t.Error("expected company chart drilldown handler")
 	}
 	if !strings.Contains(out.String(), `id="company-drilldown-result"`) || !strings.Contains(out.String(), "Loading dossier...") {
 		t.Error("expected visible company drilldown target and loading state")
