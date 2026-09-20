@@ -144,6 +144,39 @@
 </div>
 {{end}}
 
+{{define "company_result"}}
+{{template "company_chart" .Chart}}
+<div class="mt-6 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+	<div>
+		<h4 class="text-sm font-semibold text-white">Ask about this research</h4>
+		<p class="text-xs text-slate-400 mt-1">Answers use the retained evidence first and search for new evidence when needed.</p>
+	</div>
+	<form hx-post="/api/question" hx-target="#question-answer-{{.SessionID}}" hx-swap="innerHTML" class="flex flex-col sm:flex-row gap-2">
+		<input type="hidden" name="session_id" value="{{.SessionID}}">
+		<input type="text" name="question" required maxlength="500" placeholder="e.g. Who leads engineering in Germany?"
+			class="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+		<button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-2 rounded-lg text-sm">Ask question</button>
+	</form>
+	<div id="question-answer-{{.SessionID}}"></div>
+</div>
+{{end}}
+
+{{define "question_answer"}}
+<div class="border-t border-slate-800 pt-4 space-y-2">
+	<div class="flex items-center justify-between gap-3">
+		<h5 class="text-sm font-semibold text-white">{{.Question}}</h5>
+		<span class="text-[11px] text-slate-500">{{if .UsedFreshSearch}}Fresh search used{{else}}From retained evidence{{end}}</span>
+	</div>
+	<p class="text-sm text-slate-300 leading-relaxed">{{.Answer}}</p>
+	{{if .Sources}}
+	<div class="flex flex-wrap gap-2 text-xs text-slate-500">
+		<span>Sources:</span>
+		{{range .Sources}}<a href="{{.}}" target="_blank" class="text-indigo-400 hover:underline truncate max-w-xs">{{.}}</a>{{end}}
+	</div>
+	{{end}}
+</div>
+{{end}}
+
 {{define "person_dossier"}}
 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
 	<div class="flex items-start justify-between border-b border-slate-800 pb-4">

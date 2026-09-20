@@ -77,6 +77,49 @@
                     </div>
                 </div>
 
+                <div id="company-fields" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-800/60">
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Country (Optional)</label>
+                        <input type="text" name="company_country" placeholder="e.g. Germany"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">City / Region (Optional)</label>
+                        <input type="text" name="company_city" placeholder="e.g. Berlin"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Official Domain (Optional)</label>
+                        <input type="text" name="company_domain" placeholder="e.g. acme.com"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Industry (Optional)</label>
+                        <input type="text" name="company_industry" placeholder="e.g. software"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="text-xs font-medium text-slate-400">Areas of Interest (comma-separated)</label>
+                        <input type="text" name="areas_of_interest" placeholder="leadership, engineering, locations, subsidiaries"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="text-xs font-medium text-slate-400">Desired Output (comma-separated)</label>
+                        <input type="text" name="desired_output" placeholder="org chart, department heads, offices"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Time Scope</label>
+                        <input type="text" name="time_scope" placeholder="e.g. current, 2024-2026"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div class="sm:col-span-2 lg:col-span-3">
+                        <label class="text-xs font-medium text-slate-400">Research Notes (Optional)</label>
+                        <input type="text" name="research_notes" placeholder="Clarify the questions you want answered"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                </div>
+
                 <div class="flex justify-end pt-2">
                     <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-6 py-2.5 rounded-lg text-sm transition-colors flex items-center gap-2 shadow-lg shadow-indigo-600/20">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
@@ -98,14 +141,17 @@
     <script>
         function toggleFields(mode) {
             const pf = document.getElementById('person-fields');
+            const cf = document.getElementById('company-fields');
             const ql = document.getElementById('query-label');
             const qi = document.querySelector('input[name="query"]');
             if (mode === 'person') {
                 pf.classList.remove('hidden');
+                cf.classList.add('hidden');
                 ql.innerText = 'Person Full Name';
                 qi.placeholder = 'e.g. Demis Hassabis, Ilya Sutskever...';
             } else {
                 pf.classList.add('hidden');
+                cf.classList.remove('hidden');
                 ql.innerText = 'Company Name / Domain';
                 qi.placeholder = 'e.g. Anthropic, Stripe, Datadog...';
             }

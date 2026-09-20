@@ -31,6 +31,16 @@ go run ./cmd/server
 # open http://localhost:8080
 ```
 
+For Windows development, run the auto-reloading server instead:
+
+```powershell
+.\scripts\dev.ps1
+```
+
+It watches Go and embedded template files under `cmd` and `internal`, then
+restarts `go run ./cmd/server` after changes. The same watcher is available in
+VS Code as the `Go: Watch Server` task.
+
 ## Environment variables
 
 | Variable | Default | Description |
@@ -53,7 +63,8 @@ go run ./cmd/server
 | Method | Path | Description |
 | :--- | :--- | :--- |
 | `GET` | `/` | Research console (HTMX UI) |
-| `POST` | `/api/research` | Form fields: `mode` (`company`/`person`), `query`, `company_name`, `location`. Returns the live workflow console. |
+| `POST` | `/api/research` | Form fields: `mode` (`company`/`person`), `query`, `company_name`, `location`, plus optional company scope fields `company_country`, `company_city`, `company_domain`, `company_industry`, `areas_of_interest`, `desired_output`, `time_scope`, and `research_notes`. Company research performs up to 3 QC reviews. Returns the live workflow console. |
+| `POST` | `/api/question` | Form fields: `session_id`, `question`. Answers a question from retained evidence or runs a fresh focused search when needed. |
 | `GET` | `/api/events` | Server-Sent Events (SSE) stream for live step logs & final synthesis. |
 | `GET` | `/healthz` | Liveness probe |
 

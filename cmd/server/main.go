@@ -36,6 +36,11 @@ type Server struct {
 	tmpl         *template.Template
 }
 
+type companyResultView struct {
+	Chart     *models.OrgChart
+	SessionID string
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -86,6 +91,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", srv.handleIndex)
 	mux.HandleFunc("POST /api/research", srv.handleResearch)
+	mux.HandleFunc("POST /api/question", srv.handleQuestion)
 	mux.HandleFunc("GET /api/events", srv.handleEvents)
 	mux.HandleFunc("GET /healthz", srv.handleHealth)
 
@@ -136,6 +142,19 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.FormValue("query"))
 	company := strings.TrimSpace(r.FormValue("company_name"))
 	location := strings.TrimSpace(r.FormValue("location"))
+	companyBrief := models.CompanyBrief{
+		CompanyName: query,
+		Domain:      strings.TrimSpace(r.FormValue("company_domain")),
+		Industry:    strings.TrimSpace(r.FormValue("company_industry")),
+		ResearchPreferences: models.ResearchPreferences{
+			Country:         strings.TrimSpace(r.FormValue("company_country")),
+			City:            strings.TrimSpace(r.FormValue("company_city")),
+			AreasOfInterest: splitFormList(r.FormValue("areas_of_interest")),
+			DesiredOutput:   splitFormList(r.FormValue("desired_output")),
+			TimeScope:       strings.TrimSpace(r.FormValue("time_scope")),
+			UserNotes:       strings.TrimSpace(r.FormValue("research_notes")),
+		},
+	}
 
 	if query == "" {
 		s.renderError(w, "Please provide a non-empty query.")
@@ -160,7 +179,7 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		chart, err := s.companyAgent.ResearchCompany(ctx, sessionID, query, nil)
+		chart, err := s.companyAgent.ResearchCompanyWithBrief(ctx, sessionID, companyBrief, nil)
 		if err != nil {
 			log.Printf("[ERROR] company research failed (session %s): %v", sessionID, err)
 			s.renderError(w, "Company research failed: "+err.Error())
@@ -181,7 +200,8 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 			profile, err := s.personAgent.ResearchPerson(ctx, sessionID, query, company, location, session.EventCh)
 			session.Complete(profile, err)
 		} else {
-			chart, err := s.companyAgent.ResearchCompany(ctx, sessionID, query, session.EventCh)
+			chart, companyContext, err := s.companyAgent.ResearchCompanyRun(ctx, sessionID, companyBrief, session.EventCh)
+			session.SetCompanyContext(companyContext)
 			session.Complete(chart, err)
 		}
 	}()
@@ -196,6 +216,52 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 		"Mode":      displayMode,
 		"Query":     query,
 	})
+}
+
+// handleQuestion answers a question against a completed company session.
+func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
+	sessionID := strings.TrimSpace(r.FormValue("session_id"))
+	question := strings.TrimSpace(r.FormValue("question"))
+	if sessionID == "" || question == "" {
+		s.renderError(w, "A session and question are required.")
+		return
+	}
+	if len([]rune(question)) > 500 {
+		s.renderError(w, "Question is limited to 500 characters.")
+		return
+	}
+	session, ok := s.hub.Get(sessionID)
+	if !ok || session.Mode != "company" {
+		s.renderError(w, "That research session is not available for company questions.")
+		return
+	}
+	researchContext := session.GetCompanyContext()
+	result, sessionErr := session.GetResult()
+	chart, chartOK := result.(*models.OrgChart)
+	if sessionErr != nil || researchContext == nil || !chartOK {
+		s.renderError(w, "The company research session has not completed successfully.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ResearchTimeout)
+	defer cancel()
+	answer, err := s.companyAgent.AnswerQuestion(ctx, researchContext, chart, question)
+	if err != nil {
+		s.renderError(w, "Question answering failed: "+err.Error())
+		return
+	}
+	s.render(w, "question_answer", answer)
+}
+
+func splitFormList(value string) []string {
+	var items []string
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 // handleEvents streams live agent workflow events and final synthesis to HTMX via SSE.
@@ -274,17 +340,18 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Render final result
-			if session.Err != nil {
-				sendSSE("result", renderFragment("error_box", session.Err.Error()))
+			result, sessionErr := session.GetResult()
+			if sessionErr != nil {
+				sendSSE("result", renderFragment("error_box", sessionErr.Error()))
 				sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">● Failed</span>`)
 			} else if session.Mode == "person" {
-				if profile, ok := session.Result.(*models.PersonProfile); ok {
+				if profile, ok := result.(*models.PersonProfile); ok {
 					sendSSE("result", renderFragment("person_dossier", profile))
 				}
 				sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 			} else {
-				if chart, ok := session.Result.(*models.OrgChart); ok {
-					sendSSE("result", renderFragment("company_chart", chart))
+				if chart, ok := result.(*models.OrgChart); ok {
+					sendSSE("result", renderFragment("company_result", companyResultView{Chart: chart, SessionID: session.ID}))
 				}
 				sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 			}

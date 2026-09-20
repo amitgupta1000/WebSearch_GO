@@ -12,7 +12,7 @@ func TestTemplatesParseAndLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Templates(): %v", err)
 	}
-	for _, name := range []string{"index.html", "company_chart", "person_dossier", "error_box", "workflow_console", "log_entry"} {
+	for _, name := range []string{"index.html", "company_chart", "company_result", "question_answer", "person_dossier", "error_box", "workflow_console", "log_entry"} {
 		if tmpl.Lookup(name) == nil {
 			t.Errorf("template %q not found", name)
 		}

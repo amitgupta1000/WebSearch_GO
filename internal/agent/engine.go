@@ -124,6 +124,19 @@ func (e *Engine) SearchCached(ctx context.Context, query string, maxResults int)
 	return results, nil
 }
 
+// SearchFresh bypasses the search cache for an explicitly requested fresh lookup.
+func (e *Engine) SearchFresh(ctx context.Context, query string, maxResults int) ([]models.SearchResult, error) {
+	if e.serperClient == nil {
+		return nil, fmt.Errorf("search client is not configured")
+	}
+	results, err := e.serperClient.Search(ctx, query, maxResults)
+	if err != nil {
+		return nil, err
+	}
+	e.cache.Set(cache.HashKey("search", query), results, searchResultsTTL)
+	return results, nil
+}
+
 // ScrapeCached fetches and extracts webpage text with TTL caching.
 func (e *Engine) ScrapeCached(ctx context.Context, targetURL string) (*models.ScrapeResult, error) {
 	cacheKey := cache.HashKey("scrape", targetURL)
@@ -159,11 +172,17 @@ func Emit(ch chan<- models.AgentEvent, event models.AgentEvent) {
 
 // SynthesizeJSON instructs Gemini to generate clean structured JSON given aggregated notes.
 func (e *Engine) SynthesizeJSON(ctx context.Context, systemPrompt, contextData string, target any) error {
+	prompt := fmt.Sprintf("Context Data gathered from research:\n\n%s\n\nGenerate the complete structured output according to the system specification.", contextData)
+	return e.GenerateStructured(ctx, systemPrompt, prompt, target)
+}
+
+// GenerateStructured delegates a structured JSON request to the configured LLM.
+// It is used by planning and ranking stages as well as final synthesis.
+func (e *Engine) GenerateStructured(ctx context.Context, systemPrompt, userPrompt string, target any) error {
 	if e.llmClient == nil {
 		return fmt.Errorf("LLM client is not configured")
 	}
-	prompt := fmt.Sprintf("Context Data gathered from research:\n\n%s\n\nGenerate the complete structured output according to the system specification.", contextData)
-	return e.llmClient.GenerateStructured(ctx, systemPrompt, prompt, target)
+	return e.llmClient.GenerateStructured(ctx, systemPrompt, userPrompt, target)
 }
 
 // FormatSearchSnippets prepares a clean markdown summary of search results for LLM consumption.

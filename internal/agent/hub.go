@@ -9,17 +9,18 @@ import (
 
 // Session tracks an in-flight or recently completed research workflow.
 type Session struct {
-	ID        string
-	Mode      string
-	Query     string
-	EventCh   chan models.AgentEvent
-	Events    []models.AgentEvent
-	Result    any
-	Err       error
-	Done      chan struct{}
-	CreatedAt time.Time
-	mu        sync.Mutex
-	doneOnce  sync.Once
+	ID             string
+	Mode           string
+	Query          string
+	EventCh        chan models.AgentEvent
+	Events         []models.AgentEvent
+	Result         any
+	Err            error
+	CompanyContext *models.CompanyResearchContext
+	Done           chan struct{}
+	CreatedAt      time.Time
+	mu             sync.Mutex
+	doneOnce       sync.Once
 }
 
 // AddHistory appends an event to the session history.
@@ -48,6 +49,27 @@ func (s *Session) Complete(result any, err error) {
 	s.doneOnce.Do(func() {
 		close(s.Done)
 	})
+}
+
+// SetCompanyContext stores the completed company evidence used by QC and Q&A.
+func (s *Session) SetCompanyContext(context *models.CompanyResearchContext) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.CompanyContext = context
+}
+
+// GetCompanyContext returns the retained company research context.
+func (s *Session) GetCompanyContext() *models.CompanyResearchContext {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.CompanyContext
+}
+
+// GetResult returns the completed session result and error.
+func (s *Session) GetResult() (any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Result, s.Err
 }
 
 // SessionHub provides thread-safe lifecycle tracking for active SSE research sessions.
