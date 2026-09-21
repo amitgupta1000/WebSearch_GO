@@ -157,15 +157,17 @@ flowchart TD
 WebSearch_GO/
 ├── cmd/
 │   └── server/
-│       └── main.go              # Composition root: config, DI, routes, SSE, shutdown
+│       ├── main.go              # Composition root: config, DI, routes, SSE, shutdown
+│       ├── main_test.go         # SSE termination, browser-choice policy, security headers
+│       └── sse_test.go          # SSE reconnect behaviour
 ├── internal/
 │   ├── agent/
 │   │   ├── engine.go            # ReAct core: tool interfaces, cached search/scrape, Emit, synthesis plumbing
-│   │   ├── company.go           # Company agent: plan → search → rank → scrape → synthesize org chart
+│   │   ├── company.go           # Company agent: plan → search → rank → scrape → synthesize + QC loop
 │   │   ├── person.go            # Person agent: disambiguation → bio scraping → dossier synthesis
 │   │   ├── hub.go               # Session + SessionHub: thread-safe per-research event buses
-│   │   ├── engine_test.go       # Engine limit/default tests (mock searcher/scraper/LLM)
-│   │   └── company_test.go      # Fallback query plan, deterministic ranking, fallback workflow tests
+│   │   ├── engine_test.go       # Engine limits, negative scrape cache, render-mode cache keys
+│   │   └── company_test.go      # Fallback query plan, ranking, QC loop, profile candidates
 │   ├── cache/
 │   │   ├── cache.go             # Bounded in-memory TTL cache (FIFO eviction) + SHA-256 keys
 │   │   └── cache_test.go
@@ -173,32 +175,38 @@ WebSearch_GO/
 │   │   ├── config.go            # Environment loading with defaults + positive-int validation
 │   │   └── config_test.go
 │   ├── llm/
-│   │   ├── gemini.go            # Gemini client: structured JSON, cleaning, one retry
-│   │   └── gemini_test.go       # cleanJSONString behavior tests
+│   │   ├── gemini.go            # Gemini client: structured JSON, cleaning, JSON + transient retry
+│   │   └── gemini_test.go       # cleanJSONString + transient-error classification tests
 │   ├── models/
 │   │   ├── agent.go             # AgentEvent (5 event types), SearchResult, ScrapeResult
-│   │   ├── company.go           # OrgChart, Department, Employee, Location
+│   │   ├── company.go           # OrgChart (+UnverifiedSourceCount), Department, Employee, Location
 │   │   ├── person.go            # PersonProfile (+ScorePercent), Experience, Education
-│   │   └── research.go          # ResearchPreferences, CompanyBrief, PlannedQuery/QueryPlan, RankedResult, Evidence
+│   │   └── research.go          # Briefs, QueryPlan, RankedResult, Evidence, ScrapeReportEntry,
+│   │                            #   QualityReview (tolerant follow_up_queries), QuestionAnswer
 │   ├── tools/
 │   │   ├── serper.go            # Serper.dev search client with retry + linear backoff
-│   │   ├── scraper.go           # HTML fetch + noise-stripping text extractor (goquery)
+│   │   ├── scraper.go           # Fetch policy, charset decode, noise-stripping text extractor, retries
+│   │   ├── scraper_browser.go   # Optional Playwright renderer (full Chromium, shared context)
+│   │   ├── scraper_browser_integration_test.go  # Opt-in real-Chromium test (PLAYWRIGHT_INTEGRATION=1)
 │   │   ├── cookies.go           # Browser cookie-export JSON → http.CookieJar
 │   │   └── serper_test.go / scraper_test.go / cookies_test.go
 │   └── web/
 │       ├── web.go               # go:embed of templates + template set parsing
-│       ├── web_test.go          # Template parsing / escaping tests
+│       ├── web_test.go          # Template parsing / escaping / disclosure-panel tests
 │       └── templates/
-│           ├── index.html       # Full-page research console (form, mode toggle)
-│           └── fragments.html   # error_box, log_entry, workflow_console, company_chart, person_dossier
+│           ├── index.html       # Full-page console (form, mode toggle, browser toggle)
+│           └── fragments.html   # error_box, log_entry, workflow_console, company_chart,
+│                                #   company_result, question_answer, person_dossier
 ├── scripts/
 │   └── dev.ps1                  # Windows auto-reload dev server (watches cmd/ + internal/)
 ├── .github/workflows/go.yml     # CI: tidy → gofmt → vet → build → test
 ├── .vscode/tasks.json           # "Go: Watch Server" VS Code task (wraps dev.ps1)
-├── Dockerfile                   # Multi-stage: golang:1.23-alpine → distroless nonroot
-├── go.mod / go.sum              # Module: goquery + google.golang.org/genai
-├── README.md                    # Usage: prerequisites, env vars, endpoints, Docker
+├── Dockerfile                   # Multi-stage: golang:1.23-alpine → distroless nonroot (HTTP-only)
+├── Dockerfile.browser           # Playwright base image variant, for browser rendering
+├── go.mod / go.sum              # Module: goquery + genai + playwright-go + golang.org/x/net
+├── README.md                    # Usage: prerequisites, env vars, endpoints, Docker, policies
 ├── DESIGN.md                    # High-level design (HLD) + implementation plan
+├── HOW_IT_WORKS.md              # Narrative walkthrough of the pipeline and modules
 ├── react_engine.py              # Standalone Python replica of the ReAct engine (CLI)
 ├── generate_pro_deck.py         # python-pptx generator for the executive guide deck
 ├── LLMreasoning.md / .pdf / .pptx  # LLM reasoning executive guide artifacts
@@ -218,38 +226,57 @@ The only `package main` in the repo. Responsibilities:
 1. `config.Load()` — read env vars; warn (but don't exit) if `SERPER_API_KEY` is missing.
 2. `tools.LoadCookieJarFromFile(cfg.CookieFile)` — optional browser cookies; warn on failure.
 3. `cache.NewMemoryCache(cfg.CacheMaxEntries)` — bounded TTL cache (`defer Close()`).
-4. `tools.NewScraper(cookieJar, 15s)` and `tools.NewSerperClient(cfg.SerperAPIKey)`.
+4. `tools.NewScraperWithBrowser(cookieJar, 15s, cfg.EnableBrowserFallback)` and
+   `tools.NewSerperClient(cfg.SerperAPIKey)`.
 5. `llm.NewGeminiClient(ctx, cfg.GeminiModel)` — **fail-fast**: `log.Fatalf` if
    Gemini credentials are missing, since no research can run without it.
 6. `agent.NewEngine(...)` with the three budgets, then `NewCompanyAgent`,
    `NewPersonAgent`, `NewSessionHub`.
 7. `web.Templates()` — parse the `go:embed`-ed templates (fail-fast on parse errors).
-8. Assemble `Server{cfg, companyAgent, personAgent, hub, tmpl}`.
+8. **Chromium probe** — when the per-run toggle is enabled (or fallback is on),
+   `scraper.BrowserAvailable()` starts the driver/browser once and caches the answer,
+   so the console never advertises rendering that cannot actually work.
+9. Assemble `Server{cfg, companyAgent, personAgent, hub, tmpl, browserAvailable,
+   allowBrowserToggle}`.
 
 **Routing & HTTP hardening:**
 
 | Route | Handler | Notes |
 | :--- | :--- | :--- |
-| `GET /{$}` | `handleIndex` | Renders the `index.html` console |
-| `POST /api/research` | `handleResearch` | Research launcher (async + `?sync=1` modes) |
+| `GET /{$}` | `handleIndex` | Renders the `index.html` console (capability-gated browser toggle) |
+| `POST /api/research` | `handleResearch` | Research launcher (async + `?sync=1` modes, optional `use_browser`) |
+| `POST /api/rerun` | `handleRerun` | Re-runs a completed company session's retained brief in a new session |
+| `POST /api/question` | `handleQuestion` | Post-run Q&A over retained evidence, with fresh-search fallback |
 | `GET /api/events` | `handleEvents` | SSE stream of agent events + final result |
 | `GET /healthz` | `handleHealth` | Liveness probe returning `ok` |
 
 All responses pass through `securityHeaders` (`X-Content-Type-Options: nosniff`,
-`X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a CSP that allows only
-the Tailwind/HTMX CDNs). The `http.Server` sets `ReadHeaderTimeout` (10s),
-`ReadTimeout` (30s), `IdleTimeout` (90s) and `WriteTimeout = ResearchTimeout + 30s`
-so a long research can still finish streaming. SIGINT/SIGTERM trigger a graceful
-`Shutdown` with a 30 s drain (Cloud Run sends SIGTERM on scale-in).
+`X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a CSP that allows the
+Tailwind/HTMX CDNs plus remote `https:` images so the scraped-image gallery can
+render). The `http.Server` sets `ReadHeaderTimeout` (10s), `ReadTimeout` (30s),
+`IdleTimeout` (90s) and `WriteTimeout = max(ResearchTimeout, BrowserResearchTimeout) + 30s`
+so a long research can still finish streaming — a rendered run draws on the larger
+budget. SIGINT/SIGTERM trigger a graceful `Shutdown` with a 30 s drain (Cloud Run
+sends SIGTERM on scale-in).
 
 **Handlers:**
 
 - `handleResearch` — reads and trims form fields into a `models.CompanyBrief`
   (name, domain, industry, country, city, areas of interest, desired output,
   time scope, free-form notes). Rejects empty queries with an `error_box` fragment.
-  Async path: `hub.Create(...)` + `go func(){ ...; session.Complete(result, err) }()`,
-  then renders `workflow_console` (with `SessionID`, display mode, query). Sync path:
-  runs the agent inline with a timeout context and renders the result fragment.
+  `browserChoice(r)` resolves the optional `use_browser` field against the
+  deployment policy — asking for rendering where Chromium is unavailable is an
+  error, not a silent downgrade. The async path delegates to `startRun`; the sync
+  path (`?sync=1`) runs the agent inline with a timeout context and renders the
+  result fragment directly.
+- `startRun` — shared launcher for `handleResearch` and `handleRerun`. Creates the
+  session via `hub.Create(...)`, spawns `go func(){ …; session.Complete(result, err) }()`
+  with `withBrowserOverride(ctx, …)` applied and the per-run budget taken from
+  `cfg.ResearchTimeoutFor(browserEnabled)`, then renders `workflow_console` with the
+  session id, display mode, query and budget badge.
+- `handleRerun` — looks the session up, reads the retained
+  `CompanyResearchContext.Brief`, and starts a fresh run for it. This is how the
+  console escalates a thin result with browser rendering without re-entering the brief.
 - `handleEvents` — verifies the session exists, requires `http.Flusher` support,
   then loops a `select` over the request context (client disconnect),
   `session.EventCh` (new events → `AddHistory` + SSE `log` frames), and
@@ -304,7 +331,9 @@ budget knobs.
 #### `company.go` — CompanyAgent: plan → search → rank → scrape → synthesize
 
 `ResearchCompanyWithBrief` (and the simpler `ResearchCompany` wrapper) runs a
-five-stage pipeline, emitting events as it goes:
+six-stage pipeline, emitting events as it goes. `ResearchCompanyRun` additionally
+retains a `CompanyResearchContext` (plan, results, evidence, scrape report, reviews)
+so the result can answer post-run questions:
 
 1. **Plan (`planQueries`)** — one LLM call turns the `CompanyBrief` (name, domain,
    industry, country, city, areas of interest, desired output, time scope, notes)
@@ -334,15 +363,35 @@ five-stage pipeline, emitting events as it goes:
    is ≤ 80 bytes are discarded as noise. Survivors become `models.Evidence`
    (URL, title, content, score, evidence type) plus the `sources` list.
    *(Steps 8+: "Scraping selected relevant source…")*
-5. **Synthesize** — a strict "corporate intelligence analyst" system prompt tells
-   Gemini to use **only** the supplied evidence (no invented employees or reporting
-   lines) and emit an `OrgChart` JSON. Missing company name / domain are backfilled
-   from the brief; `Sources` and `LastUpdated` are stamped locally. *(Steps 8, 9)*
-   Failure requires at least one usable piece of evidence ("no usable company
-   evidence was collected").
+   - **Professional profiles are never scraped.** A `linkedin.*` host is classified
+     `professional_profile`; only its search snippet is kept as evidence and the
+     scrape report records `skipped`. This is a deliberate policy, and it is the main
+     reason department-level results stay thin for companies whose functional
+     leadership is only visible on such profiles.
+   - Every attempt (success, failure, skip) lands in `chart.ScrapeReport`, which the
+     console renders as the collapsible Scraping Report and summarises through
+     `OrgChart.UnverifiedSourceCount`.
+5. **Synthesize (`synthesizeChart`)** — a strict "corporate intelligence analyst"
+   system prompt tells Gemini to use **only** the supplied evidence (no invented
+   employees or reporting lines) and emit an `OrgChart` JSON with an explicit
+   `departments[].members` schema. Evidence originating from `professional_profile`
+   snippets is re-presented as a labelled **profile candidates** block, so a headline
+   that pairs a name with a function and a company is not lost among the page text.
+   Missing company name / domain are backfilled from the brief; `Sources` and
+   `LastUpdated` are stamped locally. Synthesis requires at least one usable piece of
+   evidence ("no usable company evidence was collected").
+6. **Review (`reviewChart`)** — an independent LLM pass scores the draft and may
+   return `revise` with focused follow-up queries, for up to
+   `maxCompanyReviewIterations = 3` passes. Two guards matter:
+   - A follow-up iteration only starts when at least `minQCIterationBudget = 60s` of
+     the run's deadline remains, so a long run returns partial results instead of
+     failing on the deadline.
+   - If the reviewer call fails or returns no verdict, the review is recorded as
+     `unavailable` (score 0) and logged — never reported as a pass.
 
 `formatEvidence` renders the scraped pages as `--- Evidence N: title (url), score ---`
-blocks for the synthesis prompt.
+blocks for the synthesis prompt, and `formatProfileCandidates` renders the
+snippet-sourced candidates.
 
 #### `person.go` — PersonAgent: disambiguation → footprint → dossier
 
@@ -385,25 +434,75 @@ in tests). Robustness features:
 
 #### `scraper.go` — fetch + sanitize web pages
 
-`Scraper` turns an arbitrary URL into clean text for the LLM:
+`Scraper` turns an arbitrary URL into clean text for the LLM under an explicit fetch
+policy:
 
+- **Target policy (`validateTarget`).** Only `http`/`https` are accepted — other
+  schemes are refused *before* the browser renderer can follow them, since Playwright
+  would happily load `file://`. Loopback, private and link-local hosts are refused
+  too, so targets derived from search results or model output cannot reach internal
+  services or cloud metadata (`169.254.169.254`). Relaxing this is a code change
+  (`tools.WithPrivateHostAccess()`), not configuration.
 - **Polite, bounded HTTP:** browser-like `User-Agent` / `Accept` / `Accept-Language`
   headers, connection pooling (`MaxIdleConns: 100`, `10` per host), 15 s timeout,
   max **5 redirects**, and a guaranteed non-nil cookie jar (an empty jar is created
   when none is supplied, because a typed-nil `*cookiejar.Jar` on `http.Client` would
   panic).
-- **Safety guards:** only HTML/XHTML `Content-Type`s are parsed (PDFs/images
-  rejected); the body is read through a **2 MiB** `io.LimitReader`; the final text
+- **Retry:** network errors and 408/429/5xx are retried up to 3 times with linear
+  backoff; a 404-style client error is returned immediately so the browser fallback
+  can decide what to do with it.
+- **Safety guards:** only HTML/XHTML `Content-Type`s are parsed (PDFs and images are
+  rejected with `unsupported content type`). The body is read through a **2 MiB**
+  `io.LimitReader` one byte past the cap, so a truncated document is *detected*
+  rather than silently parsed and is surfaced as `ContentTruncated`. The final text
   is rune-safe truncated to **40 KB** (never splits a UTF-8 rune, appends a
   `...[content truncated]...` marker).
+- **Encoding:** the `Content-Type` charset (or a `<meta>` declaration) is honoured
+  through `golang.org/x/net/html/charset`, so ISO-8859-1 / windows-1252 pages are
+  decoded rather than mangled into mojibake.
+- **Block detection (`detectBlockPage`)** — *visible* text is checked for challenge
+  markers (press-and-hold, "verify you are human", captcha, unusual traffic,
+  access denied), never raw markup, so inline `<script>` source cannot trip it. The
+  check only applies to short pages, so an article that merely mentions a marker is
+  not misclassified. A hit sets `Blocked` + `BlockReason`: the scraper reports the
+  challenge instead of attempting to defeat it.
 - **Content extraction (goquery):** removes `script/style/noscript/nav/footer/
-  header/svg/form/iframe/button/[role=navigation]/[role=banner]`, then selects only
-  **leaf** content blocks — `h1-h4, p, li, article, section` that do *not* contain
-  another such tag — preventing the nested-duplicate problem that previously
-  inflated LLM context 2–10×. Blocks under 25 runes are dropped; if nothing
-  survives, the whole `<body>` text is the fallback; 3+ consecutive newlines are
-  collapsed.
-- Returns a `models.ScrapeResult{URL, Title, Content, ByteSize, FetchedAt}`.
+  header/aside/svg/form/iframe/button/[role=navigation]/[role=banner]` plus cookie,
+  consent, sidebar, advert and related-content blocks, then selects only **leaf**
+  content blocks — `h1-h4, p, li, article, section` that do *not* contain another such
+  tag — preventing the nested-duplicate problem that previously inflated LLM context
+  2–10×. Blocks under 25 runes are dropped; if nothing survives, `<body>` text is the
+  fallback, joined with separators so adjacent blocks do not run together; 3+
+  consecutive newlines are collapsed.
+- Returns a `models.ScrapeResult` carrying `URL`, `CanonicalURL`, `Title`, `Content`,
+  `Headings`, `JSONLD`, `Images`, `WordCount`, `ByteSize`, `QualityScore`,
+  `FetchedAt`, `Blocked`/`BlockReason` and `ContentTruncated`.
+
+#### `scraper_browser.go` — optional Playwright rendering
+
+`NewScraperWithBrowser(..., enableBrowser)` adds a bounded renderer used only when the
+HTTP path errors, is blocked, or yields a JavaScript shell:
+
+- **Full Chromium, not the headless shell.** Launch uses `channel: "chromium"`
+  because Playwright's bundled `chrome-headless-shell` crashes ("Target crashed" as
+  soon as a page opens) on some hosts; the full browser is also a more realistic
+  fingerprint for interstitial-gated pages.
+- **One shared browser context**, created lazily and reused across renders, so a
+  clearance cookie earned by passing a JavaScript interstitial survives to the next
+  page. A fresh `Page` per render keeps it concurrency-safe.
+- **Settle before extracting** — after `DOMContentLoaded` it waits for network idle
+  (bounded) and then a short settle, which is what gives an interstitial time to run
+  to completion and redirect.
+- **Bounded concurrency** — a `renderSem` counting semaphore caps simultaneous
+  renders, and rendering is skipped entirely when the effective setting is off.
+- **Challenge-safe** — if the rendered page is still a challenge the result stays
+  `blocked`; nothing is clicked, held, or solved.
+- **Per-request override.** The setting is process-wide
+  (`ENABLE_BROWSER_FALLBACK`) with a per-request override carried on the context
+  (`tools.WithBrowserFallback` / `BrowserFallbackOverride`). That is how the console's
+  per-run toggle and `POST /api/rerun` switch behaviour for a single run without
+  mutating shared state — and why `Engine.scrapeCacheKey` includes the render mode, so
+  a thin HTTP-only result can never mask a browser-rendered re-run of the same URL.
 
 #### `cookies.go` — browser cookie import
 
@@ -427,7 +526,10 @@ Wraps `google.golang.org/genai` (default model `gemini-2.5-flash-lite`):
   for Vertex AI with ADC. Initialization errors name the missing configuration.
 - **`GenerateContent`** — system instruction as a separate `Content`, temperature
   **0.2** (low creativity for factual extraction), joins the text parts of the first
-  candidate; errors clearly when the response is empty or safety-blocked.
+  candidate; errors clearly when the response is empty or safety-blocked. Transient
+  API failures (`genai.ServerError`, plus 429/408 `ClientError`s) are retried up to
+  **3 attempts** with linear backoff, so a single "service unavailable" cannot kill a
+  multi-minute research run. Request errors and cancellations are never retried.
 - **`GenerateStructured`** — appends a "Respond ONLY with valid JSON…" instruction,
   decodes with `decodeJSON` → `cleanJSONString` (strips markdown fences, extracts
   the outermost `{...}` when prose surrounds it). If parsing still fails, it
@@ -458,10 +560,10 @@ exchanges data through these types:
 
 | File | Contents | Role |
 | :--- | :--- | :--- |
-| `agent.go` | `EventType` (`thinking`, `tool_call`, `tool_result`, `complete`, `error`), `AgentEvent` (+`FormattedTime` for the UI clock), `SearchResult`, `ScrapeResult` | The agent's observability contract and raw tool outputs |
-| `company.go` | `OrgChart`, `Department`, `Employee`, `Location` | Final company-mode output shape (also the synthesis JSON schema Gemini must fill) |
+| `agent.go` | `EventType` (`thinking`, `tool_call`, `tool_result`, `complete`, `error`), `AgentEvent` (+`FormattedTime` for the UI clock), `SearchResult`, `ScrapeResult` (incl. `Blocked`/`BlockReason` and `ContentTruncated`) | The agent's observability contract and raw tool outputs |
+| `company.go` | `OrgChart` (+`UnverifiedSourceCount()`), `Department`, `Employee`, `Location` | Final company-mode output shape (also the synthesis JSON schema Gemini must fill). Custom `UnmarshalJSON` tolerates a string-or-object `headquarters` and numeric `headcount_est`; `UnverifiedSourceCount` drives the "not enough detail?" hint |
 | `person.go` | `PersonProfile` (+`ScorePercent()`), `Experience`, `Education` | Final person dossier shape; `ScorePercent` rounds the 0–1 confidence to a whole percent for the UI badge |
-| `research.go` | `ResearchPreferences`, `CompanyBrief` (embeds preferences), `PlannedQuery` / `QueryPlan`, `RankedResult`, `Evidence` | Inputs and intermediate artifacts of the company pipeline |
+| `research.go` | `ResearchPreferences`, `CompanyBrief` (embeds preferences), `PlannedQuery` / `QueryPlan`, `RankedResult`, `Evidence`, `ScrapeReportEntry`, `QualityReview`, `CompanyResearchContext`, `QuestionAnswer` | Inputs and intermediate artifacts of the company pipeline, plus the retained context used to answer post-run questions. `QualityReview` has a custom `UnmarshalJSON` because the model returns `follow_up_queries` as either strings or objects |
 
 ### 5.7 `internal/web` — embedded UI layer
 
@@ -474,18 +576,25 @@ exchanges data through these types:
   target `#results-container`). A `toggleFields()` inline script swaps visible
   fields between company mode (domain, industry, country, city, areas of interest,
   desired output, time scope, notes) and person mode (company name, location).
-- **`templates/fragments.html`** — the five HTMX fragments:
+- **`templates/fragments.html`** — seven HTMX fragments:
   - `error_box` — red error banner (data auto-escaped).
   - `log_entry` — one terminal-style line per `AgentEvent`, with a timestamp and a
     color-coded badge per event type (purple thinking, sky tool_call, emerald
     tool_result, teal complete, red error).
-  - `workflow_console` — the live console: terminal-style header with mode/query and
-    an "Autonomous Agent Running..." status pill, plus three `sse-swap` targets
-    (`log`, `status`, `result`) wired to `sse-connect="/api/events?session_id=..."`,
-    `sse-close="close"`.
-  - `company_chart` — org chart card: overview, HQ/domain header, leadership grid,
-    department cards with member lists, per-employee "Open dossier" drill-down
-    forms (sync person research into `#company-drilldown-result`), and source links.
+  - `workflow_console` — the live console: terminal-style header with mode/query and a
+    budget badge, an "Autonomous Agent Running..." status pill, plus three `sse-swap`
+    targets (`log`, `status`, `result`) wired to
+    `sse-connect="/api/events?session_id=..."`, `sse-close="close"`.
+  - `company_chart` — org chart card: HQ/domain header, overview, leadership grid, and
+    department cards. The Images gallery, Scraping Report and Sources list are wrapped
+    in `<details>`/`<summary>` disclosure buttons (each labelled with its item count)
+    so the answer stays readable; the content remains in the DOM, so it is still
+    matched by `Ctrl+F` and in print. Per-employee "Open dossier" drill-down forms and
+    the "N collected source(s) could not be used" note live here too.
+  - `company_result` — wraps `company_chart` and adds the **"Not enough detail?"**
+    panel whose "Re-run with browser rendering" form posts to `/api/rerun`, plus the
+    "Ask about this research" form.
+  - `question_answer` — rendered answer with confidence and a collapsible source list.
   - `person_dossier` — dossier card: name/title/company/location, confidence score
     pill (via `ScorePercent`), executive summary, career history, education and
     skill chips.
@@ -501,11 +610,17 @@ All interpolation is auto-escaped by `html/template` (verified by `web_test.go`)
 | Cached artifact | Key | TTL | Purpose |
 | :--- | :--- | :--- | :--- |
 | Serper search results | `search:<sha256(query)>` | 48 h | Repeat queries (common during iterative research and drill-downs) don't cost API credits |
-| Scraped page text | `scrape:<sha256(url)>` | 7 days | Pages rarely change; re-scraping is the slowest tool call |
+| Scraped page text | `scrape:<sha256(url, render mode)>` | 7 days | Pages rarely change; re-scraping is the slowest tool call |
+| Failed scrape (negative) | same shape as above | 15 min | Stops a follow-up question re-fetching a known dead end (403, PDF, empty page). Cancellations are never cached |
 
-Both sit in one bounded `MemoryCache` (FIFO-evicted at `CACHE_MAX_ENTRIES`). The
+All three share one bounded `MemoryCache` (FIFO-evicted at `CACHE_MAX_ENTRIES`). The
 cache is process-local: restarting the server clears it (a Redis/external backend
 would be the natural extension point).
+
+The scrape key includes the **render mode** (`default` / `http` / `browser`, derived
+from any per-request browser override). Without it, a thin HTTP-only result cached by
+an earlier run would be served to a browser-rendered re-run of the same URL — and a
+cached failure would suppress the rendered attempt that might have succeeded.
 
 ### 6.2 Agent observability (event contract)
 
@@ -532,35 +647,59 @@ and lets tests pass `nil` channels.
 | :--- | :--- | :--- |
 | Max agent steps per run | `MAX_AGENT_STEPS` → `Engine.MaxSteps` | 10 |
 | Max pages scraped per run | `MAX_SCRAPES_PER_RUN` → `Engine.MaxScrapes` | 10 |
-| Max search results per query | `MAX_SEARCH_RESULTS` → `Engine.MaxSearchResults` | 8 |
+| Max search results per query | `MAX_SEARCH_RESULTS` → `Engine.MaxSearchResults` | 12 |
 | Company query plan size | `limitQueryPlan` | 6 queries |
+| QC review passes | `maxCompanyReviewIterations` | 3 (≤ 2 follow-ups) |
+| Min budget to start a QC follow-up | `minQCIterationBudget` | 60 s |
 | Per-run wall clock | `RESEARCH_TIMEOUT_SECONDS` → context timeout | 180 s |
+| Per-run wall clock, browser rendering | `BROWSER_RESEARCH_TIMEOUT_SECONDS` | 300 s |
 | Form body size | `maxFormBytes` in `main.go` | 1 MiB |
 | Scraped HTML body | `maxBodyBytes` in `scraper.go` | 2 MiB |
 | Text sent to LLM per page | `maxContentBytes` (rune-safe) | 40 KB |
+| Scrape attempts per URL | `scraperMaxAttempts` | 3 (linear backoff) |
+| LLM attempts per call | `geminiMaxAttempts` | 3 (linear backoff) |
+| Concurrent browser renders | `maxConcurrentRenders` (semaphore) | 2 |
+| Failed scrape retention | `negativeScrapeTTL` | 15 min |
 | LLM temperature | `gemini.go` | 0.2 |
-| HTTP server timeouts | `main.go` (header/read/idle/write) | 10/30/90s / research+30s |
+| HTTP server timeouts | `main.go` (header/read/idle/write) | 10/30/90s / max(research, browser research)+30s |
 
 ### 6.5 Error handling & resilience
 
 - **Serper:** retries transient failures (network, 429, 5xx) with linear backoff;
   fatal errors surface immediately.
-- **Gemini structured output:** one stricter retry when JSON parsing fails.
+- **Gemini:** one stricter retry when JSON parsing fails, plus up to 3 attempts for
+  transient API failures (5xx / 429 / 408). Non-transient request errors and
+  cancellations return immediately.
 - **Company pipeline:** per-query search failures are tolerated; LLM planning and
   ranking each have deterministic fallbacks, so research still completes if
   intermediate LLM calls misbehave (only the final synthesis has no fallback).
-- **Scraping:** individual page failures/empty pages are skipped silently (the run
-  continues with remaining sources).
+- **QC review:** a failed or empty review is recorded as `unavailable` (score 0,
+  logged) — never as a pass. A follow-up iteration is skipped when under 60 s of
+  budget remains, so a long run returns what it has instead of failing on the deadline.
+- **Scraping:** transient fetch failures are retried up to 3 times; individual page
+  failures, blocked pages and empty pages are recorded in the scrape report and
+  skipped, and the failures are cached for 15 minutes so a follow-up question does not
+  re-attempt them.
 - **SSE:** buffered channel + history replay + drain-on-done ensure no event is
   lost to a late or reconnecting viewer (beyond the deliberate drop-on-overflow).
 - **Shutdown:** in-flight research gets up to 30 s to finish on SIGTERM/SIGINT.
 
 ### 6.6 Security posture
 
-- `html/template` auto-escaping everywhere; strict CSP; `nosniff`/`DENY`/
-  `no-referrer` headers; request-body cap; distroless **nonroot** runtime image;
-  session IDs from `crypto/rand`; absolute-URL validation before scraping;
-  content-type and size guards before parsing untrusted HTML.
+- `html/template` auto-escaping everywhere; strict CSP (`img-src` additionally allows
+  remote `https:` images so the scraped-image gallery renders, with `no-referrer`
+  limiting third-party tracking); `nosniff` / `DENY` / `no-referrer` headers;
+  request-body cap; distroless **nonroot** runtime image; session IDs from
+  `crypto/rand`.
+- **Scrape targets are constrained:** absolute `http`/`https` URLs only — other
+  schemes are rejected before the browser renderer could follow them — and loopback,
+  private and link-local hosts are refused, so search-derived or model-derived URLs
+  cannot reach internal services or cloud metadata endpoints.
+- **Untrusted HTML is never trusted:** HTML/XHTML content types only, 2 MiB body cap,
+  charset-aware decoding, and a parse-then-sanitize pass before anything reaches the
+  model.
+- **Bot challenges are reported, not defeated** — the browser fallback renders a
+  challenge page like any other and reports `blocked` if the challenge persists.
 
 ---
 
@@ -580,8 +719,11 @@ All configuration comes from environment variables (`internal/config/config.go`)
 | `COOKIE_FILE_PATH` | *(none)* | Optional browser cookie export (JSON) |
 | `CACHE_MAX_ENTRIES` | `2048` | Bounded-cache size (FIFO eviction) |
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Per-research context timeout |
+| `BROWSER_RESEARCH_TIMEOUT_SECONDS` | `300` | Per-research timeout when the run renders pages in a browser (clamped to ≥ `RESEARCH_TIMEOUT_SECONDS`) |
+| `ENABLE_BROWSER_FALLBACK` | `false` | Default browser-rendering setting applied to every run |
+| `ALLOW_BROWSER_TOGGLE` | `true` | Offer the per-run rendering toggle in the console (shown only when Chromium can start) |
 | `MAX_SCRAPES_PER_RUN` | `10` | Scrape budget per research run |
-| `MAX_SEARCH_RESULTS` | `8` | Results per Serper query |
+| `MAX_SEARCH_RESULTS` | `12` | Results per Serper query |
 | `MAX_AGENT_STEPS` | `10` | Agent/tool iteration budget per run |
 
 Numeric values are parsed by `envInt`, which silently falls back to the default for
@@ -594,7 +736,9 @@ unset, invalid, or non-positive values.
 | Method | Path | Description |
 | :--- | :--- | :--- |
 | `GET` | `/` | Research console (full HTML page from `index.html`) |
-| `POST` | `/api/research` | Start research. Form fields: `mode` (`company`/`person`), `query`, `company_name`, `location`; company extras: `company_domain`, `company_industry`, `company_country`, `company_city`, `areas_of_interest`, `desired_output`, `time_scope`, `research_notes` (comma-separated lists allowed). Returns the `workflow_console` fragment, or the final result fragment when `?sync=1`. |
+| `POST` | `/api/research` | Start research. Form fields: `mode` (`company`/`person`), `query`, `company_name`, `location`; company extras: `company_domain`, `company_industry`, `company_country`, `company_city`, `areas_of_interest`, `desired_output`, `time_scope`, `research_notes` (comma-separated lists allowed); `use_browser` (`1`/`0`) opts this run into browser rendering. Returns the `workflow_console` fragment, or the final result fragment when `?sync=1`. |
+| `POST` | `/api/rerun` | Form fields: `session_id`, optional `use_browser`. Re-runs that session's retained brief in a **new** session — the console's "Re-run with browser rendering" button. Errors if the session has expired or is not a company session. |
+| `POST` | `/api/question` | Form fields: `session_id`, `question` (≤ 500 chars). Answers from retained evidence, or runs a fresh focused search when the evidence is insufficient. |
 | `GET` | `/api/events?session_id=...` | SSE stream: `log` frames (rendered `log_entry`), then `result` (final fragment), `status` (badge HTML), and `close`. |
 | `GET` | `/healthz` | Liveness probe → `ok` |
 
@@ -603,6 +747,10 @@ Minimal CLI usage of the sync path (no UI):
 ```bash
 curl -X POST "http://localhost:8080/api/research?sync=1" \
   -d "mode=company" -d "query=Acme Robotics"
+
+# opt a single run into browser rendering
+curl -X POST "http://localhost:8080/api/research?sync=1" \
+  -d "mode=company" -d "query=Acme Robotics" -d "use_browser=1"
 ```
 
 ---
@@ -614,12 +762,22 @@ unit tests — no network access required:
 
 | Package | What's covered |
 | :--- | :--- |
-| `internal/agent` | Engine limit enforcement + default fallbacks (`engine_test.go`, using `mockSearcher`/`mockScraper`/`mockLLM`); deterministic fallback query plan, official-domain ranking preference, and a full fallback workflow run producing an org chart with a mock LLM (`company_test.go`) |
+| `cmd/server` | SSE termination on a failed session; browser-choice policy (toggle disabled by the operator / Chromium unavailable / explicit opt-out / absent field); security headers incl. the CSP `img-src` allowance; re-run validation paths |
+| `internal/agent` | Engine limit enforcement + default fallbacks (`mockSearcher`/`mockScraper`/`mockLLM`); negative scrape caching and render-mode cache keys; deterministic fallback query plan, ranking, QC loop termination, profile-candidate plumbing, QC budget guard |
 | `internal/cache` | TTL expiry, FIFO eviction bounds |
-| `internal/config` | Defaults and env-var overrides / invalid-value fallback |
-| `internal/llm` | `cleanJSONString` fence/prose stripping |
-| `internal/tools` | Serper retry/response handling against `httptest` servers, scraper extraction/sanitization, cookie parsing & expiry handling |
-| `internal/web` | Template parsing and HTML auto-escaping of interpolated data |
+| `internal/config` | Defaults, env-var overrides / invalid-value fallback, browser-research timeout selection and clamping |
+| `internal/llm` | `cleanJSONString` fence/prose stripping; transient-vs-fatal error classification |
+| `internal/models` | Tolerant unmarshalling (`headquarters`, `headcount_est`, string-or-object `follow_up_queries`) and `UnverifiedSourceCount` |
+| `internal/tools` | Serper retry/response handling and the scraper's fetch policy, extraction and block detection against `httptest` servers — incl. charset decoding, non-HTTP/private-host refusal, per-request rendering override, idempotent `Close`, truncation flagging — plus cookie parsing & expiry |
+| `internal/web` | Template parsing, HTML auto-escaping, disclosure-panel structure, capability-gated browser toggle, run-budget badge |
+
+One test drives **real Playwright/Chromium** to prove that a clearance cookie earned by
+passing a JavaScript interstitial is reused across renders. It is skipped unless
+`PLAYWRIGHT_INTEGRATION=1` is set, so the default suite needs no browser:
+
+```bash
+PLAYWRIGHT_INTEGRATION=1 go test ./internal/tools/ -run TestBrowserRendererReusesInterstitialClearance
+```
 
 CI (`.github/workflows/go.yml`) additionally enforces `gofmt` cleanliness, `go vet`,
 and a full build on every push to `main` and every pull request, using the Go
@@ -647,7 +805,8 @@ tooling.
 
 ```bash
 go mod tidy
-docker build -t websearch-go .
+docker build -t websearch-go .                                  # HTTP-only, distroless
+docker build -f Dockerfile.browser -t websearch-go-browser .    # includes Chromium
 docker run --rm -p 8080:8080 \
   -e SERPER_API_KEY=... -e GOOGLE_API_KEY=... websearch-go
 ```
@@ -657,6 +816,11 @@ The `Dockerfile` is a two-stage build: `golang:1.23-alpine` compiles a static bi
 `gcr.io/distroless/static-debian12:nonroot` — minimal attack surface, fast cold
 start, and no shell/package manager in the image. Templates are embedded, so the
 image contains only the single binary.
+
+That image deliberately **cannot** render pages. `Dockerfile.browser` builds on
+`mcr.microsoft.com/playwright:v1.62.1-noble` instead (browser version kept in step
+with the `playwright-go` dependency) and is the one to deploy with
+`ENABLE_BROWSER_FALLBACK=true` or the per-run toggle.
 
 ### Environment note for Windows dev
 
@@ -676,32 +840,41 @@ server:
 | `generate_pro_deck.py` | A `python-pptx` script that generated the bundled `LLM_Reasoning_Executive_Guide.pptx` / `.pdf` presentation about LLM reasoning. Documentation tooling, not runtime code. |
 | `LLMreasoning.md`, `LLM_Reasoning_Executive_Guide.pdf`, `.pptx` | Executive-guide artifacts explaining the LLM reasoning concepts behind the agent design. |
 | `websearch.exe` | A compiled Windows binary of `cmd/server` (build artifact; rebuild with `go build ./cmd/server`). |
-| `README.md` | Usage quickstart: prerequisites, env vars, endpoints, Docker commands. |
+| `README.md` | Usage quickstart: prerequisites, env vars, endpoints, Docker commands, plus the security-header and fetching-policy summaries. |
 | `DESIGN.md` | The original high-level design (HLD), architecture diagram, and phased implementation plan that this codebase implements. |
+| `HOW_IT_WORKS.md` | Narrative walkthrough of the request lifecycle and every module, aimed at a newcomer. |
 | `.gitignore`, `.vscode/`, `.github/`, `scripts/` | Repo hygiene, editor task, CI pipeline, dev watcher. |
 
 ---
 
 ## 12. Project health & known issues
 
-**Verified during this review:**
+**Verified:**
 
-- `internal/agent`, `internal/cache`, `internal/config`, `internal/web` tests pass;
-  `gofmt -l` reports no formatting issues.
+- `go build ./...`, `go vet ./...` and `go test ./...` all pass across the eight
+  packages, and `gofmt -l` reports no formatting issues (CI enforces the same gates).
 - Code quality highlights worth keeping: interface-driven agent tools (mockable),
-  deterministic fallbacks for every intermediate LLM call, bounded memory
-  everywhere (cache, session hub, event channels, scrape sizes), and disciplined
-  HTTP hardening.
+  deterministic fallbacks for every intermediate LLM call, bounded memory everywhere
+  (cache, session hub, event channels, scrape sizes), and disciplined HTTP hardening
+  (fetch-target policy, content-type/size caps, charset decoding, CSP).
 
-**Known issue (environment, not code):** the Go installation on this machine
-(`C:\Program Files\Go`, go1.27.0) has a **corrupted standard library** —
-`src/crypto/tls/auth.go` contains a stray control byte (U+000B) and a typo'd
-identifier (`PSSWithSHA254` instead of `PSSWithSHA256`). Any package that
-transitively imports `crypto/tls` (including `cmd/server`, `internal/llm`,
-`internal/tools`) fails to *compile locally* with errors pointing inside the Go
-installation. Fix by reinstalling Go (or restoring the stdlib); the project source
-itself is unaffected, and CI/Docker builds are unaffected because they use their
-own toolchain images.
+**Known limitations (deliberate behaviour, not bugs):**
+
+- **Professional-profile sources are never scraped.** `linkedin.*` URLs are retained
+  as snippets only, so department-level results stay thin for a company whose
+  functional leadership is visible only there. Relaxing this is a policy decision.
+- **The relevance ranker is permissive.** In practice it marks nearly every candidate
+  relevant, so off-company profiles and off-domain pages still reach the scrape stage.
+  Hard pre-filters (domain / company-name must match) would tighten this.
+- **PDFs are rejected outright** with `unsupported content type`, which costs officer
+  lists published as registry filings.
+- **Browser rendering is off by default** and requires a Playwright install plus the
+  per-run toggle (or `ENABLE_BROWSER_FALLBACK=true`).
+- **Playwright's `chrome-headless-shell` crashes on some hosts**, so the renderer uses
+  `channel: "chromium"` (the full browser) — correct, but heavier.
+- **Plain `http:` images remain CSP-blocked**, so the gallery only shows `https:` ones.
+- **Runs are long** (roughly 90 s–5 min). Rendered runs draw the larger budget, and the
+  budget-aware QC pass returns partial results rather than failing when time runs out.
 
 **Possible future improvements** (none blocking):
 
@@ -714,6 +887,8 @@ own toolchain images.
   conceptual model).
 - `websearch.exe` at the repo root could be removed or gitignored to keep the
   repository clean.
+- Negative scrape caching is time-based only; distinguishing "definitely gone" (404)
+  from "try again" (timeout) would waste fewer retries.
 
 ---
 

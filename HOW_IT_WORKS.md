@@ -47,12 +47,15 @@ modules), and each sub-package owns one responsibility.
 ## 2. The Request Lifecycle, End to End
 
 1. **User submits a form** on the index page → `POST /api/research` with `mode`
-   (`company` or `person`), `query`, and optional scoping fields.
+   (`company` or `person`), `query`, optional scoping fields, and optionally `use_browser`
+   to render this run's pages in a real browser. That checkbox only appears when Chromium is
+   installed *and* `ALLOW_BROWSER_TOGGLE` permits it.
 2. **The server creates a session**: a random ID (`sess_` + 16 hex chars), an event channel
    (buffered, 100 events), and a `Done` channel, all tracked by the `SessionHub`.
-3. **Research runs in a background goroutine** with a timeout (`RESEARCH_TIMEOUT_SECONDS`,
-   default 180 s). The HTTP response returns *immediately* with the "workflow console"
-   fragment — the UI never blocks.
+3. **Research runs in a background goroutine** with a timeout — `RESEARCH_TIMEOUT_SECONDS`
+   (default 180 s), or `BROWSER_RESEARCH_TIMEOUT_SECONDS` (default 300 s) when the run renders
+   pages in a browser. The HTTP response returns *immediately* with the "workflow console"
+   fragment — the UI never blocks — and the console header shows which budget is in force.
 4. **The browser opens `GET /api/events?session_id=…`** (SSE). Every agent step — thinking,
    tool call, tool result — is rendered server-side into an HTML fragment and pushed as an
    SSE `log` event; HTMX swaps it into the console live.
@@ -63,6 +66,9 @@ modules), and each sub-package owns one responsibility.
    The agent answers from *retained evidence*; if that is insufficient, it asks Gemini to
    emit `needs_fresh_search: true` plus a query, then runs a fresh uncached search and
    re-synthesizes.
+7. **If the result looks thin**, the finished company result offers "Re-run with browser
+   rendering" → `POST /api/rerun`, which reuses the retained brief in a *new* session and
+   draws the larger browser budget, so nothing has to be re-typed.
 
 There is also a synchronous mode (`?sync=1`) for CLI/testing that blocks until the result is
 ready — useful for automated testing without SSE.
@@ -76,19 +82,25 @@ ready — useful for automated testing without SSE.
 The composition root. Responsibilities:
 
 - **Wires all dependencies** in a strict order: cookie jar (optional) → memory cache →
-  scraper → Serper client → Gemini client (fail-fast: the server refuses to start without
-  working Gemini credentials) → `Engine` → the two agents → `SessionHub` → templates.
+  scraper (`NewScraperWithBrowser`, with the browser-fallback setting from config) → Serper
+  client → Gemini client (fail-fast: the server refuses to start without working Gemini
+  credentials) → `Engine` → the two agents → `SessionHub` → templates. When the per-run
+  rendering toggle is enabled it then probes Chromium once, so the UI only offers rendering
+  that can actually work.
 - **Routes** (Go 1.22+ method-pattern syntax):
   | Route | Handler |
   |---|---|
   | `GET /{$}` | index page (embedded template) |
-  | `POST /api/research` | start company/person research |
+  | `POST /api/research` | start company/person research (`use_browser` opts one run into rendering) |
+  | `POST /api/rerun` | re-run a completed company session's retained brief |
   | `POST /api/question` | ask a follow-up on a completed *company* session |
   | `GET /api/events` | SSE stream for one session |
   | `GET /healthz` | liveness probe |
 - **Hardening**: 1 MiB request-body cap (`http.MaxBytesReader`), server timeouts
-  (read/write/idle), security headers on every response (`nosniff`, `X-Frame-Options: DENY`,
-  referrer policy, a CSP that whitelists only Tailwind/HTMX CDNs), and graceful shutdown on
+  (read/write/idle, where the write timeout is sized from the largest configured research
+  budget so a long stream is not cut off), security headers on every response (`nosniff`,
+  `X-Frame-Options: DENY`, referrer policy, and a CSP that whitelists the Tailwind/HTMX CDNs
+  plus remote `https:` images so the scraped-image gallery renders), and graceful shutdown on
   `SIGINT`/`SIGTERM` (waits up to 30 s for in-flight research — important on Cloud Run).
 - **Mode dispatch**: person mode passes `query, company, location`; company mode builds a
   `CompanyBrief` from many optional form fields (domain, industry, country, city, areas of
@@ -101,14 +113,17 @@ The shared orchestration engine both agents delegate to. Key elements:
 - **Interface-based decoupling**: `Searcher`, `PageFetcher`, `LLMClient` — the engine only
   depends on these interfaces, so the real HTTP clients can be swapped for test doubles.
 - **Cached tool calls**: `SearchCached` (48 h TTL) and `ScrapeCached` (7-day TTL) hash the
-  query/URL into a SHA-256 cache key (`cache.HashKey`). `SearchFresh` bypasses the cache —
-  used by the Q&A path when the LLM explicitly asks for new evidence.
+  query/URL into a SHA-256 cache key (`cache.HashKey`). Scrape keys also include the render
+  mode, so an HTTP-only result never masks a browser-rendered re-run of the same URL, and
+  **failures are cached for 15 minutes** so a follow-up question does not pay to rediscover a
+  known dead end. `SearchFresh` bypasses the cache — used by the Q&A path when the LLM
+  explicitly asks for new evidence.
 - **Non-blocking event emission**: `Emit` writes `AgentEvent`s to the session channel with a
   `select`/`default` — a slow SSE consumer can never stall the research goroutine (events
   are dropped with a warning instead).
 - **Structured LLM delegation**: `SynthesizeJSON` / `GenerateStructured` forward prompts to
   the Gemini client.
-- **Bounds**: max scrapes per run (default 3), max search results per query (default 8),
+- **Bounds**: max scrapes per run (default 10), max search results per query (default 12),
   max agent steps (default 10) — read from config, with safe defaults if misconfigured.
 
 ### `internal/agent/company.go` — Company Research Agent (~17 KB, the largest file)
@@ -126,12 +141,21 @@ Runs a **plan → search → rank → scrape → synthesize → review** pipelin
    — a defensive guard against the model hallucinating URLs.
 4. **`scrapeRanked`** — scrapes the top-ranked URLs up to `MaxScrapes`, validating each URL
    with `url.ParseRequestURI` first, skipping tiny/useless pages (<80 bytes of text).
-5. **`synthesizeChart`** — one Gemini call with all evidence → `models.OrgChart`.
+   **Professional-profile URLs are never scraped**: their search snippet is kept as evidence
+   and the attempt is recorded as `skipped` in the scrape report. That policy is the main
+   reason department-level results stay thin for companies whose functional leadership is
+   only visible on such profiles.
+5. **`synthesizeChart`** — one Gemini call with all evidence → `models.OrgChart`. Snippet
+   evidence from professional profiles is re-presented as a labelled **profile candidates**
+   block, and the prompt spells out the `departments[].members` schema — a department whose
+   members array is omitted renders as an empty card.
 6. **`reviewChart`** — a *self-critique* step: a second Gemini call acting as a strict QC
    reviewer returns a `QualityReview` (verdict pass/revise, score, gaps, contradictions,
    unsupported claims, follow-up queries). If the verdict is `revise`, the loop re-plans with
    at most 4 follow-up queries — **up to 3 iterations total** (`maxCompanyReviewIterations`).
-   A failed/empty review is treated as "pass" so QC breakage can't wedge the run.
+   A follow-up only starts when at least 60 s of the run's deadline remains, so a long run
+   returns partial results instead of failing on the clock. A failed or empty review is
+   recorded as `unavailable` (score 0, logged) — **never** as a pass.
 7. **`AnswerQuestion`** — post-run Q&A: first tries to answer from the retained
    `CompanyResearchContext`; if the LLM signals `needs_fresh_search`, it runs `SearchFresh`,
    scrapes the top hits, merges with old evidence, and answers again. All accumulated
@@ -184,17 +208,50 @@ HTTP client for `google.serper.dev/search`:
 
 ### `internal/tools/scraper.go` — Web Scraper
 
-Fetches a URL and returns clean text:
+Fetches a URL and returns clean text, under an explicit policy:
 
-- **Guards**: 2 MiB body cap before parsing, 40 KB cap on extracted text, 15 s timeout,
+- **Fetch-target policy**: only `http`/`https` URLs — other schemes are rejected *before* the
+  browser renderer could follow them, since Playwright would happily load `file://` — and
+  loopback, private and link-local hosts are refused, so targets derived from search results
+  or model output cannot reach internal services or cloud metadata.
+- **Guards**: 2 MiB body cap before parsing (read one byte *past* the cap so truncation is
+  detected and flagged as `ContentTruncated`), 40 KB cap on extracted text, 15 s timeout,
   max 5 redirects, HTML-only content types (skips PDFs/images), browser-like headers.
-- **Extraction with goquery**: removes scripts/styles/nav/footer/forms/etc., then selects
-  only **leaf content blocks** (`h1–h4, p, li, article, section` with
+- **Retry**: transient failures (network, 408/429/5xx) are retried up to 3 times with linear
+  backoff; 4xx client errors return immediately so the browser fallback can judge them.
+- **Encoding**: the declared charset (or a `<meta>` declaration) is honoured through
+  `golang.org/x/net/html/charset`, so ISO-8859-1 / windows-1252 pages are decoded instead of
+  being mangled.
+- **Challenge detection**: *visible* text (never raw markup, so inline `<script>` source
+  cannot trip it) is checked for bot-challenge markers, and only on short pages, so an
+  article that merely mentions one is not misclassified. A hit sets `Blocked` + `BlockReason`
+  — the challenge is reported, never defeated.
+- **Extraction with goquery**: removes scripts/styles/nav/footer/forms/cookie-consent/ads
+  etc., then selects only **leaf content blocks** (`h1–h4, p, li, article, section` with
   `:has(...)` exclusion) — this prevents nested duplicates that previously inflated LLM
-  context 2–10×. Rune-aware length filtering (>25 runes) drops nav noise; a body-text
-  fallback covers sparse pages; truncation never splits a UTF-8 rune.
+  context 2–10×. Rune-aware length filtering (≥25 runes) drops nav noise; a body-text
+  fallback covers sparse pages, joining blocks with separators; truncation never splits a
+  UTF-8 rune.
 - A nil cookie jar is replaced with an empty one — avoids a real panic (`http.Client.Jar`
   with a typed-nil jar panics on first use).
+
+### `internal/tools/scraper_browser.go` — Optional Browser Rendering
+
+Used only when the HTTP path errors, is blocked, or yields a JavaScript shell:
+
+- Launches the **full Chromium** build (`channel: "chromium"`) — Playwright's bundled
+  `chrome-headless-shell` crashes on some hosts, and the full browser is also a more
+  realistic fingerprint for interstitial-gated pages.
+- Keeps **one shared browser context**, so a clearance cookie earned by passing a JavaScript
+  interstitial survives to the next render; a fresh `Page` per render keeps it safe under
+  concurrency.
+- Waits for **network idle** (bounded) plus a short settle before extracting, which is what
+  gives an interstitial time to run and redirect.
+- Caps concurrency with a semaphore, and never clicks, holds or solves anything: if the
+  rendered page is still a challenge the result stays `blocked`.
+- The setting is process-wide (`ENABLE_BROWSER_FALLBACK`) but overridable **per request**
+  (`tools.WithBrowserFallback`), which is how the console toggle and `POST /api/rerun` work
+  without mutating shared state.
 
 ### `internal/tools/cookies.go` — Cookie Jar Loader
 
@@ -215,10 +272,10 @@ memory. `HashKey` produces deterministic `prefix:sha256` keys. `Close()` (deferr
 
 | File | Defines |
 |---|---|
-| `agent.go` | `AgentEvent` (session event stream payload: thinking / tool_call / tool_result / complete / error) and `SearchResult` / `ScrapeResult` (tool outputs) |
-| `company.go` | `OrgChart`, `Department`, `Employee`, `Location` — the company research output |
+| `agent.go` | `AgentEvent` (session event stream payload: thinking / tool_call / tool_result / complete / error) and `SearchResult` / `ScrapeResult` (tool outputs, incl. `Blocked`/`BlockReason`, `QualityScore` and `ContentTruncated`) |
+| `company.go` | `OrgChart` (+`UnverifiedSourceCount()`), `Department`, `Employee`, `Location` — the company research output. Tolerant `UnmarshalJSON` for a string-or-object `headquarters` and a numeric `headcount_est` |
 | `person.go` | `PersonProfile`, `Experience`, `Education` — the person dossier output (plus a `ScorePercent` display helper) |
-| `research.go` | The research "state machine" types: `CompanyBrief` + `ResearchPreferences` (user input), `PlannedQuery`/`QueryPlan` (search planning), `RankedResult` (LLM relevance judgments), `Evidence`, `QualityReview` (self-critique), `CompanyResearchContext` (retained per-run state powering QC + Q&A), `QuestionAnswer` |
+| `research.go` | The research "state machine" types: `CompanyBrief` + `ResearchPreferences` (user input), `PlannedQuery`/`QueryPlan` (search planning), `RankedResult` (LLM relevance judgments), `Evidence`, `ScrapeReportEntry` (per-URL scrape outcome), `QualityReview` (self-critique; tolerant `follow_up_queries`), `CompanyResearchContext` (retained per-run state powering QC + Q&A), `QuestionAnswer` |
 
 These structs are the contract between the LLM and the rest of the program: every Gemini
 call unmarshals its JSON into one of them.
@@ -227,17 +284,22 @@ call unmarshals its JSON into one of them.
 
 - `web.go` — `go:embed`s `templates/*.html` into the binary and parses them once. The
   container image therefore needs *only* the static binary.
-- `templates/index.html` — the research console page (HTMX + Tailwind from CDNs).
+- `templates/index.html` — the research console page (HTMX + Tailwind from CDNs), including
+  the capability-gated "Render pages in a real browser" checkbox.
 - `templates/fragments.html` — server-rendered HTMX fragments: `workflow_console`,
   `log_entry`, `company_chart`, `company_result`, `person_dossier`, `question_answer`,
-  `error_box`. Rendered with `html/template` (auto-escaped against XSS).
+  `error_box`. Rendered with `html/template` (auto-escaped against XSS). The Images gallery,
+  Scraping Report and Sources list are `<details>` disclosures — collapsed by default so the
+  answer stays readable, with the content still in the DOM (so `Ctrl+F` and print work). The
+  console header also shows the run's budget.
 
 ### Support Files
 
 | File | Role |
 |---|---|
-| `go.mod` / `go.sum` | Module `github.com/amitgupta1000/WebSearch_GO`, Go 1.23; deps: `goquery` (HTML parsing), `google.golang.org/genai` (Gemini) |
-| `Dockerfile` | Multi-stage build → distroless `nonroot` runtime image; templates are embedded so the image is just the binary |
+| `go.mod` / `go.sum` | Module `github.com/amitgupta1000/WebSearch_GO`, Go 1.23; deps: `goquery` (HTML parsing), `google.golang.org/genai` (Gemini), `playwright-go` (optional rendering), `golang.org/x/net` (charset decoding) |
+| `Dockerfile` | Multi-stage build → distroless `nonroot` runtime image; templates are embedded so the image is just the binary. HTTP-only by design |
+| `Dockerfile.browser` | Playwright base-image variant for deployments that enable browser rendering |
 | `.github/workflows/go.yml` | CI: `go mod tidy`, enforce gofmt, `go vet`, build, test |
 | `scripts/dev.ps1` | Windows dev loop: fingerprints all `.go`/`.html` files under `cmd`+`internal` every 750 ms and restarts `go run ./cmd/server` on change (also wired as the VS Code task `Go: Watch Server`) |
 | `.vscode/tasks.json` | Registers that watcher task |
@@ -249,9 +311,13 @@ call unmarshals its JSON into one of them.
 ### Test Files (mirroring each module)
 
 `engine_test.go`, `company_test.go`, `cache_test.go`, `config_test.go`, `gemini_test.go`,
-`cookies_test.go`, `scraper_test.go`, `serper_test.go`, `web_test.go` — covering tool
-behavior (via injectable base URLs / stub servers), cache eviction, config defaults, JSON
-cleaning, template escaping, and the deterministic ranking fallback.
+`models/company_test.go`, `cookies_test.go`, `scraper_test.go`, `serper_test.go`,
+`web_test.go`, `cmd/server/main_test.go`, `cmd/server/sse_test.go` — covering tool behavior
+(injectable base URLs / stub servers), cache eviction, config defaults, JSON cleaning,
+tolerant unmarshalling, template escaping and disclosure structure, browser-choice policy,
+and the deterministic ranking fallback. One extra test,
+`scraper_browser_integration_test.go`, drives real Chromium and only runs when
+`PLAYWRIGHT_INTEGRATION=1` is set.
 
 ---
 
@@ -270,7 +336,7 @@ searchPlan ───────────► []SearchResult (deduped)        
 rankResults ──────────► []RankedResult (scored)         [Gemini, or heuristics]
    │
    ▼
-scrapeRanked ─────────► []Evidence (≤3 pages)           [Scraper + cache]
+scrapeRanked ─────────► []Evidence (≤10 pages)          [Scraper + cache]
    │
    ▼
 synthesizeChart ──────► OrgChart                        [Gemini]
@@ -278,7 +344,7 @@ synthesizeChart ──────► OrgChart                        [Gemini]
    ▼
 reviewChart ──────────► QualityReview (pass/revise)     [Gemini]
    │
-   ├── revise? ──► loop back to searchPlan (≤3 total iterations)
+   ├── revise? ──► loop back to searchPlan (≤3 iterations, ≥60 s budget left)
    ▼
 chart + CompanyResearchContext ──► SSE result ──► HTMX UI
                                   └─► retained for /api/question
@@ -291,8 +357,9 @@ single synthesis → `PersonProfile`.
 
 ## 5. Notable Engineering Choices
 
-- **Graceful degradation everywhere**: LLM planning, ranking, and QC all have deterministic
-  fallbacks; search retries transient failures; the UI still renders if QC is broken.
+- **Graceful degradation everywhere**: LLM planning and ranking have deterministic fallbacks;
+  search and scraping retry transient failures; a failed QC review is reported as
+  `unavailable` rather than quietly counting as a success.
 - **Bounded resources**: cache entries, scrapes per run, search results, agent steps, request
   body size, scrape body/text size, and session lifetime are all explicitly capped — the
   server can't be runaway-by-design.
@@ -313,6 +380,12 @@ go run ./cmd/server        # then open http://localhost:8080
 
 Required environment: `SERPER_API_KEY` and Gemini credentials (`GOOGLE_API_KEY`, or the
 Vertex AI trio). Optional tuning knobs: `PORT`, `GEMINI_MODEL`, `CACHE_MAX_ENTRIES`,
-`RESEARCH_TIMEOUT_SECONDS`, `MAX_SCRAPES_PER_RUN`, `MAX_SEARCH_RESULTS`, `MAX_AGENT_STEPS`,
+`RESEARCH_TIMEOUT_SECONDS`, `BROWSER_RESEARCH_TIMEOUT_SECONDS`, `ENABLE_BROWSER_FALLBACK`,
+`ALLOW_BROWSER_TOGGLE`, `MAX_SCRAPES_PER_RUN`, `MAX_SEARCH_RESULTS`, `MAX_AGENT_STEPS`,
 `COOKIE_FILE_PATH` (see the README table for defaults). On Windows, `.\scripts\dev.ps1`
 gives you the auto-reloading dev server.
+
+To enable browser rendering, install the Playwright browser once
+(`go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium`), then either
+set `ENABLE_BROWSER_FALLBACK=true` or tick the per-run checkbox in the console. Use
+`Dockerfile.browser` for containerised deployments that need it.

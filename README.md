@@ -31,6 +31,10 @@ go run ./cmd/server
 # open http://localhost:8080
 ```
 
+One test that drives real Playwright/Chromium (verifying that a clearance cookie
+from a JavaScript interstitial is reused across renders) is skipped unless
+`PLAYWRIGHT_INTEGRATION=1` is set, so the default suite needs no browser.
+
 For Windows development, run the auto-reloading server instead:
 
 ```powershell
@@ -51,6 +55,25 @@ search snippets immediately, then Gemini semantically reranks only the top
 eight candidates with an eight-second deadline. If Gemini times out or returns
 invalid URLs, the BM25 ranking continues directly to scraping.
 
+## How a run works
+
+1. **Plan** — Gemini proposes prioritized search queries (with a deterministic
+   fallback plan if planning fails or times out).
+2. **Search** — every query runs through Serper; results are deduplicated across
+   queries and cached for 48 h.
+3. **Rank** — BM25 scores every snippet immediately, then Gemini reranks the top
+   candidates. Only results the ranking returns as relevant are carried forward.
+4. **Scrape** — ranked pages are fetched, cleaned and cached for 7 days. Failures
+   are cached briefly too, so a repeat question does not re-fetch a known dead end
+   (see [Fetching policy](#fetching-policy)).
+5. **Synthesize** — Gemini writes the org chart or dossier from the supplied
+   evidence only, and is instructed not to invent people or titles.
+6. **Review** — an independent QC pass scores the draft and may request focused
+   follow-up iterations (at most two). A follow-up is only started if enough of the
+   research budget remains, so a long run returns partial results rather than
+   failing on the deadline. If the reviewer call itself fails, the review is
+   reported as `unavailable` rather than silently counting as a pass.
+
 ## Environment variables
 
 | Variable | Default | Description |
@@ -67,7 +90,7 @@ invalid URLs, the BM25 ranking continues directly to scraping.
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Per-request research budget |
 | `BROWSER_RESEARCH_TIMEOUT_SECONDS` | `300` | Per-request research budget when a run renders pages in a real browser (clamped to at least `RESEARCH_TIMEOUT_SECONDS`) |
 | `MAX_SCRAPES_PER_RUN` | `10` | Max web pages scraped per research session |
-| `MAX_SEARCH_RESULTS` | `8` | Max search results fetched per search query |
+| `MAX_SEARCH_RESULTS` | `12` | Max search results fetched per search query |
 | `MAX_AGENT_STEPS` | `10` | Max agent/tool iterations per research session |
 | `ALLOW_BROWSER_TOGGLE` | `true` | Offer a per-run "render pages in a real browser" option in the console. Only shown when Chromium can actually start |
 
@@ -75,9 +98,6 @@ When browser fallback is enabled, install the matching Playwright browser once w
 `go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium`.
 The renderer is HTTP-first, does not interact with challenges, and records a
 blocked result when a CAPTCHA or press-and-hold page remains after rendering.
-The default `Dockerfile` remains distroless and HTTP-only; use
-`Dockerfile.browser` when enabling browser fallback in a container.
-
 Rendering launches the full Chromium build (`channel: "chromium"`) rather than
 Playwright's headless shell, which crashes ("Target crashed" on the first page) on
 some hosts. The renderer keeps one shared browser context so cookies earned by
@@ -117,12 +137,56 @@ go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium
 Set `PLAYWRIGHT_NODEJS_PATH` to a preinstalled `node` to skip the bundled Node.js
 download entirely.
 
+## Research console
+
+The UI is a single page that streams each agent step over SSE:
+
+- **Live workflow console** — per-step tool calls, results and reasoning, plus a
+  badge showing which research budget the run is under.
+- **Result panel** — the org chart, with Executive Leadership and Departments always
+  visible. The Images gallery, the Scraping Report and the Sources list sit behind
+  disclosure buttons (each labelled with its item count) so the answer stays
+  readable. Collapsing is visual only: the content remains in the page, so it is
+  still found by `Ctrl+F` and in print.
+- **Per-run browser rendering** — a "Render pages in a real browser" checkbox on the
+  research form, shown only when Chromium can actually start.
+- **Escalating a thin result** — a finished company result offers "Re-run with
+  browser rendering", which reuses the retained brief in a fresh session so you do
+  not have to re-enter it.
+- **Ask about this research** — post-run Q&A that answers from retained evidence
+  first and only performs a fresh search when the evidence is insufficient.
+
+## Fetching policy
+
+The scraper is deliberately conservative, and several of these rules surprise people:
+
+- **Only `http` and `https` are fetched.** Other schemes are refused before the
+  browser fallback sees them — Playwright would otherwise happily follow `file://`.
+- **Loopback, private and link-local targets are refused.** Scrape targets come from
+  search results and model output, so `127.0.0.1`, RFC1918 ranges and cloud metadata
+  endpoints (`169.254.169.254`) are blocked. There is no server option to relax
+  this, so the app cannot research an intranet.
+- **Bot challenges are reported, never bypassed.** A CAPTCHA or press-and-hold page
+  is rendered like any other; if the challenge is still present afterwards the
+  result is marked `blocked` with a reason rather than circumvented.
+- **Non-HTML content is rejected.** A PDF response fails the scrape with
+  `unsupported content type`, which matters for registries that publish officer
+  lists as PDFs.
+- **Bodies are capped at 2 MiB and extracted text at ~40 KB.** A body that hits the
+  cap is parsed from an incomplete document and flagged as `content_truncated`.
+- **Legacy encodings are decoded.** The `Content-Type` charset (or a `<meta>`
+  declaration) is honoured, so ISO-8859-1 and windows-1252 pages are not mangled.
+- **Transient failures are retried** up to three times with linear backoff, and
+  failed scrapes are remembered for 15 minutes so a follow-up question does not
+  re-fetch a known dead end. The retry lengthens worst-case per-URL time, which is
+  part of why rendered runs get a larger budget.
+
 ## Endpoints
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
 | `GET` | `/` | Research console (HTMX UI) |
-| `POST` | `/api/research` | Form fields: `mode` (`company`/`person`), `query`, `company_name`, `location`, plus optional company scope fields `company_country`, `company_city`, `company_domain`, `company_industry`, `areas_of_interest`, `desired_output`, `time_scope`, and `research_notes`. Optional `use_browser` (`1`/`0`) opts a single run into browser rendering. Company research performs up to 3 QC reviews. Returns the live workflow console. |
+| `POST` | `/api/research` | Form fields: `mode` (`company`/`person`), `query`, `company_name`, `location`, plus optional company scope fields `company_country`, `company_city`, `company_domain`, `company_industry`, `areas_of_interest`, `desired_output`, `time_scope`, and `research_notes`. Optional `use_browser` (`1`/`0`) opts a single run into browser rendering. Company research performs up to 3 QC reviews. Returns the live workflow console; add `?sync=1` to run synchronously and return the rendered chart or dossier fragment instead (used by CLI and automated checks). |
 | `POST` | `/api/rerun` | Form fields: `session_id`, optional `use_browser`. Re-runs a completed company session's retained brief in a new session, which is how a thin result is escalated with browser rendering. |
 | `POST` | `/api/question` | Form fields: `session_id`, `question`. Answers a question from retained evidence or runs a fresh focused search when needed. |
 | `GET` | `/api/events` | Server-Sent Events (SSE) stream for live step logs & final synthesis. |
@@ -157,9 +221,13 @@ origins, vendor those two scripts into `internal/web` and drop the hosts from
 
 ```bash
 go mod tidy   # ensure go.sum exists first
-docker build -t websearch-go .
+docker build -t websearch-go .                                 # HTTP-only, distroless
+docker build -f Dockerfile.browser -t websearch-go-browser .   # includes Chromium
 docker run --rm -p 8080:8080 -e SERPER_API_KEY=... -e GOOGLE_API_KEY=... websearch-go
 ```
 
-The runtime image is distroless (`nonroot`); templates are embedded so the
-image contains only the static binary. See `DESIGN.md` for the system design.
+The default runtime image is distroless (`nonroot`); templates are embedded, so the
+image contains only the static binary. Use `Dockerfile.browser` (based on the
+matching Playwright image) together with `ENABLE_BROWSER_FALLBACK=true` or the
+per-run toggle when you need rendering in a container. See `DESIGN.md` for the
+system design.
