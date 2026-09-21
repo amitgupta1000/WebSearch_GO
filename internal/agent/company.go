@@ -724,6 +724,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 		entry.Extractor = scrape.Extractor
 		entry.FallbackStatus = scrape.FallbackStatus
 		entry.FallbackReason = scrape.FallbackReason
+		entry.FallbackError = scrape.FallbackError
 		if scrape.Blocked {
 			entry.Status = "blocked"
 			entry.Reason = scrape.BlockReason

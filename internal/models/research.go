@@ -72,6 +72,7 @@ type ScrapeReportEntry struct {
 	Extractor         string  `json:"extractor,omitempty"`
 	FallbackStatus    string  `json:"fallback_status,omitempty"`
 	FallbackReason    string  `json:"fallback_reason,omitempty"`
+	FallbackError     string  `json:"fallback_error,omitempty"`
 }
 
 // QualityReview records a meta-agent evaluation of a completed research pass.

@@ -73,6 +73,8 @@ When browser fallback is enabled, install the matching Playwright browser once w
 `go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium`.
 The renderer is HTTP-first, does not interact with challenges, and records a
 blocked result when a CAPTCHA or press-and-hold page remains after rendering.
+The default `Dockerfile` remains distroless and HTTP-only; use
+`Dockerfile.browser` when enabling browser fallback in a container.
 
 ## Endpoints
 

@@ -1,0 +1,21 @@
+# Browser-enabled image for ENABLE_BROWSER_FALLBACK=true.
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+RUN apk add --no-cache git ca-certificates
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-w -s" -o websearch ./cmd/server
+
+# Keep this version aligned with github.com/mxschmitt/playwright-go v0.6201.1.
+FROM mcr.microsoft.com/playwright:v1.62.1-noble
+
+WORKDIR /app
+COPY --from=builder /app/websearch /app/websearch
+RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
+
+EXPOSE 8080
+USER appuser
+
+ENTRYPOINT ["/app/websearch"]
