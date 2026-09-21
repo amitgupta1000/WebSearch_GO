@@ -70,14 +70,31 @@ func TestFallbackQueryPlanUsesCompanyScope(t *testing.T) {
 		},
 	})
 
-	if len(plan.Queries) != 4 {
-		t.Fatalf("expected four planned queries, got %d", len(plan.Queries))
+	if len(plan.Queries) != 7 {
+		t.Fatalf("expected seven planned queries, got %d", len(plan.Queries))
 	}
 	if plan.Queries[0].Query != "Acme Germany Berlin leadership executive team" {
 		t.Errorf("unexpected first query: %q", plan.Queries[0].Query)
 	}
-	if plan.Queries[3].TargetArea != "subsidiaries" {
-		t.Errorf("expected interest query target area, got %q", plan.Queries[3].TargetArea)
+	foundInterest := false
+	for _, query := range plan.Queries {
+		if query.TargetArea == "subsidiaries" {
+			foundInterest = true
+			break
+		}
+	}
+	if !foundInterest {
+		t.Errorf("expected interest query target area in plan, got %+v", plan.Queries)
+	}
+	foundConferenceQuery := false
+	for _, query := range plan.Queries {
+		if strings.Contains(query.Query, "Argus Petrochemicals Conference") && strings.Contains(query.Query, "Platts Global Energy Trading") && strings.Contains(query.Query, "S&P Global Chemicals Summit") {
+			foundConferenceQuery = true
+			break
+		}
+	}
+	if !foundConferenceQuery {
+		t.Errorf("expected chemical conference speaker query in plan, got %+v", plan.Queries)
 	}
 }
 
@@ -127,13 +144,46 @@ func TestScrapeRankedRetainsStructuredMetadata(t *testing.T) {
 		Relevant:   true,
 		Score:      0.9,
 		SourceType: "official_leadership",
-	}}, nil, nil)
+	}}, nil, nil, nil)
 	if len(evidence) != 1 || len(evidence[0].Headings) != 1 || len(evidence[0].JSONLD) != 1 {
 		t.Fatalf("expected structured metadata to be retained, got %+v", evidence)
 	}
 	formatted := formatEvidence(evidence)
 	if !strings.Contains(formatted, "Headings: Leadership") || !strings.Contains(formatted, "Structured metadata:") {
 		t.Fatalf("expected structured metadata in formatted evidence, got %q", formatted)
+	}
+}
+
+func TestLinkedInSearchSnippetIsRetainedWithoutDirectScrape(t *testing.T) {
+	cacheStore := cache.NewMemoryCache(100)
+	defer cacheStore.Close()
+
+	engine := NewEngine(&mockLLM{}, &mockSearcher{}, &mockScraper{}, cacheStore, 1, 3, 10)
+	agent := NewCompanyAgent(engine)
+	ranked := []models.RankedResult{{
+		URL:        "https://www.linkedin.com/in/jane-doe",
+		Relevant:   true,
+		Score:      0.9,
+		SourceType: "professional_profile",
+	}}
+	results := []models.SearchResult{{
+		Title:   "Jane Doe - Chief Technology Officer - Acme | LinkedIn",
+		Link:    ranked[0].URL,
+		Snippet: "Jane Doe is Chief Technology Officer at Acme.",
+	}}
+	evidence, _ := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil)
+	if len(evidence) != 1 || evidence[0].EvidenceType != "search_snippet_fallback" {
+		t.Fatalf("expected LinkedIn snippet fallback, got %+v", evidence)
+	}
+}
+
+func TestFormatEvidenceIncludesImageOCR(t *testing.T) {
+	formatted := formatEvidence([]models.Evidence{{
+		URL:    "https://acme.com/leadership",
+		Images: []models.Image{{URL: "https://acme.com/ceo.jpg", ExtractedText: "Chief Executive Officer"}},
+	}})
+	if !strings.Contains(formatted, "OCR: Chief Executive Officer") {
+		t.Fatalf("expected OCR text in formatted evidence, got %q", formatted)
 	}
 }
 
@@ -185,6 +235,13 @@ func TestSourceSignalsPreferPrimaryDomainOverOfficialSubdomain(t *testing.T) {
 	}
 	if !strings.Contains(ranked[0].Reason, "primary domain") {
 		t.Errorf("expected primary-domain reason, got %q", ranked[0].Reason)
+	}
+}
+
+func TestClassifySourceRecognizesIndustryEventSources(t *testing.T) {
+	profile := classifySource(models.CompanyBrief{}, "https://www.argusmedia.com/en/events/argus-petrochemicals-conference/speakers")
+	if profile.sourceType != "industry_event" || profile.quality < 0.7 {
+		t.Fatalf("expected industry event source, got %+v", profile)
 	}
 }
 

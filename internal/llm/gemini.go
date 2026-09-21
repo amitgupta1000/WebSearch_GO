@@ -4,8 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
+	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 	"google.golang.org/genai"
 )
 
@@ -62,6 +67,83 @@ func (g *GeminiClient) GenerateContent(ctx context.Context, systemPrompt, userPr
 	return responseText(resp)
 }
 
+// ExtractImageText downloads bounded image inputs and asks Gemini to transcribe
+// visible text. Image failures are returned to the caller without affecting
+// ordinary text research.
+func (g *GeminiClient) ExtractImageText(ctx context.Context, images []models.Image) (map[string]string, error) {
+	if len(images) == 0 {
+		return nil, nil
+	}
+	const maxImages = 4
+	const maxImageBytes = 4 << 20
+	client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}}
+	parts := make([]*genai.Part, 0, maxImages+1)
+	parts = append(parts, genai.NewPartFromText(`Transcribe only text visibly present in the supplied images. Do not identify people, infer objects, or add facts. Return JSON with an images array; each item must contain the exact image URL and extracted_text. Use an empty string when no readable text is present.`))
+	accepted := make(map[string]bool)
+	for _, image := range images {
+		if len(accepted) >= maxImages || accepted[image.URL] {
+			continue
+		}
+		parsed, err := url.Parse(image.URL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			continue
+		}
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, image.URL, nil)
+		if err != nil {
+			continue
+		}
+		request.Header.Set("User-Agent", "Mozilla/5.0")
+		response, err := client.Do(request)
+		if err != nil {
+			continue
+		}
+		data, readErr := io.ReadAll(io.LimitReader(response.Body, maxImageBytes+1))
+		response.Body.Close()
+		if readErr != nil || response.StatusCode != http.StatusOK || len(data) > maxImageBytes || !strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "image/") {
+			continue
+		}
+		parts = append(parts, genai.NewPartFromText(fmt.Sprintf("Image URL: %s\nAlt text: %s\nCaption: %s", image.URL, image.Alt, image.Caption)))
+		parts = append(parts, genai.NewPartFromBytes(data, response.Header.Get("Content-Type")))
+		accepted[image.URL] = true
+	}
+	if len(accepted) == 0 {
+		return nil, nil
+	}
+	config := &genai.GenerateContentConfig{
+		SystemInstruction: &genai.Content{Parts: []*genai.Part{{Text: "You are a careful OCR extraction service."}}},
+		Temperature:       genai.Ptr(float64(0.1)),
+	}
+	response, err := g.client.Models.GenerateContent(ctx, g.model, []*genai.Content{{Parts: parts}}, config)
+	if err != nil {
+		return nil, fmt.Errorf("image OCR generation failed: %w", err)
+	}
+	var result struct {
+		Images []struct {
+			URL  string `json:"url"`
+			Text string `json:"extracted_text"`
+		} `json:"images"`
+	}
+	rawResponse, err := responseText(response)
+	if err != nil {
+		return nil, err
+	}
+	if err := decodeJSONMust(rawResponse, &result); err != nil {
+		return nil, err
+	}
+	textByURL := make(map[string]string, len(result.Images))
+	for _, item := range result.Images {
+		if accepted[item.URL] && strings.TrimSpace(item.Text) != "" {
+			textByURL[item.URL] = strings.TrimSpace(item.Text)
+		}
+	}
+	return textByURL, nil
+}
+
 // GenerateStructured requests JSON output and unmarshals it into target.
 // The model is instructed to emit bare JSON; markdown fences or stray prose
 // are cleaned before parsing, and one stricter retry is attempted if the
@@ -96,6 +178,13 @@ func decodeJSON(raw string, target any) error {
 	cleaned := cleanJSONString(raw)
 	if err := json.Unmarshal([]byte(cleaned), target); err != nil {
 		return fmt.Errorf("failed to unmarshal structured output: %w (raw: %s)", err, cleaned)
+	}
+	return nil
+}
+
+func decodeJSONMust(raw string, target any) error {
+	if err := decodeJSON(raw, target); err != nil {
+		return fmt.Errorf("image OCR response could not be decoded: %w", err)
 	}
 	return nil
 }

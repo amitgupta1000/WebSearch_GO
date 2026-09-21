@@ -110,6 +110,22 @@ func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.Scra
 	if canonical, exists := doc.Find("link[rel='canonical']").First().Attr("href"); exists {
 		canonicalURL = resolveURL(targetURL, canonical)
 	}
+	if reason := detectBlockPage(title, doc.Find("body").Text()); reason != "" {
+		bodyText := strings.TrimSpace(doc.Find("body").Text())
+		return &models.ScrapeResult{
+			URL:          targetURL,
+			CanonicalURL: canonicalURL,
+			Title:        title,
+			Content:      runeSafeTruncate(bodyText, maxContentBytes),
+			ContentType:  resp.Header.Get("Content-Type"),
+			Extractor:    "blocked-page",
+			QualityScore: 0,
+			ByteSize:     len(bodyText),
+			FetchedAt:    time.Now(),
+			Blocked:      true,
+			BlockReason:  reason,
+		}, nil
+	}
 	var jsonLD []string
 	doc.Find("script[type='application/ld+json']").Each(func(_ int, sel *goquery.Selection) {
 		if value := strings.TrimSpace(sel.Text()); value != "" {
@@ -206,6 +222,28 @@ func extractImages(root *goquery.Selection, baseURL string) []models.Image {
 		return true
 	})
 	return images
+}
+
+func detectBlockPage(title, body string) string {
+	text := strings.ToLower(strings.TrimSpace(title + "\n" + body))
+	markers := []struct {
+		phrase string
+		reason string
+	}{
+		{"press and hold", "press-and-hold challenge"},
+		{"verify you are human", "human-verification challenge"},
+		{"are you a robot", "robot-verification challenge"},
+		{"captcha", "captcha challenge"},
+		{"unusual traffic", "unusual-traffic challenge"},
+		{"checking your browser", "browser-check challenge"},
+		{"access denied", "access denied"},
+	}
+	for _, marker := range markers {
+		if strings.Contains(text, marker.phrase) {
+			return marker.reason
+		}
+	}
+	return ""
 }
 
 func attrValue(selection *goquery.Selection, name string) string {

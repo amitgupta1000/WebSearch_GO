@@ -48,7 +48,7 @@ func Load() *Config {
 		CacheMaxEntries:  envInt("CACHE_MAX_ENTRIES", 2048),
 		ResearchTimeout:  time.Duration(envInt("RESEARCH_TIMEOUT_SECONDS", 180)) * time.Second,
 		MaxScrapesPerRun: envInt("MAX_SCRAPES_PER_RUN", 6),
-		MaxSearchResults: envInt("MAX_SEARCH_RESULTS", 8),
+		MaxSearchResults: envInt("MAX_SEARCH_RESULTS", 12),
 		MaxSteps:         envInt("MAX_AGENT_STEPS", 10),
 	}
 }

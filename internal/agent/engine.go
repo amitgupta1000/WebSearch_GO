@@ -26,6 +26,10 @@ type LLMClient interface {
 	GenerateStructured(ctx context.Context, systemPrompt, userPrompt string, target any) error
 }
 
+type imageTextExtractor interface {
+	ExtractImageText(ctx context.Context, images []models.Image) (map[string]string, error)
+}
+
 const (
 	// searchResultsTTL is how long Serper search results stay cached.
 	searchResultsTTL = 48 * time.Hour
@@ -34,7 +38,7 @@ const (
 	// defaultMaxScrapesPerResearch is the default cap on page scrapes per run.
 	defaultMaxScrapesPerResearch = 3
 	// defaultMaxSearchResults is the default cap on search results returned per query.
-	defaultMaxSearchResults = 8
+	defaultMaxSearchResults = 12
 	// defaultMaxSteps is the default cap on agent/tool iterations per run.
 	defaultMaxSteps = 10
 	// minScrapeContentLen is the minimum useful scraped content size in bytes.
@@ -188,6 +192,19 @@ func (e *Engine) GenerateStructured(ctx context.Context, systemPrompt, userPromp
 		return fmt.Errorf("LLM client is not configured")
 	}
 	return e.llmClient.GenerateStructured(ctx, systemPrompt, userPrompt, target)
+}
+
+func (e *Engine) ExtractImageText(ctx context.Context, images []models.Image) map[string]string {
+	extractor, ok := e.llmClient.(imageTextExtractor)
+	if !ok || len(images) == 0 {
+		return nil
+	}
+	textByURL, err := extractor.ExtractImageText(ctx, images)
+	if err != nil {
+		log.Printf("[WARN] image OCR skipped: %v", err)
+		return nil
+	}
+	return textByURL
 }
 
 // FormatSearchSnippets prepares a clean markdown summary of search results for LLM consumption.

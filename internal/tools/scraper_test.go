@@ -82,6 +82,23 @@ func TestScrapeURLExtractsMetadataAndRemovesBoilerplate(t *testing.T) {
 	}
 }
 
+func TestScrapeURLClassifiesPressAndHoldChallenge(t *testing.T) {
+	page := `<!DOCTYPE html><html><head><title>Press and Hold</title></head><body><h1>Press and Hold</h1><p>Press and hold to confirm you are human.</p></body></html>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(page))
+	}))
+	defer srv.Close()
+
+	result, err := NewScraper(nil, time.Second).ScrapeURL(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("ScrapeURL returned error: %v", err)
+	}
+	if !result.Blocked || result.BlockReason != "press-and-hold challenge" || result.Extractor != "blocked-page" {
+		t.Fatalf("expected blocked challenge metadata, got %+v", result)
+	}
+}
+
 func TestScrapeURLRejectsNonHTMLContent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/pdf")

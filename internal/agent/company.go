@@ -20,6 +20,8 @@ type CompanyAgent struct {
 
 const maxCompanyReviewIterations = 3
 
+const maxCompanySearchQueries = 10
+
 const (
 	companyPlanningTimeout  = 20 * time.Second
 	companySemanticTimeout  = 8 * time.Second
@@ -69,7 +71,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 7, Content: fmt.Sprintf("Evaluating relevance of %d search results...", len(state.SearchResults))})
 		state.RankedResults = ca.rankResults(ctx, brief, state.SearchResults)
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolResult, Step: 7, ToolName: "relevance_ranker", Content: fmt.Sprintf("Selected %d relevant candidates.", len(state.RankedResults))})
-		newEvidence, _ := ca.scrapeRanked(ctx, sessionID, state.RankedResults, state.Evidence, eventCh)
+		newEvidence, _ := ca.scrapeRanked(ctx, sessionID, state.RankedResults, state.SearchResults, state.Evidence, eventCh)
 		state.Evidence = appendUniqueEvidence(state.Evidence, newEvidence)
 		if len(state.Evidence) == 0 {
 			state.Evidence = appendUniqueEvidence(state.Evidence, searchSnippetEvidence(state.RankedResults, state.SearchResults, ca.engine.MaxScrapes()))
@@ -96,7 +98,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 
 func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.CompanyBrief, evidence []models.Evidence, results []models.SearchResult, sessionID string, eventCh chan<- models.AgentEvent) (*models.OrgChart, error) {
 	Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 8, Content: "Synthesizing the organization chart from selected evidence..."})
-	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string. Image metadata is supporting evidence; do not invent visual facts from image URLs.`
+	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string. Image metadata is supporting evidence; do not invent visual facts from image URLs. Include supported department leaders even when their exact title is not in the search query: consider functional variants such as Chief, C-level, President, Executive Vice President, Senior Vice President, Vice President, VP, Head, Director, and General Manager. Treat procurement, purchasing, strategic sourcing, supply chain, logistics, operations, marketing, brand, communications, growth, and digital marketing as relevant department functions. Conference speaker evidence may identify a person's company, function, and industry relevance, but conference participation alone does not prove that the person is a current executive; label or place such people conservatively unless current employment is corroborated.`
 	var chart models.OrgChart
 	contextData := fmt.Sprintf("Research brief: %+v\n\nSearch snippets:\n%s\n\nSelected evidence:\n%s", brief, FormatSearchSnippets(results), formatEvidence(evidence))
 	llmCtx, cancel := context.WithTimeout(ctx, companySynthesisTimeout)
@@ -168,7 +170,7 @@ func (ca *CompanyAgent) AnswerQuestion(ctx context.Context, state *models.Compan
 		}
 		freshRanked = append(freshRanked, models.RankedResult{URL: result.Link, Relevant: true, Score: 1 - float64(index)/100, Reason: "selected for question follow-up", EvidenceType: "question_search"})
 	}
-	freshEvidence, _ := ca.scrapeRanked(ctx, "question", freshRanked, nil, nil)
+	freshEvidence, _ := ca.scrapeRanked(ctx, "question", freshRanked, freshResults, nil, nil)
 	combinedEvidence := append(append([]models.Evidence{}, state.Evidence...), freshEvidence...)
 	var finalAnswer models.QuestionAnswer
 	finalPrompt := fmt.Sprintf("Company brief:\n%+v\n\nOrg chart:\n%+v\n\nOriginal evidence:\n%s\n\nFresh search query: %s\nFresh search results:\n%s\n\nFresh evidence:\n%s\n\nQuestion: %s", state.Brief, *chart, formatEvidence(state.Evidence), query, FormatSearchSnippets(freshResults), formatEvidence(freshEvidence), question)
@@ -269,9 +271,9 @@ func (ca *CompanyAgent) planQueries(ctx context.Context, brief models.CompanyBri
 	request := fmt.Sprintf("Company: %s\nDomain: %s\nIndustry: %s\nCountry: %s\nCity: %s\nAreas: %s\nOutput: %s\nTime: %s\nNotes: %s", brief.CompanyName, brief.Domain, brief.Industry, brief.Country, brief.City, strings.Join(brief.AreasOfInterest, ", "), strings.Join(brief.DesiredOutput, ", "), brief.TimeScope, brief.UserNotes)
 	llmCtx, cancel := context.WithTimeout(ctx, companyPlanningTimeout)
 	defer cancel()
-	err := ca.engine.GenerateStructured(llmCtx, `Create a focused company web research query plan. Return JSON with a queries array. Each query needs query, purpose, target_area, and priority from 1 to 5. Cover leadership, departments, locations, and user-requested areas.`, request, &plan)
+	err := ca.engine.GenerateStructured(llmCtx, `Create a focused company web research query plan. Return JSON with a queries array. Each query needs query, purpose, target_area, and priority from 1 to 5. Cover leadership, locations, and user-requested areas. Treat procurement, sourcing, supply chain, and marketing as explicit department targets. Search conference speaker lists for Argus Petrochemicals Conference, Platts Global Energy Trading, and S&P Global Chemicals Summits when relevant to the company or industry. For department-level executives, create targeted queries using title variants such as CPO, Chief Procurement Officer, CSCO, Chief Supply Chain Officer, VP Sourcing, VP Supply Chain, CMO, Chief Marketing Officer, VP Sales, CRO, VP Engineering, CTO, and CFO. You may use site:linkedin.com/in/ in search queries to find public profile snippets, but do not assume LinkedIn pages can be directly scraped or that snippets prove employment without corroboration.`, request, &plan)
 	if err == nil && len(plan.Queries) > 0 {
-		return limitQueryPlan(plan, 6)
+		return limitQueryPlan(plan, maxCompanySearchQueries)
 	}
 	return fallbackQueryPlan(brief)
 }
@@ -280,7 +282,10 @@ func fallbackQueryPlan(brief models.CompanyBrief) models.QueryPlan {
 	base := strings.TrimSpace(strings.Join([]string{brief.CompanyName, brief.Country, brief.City}, " "))
 	queries := []models.PlannedQuery{
 		{Query: base + " leadership executive team", Purpose: "identify leadership", TargetArea: "leadership", Priority: 1},
-		{Query: base + " departments engineering sales product finance", Purpose: "identify departments", TargetArea: "departments", Priority: 2},
+		{Query: base + " procurement purchasing sourcing strategic sourcing supply chain logistics CPO CSCO VP Head Director", Purpose: "identify procurement and supply chain executives", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
+		{Query: base + " marketing brand communications growth digital marketing CMO VP Head Director", Purpose: "identify marketing executives", TargetArea: "marketing", Priority: 2},
+		{Query: base + " chemicals procurement sourcing supply chain marketing speaker Argus Petrochemicals Conference Platts Global Energy Trading S&P Global Chemicals Summit", Purpose: "identify relevant industry conference speakers", TargetArea: "industry conference speakers", Priority: 2},
+		{Query: base + " department leaders executives Chief VP Head Director General Manager", Purpose: "identify additional department executives", TargetArea: "department leadership", Priority: 2},
 		{Query: base + " offices locations headquarters", Purpose: "identify locations", TargetArea: "locations", Priority: 3},
 	}
 	for _, area := range brief.AreasOfInterest {
@@ -289,7 +294,7 @@ func fallbackQueryPlan(brief models.CompanyBrief) models.QueryPlan {
 			queries = append(queries, models.PlannedQuery{Query: base + " " + area, Purpose: "investigate requested area", TargetArea: area, Priority: 2})
 		}
 	}
-	return limitQueryPlan(models.QueryPlan{Queries: queries}, 6)
+	return limitQueryPlan(models.QueryPlan{Queries: queries}, maxCompanySearchQueries)
 }
 
 func limitQueryPlan(plan models.QueryPlan, limit int) models.QueryPlan {
@@ -341,8 +346,8 @@ func (ca *CompanyAgent) rankResults(ctx context.Context, brief models.CompanyBri
 	bm25Ranked = applySourceSignals(brief, bm25Ranked)
 
 	semanticCandidates := bm25Ranked
-	if len(semanticCandidates) > 8 {
-		semanticCandidates = semanticCandidates[:8]
+	if len(semanticCandidates) > 12 {
+		semanticCandidates = semanticCandidates[:12]
 	}
 	candidateResults := make([]models.SearchResult, 0, len(semanticCandidates))
 	byURL := make(map[string]models.SearchResult, len(results))
@@ -517,6 +522,12 @@ func classifySource(brief models.CompanyBrief, targetURL string) sourceProfile {
 	if strings.Contains(host, "ziprecruiter") || strings.Contains(host, "indeed.") || strings.Contains(host, "glassdoor.") || strings.Contains(host, "zoominfo.") || strings.Contains(host, "rocketreach.") {
 		return sourceProfile{sourceType: "aggregator", quality: 0.1}
 	}
+	if strings.Contains(host, "linkedin.") {
+		return sourceProfile{sourceType: "professional_profile", quality: 0.6}
+	}
+	if containsAny(host, "argusmedia", "spglobal", "platts") {
+		return sourceProfile{sourceType: "industry_event", quality: 0.75}
+	}
 	if official && containsAny(path, "leadership", "executive", "management", "board", "team") {
 		return sourceProfile{sourceType: "official_leadership", official: true, primary: primary, quality: 1}
 	}
@@ -650,15 +661,26 @@ func normalizeURL(value string) string {
 	return strings.TrimRight(strings.ToLower(strings.TrimSpace(value)), "/")
 }
 
-func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, ranked []models.RankedResult, existing []models.Evidence, eventCh chan<- models.AgentEvent) ([]models.Evidence, []string) {
+func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, ranked []models.RankedResult, searchResults []models.SearchResult, existing []models.Evidence, eventCh chan<- models.AgentEvent) ([]models.Evidence, []string) {
 	evidence := make([]models.Evidence, 0, ca.engine.MaxScrapes())
 	sources := make([]string, 0, ca.engine.MaxScrapes())
 	known := make(map[string]bool, len(existing))
 	for _, item := range existing {
 		known[normalizeURL(item.URL)] = true
 	}
-	for _, item := range selectScrapeCandidates(ranked, ca.engine.MaxScrapes()) {
-		if len(evidence) >= ca.engine.MaxScrapes() {
+	for _, item := range ranked {
+		if item.SourceType != "professional_profile" || known[normalizeURL(item.URL)] {
+			continue
+		}
+		if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
+			evidence = append(evidence, *snippet)
+			known[normalizeURL(item.URL)] = true
+		}
+	}
+	usableScrapes := 0
+	attemptLimit := ca.engine.MaxScrapes() * 2
+	for _, item := range selectScrapeCandidates(ranked, attemptLimit) {
+		if usableScrapes >= ca.engine.MaxScrapes() {
 			break
 		}
 		if known[normalizeURL(item.URL)] {
@@ -670,16 +692,48 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 		}
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolCall, Step: 8 + len(evidence), ToolName: "web_scraper", ToolInput: item.URL, Content: "Scraping " + item.SourceType + " source..."})
 		scrape, err := ca.engine.ScrapeCached(ctx, item.URL)
-		if err != nil || len(scrape.Content) <= minScrapeContentLen {
+		if err != nil || scrape == nil || scrape.Blocked || len(scrape.Content) <= minScrapeContentLen {
+			if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
+				evidence = append(evidence, *snippet)
+			}
 			continue
+		}
+		if len(scrape.Images) > 0 {
+			ocrCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			textByURL := ca.engine.ExtractImageText(ocrCtx, scrape.Images)
+			cancel()
+			for index := range scrape.Images {
+				if text := textByURL[scrape.Images[index].URL]; text != "" {
+					scrape.Images[index].ExtractedText = text
+				}
+			}
 		}
 		evidence = append(evidence, models.Evidence{URL: scrape.CanonicalURL, Title: scrape.Title, Content: scrape.Content, Headings: scrape.Headings, JSONLD: scrape.JSONLD, Images: scrape.Images, Score: item.Score, EvidenceType: item.EvidenceType, SourceType: item.SourceType, QualityScore: scrape.QualityScore})
 		if evidence[len(evidence)-1].URL == "" {
 			evidence[len(evidence)-1].URL = item.URL
 		}
 		sources = append(sources, item.URL)
+		usableScrapes++
 	}
 	return evidence, sources
+}
+
+func snippetEvidenceForURL(item models.RankedResult, results []models.SearchResult) *models.Evidence {
+	for _, result := range results {
+		if normalizeURL(result.Link) != normalizeURL(item.URL) || strings.TrimSpace(result.Snippet) == "" {
+			continue
+		}
+		return &models.Evidence{
+			URL:          result.Link,
+			Title:        result.Title,
+			Content:      result.Snippet,
+			Score:        item.Score * 0.65,
+			EvidenceType: "search_snippet_fallback",
+			SourceType:   item.SourceType,
+			QualityScore: 0.25,
+		}
+	}
+	return nil
 }
 
 func selectScrapeCandidates(ranked []models.RankedResult, limit int) []models.RankedResult {
@@ -696,8 +750,10 @@ func selectScrapeCandidates(ranked []models.RankedResult, limit int) []models.Ra
 			return 3
 		case "leadership":
 			return 4
-		case "external":
+		case "industry_event":
 			return 5
+		case "external":
+			return 6
 		default:
 			return 6
 		}
@@ -715,6 +771,9 @@ func selectScrapeCandidates(ranked []models.RankedResult, limit int) []models.Ra
 		if len(selected) >= limit {
 			break
 		}
+		if candidate.SourceType == "professional_profile" {
+			continue
+		}
 		domain := sourceDomain(candidate.URL)
 		if domain != "" && domainCounts[domain] > 0 && !(candidate.Official && domainCounts[domain] < 2) {
 			continue
@@ -728,6 +787,9 @@ func selectScrapeCandidates(ranked []models.RankedResult, limit int) []models.Ra
 		for _, candidate := range candidates {
 			if len(selected) >= limit {
 				break
+			}
+			if candidate.SourceType == "professional_profile" {
+				continue
 			}
 			alreadySelected := false
 			for _, chosen := range selected {
@@ -792,6 +854,10 @@ func formatEvidence(evidence []models.Evidence) string {
 			if image.Caption != "" {
 				builder.WriteString(" | caption: ")
 				builder.WriteString(image.Caption)
+			}
+			if image.ExtractedText != "" {
+				builder.WriteString(" | OCR: ")
+				builder.WriteString(image.ExtractedText)
 			}
 			builder.WriteString("\n")
 		}

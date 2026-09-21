@@ -56,12 +56,15 @@ type ScrapeResult struct {
 	QualityScore float64   `json:"quality_score"`
 	ByteSize     int       `json:"byte_size"`
 	FetchedAt    time.Time `json:"fetched_at"`
+	Blocked      bool      `json:"blocked,omitempty"`
+	BlockReason  string    `json:"block_reason,omitempty"`
 }
 
-// Image records image metadata discovered in a webpage without downloading the asset.
+// Image records webpage image metadata and optional OCR text.
 type Image struct {
-	URL     string `json:"url"`
-	Alt     string `json:"alt,omitempty"`
-	Title   string `json:"title,omitempty"`
-	Caption string `json:"caption,omitempty"`
+	URL           string `json:"url"`
+	Alt           string `json:"alt,omitempty"`
+	Title         string `json:"title,omitempty"`
+	Caption       string `json:"caption,omitempty"`
+	ExtractedText string `json:"extracted_text,omitempty"`
 }

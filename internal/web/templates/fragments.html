@@ -92,6 +92,7 @@
 			<a href="{{.URL}}" target="_blank" rel="noreferrer" class="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
 				<img src="{{.URL}}" alt="{{.Alt}}" title="{{.Title}}" loading="lazy" class="w-full aspect-square object-cover">
 				{{if or .Alt .Caption}}<span class="block p-2 text-[11px] text-slate-400">{{if .Caption}}{{.Caption}}{{else}}{{.Alt}}{{end}}</span>{{end}}
+				{{if .ExtractedText}}<span class="block px-2 pb-2 text-[11px] text-emerald-300">OCR: {{.ExtractedText}}</span>{{end}}
 			</a>
 			{{end}}
 		</div>

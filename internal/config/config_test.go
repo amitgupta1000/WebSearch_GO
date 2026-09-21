@@ -37,8 +37,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MaxScrapesPerRun != 6 {
 		t.Errorf("expected default max scrapes 6, got %d", cfg.MaxScrapesPerRun)
 	}
-	if cfg.MaxSearchResults != 8 {
-		t.Errorf("expected default max search results 8, got %d", cfg.MaxSearchResults)
+	if cfg.MaxSearchResults != 12 {
+		t.Errorf("expected default max search results 12, got %d", cfg.MaxSearchResults)
 	}
 	if cfg.MaxSteps != 10 {
 		t.Errorf("expected default max steps 10, got %d", cfg.MaxSteps)

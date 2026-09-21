@@ -84,7 +84,7 @@ func (pa *PersonAgent) ResearchPerson(
 			break
 		}
 		// Prioritize bio pages, interviews, personal sites, github, wiki
-		if strings.Contains(sr.Link, "linkedin") || strings.Contains(sr.Link, "wikipedia") || strings.Contains(sr.Link, "about") || strings.Contains(sr.Link, "github") || scrapeCount == 0 {
+		if strings.Contains(sr.Link, "wikipedia") || strings.Contains(sr.Link, "about") || strings.Contains(sr.Link, "github") || scrapeCount == 0 {
 			Emit(eventCh, models.AgentEvent{
 				SessionID: sessionID,
 				Type:      models.EventToolCall,
