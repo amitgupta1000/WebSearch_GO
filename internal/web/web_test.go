@@ -221,3 +221,113 @@ func TestWorkflowConsoleShowsRunBudget(t *testing.T) {
 		t.Error("no budget badge should render when none is supplied")
 	}
 }
+
+func TestCompanyChartCollapsesImagesAndScrapeReport(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	chart := &models.OrgChart{
+		CompanyName: "Acme",
+		Images: []models.Image{
+			{URL: "https://cdn.example.com/a.png", Alt: "Logo A"},
+			{URL: "https://cdn.example.com/b.png", Alt: "Logo B"},
+		},
+		ScrapeReport: []models.ScrapeReportEntry{
+			{URL: "https://example.com/a", Status: "success"},
+			{URL: "https://example.com/b", Status: "failed", Reason: "403"},
+			{URL: "https://example.com/c", Status: "skipped"},
+		},
+	}
+
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "company_chart", chart); err != nil {
+		t.Fatalf("execute company_chart: %v", err)
+	}
+	page := out.String()
+
+	if got := strings.Count(page, "<summary"); got != 2 {
+		t.Fatalf("expected one disclosure control per panel, got %d", got)
+	}
+	if strings.Contains(page, "<details open") {
+		t.Error("both panels should start collapsed so the result panel stays readable")
+	}
+	if !strings.Contains(page, "Images from selected sources") || !strings.Contains(page, "(2)") {
+		t.Error("expected the image count in the disclosure label")
+	}
+	if !strings.Contains(page, "Scraping Report") || !strings.Contains(page, "(3 sources)") {
+		t.Error("expected the source count in the disclosure label")
+	}
+
+	// Collapsing is visual only: the content must stay in the DOM.
+	if !strings.Contains(page, "https://cdn.example.com/a.png") {
+		t.Error("image markup must remain in the document when collapsed")
+	}
+	if !strings.Contains(page, "https://example.com/c") {
+		t.Error("scrape report rows must remain in the document when collapsed")
+	}
+
+	// Neither panel should render when there is nothing to show.
+	out.Reset()
+	if err := tmpl.ExecuteTemplate(&out, "company_chart", &models.OrgChart{CompanyName: "Acme"}); err != nil {
+		t.Fatalf("execute empty company_chart: %v", err)
+	}
+	if strings.Contains(out.String(), "<summary") {
+		t.Error("empty panels must not render a disclosure control")
+	}
+}
+
+func TestSourcesFooterCollapses(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	chart := &models.OrgChart{
+		CompanyName: "Acme",
+		Sources:     []string{"https://example.com/a", "https://example.com/b", "https://example.com/c"},
+	}
+
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "company_chart", chart); err != nil {
+		t.Fatalf("execute company_chart: %v", err)
+	}
+	page := out.String()
+	if got := strings.Count(page, "<summary"); got != 1 {
+		t.Fatalf("expected one disclosure control for the source list, got %d", got)
+	}
+	if !strings.Contains(page, "Sources") || !strings.Contains(page, "(3)") {
+		t.Error("expected the source count in the disclosure label")
+	}
+	if strings.Contains(page, "<details open") {
+		t.Error("the source list should start collapsed")
+	}
+	if !strings.Contains(page, "https://example.com/c") {
+		t.Error("source links must remain in the document when collapsed")
+	}
+	if strings.Contains(page, `target="_blank" class="text-indigo-400`) {
+		t.Error("external source links should carry rel=noreferrer")
+	}
+
+	// A chart without sources must not render an empty control.
+	out.Reset()
+	if err := tmpl.ExecuteTemplate(&out, "company_chart", &models.OrgChart{CompanyName: "Acme"}); err != nil {
+		t.Fatalf("execute company_chart without sources: %v", err)
+	}
+	if strings.Contains(out.String(), "<summary") {
+		t.Error("no disclosure control should render without sources")
+	}
+
+	// The question answer reuses the same collapsible footer.
+	out.Reset()
+	if err := tmpl.ExecuteTemplate(&out, "question_answer", models.QuestionAnswer{
+		Question: "Who leads Acme?",
+		Answer:   "Acme's leadership is listed above.",
+		Sources:  []string{"https://example.com/a", "https://example.com/b"},
+	}); err != nil {
+		t.Fatalf("execute question_answer: %v", err)
+	}
+	answer := out.String()
+	if !strings.Contains(answer, "<summary") || !strings.Contains(answer, "(2)") {
+		t.Errorf("expected a collapsible source list on the answer, got %q", answer)
+	}
+}

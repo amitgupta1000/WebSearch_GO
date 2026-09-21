@@ -145,3 +145,35 @@ func TestWithBrowserOverrideAttachesChoiceToContext(t *testing.T) {
 		t.Error("a non-explicit choice must not override the deployment default")
 	}
 }
+
+func TestSecurityHeadersAllowRemoteImages(t *testing.T) {
+	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	csp := response.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "img-src 'self' data: https:") {
+		t.Errorf("the scraped-image gallery needs remote https images to render, got %q", csp)
+	}
+	// Relaxing img-src must not loosen anything else.
+	if strings.Contains(csp, "img-src *") || strings.Contains(csp, "http:") {
+		t.Errorf("img-src must stay scoped to https, got %q", csp)
+	}
+	for _, directive := range []string{
+		"default-src 'self'",
+		"style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com",
+		"connect-src 'self'",
+	} {
+		if !strings.Contains(csp, directive) {
+			t.Errorf("expected %q to remain unchanged, got %q", directive, csp)
+		}
+	}
+	if got := response.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("expected nosniff to still be set, got %q", got)
+	}
+	if got := response.Header().Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("referrer policy limits image tracking and must stay, got %q", got)
+	}
+}

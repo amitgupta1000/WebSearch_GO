@@ -514,11 +514,14 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		// The UI loads Tailwind/HTMX from CDNs and uses one inline script.
+		// img-src permits remote https images so the scraped-source image gallery
+		// can actually render; images are passive content and Referrer-Policy is
+		// no-referrer, which limits third-party tracking.
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
 				"script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com; "+
 				"style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "+
-				"connect-src 'self'; img-src 'self' data:")
+				"connect-src 'self'; img-src 'self' data: https:")
 		next.ServeHTTP(w, r)
 	})
 }

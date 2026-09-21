@@ -122,10 +122,36 @@ download entirely.
 | Method | Path | Description |
 | :--- | :--- | :--- |
 | `GET` | `/` | Research console (HTMX UI) |
-| `POST` | `/api/research` | Form fields: `mode` (`company`/`person`), `query`, `company_name`, `location`, plus optional company scope fields `company_country`, `company_city`, `company_domain`, `company_industry`, `areas_of_interest`, `desired_output`, `time_scope`, and `research_notes`. Company research performs up to 3 QC reviews. Returns the live workflow console. |
+| `POST` | `/api/research` | Form fields: `mode` (`company`/`person`), `query`, `company_name`, `location`, plus optional company scope fields `company_country`, `company_city`, `company_domain`, `company_industry`, `areas_of_interest`, `desired_output`, `time_scope`, and `research_notes`. Optional `use_browser` (`1`/`0`) opts a single run into browser rendering. Company research performs up to 3 QC reviews. Returns the live workflow console. |
+| `POST` | `/api/rerun` | Form fields: `session_id`, optional `use_browser`. Re-runs a completed company session's retained brief in a new session, which is how a thin result is escalated with browser rendering. |
 | `POST` | `/api/question` | Form fields: `session_id`, `question`. Answers a question from retained evidence or runs a fresh focused search when needed. |
 | `GET` | `/api/events` | Server-Sent Events (SSE) stream for live step logs & final synthesis. |
 | `GET` | `/healthz` | Liveness probe |
+
+## Security headers
+
+Every response sets `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
+and a restrictive Content-Security-Policy:
+
+```
+default-src 'self';
+script-src  'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com;
+style-src   'self' 'unsafe-inline' https://cdn.tailwindcss.com;
+connect-src 'self';
+img-src     'self' data: https:
+```
+
+`img-src` allows remote `https:` images because the result panel shows a gallery of
+images discovered on scraped sources; without it the browser blocks every one of
+them. Images are passive content, and `no-referrer` keeps the browsing host out of
+the image request, which limits third-party tracking. Note that **plain `http:`
+image URLs stay blocked** — a scraped page that references `http://…/logo.png`
+will show a caption with no image.
+
+The CDN allowances exist because `index.html` loads Tailwind and HTMX from
+`cdn.tailwindcss.com` and `unpkg.com`. To serve the UI without any third-party
+origins, vendor those two scripts into `internal/web` and drop the hosts from
+`script-src`/`style-src`.
 
 ## Docker
 

@@ -86,9 +86,13 @@
 		<p class="text-sm text-slate-400 leading-relaxed">{{.Overview}}</p>
 	</div>
 	{{if .Images}}
-	<div>
-		<h4 class="text-sm font-semibold text-slate-300 mb-3">Images from selected sources</h4>
-		<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+	<details class="group">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Images from selected sources
+			<span class="text-slate-500">({{len .Images}})</span>
+		</summary>
+		<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
 			{{range .Images}}
 			<a href="{{.URL}}" target="_blank" rel="noreferrer" class="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
 				<img src="{{.URL}}" alt="{{.Alt}}" title="{{.Title}}" loading="lazy" class="w-full aspect-square object-cover">
@@ -97,7 +101,7 @@
 			</a>
 			{{end}}
 		</div>
-	</div>
+	</details>
 	{{end}}
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Executive Leadership</h4>
@@ -122,9 +126,13 @@
 	</div>
 	<div id="company-drilldown-result" aria-live="polite" class="border-t border-slate-800/60 pt-5"></div>
 	{{if .ScrapeReport}}
-	<div>
-		<h4 class="text-sm font-semibold text-slate-300 mb-3">Scraping Report</h4>
-		<div class="overflow-x-auto">
+	<details class="group">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Scraping Report
+			<span class="text-slate-500">({{len .ScrapeReport}} sources)</span>
+		</summary>
+		<div class="overflow-x-auto mt-4">
 			<table class="w-full text-xs text-left">
 				<thead class="text-slate-500 border-b border-slate-800"><tr><th class="py-2 pr-3">Target URL</th><th class="py-2 pr-3">Source</th><th class="py-2 pr-3">Scrape</th><th class="py-2 pr-3">OCR</th><th class="py-2">Details</th></tr></thead>
 				<tbody>
@@ -134,7 +142,7 @@
 				</tbody>
 			</table>
 		</div>
-	</div>
+	</details>
 	{{end}}
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Departments &amp; Functions</h4>
@@ -170,10 +178,18 @@
 		{{if .UnverifiedSourceCount}}<p class="text-xs text-slate-500 mt-3">{{.UnverifiedSourceCount}} collected source(s) could not be used as evidence: policy-skipped profiles, blocked pages, or empty scrapes.</p>{{end}}
 	</div>
 	<div id="drilldown-loading" class="hidden text-xs text-indigo-400" role="status" aria-live="polite">Loading dossier...</div>
-	<div class="border-t border-slate-800/60 pt-3 flex flex-wrap gap-2 items-center text-xs text-slate-500">
-		<span>Sources:</span>
-		{{range .Sources}}<a href="{{.}}" target="_blank" class="text-indigo-400 hover:underline truncate max-w-xs">{{.}}</a>{{end}}
-	</div>
+	{{if .Sources}}
+	<details class="group border-t border-slate-800/60 pt-3">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Sources
+			<span class="text-slate-500">({{len .Sources}})</span>
+		</summary>
+		<div class="flex flex-wrap gap-2 items-center text-xs mt-3">
+			{{range .Sources}}<a href="{{.}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline truncate max-w-xs">{{.}}</a>{{end}}
+		</div>
+	</details>
+	{{end}}
 </div>
 {{end}}
 
@@ -218,10 +234,16 @@
 	</div>
 	<p class="text-sm text-slate-300 leading-relaxed">{{.Answer}}</p>
 	{{if .Sources}}
-	<div class="flex flex-wrap gap-2 text-xs text-slate-500">
-		<span>Sources:</span>
-		{{range .Sources}}<a href="{{.}}" target="_blank" class="text-indigo-400 hover:underline truncate max-w-xs">{{.}}</a>{{end}}
-	</div>
+	<details class="group">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Sources
+			<span class="text-slate-500">({{len .Sources}})</span>
+		</summary>
+		<div class="flex flex-wrap gap-2 text-xs mt-3">
+			{{range .Sources}}<a href="{{.}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline truncate max-w-xs">{{.}}</a>{{end}}
+		</div>
+	</details>
 	{{end}}
 </div>
 {{end}}
