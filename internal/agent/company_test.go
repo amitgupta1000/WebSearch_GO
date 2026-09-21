@@ -139,7 +139,7 @@ func TestScrapeRankedRetainsStructuredMetadata(t *testing.T) {
 
 	engine := NewEngine(&mockLLM{}, &mockSearcher{}, &mockScraper{}, cacheStore, 1, 3, 10)
 	agent := NewCompanyAgent(engine)
-	evidence, _ := agent.scrapeRanked(context.Background(), "session", []models.RankedResult{{
+	evidence, _, _ := agent.scrapeRanked(context.Background(), "session", []models.RankedResult{{
 		URL:        "https://acme.com/leadership",
 		Relevant:   true,
 		Score:      0.9,
@@ -147,6 +147,15 @@ func TestScrapeRankedRetainsStructuredMetadata(t *testing.T) {
 	}}, nil, nil, nil)
 	if len(evidence) != 1 || len(evidence[0].Headings) != 1 || len(evidence[0].JSONLD) != 1 {
 		t.Fatalf("expected structured metadata to be retained, got %+v", evidence)
+	}
+	_, _, report := agent.scrapeRanked(context.Background(), "session", []models.RankedResult{{
+		URL:        "https://acme.com/leadership",
+		Relevant:   true,
+		Score:      0.9,
+		SourceType: "official_leadership",
+	}}, nil, nil, nil)
+	if len(report) != 1 || report[0].Status != "success" {
+		t.Fatalf("expected successful scrape report, got %+v", report)
 	}
 	formatted := formatEvidence(evidence)
 	if !strings.Contains(formatted, "Headings: Leadership") || !strings.Contains(formatted, "Structured metadata:") {
@@ -171,7 +180,7 @@ func TestLinkedInSearchSnippetIsRetainedWithoutDirectScrape(t *testing.T) {
 		Link:    ranked[0].URL,
 		Snippet: "Jane Doe is Chief Technology Officer at Acme.",
 	}}
-	evidence, _ := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil)
+	evidence, _, _ := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil)
 	if len(evidence) != 1 || evidence[0].EvidenceType != "search_snippet_fallback" {
 		t.Fatalf("expected LinkedIn snippet fallback, got %+v", evidence)
 	}
@@ -242,6 +251,26 @@ func TestClassifySourceRecognizesIndustryEventSources(t *testing.T) {
 	profile := classifySource(models.CompanyBrief{}, "https://www.argusmedia.com/en/events/argus-petrochemicals-conference/speakers")
 	if profile.sourceType != "industry_event" || profile.quality < 0.7 {
 		t.Fatalf("expected industry event source, got %+v", profile)
+	}
+}
+
+func TestWikipediaSourcesAreBlocked(t *testing.T) {
+	urls := []string{
+		"https://en.wikipedia.org/wiki/Acme",
+		"https://www.wikipedia.org/wiki/Acme",
+		"https://en.m.wikipedia.org/wiki/Acme",
+	}
+	for _, targetURL := range urls {
+		if !isBlockedSourceURL(targetURL) {
+			t.Errorf("expected Wikipedia URL to be blocked: %s", targetURL)
+		}
+	}
+	filtered := filterBlockedSearchResults([]models.SearchResult{
+		{Link: urls[0]},
+		{Link: "https://acme.com/leadership"},
+	})
+	if len(filtered) != 1 || filtered[0].Link != "https://acme.com/leadership" {
+		t.Fatalf("expected only non-Wikipedia result, got %+v", filtered)
 	}
 }
 

@@ -57,6 +57,20 @@ type Evidence struct {
 	QualityScore float64  `json:"quality_score,omitempty"`
 }
 
+// ScrapeReportEntry records the outcome of attempting to use one target URL.
+type ScrapeReportEntry struct {
+	URL               string  `json:"url"`
+	SourceType        string  `json:"source_type,omitempty"`
+	Status            string  `json:"status"`
+	Reason            string  `json:"reason,omitempty"`
+	WordCount         int     `json:"word_count,omitempty"`
+	QualityScore      float64 `json:"quality_score,omitempty"`
+	ImagesFound       int     `json:"images_found,omitempty"`
+	OCRStatus         string  `json:"ocr_status,omitempty"`
+	OCRReason         string  `json:"ocr_reason,omitempty"`
+	OCRImagesWithText int     `json:"ocr_images_with_text,omitempty"`
+}
+
 // QualityReview records a meta-agent evaluation of a completed research pass.
 type QualityReview struct {
 	Verdict           string         `json:"verdict"`
@@ -75,6 +89,7 @@ type CompanyResearchContext struct {
 	SearchResults []SearchResult
 	RankedResults []RankedResult
 	Evidence      []Evidence
+	ScrapeReport  []ScrapeReportEntry
 	Reviews       []QualityReview
 	Iteration     int
 }

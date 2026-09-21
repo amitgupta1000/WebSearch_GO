@@ -10,16 +10,17 @@ import (
 
 // OrgChart represents the synthesized organizational structure of a company.
 type OrgChart struct {
-	CompanyName  string       `json:"company_name"`
-	Domain       string       `json:"domain,omitempty"`
-	Overview     string       `json:"overview"`
-	Headquarters string       `json:"headquarters,omitempty"`
-	Leadership   []Employee   `json:"leadership"`
-	Departments  []Department `json:"departments"`
-	Locations    []Location   `json:"locations,omitempty"`
-	Images       []Image      `json:"images,omitempty"`
-	Sources      []string     `json:"sources"`
-	LastUpdated  time.Time    `json:"last_updated"`
+	CompanyName  string              `json:"company_name"`
+	Domain       string              `json:"domain,omitempty"`
+	Overview     string              `json:"overview"`
+	Headquarters string              `json:"headquarters,omitempty"`
+	Leadership   []Employee          `json:"leadership"`
+	Departments  []Department        `json:"departments"`
+	Locations    []Location          `json:"locations,omitempty"`
+	Images       []Image             `json:"images,omitempty"`
+	Sources      []string            `json:"sources"`
+	ScrapeReport []ScrapeReportEntry `json:"scrape_report,omitempty"`
+	LastUpdated  time.Time           `json:"last_updated"`
 }
 
 // UnmarshalJSON accepts both the documented headquarters string and the

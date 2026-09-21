@@ -36,7 +36,7 @@ const (
 	// scrapeTTL is how long scraped page content stays cached.
 	scrapeTTL = 7 * 24 * time.Hour
 	// defaultMaxScrapesPerResearch is the default cap on page scrapes per run.
-	defaultMaxScrapesPerResearch = 3
+	defaultMaxScrapesPerResearch = 10
 	// defaultMaxSearchResults is the default cap on search results returned per query.
 	defaultMaxSearchResults = 12
 	// defaultMaxSteps is the default cap on agent/tool iterations per run.
@@ -195,16 +195,21 @@ func (e *Engine) GenerateStructured(ctx context.Context, systemPrompt, userPromp
 }
 
 func (e *Engine) ExtractImageText(ctx context.Context, images []models.Image) map[string]string {
+	textByURL, _ := e.ExtractImageTextDetailed(ctx, images)
+	return textByURL
+}
+
+func (e *Engine) ExtractImageTextDetailed(ctx context.Context, images []models.Image) (map[string]string, error) {
 	extractor, ok := e.llmClient.(imageTextExtractor)
 	if !ok || len(images) == 0 {
-		return nil
+		return nil, fmt.Errorf("OCR extractor is unavailable")
 	}
 	textByURL, err := extractor.ExtractImageText(ctx, images)
 	if err != nil {
 		log.Printf("[WARN] image OCR skipped: %v", err)
-		return nil
+		return nil, err
 	}
-	return textByURL
+	return textByURL, nil
 }
 
 // FormatSearchSnippets prepares a clean markdown summary of search results for LLM consumption.

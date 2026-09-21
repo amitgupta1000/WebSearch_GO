@@ -531,7 +531,7 @@ and lets tests pass `nil` channels.
 | Guard | Where | Default |
 | :--- | :--- | :--- |
 | Max agent steps per run | `MAX_AGENT_STEPS` → `Engine.MaxSteps` | 10 |
-| Max pages scraped per run | `MAX_SCRAPES_PER_RUN` → `Engine.MaxScrapes` | 3 |
+| Max pages scraped per run | `MAX_SCRAPES_PER_RUN` → `Engine.MaxScrapes` | 10 |
 | Max search results per query | `MAX_SEARCH_RESULTS` → `Engine.MaxSearchResults` | 8 |
 | Company query plan size | `limitQueryPlan` | 6 queries |
 | Per-run wall clock | `RESEARCH_TIMEOUT_SECONDS` → context timeout | 180 s |
@@ -580,7 +580,7 @@ All configuration comes from environment variables (`internal/config/config.go`)
 | `COOKIE_FILE_PATH` | *(none)* | Optional browser cookie export (JSON) |
 | `CACHE_MAX_ENTRIES` | `2048` | Bounded-cache size (FIFO eviction) |
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Per-research context timeout |
-| `MAX_SCRAPES_PER_RUN` | `3` | Scrape budget per research run |
+| `MAX_SCRAPES_PER_RUN` | `10` | Scrape budget per research run |
 | `MAX_SEARCH_RESULTS` | `8` | Results per Serper query |
 | `MAX_AGENT_STEPS` | `10` | Agent/tool iteration budget per run |
 

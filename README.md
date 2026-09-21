@@ -64,7 +64,7 @@ invalid URLs, the BM25 ranking continues directly to scraping.
 | `COOKIE_FILE_PATH` | — | Optional JSON cookie export (Cookie-Editor / EditThisCookie format) |
 | `CACHE_MAX_ENTRIES` | `2048` | Max entries in the in-memory TTL cache |
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Per-request research budget |
-| `MAX_SCRAPES_PER_RUN` | `3` | Max web pages scraped per research session |
+| `MAX_SCRAPES_PER_RUN` | `10` | Max web pages scraped per research session |
 | `MAX_SEARCH_RESULTS` | `8` | Max search results fetched per search query |
 | `MAX_AGENT_STEPS` | `10` | Max agent/tool iterations per research session |
 

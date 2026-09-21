@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -104,15 +105,19 @@ func (g *GeminiClient) ExtractImageText(ctx context.Context, images []models.Ima
 		}
 		data, readErr := io.ReadAll(io.LimitReader(response.Body, maxImageBytes+1))
 		response.Body.Close()
-		if readErr != nil || response.StatusCode != http.StatusOK || len(data) > maxImageBytes || !strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "image/") {
+		mediaType, _, mediaErr := mime.ParseMediaType(response.Header.Get("Content-Type"))
+		if mediaErr != nil {
+			mediaType = strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0])
+		}
+		if readErr != nil || response.StatusCode != http.StatusOK || len(data) > maxImageBytes || !strings.HasPrefix(strings.ToLower(mediaType), "image/") || strings.EqualFold(mediaType, "image/svg+xml") {
 			continue
 		}
 		parts = append(parts, genai.NewPartFromText(fmt.Sprintf("Image URL: %s\nAlt text: %s\nCaption: %s", image.URL, image.Alt, image.Caption)))
-		parts = append(parts, genai.NewPartFromBytes(data, response.Header.Get("Content-Type")))
+		parts = append(parts, genai.NewPartFromBytes(data, mediaType))
 		accepted[image.URL] = true
 	}
 	if len(accepted) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("OCR skipped: no downloadable supported raster images were accepted")
 	}
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{Parts: []*genai.Part{{Text: "You are a careful OCR extraction service."}}},
@@ -122,26 +127,48 @@ func (g *GeminiClient) ExtractImageText(ctx context.Context, images []models.Ima
 	if err != nil {
 		return nil, fmt.Errorf("image OCR generation failed: %w", err)
 	}
-	var result struct {
-		Images []struct {
-			URL  string `json:"url"`
-			Text string `json:"extracted_text"`
-		} `json:"images"`
-	}
 	rawResponse, err := responseText(response)
 	if err != nil {
 		return nil, err
 	}
-	if err := decodeJSONMust(rawResponse, &result); err != nil {
+	items, err := decodeOCRResponse(rawResponse)
+	if err != nil {
 		return nil, err
 	}
-	textByURL := make(map[string]string, len(result.Images))
-	for _, item := range result.Images {
+	textByURL := make(map[string]string, len(items))
+	for _, item := range items {
 		if accepted[item.URL] && strings.TrimSpace(item.Text) != "" {
 			textByURL[item.URL] = strings.TrimSpace(item.Text)
 		}
 	}
 	return textByURL, nil
+}
+
+type ocrImageResult struct {
+	URL  string `json:"url"`
+	Text string `json:"extracted_text"`
+}
+
+func decodeOCRResponse(raw string) ([]ocrImageResult, error) {
+	cleaned := cleanJSONString(raw)
+	var wrapped struct {
+		Images []ocrImageResult `json:"images"`
+	}
+	if err := json.Unmarshal([]byte(cleaned), &wrapped); err == nil && wrapped.Images != nil {
+		return wrapped.Images, nil
+	}
+	var items []ocrImageResult
+	if err := json.Unmarshal([]byte(cleaned), &items); err == nil {
+		return items, nil
+	}
+	// Gemini occasionally emits several JSON objects separated by commas
+	// instead of wrapping them in an array.
+	if strings.HasPrefix(cleaned, "{") && strings.Contains(cleaned, "},") {
+		if err := json.Unmarshal([]byte("["+cleaned+"]"), &items); err == nil {
+			return items, nil
+		}
+	}
+	return nil, fmt.Errorf("image OCR response was not a valid object, array, or comma-separated object list")
 }
 
 // GenerateStructured requests JSON output and unmarshals it into target.
@@ -219,7 +246,7 @@ func cleanJSONString(s string) string {
 		s = strings.TrimSpace(strings.TrimSuffix(s, "```"))
 	}
 	// If stray text still surrounds the object, extract the outermost braces.
-	if len(s) > 0 && (s[0] != '{' || s[len(s)-1] != '}') {
+	if len(s) > 0 && ((s[0] != '{' && s[0] != '[') || (s[len(s)-1] != '}' && s[len(s)-1] != ']')) {
 		if i := strings.IndexByte(s, '{'); i >= 0 {
 			if j := strings.LastIndexByte(s, '}'); j > i {
 				s = s[i : j+1]

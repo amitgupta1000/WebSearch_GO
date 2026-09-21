@@ -34,8 +34,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ResearchTimeout != 180*time.Second {
 		t.Errorf("expected default timeout 180s, got %v", cfg.ResearchTimeout)
 	}
-	if cfg.MaxScrapesPerRun != 6 {
-		t.Errorf("expected default max scrapes 6, got %d", cfg.MaxScrapesPerRun)
+	if cfg.MaxScrapesPerRun != 10 {
+		t.Errorf("expected default max scrapes 10, got %d", cfg.MaxScrapesPerRun)
 	}
 	if cfg.MaxSearchResults != 12 {
 		t.Errorf("expected default max search results 12, got %d", cfg.MaxSearchResults)

@@ -120,6 +120,21 @@
 		</div>
 	</div>
 	<div id="company-drilldown-result" aria-live="polite" class="border-t border-slate-800/60 pt-5"></div>
+	{{if .ScrapeReport}}
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Scraping Report</h4>
+		<div class="overflow-x-auto">
+			<table class="w-full text-xs text-left">
+				<thead class="text-slate-500 border-b border-slate-800"><tr><th class="py-2 pr-3">Target URL</th><th class="py-2 pr-3">Source</th><th class="py-2 pr-3">Scrape</th><th class="py-2 pr-3">OCR</th><th class="py-2">Details</th></tr></thead>
+				<tbody>
+				{{range .ScrapeReport}}
+				<tr class="border-b border-slate-800/60 align-top"><td class="py-2 pr-3"><a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline break-all">{{.URL}}</a></td><td class="py-2 pr-3 text-slate-400">{{.SourceType}}</td><td class="py-2 pr-3 text-slate-300">{{.Status}}{{if .WordCount}} ({{.WordCount}} words){{end}}</td><td class="py-2 pr-3 text-slate-300">{{.OCRStatus}}{{if .OCRImagesWithText}} ({{.OCRImagesWithText}} with text){{end}}</td><td class="py-2 text-slate-400">{{if .Reason}}{{.Reason}}{{end}}{{if .OCRReason}} OCR: {{.OCRReason}}{{end}}</td></tr>
+				{{end}}
+				</tbody>
+			</table>
+		</div>
+	</div>
+	{{end}}
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Departments &amp; Functions</h4>
 		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">

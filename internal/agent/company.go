@@ -71,8 +71,9 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 7, Content: fmt.Sprintf("Evaluating relevance of %d search results...", len(state.SearchResults))})
 		state.RankedResults = ca.rankResults(ctx, brief, state.SearchResults)
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolResult, Step: 7, ToolName: "relevance_ranker", Content: fmt.Sprintf("Selected %d relevant candidates.", len(state.RankedResults))})
-		newEvidence, _ := ca.scrapeRanked(ctx, sessionID, state.RankedResults, state.SearchResults, state.Evidence, eventCh)
+		newEvidence, _, scrapeReport := ca.scrapeRanked(ctx, sessionID, state.RankedResults, state.SearchResults, state.Evidence, eventCh)
 		state.Evidence = appendUniqueEvidence(state.Evidence, newEvidence)
+		state.ScrapeReport = appendUniqueScrapeReports(state.ScrapeReport, scrapeReport)
 		if len(state.Evidence) == 0 {
 			state.Evidence = appendUniqueEvidence(state.Evidence, searchSnippetEvidence(state.RankedResults, state.SearchResults, ca.engine.MaxScrapes()))
 		}
@@ -84,6 +85,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		if err != nil {
 			return nil, state, err
 		}
+		chart.ScrapeReport = state.ScrapeReport
 		review := ca.reviewChart(ctx, brief, chart, state.Evidence, sessionID, eventCh)
 		state.Reviews = append(state.Reviews, review)
 		if review.Verdict != "revise" || len(review.FollowUpQueries) == 0 || iteration == maxCompanyReviewIterations-1 {
@@ -163,6 +165,7 @@ func (ca *CompanyAgent) AnswerQuestion(ctx context.Context, state *models.Compan
 	if err != nil {
 		return nil, fmt.Errorf("fresh question search failed: %w", err)
 	}
+	freshResults = filterBlockedSearchResults(freshResults)
 	freshRanked := make([]models.RankedResult, 0, len(freshResults))
 	for index, result := range freshResults {
 		if index >= ca.engine.MaxScrapes() {
@@ -170,7 +173,7 @@ func (ca *CompanyAgent) AnswerQuestion(ctx context.Context, state *models.Compan
 		}
 		freshRanked = append(freshRanked, models.RankedResult{URL: result.Link, Relevant: true, Score: 1 - float64(index)/100, Reason: "selected for question follow-up", EvidenceType: "question_search"})
 	}
-	freshEvidence, _ := ca.scrapeRanked(ctx, "question", freshRanked, freshResults, nil, nil)
+	freshEvidence, _, _ := ca.scrapeRanked(ctx, "question", freshRanked, freshResults, nil, nil)
 	combinedEvidence := append(append([]models.Evidence{}, state.Evidence...), freshEvidence...)
 	var finalAnswer models.QuestionAnswer
 	finalPrompt := fmt.Sprintf("Company brief:\n%+v\n\nOrg chart:\n%+v\n\nOriginal evidence:\n%s\n\nFresh search query: %s\nFresh search results:\n%s\n\nFresh evidence:\n%s\n\nQuestion: %s", state.Brief, *chart, formatEvidence(state.Evidence), query, FormatSearchSnippets(freshResults), formatEvidence(freshEvidence), question)
@@ -324,6 +327,9 @@ func (ca *CompanyAgent) searchPlan(ctx context.Context, sessionID string, plan m
 			continue
 		}
 		for _, result := range results {
+			if isBlockedSourceURL(result.Link) {
+				continue
+			}
 			key := strings.ToLower(strings.TrimSpace(result.Link))
 			if key != "" && !seen[key] {
 				seen[key] = true
@@ -512,6 +518,9 @@ func classifySource(brief models.CompanyBrief, targetURL string) sourceProfile {
 	rawHost := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
 	host := rootHost(rawHost)
 	path := strings.ToLower(parsed.Path)
+	if isBlockedSourceURL(targetURL) {
+		return sourceProfile{sourceType: "blocked", quality: 0}
+	}
 	official := false
 	primary := false
 	if brief.Domain != "" {
@@ -661,9 +670,10 @@ func normalizeURL(value string) string {
 	return strings.TrimRight(strings.ToLower(strings.TrimSpace(value)), "/")
 }
 
-func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, ranked []models.RankedResult, searchResults []models.SearchResult, existing []models.Evidence, eventCh chan<- models.AgentEvent) ([]models.Evidence, []string) {
+func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, ranked []models.RankedResult, searchResults []models.SearchResult, existing []models.Evidence, eventCh chan<- models.AgentEvent) ([]models.Evidence, []string, []models.ScrapeReportEntry) {
 	evidence := make([]models.Evidence, 0, ca.engine.MaxScrapes())
 	sources := make([]string, 0, ca.engine.MaxScrapes())
+	report := make([]models.ScrapeReportEntry, 0, ca.engine.MaxScrapes()*2)
 	known := make(map[string]bool, len(existing))
 	for _, item := range existing {
 		known[normalizeURL(item.URL)] = true
@@ -676,6 +686,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 			evidence = append(evidence, *snippet)
 			known[normalizeURL(item.URL)] = true
 		}
+		report = append(report, models.ScrapeReportEntry{URL: item.URL, SourceType: item.SourceType, Status: "skipped", Reason: "public search snippet retained; direct professional-profile scraping is disabled"})
 	}
 	usableScrapes := 0
 	attemptLimit := ca.engine.MaxScrapes() * 2
@@ -688,25 +699,64 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 		}
 		parsed, err := url.ParseRequestURI(item.URL)
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			report = append(report, models.ScrapeReportEntry{URL: item.URL, SourceType: item.SourceType, Status: "failed", Reason: "invalid target URL"})
 			continue
 		}
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolCall, Step: 8 + len(evidence), ToolName: "web_scraper", ToolInput: item.URL, Content: "Scraping " + item.SourceType + " source..."})
 		scrape, err := ca.engine.ScrapeCached(ctx, item.URL)
-		if err != nil || scrape == nil || scrape.Blocked || len(scrape.Content) <= minScrapeContentLen {
+		entry := models.ScrapeReportEntry{URL: item.URL, SourceType: item.SourceType, Status: "failed"}
+		if err != nil {
+			entry.Reason = err.Error()
+			report = append(report, entry)
+			if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
+				evidence = append(evidence, *snippet)
+			}
+			continue
+		}
+		if scrape == nil {
+			entry.Reason = "scraper returned no result"
+			report = append(report, entry)
+			continue
+		}
+		entry.WordCount = scrape.WordCount
+		entry.QualityScore = scrape.QualityScore
+		entry.ImagesFound = len(scrape.Images)
+		if scrape.Blocked {
+			entry.Status = "blocked"
+			entry.Reason = scrape.BlockReason
+			report = append(report, entry)
+			if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
+				evidence = append(evidence, *snippet)
+			}
+			continue
+		}
+		if len(scrape.Content) <= minScrapeContentLen {
+			entry.Reason = "insufficient extracted content"
+			report = append(report, entry)
 			if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
 				evidence = append(evidence, *snippet)
 			}
 			continue
 		}
 		if len(scrape.Images) > 0 {
+			entry.OCRStatus = "attempted"
 			ocrCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			textByURL := ca.engine.ExtractImageText(ocrCtx, scrape.Images)
+			textByURL, ocrErr := ca.engine.ExtractImageTextDetailed(ocrCtx, scrape.Images)
 			cancel()
+			if ocrErr != nil {
+				entry.OCRStatus = "failed"
+				entry.OCRReason = ocrErr.Error()
+			} else {
+				entry.OCRStatus = "success"
+			}
 			for index := range scrape.Images {
 				if text := textByURL[scrape.Images[index].URL]; text != "" {
 					scrape.Images[index].ExtractedText = text
+					entry.OCRImagesWithText++
 				}
 			}
+		} else {
+			entry.OCRStatus = "not_applicable"
 		}
 		evidence = append(evidence, models.Evidence{URL: scrape.CanonicalURL, Title: scrape.Title, Content: scrape.Content, Headings: scrape.Headings, JSONLD: scrape.JSONLD, Images: scrape.Images, Score: item.Score, EvidenceType: item.EvidenceType, SourceType: item.SourceType, QualityScore: scrape.QualityScore})
 		if evidence[len(evidence)-1].URL == "" {
@@ -714,8 +764,44 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 		}
 		sources = append(sources, item.URL)
 		usableScrapes++
+		entry.Status = "success"
+		report = append(report, entry)
 	}
-	return evidence, sources
+	return evidence, sources, report
+}
+
+func appendUniqueScrapeReports(existing, additions []models.ScrapeReportEntry) []models.ScrapeReportEntry {
+	seen := make(map[string]bool, len(existing)+len(additions))
+	for _, item := range existing {
+		seen[normalizeURL(item.URL)] = true
+	}
+	for _, item := range additions {
+		key := normalizeURL(item.URL)
+		if key != "" && !seen[key] {
+			seen[key] = true
+			existing = append(existing, item)
+		}
+	}
+	return existing
+}
+
+func filterBlockedSearchResults(results []models.SearchResult) []models.SearchResult {
+	filtered := make([]models.SearchResult, 0, len(results))
+	for _, result := range results {
+		if !isBlockedSourceURL(result.Link) {
+			filtered = append(filtered, result)
+		}
+	}
+	return filtered
+}
+
+func isBlockedSourceURL(targetURL string) bool {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+	return host == "wikipedia.org" || strings.HasSuffix(host, ".wikipedia.org")
 }
 
 func snippetEvidenceForURL(item models.RankedResult, results []models.SearchResult) *models.Evidence {
@@ -771,7 +857,7 @@ func selectScrapeCandidates(ranked []models.RankedResult, limit int) []models.Ra
 		if len(selected) >= limit {
 			break
 		}
-		if candidate.SourceType == "professional_profile" {
+		if candidate.SourceType == "professional_profile" || candidate.SourceType == "blocked" || isBlockedSourceURL(candidate.URL) {
 			continue
 		}
 		domain := sourceDomain(candidate.URL)
@@ -788,7 +874,7 @@ func selectScrapeCandidates(ranked []models.RankedResult, limit int) []models.Ra
 			if len(selected) >= limit {
 				break
 			}
-			if candidate.SourceType == "professional_profile" {
+			if candidate.SourceType == "professional_profile" || candidate.SourceType == "blocked" || isBlockedSourceURL(candidate.URL) {
 				continue
 			}
 			alreadySelected := false

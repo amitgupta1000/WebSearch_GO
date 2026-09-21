@@ -27,3 +27,17 @@ func TestCleanJSONString(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeOCRResponseAcceptsObjectArrayAndCommaSeparatedObjects(t *testing.T) {
+	tests := []string{
+		`{"images":[{"url":"https://example.com/a.webp","extracted_text":"Chevron"}]}`,
+		`[{"url":"https://example.com/a.webp","extracted_text":"Chevron"}]`,
+		`{"url":"https://example.com/a.webp","extracted_text":"Chevron"},{"url":"https://example.com/b.webp","extracted_text":""}`,
+	}
+	for _, raw := range tests {
+		items, err := decodeOCRResponse(raw)
+		if err != nil || len(items) == 0 || items[0].URL != "https://example.com/a.webp" {
+			t.Errorf("decodeOCRResponse(%q) = %+v, %v", raw, items, err)
+		}
+	}
+}
