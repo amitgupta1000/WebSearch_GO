@@ -59,7 +59,8 @@ func main() {
 	// 2. Initialize Cache, Scraper and Serper
 	memCache := cache.NewMemoryCache(cfg.CacheMaxEntries)
 	defer memCache.Close()
-	scraper := tools.NewScraper(cookieJar, 15*time.Second)
+	scraper := tools.NewScraperWithBrowser(cookieJar, 15*time.Second, cfg.EnableBrowserFallback)
+	defer scraper.Close()
 	serper := tools.NewSerperClient(cfg.SerperAPIKey)
 
 	// 3. Initialize Gemini LLM client. Fail fast: research cannot run without it.

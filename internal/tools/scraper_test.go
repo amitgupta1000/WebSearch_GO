@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,19 @@ import (
 	"time"
 	"unicode/utf8"
 )
+
+type fakeBrowserRenderer struct {
+	html  string
+	err   error
+	calls int
+}
+
+func (r *fakeBrowserRenderer) Render(context.Context, string) (string, error) {
+	r.calls++
+	return r.html, r.err
+}
+
+func (*fakeBrowserRenderer) Close() error { return nil }
 
 func TestScrapeURLExtractsContentWithoutDuplicates(t *testing.T) {
 	page := `<!DOCTYPE html><html><head><title>Acme Team</title></head><body>
@@ -109,6 +123,80 @@ func TestScrapeURLRejectsNonHTMLContent(t *testing.T) {
 	s := NewScraper(nil, time.Second)
 	if _, err := s.ScrapeURL(context.Background(), srv.URL); err == nil {
 		t.Fatal("expected error for non-HTML content type")
+	}
+}
+
+func TestScrapeURLUsesBrowserForJavaScriptShell(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><body><div id="app"></div></body></html>`))
+	}))
+	defer srv.Close()
+
+	renderer := &fakeBrowserRenderer{html: `<html><head><title>Rendered Team</title></head><body><main><h1>Rendered leadership</h1><p>` + strings.Repeat("JavaScript hydrated leadership content. ", 8) + `</p></main></body></html>`}
+	scraper := NewScraperWithBrowser(nil, time.Second, true)
+	scraper.newBrowser = func(time.Duration) (browserRenderer, error) { return renderer, nil }
+
+	result, err := scraper.ScrapeURL(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("ScrapeURL returned error: %v", err)
+	}
+	if renderer.calls != 1 || result.Extractor != "playwright-content-root" || result.FallbackStatus != "succeeded" {
+		t.Fatalf("expected successful browser fallback, calls=%d result=%+v", renderer.calls, result)
+	}
+	if !strings.Contains(result.Content, "JavaScript hydrated leadership content") {
+		t.Errorf("rendered content was not extracted: %q", result.Content)
+	}
+}
+
+func TestScrapeURLKeepsHTTPResultWhenBrowserFails(t *testing.T) {
+	page := `<html><body><main><h1>Short page</h1><p>Small shell.</p></main></body></html>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(page))
+	}))
+	defer srv.Close()
+
+	renderer := &fakeBrowserRenderer{err: context.DeadlineExceeded}
+	scraper := NewScraperWithBrowser(nil, time.Second, true)
+	scraper.newBrowser = func(time.Duration) (browserRenderer, error) { return renderer, nil }
+
+	result, err := scraper.ScrapeURL(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("ScrapeURL returned error: %v", err)
+	}
+	if result.FallbackStatus != "failed" || result.FallbackError == "" || result.Extractor != "goquery-content-root" {
+		t.Fatalf("expected HTTP result with fallback failure metadata, got %+v", result)
+	}
+}
+
+func TestScrapeURLDoesNotBypassRenderedChallenge(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><body><div id="app"></div></body></html>`))
+	}))
+	defer srv.Close()
+
+	renderer := &fakeBrowserRenderer{html: `<html><head><title>Verification</title></head><body><h1>CAPTCHA</h1><p>Please verify you are human.</p></body></html>`}
+	scraper := NewScraperWithBrowser(nil, time.Second, true)
+	scraper.newBrowser = func(time.Duration) (browserRenderer, error) { return renderer, nil }
+
+	result, err := scraper.ScrapeURL(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("ScrapeURL returned error: %v", err)
+	}
+	if !result.Blocked || result.FallbackStatus != "blocked" || result.BlockReason != "human-verification challenge" {
+		t.Fatalf("expected rendered challenge to remain blocked, got %+v", result)
+	}
+}
+
+func TestScrapeURLReturnsErrorWhenHTTPAndBrowserFail(t *testing.T) {
+	renderer := &fakeBrowserRenderer{err: errors.New("browser unavailable")}
+	scraper := NewScraperWithBrowser(nil, time.Second, true)
+	scraper.newBrowser = func(time.Duration) (browserRenderer, error) { return renderer, nil }
+
+	if _, err := scraper.ScrapeURL(context.Background(), "http://127.0.0.1:1/unavailable"); err == nil {
+		t.Fatal("expected combined HTTP and browser error")
 	}
 }
 

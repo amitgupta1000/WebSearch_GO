@@ -62,11 +62,17 @@ invalid URLs, the BM25 ranking continues directly to scraping.
 | `GOOGLE_GENAI_USE_VERTEXAI` | unset | Set to `true` to use Vertex AI backend |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | — | Vertex AI project & region |
 | `COOKIE_FILE_PATH` | — | Optional JSON cookie export (Cookie-Editor / EditThisCookie format) |
+| `ENABLE_BROWSER_FALLBACK` | `false` | Enable bounded Playwright rendering after HTTP errors, challenges, or low-quality JavaScript shells |
 | `CACHE_MAX_ENTRIES` | `2048` | Max entries in the in-memory TTL cache |
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Per-request research budget |
 | `MAX_SCRAPES_PER_RUN` | `10` | Max web pages scraped per research session |
 | `MAX_SEARCH_RESULTS` | `8` | Max search results fetched per search query |
 | `MAX_AGENT_STEPS` | `10` | Max agent/tool iterations per research session |
+
+When browser fallback is enabled, install the matching Playwright browser once with
+`go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium`.
+The renderer is HTTP-first, does not interact with challenges, and records a
+blocked result when a CAPTCHA or press-and-hold page remains after rendering.
 
 ## Endpoints
 

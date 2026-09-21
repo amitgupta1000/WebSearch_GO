@@ -43,21 +43,25 @@ type SearchResult struct {
 
 // ScrapeResult represents the extracted text content of a webpage.
 type ScrapeResult struct {
-	URL          string    `json:"url"`
-	CanonicalURL string    `json:"canonical_url,omitempty"`
-	Title        string    `json:"title"`
-	Content      string    `json:"content"`
-	Headings     []string  `json:"headings,omitempty"`
-	JSONLD       []string  `json:"json_ld,omitempty"`
-	Images       []Image   `json:"images,omitempty"`
-	WordCount    int       `json:"word_count"`
-	ContentType  string    `json:"content_type,omitempty"`
-	Extractor    string    `json:"extractor,omitempty"`
-	QualityScore float64   `json:"quality_score"`
-	ByteSize     int       `json:"byte_size"`
-	FetchedAt    time.Time `json:"fetched_at"`
-	Blocked      bool      `json:"blocked,omitempty"`
-	BlockReason  string    `json:"block_reason,omitempty"`
+	URL               string    `json:"url"`
+	CanonicalURL      string    `json:"canonical_url,omitempty"`
+	Title             string    `json:"title"`
+	Content           string    `json:"content"`
+	Headings          []string  `json:"headings,omitempty"`
+	JSONLD            []string  `json:"json_ld,omitempty"`
+	Images            []Image   `json:"images,omitempty"`
+	WordCount         int       `json:"word_count"`
+	ContentType       string    `json:"content_type,omitempty"`
+	Extractor         string    `json:"extractor,omitempty"`
+	QualityScore      float64   `json:"quality_score"`
+	ByteSize          int       `json:"byte_size"`
+	FetchedAt         time.Time `json:"fetched_at"`
+	Blocked           bool      `json:"blocked,omitempty"`
+	BlockReason       string    `json:"block_reason,omitempty"`
+	FallbackAttempted bool      `json:"fallback_attempted,omitempty"`
+	FallbackStatus    string    `json:"fallback_status,omitempty"`
+	FallbackReason    string    `json:"fallback_reason,omitempty"`
+	FallbackError     string    `json:"fallback_error,omitempty"`
 }
 
 // Image records webpage image metadata and optional OCR text.

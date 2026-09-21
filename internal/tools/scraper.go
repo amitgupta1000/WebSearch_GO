@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -37,11 +39,24 @@ var excessiveBlankLines = regexp.MustCompile(`\n{3,}`)
 
 // Scraper fetches and extracts clean text from webpages.
 type Scraper struct {
-	client *http.Client
+	client         *http.Client
+	browserEnabled bool
+	browserTimeout time.Duration
+	browserMu      sync.Mutex
+	browser        browserRenderer
+	browserInit    bool
+	browserInitErr error
+	newBrowser     func(time.Duration) (browserRenderer, error)
 }
 
 // NewScraper initializes a high-performance HTTP scraper with cookie support.
 func NewScraper(jar *cookiejar.Jar, timeout time.Duration) *Scraper {
+	return NewScraperWithBrowser(jar, timeout, false)
+}
+
+// NewScraperWithBrowser initializes the scraper and optionally enables the
+// bounded JavaScript-rendering fallback.
+func NewScraperWithBrowser(jar *cookiejar.Jar, timeout time.Duration, enableBrowser bool) *Scraper {
 	if timeout <= 0 {
 		timeout = defaultScraperTimeout
 	}
@@ -71,14 +86,49 @@ func NewScraper(jar *cookiejar.Jar, timeout time.Duration) *Scraper {
 		},
 	}
 
-	return &Scraper{client: client}
+	browserTimeout := browserFallbackTimeout
+	if timeout < browserTimeout {
+		browserTimeout = timeout
+	}
+	return &Scraper{
+		client:         client,
+		browserEnabled: enableBrowser,
+		browserTimeout: browserTimeout,
+		newBrowser:     newPlaywrightRenderer,
+	}
 }
 
 // ScrapeURL fetches a target URL, strips non-content tags, and returns sanitized text.
 func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.ScrapeResult, error) {
+	body, contentType, statusCode, err := s.fetchHTTP(ctx, targetURL)
+	if err != nil {
+		return s.tryBrowser(ctx, targetURL, nil, "HTTP request failed", err)
+	}
+	if statusCode != http.StatusOK {
+		return s.tryBrowser(ctx, targetURL, nil, fmt.Sprintf("HTTP status %d", statusCode), fmt.Errorf("scraping returned status code: %d", statusCode))
+	}
+	if contentType != "" && !isHTMLContentType(contentType) {
+		return nil, fmt.Errorf("unsupported content type %q for scraping", contentType)
+	}
+
+	result, err := extractHTML(targetURL, contentType, body, "goquery-content-root")
+	if err != nil {
+		return s.tryBrowser(ctx, targetURL, nil, "HTTP HTML parsing failed", err)
+	}
+	if needsBrowserFallback(result) {
+		reason := "low-quality or JavaScript-shell page"
+		if result.Blocked {
+			reason = "HTTP response was marked as blocked"
+		}
+		return s.tryBrowser(ctx, targetURL, result, reason, nil)
+	}
+	return result, nil
+}
+
+func (s *Scraper) fetchHTTP(ctx context.Context, targetURL string) ([]byte, string, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to construct request: %w", err)
+		return nil, "", 0, fmt.Errorf("failed to construct request: %w", err)
 	}
 
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -87,20 +137,19 @@ func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.Scra
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("scraping request failed: %w", err)
+		return nil, "", 0, fmt.Errorf("scraping request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("scraping returned status code: %d", resp.StatusCode)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("failed to read HTML document: %w", err)
 	}
+	return body, resp.Header.Get("Content-Type"), resp.StatusCode, nil
+}
 
-	// Only parse HTML documents; skip PDFs, images, and other binaries.
-	if ct := resp.Header.Get("Content-Type"); ct != "" && !isHTMLContentType(ct) {
-		return nil, fmt.Errorf("unsupported content type %q for scraping", ct)
-	}
-
-	doc, err := goquery.NewDocumentFromReader(io.LimitReader(resp.Body, maxBodyBytes))
+func extractHTML(targetURL, contentType string, body []byte, extractor string) (*models.ScrapeResult, error) {
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse HTML document: %w", err)
 	}
@@ -117,7 +166,7 @@ func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.Scra
 			CanonicalURL: canonicalURL,
 			Title:        title,
 			Content:      runeSafeTruncate(bodyText, maxContentBytes),
-			ContentType:  resp.Header.Get("Content-Type"),
+			ContentType:  contentType,
 			Extractor:    "blocked-page",
 			QualityScore: 0,
 			ByteSize:     len(bodyText),
@@ -185,12 +234,86 @@ func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.Scra
 		JSONLD:       jsonLD,
 		Images:       images,
 		WordCount:    wordCount,
-		ContentType:  resp.Header.Get("Content-Type"),
-		Extractor:    "goquery-content-root",
+		ContentType:  contentType,
+		Extractor:    extractor,
 		QualityScore: qualityScore,
 		ByteSize:     len(content),
 		FetchedAt:    time.Now(),
 	}, nil
+}
+
+func needsBrowserFallback(result *models.ScrapeResult) bool {
+	if result == nil || result.Blocked {
+		return true
+	}
+	return utf8.RuneCountInString(result.Content) < minQualityRunes || result.QualityScore < 0.45
+}
+
+func (s *Scraper) tryBrowser(ctx context.Context, targetURL string, base *models.ScrapeResult, reason string, originalErr error) (*models.ScrapeResult, error) {
+	if !s.browserEnabled {
+		if base != nil {
+			return base, nil
+		}
+		return nil, originalErr
+	}
+
+	if base != nil {
+		base.FallbackAttempted = true
+		base.FallbackStatus = "attempted"
+		base.FallbackReason = reason
+	}
+	browser, err := s.getBrowser()
+	if err == nil {
+		fallbackCtx, cancel := context.WithTimeout(ctx, s.browserTimeout)
+		rendered, renderErr := browser.Render(fallbackCtx, targetURL)
+		cancel()
+		if renderErr == nil {
+			result, extractErr := extractHTML(targetURL, "text/html", []byte(rendered), "playwright-content-root")
+			if extractErr == nil {
+				result.FallbackAttempted = true
+				result.FallbackReason = reason
+				if result.Blocked {
+					result.FallbackStatus = "blocked"
+				} else {
+					result.FallbackStatus = "succeeded"
+				}
+				return result, nil
+			}
+			renderErr = extractErr
+		}
+		err = renderErr
+	}
+
+	if base != nil {
+		base.FallbackStatus = "failed"
+		base.FallbackError = err.Error()
+		return base, nil
+	}
+	if originalErr != nil {
+		return nil, fmt.Errorf("%w; browser fallback failed: %v", originalErr, err)
+	}
+	return nil, fmt.Errorf("browser fallback failed: %w", err)
+}
+
+func (s *Scraper) getBrowser() (browserRenderer, error) {
+	s.browserMu.Lock()
+	defer s.browserMu.Unlock()
+	if s.browserInit {
+		return s.browser, s.browserInitErr
+	}
+	s.browserInit = true
+	s.browser, s.browserInitErr = s.newBrowser(s.browserTimeout)
+	return s.browser, s.browserInitErr
+}
+
+// Close releases the optional browser process.
+func (s *Scraper) Close() error {
+	s.browserMu.Lock()
+	defer s.browserMu.Unlock()
+	if s.browser == nil {
+		return nil
+	}
+	return s.browser.Close()
 }
 
 const maxExtractedImages = 24

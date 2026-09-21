@@ -16,6 +16,7 @@ func TestLoadDefaults(t *testing.T) {
 	os.Unsetenv("MAX_SCRAPES_PER_RUN")
 	os.Unsetenv("MAX_SEARCH_RESULTS")
 	os.Unsetenv("MAX_AGENT_STEPS")
+	os.Unsetenv("ENABLE_BROWSER_FALLBACK")
 
 	cfg := Load()
 
@@ -43,6 +44,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MaxSteps != 10 {
 		t.Errorf("expected default max steps 10, got %d", cfg.MaxSteps)
 	}
+	if cfg.EnableBrowserFallback {
+		t.Error("browser fallback should be disabled by default")
+	}
 }
 
 func TestLoadCustomEnv(t *testing.T) {
@@ -51,6 +55,7 @@ func TestLoadCustomEnv(t *testing.T) {
 	t.Setenv("MAX_SEARCH_RESULTS", "12")
 	t.Setenv("MAX_AGENT_STEPS", "20")
 	t.Setenv("RESEARCH_TIMEOUT_SECONDS", "60")
+	t.Setenv("ENABLE_BROWSER_FALLBACK", "true")
 
 	cfg := Load()
 
@@ -68,5 +73,8 @@ func TestLoadCustomEnv(t *testing.T) {
 	}
 	if cfg.ResearchTimeout != 60*time.Second {
 		t.Errorf("expected timeout 60s, got %v", cfg.ResearchTimeout)
+	}
+	if !cfg.EnableBrowserFallback {
+		t.Error("expected browser fallback to be enabled")
 	}
 }

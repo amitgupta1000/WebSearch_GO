@@ -69,6 +69,9 @@ type ScrapeReportEntry struct {
 	OCRStatus         string  `json:"ocr_status,omitempty"`
 	OCRReason         string  `json:"ocr_reason,omitempty"`
 	OCRImagesWithText int     `json:"ocr_images_with_text,omitempty"`
+	Extractor         string  `json:"extractor,omitempty"`
+	FallbackStatus    string  `json:"fallback_status,omitempty"`
+	FallbackReason    string  `json:"fallback_reason,omitempty"`
 }
 
 // QualityReview records a meta-agent evaluation of a completed research pass.
