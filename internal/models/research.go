@@ -1,5 +1,10 @@
 package models
 
+import (
+	"encoding/json"
+	"strings"
+)
+
 // ResearchPreferences captures scope that can be reused by company and person research.
 type ResearchPreferences struct {
 	Country         string   `json:"country,omitempty"`
@@ -73,6 +78,7 @@ type ScrapeReportEntry struct {
 	FallbackStatus    string  `json:"fallback_status,omitempty"`
 	FallbackReason    string  `json:"fallback_reason,omitempty"`
 	FallbackError     string  `json:"fallback_error,omitempty"`
+	ContentTruncated  bool    `json:"content_truncated,omitempty"`
 }
 
 // QualityReview records a meta-agent evaluation of a completed research pass.
@@ -84,6 +90,41 @@ type QualityReview struct {
 	UnsupportedClaims []string       `json:"unsupported_claims,omitempty"`
 	FollowUpQueries   []PlannedQuery `json:"follow_up_queries,omitempty"`
 	Reason            string         `json:"reason,omitempty"`
+}
+
+// UnmarshalJSON accepts follow_up_queries as either a list of query strings or a
+// list of PlannedQuery objects. The model returns both shapes, and a decode
+// failure here would otherwise discard the entire review, silently disabling the
+// QC remediation loop.
+func (review *QualityReview) UnmarshalJSON(data []byte) error {
+	type reviewAlias QualityReview
+	aux := struct {
+		FollowUpQueries []json.RawMessage `json:"follow_up_queries"`
+		*reviewAlias
+	}{reviewAlias: (*reviewAlias)(review)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	review.FollowUpQueries = nil
+	for _, raw := range aux.FollowUpQueries {
+		var plan PlannedQuery
+		if err := json.Unmarshal(raw, &plan); err == nil && strings.TrimSpace(plan.Query) != "" {
+			review.FollowUpQueries = append(review.FollowUpQueries, plan)
+			continue
+		}
+		var query string
+		if err := json.Unmarshal(raw, &query); err == nil && strings.TrimSpace(query) != "" {
+			review.FollowUpQueries = append(review.FollowUpQueries, PlannedQuery{
+				Query:      strings.TrimSpace(query),
+				Purpose:    "QC follow-up",
+				TargetArea: "general",
+				Priority:   1,
+			})
+		}
+	}
+	return nil
 }
 
 // CompanyResearchContext is retained after a run for QC transparency and Q&A.

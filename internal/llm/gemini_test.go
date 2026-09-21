@@ -1,6 +1,11 @@
 package llm
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"google.golang.org/genai"
+)
 
 func TestCleanJSONString(t *testing.T) {
 	tests := []struct {
@@ -38,6 +43,36 @@ func TestDecodeOCRResponseAcceptsObjectArrayAndCommaSeparatedObjects(t *testing.
 		items, err := decodeOCRResponse(raw)
 		if err != nil || len(items) == 0 || items[0].URL != "https://example.com/a.webp" {
 			t.Errorf("decodeOCRResponse(%q) = %+v, %v", raw, items, err)
+		}
+	}
+}
+
+func TestIsTransientGenAIErrorClassifiesFailures(t *testing.T) {
+	if isTransientGenAIError(nil) {
+		t.Error("a nil error must not be retriable")
+	}
+	if isTransientGenAIError(errors.New("bad request")) {
+		t.Error("a plain error must not be retriable")
+	}
+	// A server-side error is retriable even when the body was not parsed (code 0).
+	if !isTransientGenAIError(genai.ServerError{}) {
+		t.Error("server errors must be retriable")
+	}
+	// A client error that is not a rate limit or timeout must not be retried.
+	if isTransientGenAIError(genai.ClientError{}) {
+		t.Error("non-rate-limit client errors must not be retriable")
+	}
+}
+
+func TestIsTransientStatusCode(t *testing.T) {
+	for _, code := range []int{0, 408, 429, 500, 502, 503, 504, 599} {
+		if !isTransientStatusCode(code) {
+			t.Errorf("status %d should be retriable", code)
+		}
+	}
+	for _, code := range []int{200, 400, 401, 403, 404, 422} {
+		if isTransientStatusCode(code) {
+			t.Errorf("status %d must not be retriable", code)
 		}
 	}
 }

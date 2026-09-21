@@ -78,6 +78,20 @@ func (chart *OrgChart) applyAlternateOrgChart(raw json.RawMessage) {
 	}
 }
 
+// UnverifiedSourceCount reports how many collected sources could not be used as
+// evidence: policy-skipped profiles, blocked pages, and failed or empty scrapes.
+// It lets the console distinguish "this function has no staff" from "we could not
+// verify anyone".
+func (chart *OrgChart) UnverifiedSourceCount() int {
+	count := 0
+	for _, entry := range chart.ScrapeReport {
+		if entry.Status != "success" {
+			count++
+		}
+	}
+	return count
+}
+
 type alternateEmployee struct {
 	Name          string              `json:"name"`
 	Title         string              `json:"title"`

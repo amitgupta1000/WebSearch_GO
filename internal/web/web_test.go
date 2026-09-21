@@ -25,7 +25,7 @@ func TestIndexHasStableQueryControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out strings.Builder
-	if err := tmpl.ExecuteTemplate(&out, "index.html", nil); err != nil {
+	if err := tmpl.ExecuteTemplate(&out, "index.html", indexViewStub{}); err != nil {
 		t.Fatalf("execute index template: %v", err)
 	}
 	if !strings.Contains(out.String(), `id="primary-query"`) {
@@ -117,5 +117,107 @@ func TestErrorBoxEscapesMessage(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "&lt;script&gt;") {
 		t.Error("expected escaped error message")
+	}
+}
+
+// indexViewStub mirrors the console view model fields consumed by index.html.
+type indexViewStub struct {
+	BrowserToggle    bool
+	BrowserDefaultOn bool
+}
+
+func TestIndexShowsBrowserToggleOnlyWhenAvailable(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "index.html", indexViewStub{}); err != nil {
+		t.Fatalf("execute index template: %v", err)
+	}
+	if strings.Contains(out.String(), "use_browser") {
+		t.Error("the rendering toggle must be hidden when Chromium is unavailable")
+	}
+
+	out.Reset()
+	if err := tmpl.ExecuteTemplate(&out, "index.html", indexViewStub{BrowserToggle: true, BrowserDefaultOn: true}); err != nil {
+		t.Fatalf("execute index template: %v", err)
+	}
+	page := out.String()
+	if !strings.Contains(page, `name="use_browser"`) {
+		t.Error("expected the rendering toggle when Chromium is available")
+	}
+	if !strings.Contains(page, `value="1"`) || !strings.Contains(page, "checked") {
+		t.Error("the toggle must reflect a deployment default of on")
+	}
+}
+
+func TestCompanyResultOffersBrowserRerun(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	chart := &models.OrgChart{
+		CompanyName:  "Acme",
+		ScrapeReport: []models.ScrapeReportEntry{{URL: "https://example.com/a", Status: "failed"}},
+	}
+	view := struct {
+		Chart         *models.OrgChart
+		SessionID     string
+		BrowserToggle bool
+	}{Chart: chart, SessionID: "sess_test", BrowserToggle: true}
+
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "company_result", view); err != nil {
+		t.Fatalf("execute company_result: %v", err)
+	}
+	page := out.String()
+	if !strings.Contains(page, `hx-post="/api/rerun"`) {
+		t.Error("expected a re-run control on the finished result")
+	}
+	if !strings.Contains(page, `name="session_id" value="sess_test"`) {
+		t.Error("the re-run must carry the session id so the brief can be reused")
+	}
+	if !strings.Contains(page, "could not use 1 collected source") {
+		t.Errorf("expected the unusable-source count to be surfaced, got %q", page)
+	}
+
+	// Without the capability the offer must disappear entirely.
+	out.Reset()
+	view.BrowserToggle = false
+	if err := tmpl.ExecuteTemplate(&out, "company_result", view); err != nil {
+		t.Fatalf("execute company_result: %v", err)
+	}
+	if strings.Contains(out.String(), "/api/rerun") {
+		t.Error("no re-run control should be rendered when Chromium is unavailable")
+	}
+}
+
+func TestWorkflowConsoleShowsRunBudget(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "workflow_console", map[string]string{
+		"SessionID": "sess_test", "Mode": "Company", "Query": "Acme", "Budget": "300s",
+	}); err != nil {
+		t.Fatalf("execute workflow_console: %v", err)
+	}
+	if !strings.Contains(out.String(), "300s budget") {
+		t.Errorf("expected the run budget in the console, got %q", out.String())
+	}
+
+	// The badge is optional, so a caller that supplies no budget still renders.
+	out.Reset()
+	if err := tmpl.ExecuteTemplate(&out, "workflow_console", map[string]string{
+		"SessionID": "sess_test", "Mode": "Company", "Query": "Acme",
+	}); err != nil {
+		t.Fatalf("execute workflow_console without a budget: %v", err)
+	}
+	if strings.Contains(out.String(), " budget") {
+		t.Error("no budget badge should render when none is supplied")
 	}
 }

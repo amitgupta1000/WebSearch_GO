@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -17,6 +18,13 @@ import (
 
 // defaultGeminiModel is used when no model is configured.
 const defaultGeminiModel = "gemini-2.5-flash-lite"
+
+// Transient API failures (5xx, 429) are retried with linear backoff: a single
+// "service unavailable" must never fail a multi-minute research run.
+const (
+	geminiMaxAttempts = 3
+	geminiBaseRetry   = 500 * time.Millisecond
+)
 
 // GeminiClient wraps the Google GenAI SDK for Gemini 2.5 Flash Lite.
 type GeminiClient struct {
@@ -50,6 +58,7 @@ func NewGeminiClient(ctx context.Context, model string) (*GeminiClient, error) {
 }
 
 // GenerateContent sends prompt messages to Gemini and returns text.
+// Transient API failures are retried with linear backoff.
 func (g *GeminiClient) GenerateContent(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
@@ -60,12 +69,71 @@ func (g *GeminiClient) GenerateContent(ctx context.Context, systemPrompt, userPr
 		Temperature: genai.Ptr(float64(0.2)),
 	}
 
-	resp, err := g.client.Models.GenerateContent(ctx, g.model, genai.Text(userPrompt), config)
-	if err != nil {
-		return "", fmt.Errorf("gemini generation failed: %w", err)
+	var lastErr error
+	for attempt := 1; attempt <= geminiMaxAttempts; attempt++ {
+		if attempt > 1 {
+			if err := sleepWithContext(ctx, geminiBaseRetry*time.Duration(attempt-1)); err != nil {
+				return "", err
+			}
+		}
+
+		resp, err := g.client.Models.GenerateContent(ctx, g.model, genai.Text(userPrompt), config)
+		if err == nil {
+			return responseText(resp)
+		}
+		if !isTransientGenAIError(err) {
+			return "", fmt.Errorf("gemini generation failed: %w", err)
+		}
+		lastErr = err
 	}
 
-	return responseText(resp)
+	return "", fmt.Errorf("gemini generation failed after %d attempts: %w", geminiMaxAttempts, lastErr)
+}
+
+// isTransientGenAIError reports whether err is a transient API failure worth
+// retrying: server-side errors and rate limiting. Request errors and context
+// cancellation are never retried.
+func isTransientGenAIError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var serverErr genai.ServerError
+	if errors.As(err, &serverErr) {
+		return isTransientStatusCode(serverErr.Code)
+	}
+	var clientErr genai.ClientError
+	if errors.As(err, &clientErr) {
+		return clientErr.Code == http.StatusTooManyRequests || clientErr.Code == http.StatusRequestTimeout
+	}
+	return false
+}
+
+// isTransientStatusCode reports whether an HTTP status warrants a retry. A zero
+// code means the SDK classified the failure as server-side without a parsed body.
+func isTransientStatusCode(code int) bool {
+	switch code {
+	case 0,
+		http.StatusRequestTimeout,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	}
+	return code >= 500
+}
+
+// sleepWithContext waits for d, returning early if ctx is cancelled.
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // ExtractImageText downloads bounded image inputs and asks Gemini to transcribe

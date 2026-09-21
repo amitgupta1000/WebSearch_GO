@@ -41,6 +41,7 @@
 				<div class="flex items-center gap-2">
 					<span class="text-xs font-mono font-medium text-white">Live Workflow Stream</span>
 					<span class="text-[11px] font-mono bg-slate-800 text-indigo-300 px-2 py-0.5 rounded border border-slate-700/50">{{.Mode}}: {{.Query}}</span>
+					{{if .Budget}}<span class="text-[11px] font-mono bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700/50">{{.Budget}} budget</span>{{end}}
 				</div>
 			</div>
 			<div id="status-indicator-{{.SessionID}}">
@@ -142,8 +143,9 @@
 			<div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
 				<div class="flex items-center justify-between mb-2">
 					<span class="font-semibold text-white text-sm">{{.Name}}</span>
-					<span class="text-xs text-slate-500">{{len .Members}} members</span>
+					<span class="text-xs text-slate-500">{{if .Members}}{{len .Members}} members{{else}}no verified contacts{{end}}</span>
 				</div>
+				{{if .Head}}<p class="text-xs text-slate-300 mb-1">Head: {{.Head}}</p>{{end}}
 				<p class="text-xs text-slate-400 mb-3">{{.Description}}</p>
 				<div class="space-y-1">
 					{{range .Members}}
@@ -165,6 +167,7 @@
 			</div>
 			{{end}}
 		</div>
+		{{if .UnverifiedSourceCount}}<p class="text-xs text-slate-500 mt-3">{{.UnverifiedSourceCount}} collected source(s) could not be used as evidence: policy-skipped profiles, blocked pages, or empty scrapes.</p>{{end}}
 	</div>
 	<div id="drilldown-loading" class="hidden text-xs text-indigo-400" role="status" aria-live="polite">Loading dossier...</div>
 	<div class="border-t border-slate-800/60 pt-3 flex flex-wrap gap-2 items-center text-xs text-slate-500">
@@ -176,6 +179,22 @@
 
 {{define "company_result"}}
 {{template "company_chart" .Chart}}
+{{if .BrowserToggle}}
+<div class="mt-6 bg-slate-900 border border-amber-500/30 rounded-2xl p-5 space-y-3">
+	<div>
+		<h4 class="text-sm font-semibold text-amber-300">Not enough detail?</h4>
+		<p class="text-xs text-slate-400 mt-1">
+			{{if .Chart.UnverifiedSourceCount}}This run could not use {{.Chart.UnverifiedSourceCount}} collected source(s): policy-skipped profiles, blocked pages, or empty scrapes. Browser rendering often recovers JavaScript-heavy and bot-checked pages.{{else}}Browser rendering can recover content from JavaScript-heavy and bot-checked pages.{{end}}
+		</p>
+	</div>
+	<form hx-post="/api/rerun" hx-target="#results-container" hx-swap="innerHTML" class="flex flex-wrap items-center gap-3">
+		<input type="hidden" name="session_id" value="{{.SessionID}}">
+		<input type="hidden" name="use_browser" value="1">
+		<button type="submit" class="bg-amber-600 hover:bg-amber-500 text-white font-medium px-4 py-2 rounded-lg text-sm">Re-run with browser rendering</button>
+		<span class="text-xs text-slate-500">Reuses the same brief and takes considerably longer.</span>
+	</form>
+</div>
+{{end}}
 <div class="mt-6 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
 	<div>
 		<h4 class="text-sm font-semibold text-white">Ask about this research</h4>

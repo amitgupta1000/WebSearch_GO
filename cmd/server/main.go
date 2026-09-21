@@ -34,11 +34,26 @@ type Server struct {
 	personAgent  *agent.PersonAgent
 	hub          *agent.SessionHub
 	tmpl         *template.Template
+	// browserAvailable is probed once at startup so the console never offers a
+	// rendering toggle that cannot work.
+	browserAvailable   bool
+	allowBrowserToggle bool
+}
+
+// indexView is the data passed to the full-page console.
+type indexView struct {
+	// BrowserToggle is true when the console may offer per-run browser rendering.
+	BrowserToggle bool
+	// BrowserDefaultOn mirrors the deployment default so the checkbox reflects it.
+	BrowserDefaultOn bool
 }
 
 type companyResultView struct {
 	Chart     *models.OrgChart
 	SessionID string
+	// BrowserToggle is true when a finished result can be re-run with browser
+	// rendering, which is how a user escalates a thin result.
+	BrowserToggle bool
 }
 
 func main() {
@@ -81,17 +96,33 @@ func main() {
 		log.Fatalf("Template parsing failed: %v", err)
 	}
 
+	// Probe Chromium once when the console may offer per-run rendering, so the UI
+	// never advertises a capability that is not installed. A successful probe also
+	// leaves the browser warm for the first request.
+	browserAvailable := false
+	if cfg.AllowBrowserToggle || cfg.EnableBrowserFallback {
+		browserAvailable = scraper.BrowserAvailable()
+		if browserAvailable {
+			log.Printf("Browser rendering available (per-run toggle: %t)", cfg.AllowBrowserToggle)
+		} else {
+			log.Printf("[WARN] Browser rendering requested but Chromium could not be started; the console will not offer it and any fallback will report a failure")
+		}
+	}
+
 	srv := &Server{
-		cfg:          cfg,
-		companyAgent: compAgent,
-		personAgent:  persAgent,
-		hub:          sessionHub,
-		tmpl:         tmpl,
+		cfg:                cfg,
+		companyAgent:       compAgent,
+		personAgent:        persAgent,
+		hub:                sessionHub,
+		tmpl:               tmpl,
+		browserAvailable:   browserAvailable,
+		allowBrowserToggle: cfg.AllowBrowserToggle,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", srv.handleIndex)
 	mux.HandleFunc("POST /api/research", srv.handleResearch)
+	mux.HandleFunc("POST /api/rerun", srv.handleRerun)
 	mux.HandleFunc("POST /api/question", srv.handleQuestion)
 	mux.HandleFunc("GET /api/events", srv.handleEvents)
 	mux.HandleFunc("GET /healthz", srv.handleHealth)
@@ -101,8 +132,10 @@ func main() {
 		Handler:           securityHeaders(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      cfg.ResearchTimeout + 30*time.Second,
-		IdleTimeout:       90 * time.Second,
+		// Size the write timeout for the longest possible run so a browser-rendered
+		// research stream is never cut off mid-flight.
+		WriteTimeout: cfg.MaxResearchTimeout() + 30*time.Second,
+		IdleTimeout:  90 * time.Second,
 	}
 
 	// Graceful shutdown on SIGINT/SIGTERM (Cloud Run sends SIGTERM on scale-in).
@@ -127,13 +160,50 @@ func main() {
 
 // handleIndex serves the embedded research console.
 func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
-	if err := s.tmpl.ExecuteTemplate(w, "index.html", nil); err != nil {
+	view := indexView{
+		BrowserToggle:    s.allowBrowserToggle && s.browserAvailable,
+		BrowserDefaultOn: s.cfg.EnableBrowserFallback,
+	}
+	if err := s.tmpl.ExecuteTemplate(w, "index.html", view); err != nil {
 		log.Printf("[ERROR] index template execution failed: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 	}
 }
 
-// handleResearch runs a research task and renders the result as an HTML fragment
+// requestedBrowserOverride reads the per-run rendering choice from the console
+// form. explicit reports whether the user made a choice at all.
+func requestedBrowserOverride(r *http.Request) (enabled bool, explicit bool) {
+	switch strings.ToLower(strings.TrimSpace(r.FormValue("use_browser"))) {
+	case "1", "true", "on", "yes":
+		return true, true
+	case "0", "false", "off", "no":
+		return false, true
+	}
+	return false, false
+}
+
+// browserChoice resolves the per-run rendering choice, honouring the deployment
+// policy. Asking for browser rendering where Chromium is missing is rejected
+// rather than silently degrading to an HTTP-only run.
+func (s *Server) browserChoice(r *http.Request) (bool, bool, error) {
+	if !s.allowBrowserToggle {
+		return false, false, nil
+	}
+	enabled, explicit := requestedBrowserOverride(r)
+	if enabled && !s.browserAvailable {
+		return false, false, errors.New("browser rendering is not available on this deployment")
+	}
+	return enabled, explicit, nil
+}
+
+// withBrowserOverride applies a per-run rendering choice to ctx.
+func withBrowserOverride(ctx context.Context, enabled, explicit bool) context.Context {
+	if !explicit {
+		return ctx
+	}
+	return tools.WithBrowserFallback(ctx, enabled)
+}
+
 // handleResearch initializes a live research task and renders the workflow console
 // for HTMX. If sync=1 query parameter is passed, it executes synchronously.
 func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
@@ -162,71 +232,119 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	browserEnabled, browserExplicit, err := s.browserChoice(r)
+	if err != nil {
+		s.renderError(w, err.Error())
+		return
+	}
+
 	sessionID := newSessionID()
 
 	// Synchronous mode for CLI or automated testing
 	if r.URL.Query().Get("sync") == "1" {
-		ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ResearchTimeout)
+		ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ResearchTimeoutFor(browserEnabled))
 		defer cancel()
+		ctx = withBrowserOverride(ctx, browserEnabled, browserExplicit)
 
 		if mode == "person" {
-			profile, err := s.personAgent.ResearchPerson(ctx, sessionID, query, company, location, nil)
-			if err != nil {
-				log.Printf("[ERROR] person research failed (session %s): %v", sessionID, err)
-				s.renderError(w, "Person research failed: "+err.Error())
+			profile, researchErr := s.personAgent.ResearchPerson(ctx, sessionID, query, company, location, nil)
+			if researchErr != nil {
+				log.Printf("[ERROR] person research failed (session %s): %v", sessionID, researchErr)
+				s.renderError(w, "Person research failed: "+researchErr.Error())
 				return
 			}
 			s.render(w, "person_dossier", profile)
 			return
 		}
 
-		chart, err := s.companyAgent.ResearchCompanyWithBrief(ctx, sessionID, companyBrief, nil)
-		if err != nil {
-			log.Printf("[ERROR] company research failed (session %s): %v", sessionID, err)
-			s.renderError(w, "Company research failed: "+err.Error())
+		chart, researchErr := s.companyAgent.ResearchCompanyWithBrief(ctx, sessionID, companyBrief, nil)
+		if researchErr != nil {
+			log.Printf("[ERROR] company research failed (session %s): %v", sessionID, researchErr)
+			s.renderError(w, "Company research failed: "+researchErr.Error())
 			return
 		}
 		s.render(w, "company_chart", chart)
 		return
 	}
 
-	// Interactive mode: create session and start research in background
+	s.startRun(w, sessionID, mode, query, company, location, companyBrief, browserEnabled, browserExplicit)
+}
+
+// startRun launches a research session in the background and renders the live
+// workflow console for HTMX.
+func (s *Server) startRun(w http.ResponseWriter, sessionID, mode, query, personCompany, location string, brief models.CompanyBrief, browserEnabled, browserExplicit bool) {
 	session := s.hub.Create(sessionID, mode, query)
 
+	timeout := s.cfg.ResearchTimeoutFor(browserEnabled)
+
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), s.cfg.ResearchTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
+		ctx = withBrowserOverride(ctx, browserEnabled, browserExplicit)
 
 		if mode == "person" {
-			profile, err := s.personAgent.ResearchPerson(ctx, sessionID, query, company, location, session.EventCh)
+			profile, err := s.personAgent.ResearchPerson(ctx, sessionID, query, personCompany, location, session.EventCh)
 			if err != nil {
 				log.Printf("[ERROR][session %s] person research failed: %v", sessionID, err)
 			} else {
 				log.Printf("[RESULT][session %s] person research completed", sessionID)
 			}
 			session.Complete(profile, err)
-		} else {
-			chart, companyContext, err := s.companyAgent.ResearchCompanyRun(ctx, sessionID, companyBrief, session.EventCh)
-			if err != nil {
-				log.Printf("[ERROR][session %s] company research failed: %v", sessionID, err)
-			} else {
-				log.Printf("[RESULT][session %s] company=%s leadership=%d departments=%d", sessionID, chart.CompanyName, len(chart.Leadership), len(chart.Departments))
-			}
-			session.SetCompanyContext(companyContext)
-			session.Complete(chart, err)
+			return
 		}
+
+		chart, companyContext, err := s.companyAgent.ResearchCompanyRun(ctx, sessionID, brief, session.EventCh)
+		if err != nil {
+			log.Printf("[ERROR][session %s] company research failed: %v", sessionID, err)
+		} else {
+			log.Printf("[RESULT][session %s] company=%s leadership=%d departments=%d browser=%t", sessionID, chart.CompanyName, len(chart.Leadership), len(chart.Departments), browserEnabled)
+		}
+		session.SetCompanyContext(companyContext)
+		session.Complete(chart, err)
 	}()
 
 	displayMode := "Company"
 	if mode == "person" {
 		displayMode = "Person"
 	}
-
 	s.render(w, "workflow_console", map[string]string{
 		"SessionID": sessionID,
 		"Mode":      displayMode,
 		"Query":     query,
+		"Budget":    fmt.Sprintf("%ds", int(timeout.Seconds())),
 	})
+}
+
+// handleRerun re-runs a completed company session's brief, optionally with
+// browser rendering, so a thin result can be escalated without re-entering it.
+func (s *Server) handleRerun(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
+
+	sessionID := strings.TrimSpace(r.FormValue("session_id"))
+	if sessionID == "" {
+		s.renderError(w, "A research session is required to re-run this research.")
+		return
+	}
+	previous, ok := s.hub.Get(sessionID)
+	if !ok {
+		s.renderError(w, "That research session is no longer available. Start a new research run instead.")
+		return
+	}
+	researchContext := previous.GetCompanyContext()
+	if researchContext == nil {
+		s.renderError(w, "Re-running is only available for company research sessions.")
+		return
+	}
+
+	browserEnabled, browserExplicit, err := s.browserChoice(r)
+	if err != nil {
+		s.renderError(w, err.Error())
+		return
+	}
+
+	brief := researchContext.Brief
+	log.Printf("[RERUN] session %s -> new session, browser=%t", sessionID, browserEnabled)
+	s.startRun(w, newSessionID(), "company", brief.CompanyName, "", "", brief, browserEnabled, browserExplicit)
 }
 
 // handleQuestion answers a question against a completed company session.
@@ -360,7 +478,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 				} else {
 					if chart, ok := result.(*models.OrgChart); ok {
-						sendSSE("result", renderFragment("company_result", companyResultView{Chart: chart, SessionID: session.ID}))
+						sendSSE("result", renderFragment("company_result", companyResultView{Chart: chart, SessionID: session.ID, BrowserToggle: s.allowBrowserToggle && s.browserAvailable}))
 					}
 					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 				}

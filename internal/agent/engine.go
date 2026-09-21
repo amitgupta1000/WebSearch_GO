@@ -9,6 +9,7 @@ import (
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 // Searcher performs web searches. *tools.SerperClient satisfies this interface.
@@ -141,17 +142,53 @@ func (e *Engine) SearchFresh(ctx context.Context, query string, maxResults int) 
 	return results, nil
 }
 
-// ScrapeCached fetches and extracts webpage text with TTL caching.
+// scrapeCacheKey scopes a cached scrape to the render mode in effect, so a thin
+// HTTP-only result never masks a browser-rendered re-run of the same URL, and a
+// negative entry from a blocked fetch does not suppress the rendered attempt.
+func scrapeCacheKey(ctx context.Context, targetURL string) string {
+	mode := "default"
+	if override, ok := tools.BrowserFallbackOverride(ctx); ok {
+		if override {
+			mode = "browser"
+		} else {
+			mode = "http"
+		}
+	}
+	return cache.HashKey("scrape", targetURL+"|mode="+mode)
+}
+
+// negativeScrapeTTL is how long a failed scrape is remembered so repeated
+// questions do not re-attempt a known dead end (paywalls, 403s, rejected types).
+// The scraper already retries transient network failures, so what reaches here
+// is usually deterministic.
+const negativeScrapeTTL = 15 * time.Minute
+
+// scrapeFailure records a failed scrape attempt in the cache.
+type scrapeFailure struct{ err error }
+
+func (f *scrapeFailure) Error() string { return f.err.Error() }
+func (f *scrapeFailure) Unwrap() error { return f.err }
+
+// ScrapeCached fetches and extracts webpage text with TTL caching. Successful
+// results are cached for scrapeTTL; failures are cached briefly so a repeated
+// question does not pay to rediscover the same dead end. Cancellations are never
+// cached.
 func (e *Engine) ScrapeCached(ctx context.Context, targetURL string) (*models.ScrapeResult, error) {
-	cacheKey := cache.HashKey("scrape", targetURL)
+	cacheKey := scrapeCacheKey(ctx, targetURL)
 	if val, found := e.cache.Get(cacheKey); found {
-		if res, ok := val.(*models.ScrapeResult); ok {
-			return res, nil
+		switch cached := val.(type) {
+		case *models.ScrapeResult:
+			return cached, nil
+		case *scrapeFailure:
+			return nil, cached.err
 		}
 	}
 
 	res, err := e.scraper.ScrapeURL(ctx, targetURL)
 	if err != nil {
+		if ctx.Err() == nil {
+			e.cache.Set(cacheKey, &scrapeFailure{err: err}, negativeScrapeTTL)
+		}
 		return nil, err
 	}
 

@@ -65,9 +65,11 @@ invalid URLs, the BM25 ranking continues directly to scraping.
 | `ENABLE_BROWSER_FALLBACK` | `false` | Enable bounded Playwright rendering after HTTP errors, challenges, or low-quality JavaScript shells |
 | `CACHE_MAX_ENTRIES` | `2048` | Max entries in the in-memory TTL cache |
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Per-request research budget |
+| `BROWSER_RESEARCH_TIMEOUT_SECONDS` | `300` | Per-request research budget when a run renders pages in a real browser (clamped to at least `RESEARCH_TIMEOUT_SECONDS`) |
 | `MAX_SCRAPES_PER_RUN` | `10` | Max web pages scraped per research session |
 | `MAX_SEARCH_RESULTS` | `8` | Max search results fetched per search query |
 | `MAX_AGENT_STEPS` | `10` | Max agent/tool iterations per research session |
+| `ALLOW_BROWSER_TOGGLE` | `true` | Offer a per-run "render pages in a real browser" option in the console. Only shown when Chromium can actually start |
 
 When browser fallback is enabled, install the matching Playwright browser once with
 `go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium`.
@@ -75,6 +77,45 @@ The renderer is HTTP-first, does not interact with challenges, and records a
 blocked result when a CAPTCHA or press-and-hold page remains after rendering.
 The default `Dockerfile` remains distroless and HTTP-only; use
 `Dockerfile.browser` when enabling browser fallback in a container.
+
+Rendering launches the full Chromium build (`channel: "chromium"`) rather than
+Playwright's headless shell, which crashes ("Target crashed" on the first page) on
+some hosts. The renderer keeps one shared browser context so cookies earned by
+passing a JavaScript interstitial are reused, and waits for network idle before
+extracting.
+
+With `ALLOW_BROWSER_TOGGLE` enabled, the console offers the choice per run: a
+"Render pages in a real browser" box on the research form, and a "Re-run with
+browser rendering" action on any finished company result so a thin result can be
+escalated without re-entering the brief. The re-run reuses the retained brief and
+starts a fresh session. Scrape results are cached per rendering mode, so an
+HTTP-only result never masks a rendered re-run of the same URL, and asking for
+rendering where Chromium is unavailable is reported as an error instead of
+silently degrading. Chromium is probed once at startup; when it cannot start the
+option is hidden entirely and a warning is logged.
+
+Rendered runs get a larger budget (`BROWSER_RESEARCH_TIMEOUT_SECONDS`, 300s by
+default) because each scraped page costs several extra seconds; the live console
+shows the budget it is running under. The HTTP write timeout is sized from the
+largest configured budget so a long stream is never cut off mid-run.
+
+Troubleshooting: if `playwright install` fails with
+`fork/exec .../ms-playwright-go/<version>/node.exe: The system cannot find the file
+specified`, the driver directory is half-populated (the playwright-core package
+downloaded but the bundled Node.js binary did not). The installer cannot repair it
+because it aborts before downloading when the existing `package/` cannot be
+executed. Delete that driver directory and re-run the install:
+
+```bash
+# Windows
+rm -rf "$LOCALAPPDATA/ms-playwright-go/1.62.1"
+# Linux/macOS
+rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright-go/1.62.1"
+go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium
+```
+
+Set `PLAYWRIGHT_NODEJS_PATH` to a preinstalled `node` to skip the bundled Node.js
+download entirely.
 
 ## Endpoints
 

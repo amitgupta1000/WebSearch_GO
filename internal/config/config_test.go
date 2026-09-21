@@ -78,3 +78,49 @@ func TestLoadCustomEnv(t *testing.T) {
 		t.Error("expected browser fallback to be enabled")
 	}
 }
+
+func TestBrowserResearchTimeoutSelection(t *testing.T) {
+	os.Unsetenv("RESEARCH_TIMEOUT_SECONDS")
+	os.Unsetenv("BROWSER_RESEARCH_TIMEOUT_SECONDS")
+
+	cfg := Load()
+	if cfg.BrowserResearchTimeout != 300*time.Second {
+		t.Errorf("expected default rendered budget 300s, got %v", cfg.BrowserResearchTimeout)
+	}
+	if got := cfg.ResearchTimeoutFor(true); got != 300*time.Second {
+		t.Errorf("a rendered run should get the larger budget, got %v", got)
+	}
+	if got := cfg.ResearchTimeoutFor(false); got != 180*time.Second {
+		t.Errorf("an HTTP-only run should get the default budget, got %v", got)
+	}
+	if got := cfg.MaxResearchTimeout(); got != 300*time.Second {
+		t.Errorf("expected the largest budget to be 300s, got %v", got)
+	}
+}
+
+func TestBrowserResearchTimeoutNeverShrinksTheDefaultBudget(t *testing.T) {
+	t.Setenv("RESEARCH_TIMEOUT_SECONDS", "400")
+	t.Setenv("BROWSER_RESEARCH_TIMEOUT_SECONDS", "200")
+
+	cfg := Load()
+	if cfg.BrowserResearchTimeout != 400*time.Second {
+		t.Errorf("opting into rendering must not shorten the budget, got %v", cfg.BrowserResearchTimeout)
+	}
+	if got := cfg.ResearchTimeoutFor(true); got != 400*time.Second {
+		t.Errorf("expected the clamped budget, got %v", got)
+	}
+	if got := cfg.MaxResearchTimeout(); got != 400*time.Second {
+		t.Errorf("expected the largest budget to be 400s, got %v", got)
+	}
+}
+
+func TestResearchTimeoutForFallsBackWithoutBrowserBudget(t *testing.T) {
+	// A directly constructed Config must never yield a zero (already expired) budget.
+	cfg := &Config{ResearchTimeout: 90 * time.Second}
+	if got := cfg.ResearchTimeoutFor(true); got != 90*time.Second {
+		t.Errorf("expected the default budget as a fallback, got %v", got)
+	}
+	if got := cfg.MaxResearchTimeout(); got != 90*time.Second {
+		t.Errorf("expected the default budget as the maximum, got %v", got)
+	}
+}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -315,6 +316,120 @@ func TestCompanyWorkflowUsesFallbackStages(t *testing.T) {
 	}
 	if chart.CompanyName != "Acme" {
 		t.Errorf("expected fallback company name Acme, got %q", chart.CompanyName)
+	}
+}
+
+type capturingSynthesisLLM struct {
+	userPrompt string
+}
+
+func (m *capturingSynthesisLLM) GenerateStructured(_ context.Context, _ string, userPrompt string, target any) error {
+	if value, ok := target.(*models.OrgChart); ok {
+		m.userPrompt = userPrompt
+		value.CompanyName = "Acme"
+	}
+	return nil
+}
+
+type failingReviewLLM struct{}
+
+func (failingReviewLLM) GenerateStructured(_ context.Context, _ string, _ string, target any) error {
+	switch value := target.(type) {
+	case *models.OrgChart:
+		value.CompanyName = "Acme"
+		return nil
+	case *models.QualityReview:
+		return errors.New("review model unavailable")
+	}
+	return nil
+}
+
+func TestFormatProfileCandidatesRendersOnlyProfileSnippets(t *testing.T) {
+	formatted := formatProfileCandidates([]models.Evidence{
+		{
+			URL:          "https://in.linkedin.com/in/jane-doe",
+			Title:        "Jane Doe - Head of Procurement - Acme | LinkedIn",
+			Content:      "Jane Doe is Head of Procurement at Acme.",
+			EvidenceType: "search_snippet_fallback",
+		},
+		{
+			URL:          "https://acme.com/leadership",
+			Title:        "Leadership",
+			Content:      "Acme executive team and board of directors.",
+			EvidenceType: "scraped_page",
+		},
+	})
+
+	if !strings.Contains(formatted, "Head of Procurement") || !strings.Contains(formatted, "jane-doe") {
+		t.Fatalf("expected the profile candidate to be listed, got %q", formatted)
+	}
+	if strings.Contains(formatted, "acme.com/leadership") {
+		t.Fatalf("scraped pages must not be listed as profile candidates: %q", formatted)
+	}
+	if got := formatProfileCandidates(nil); got != "" {
+		t.Fatalf("expected an empty block when there are no profile snippets, got %q", got)
+	}
+}
+
+func TestSynthesizeChartFeedsProfileCandidatesToTheModel(t *testing.T) {
+	cacheStore := cache.NewMemoryCache(100)
+	defer cacheStore.Close()
+
+	llm := &capturingSynthesisLLM{}
+	engine := NewEngine(llm, &mockSearcher{}, &mockScraper{}, cacheStore, 1, 3, 10)
+	agent := NewCompanyAgent(engine)
+
+	evidence := []models.Evidence{{
+		URL:          "https://in.linkedin.com/in/jane-doe",
+		Title:        "Jane Doe - Head of Procurement - Acme | LinkedIn",
+		Content:      "Jane Doe is Head of Procurement at Acme.",
+		EvidenceType: "search_snippet_fallback",
+	}}
+	if _, err := agent.synthesizeChart(context.Background(), models.CompanyBrief{CompanyName: "Acme"}, evidence, nil, "session", nil); err != nil {
+		t.Fatalf("synthesizeChart() error: %v", err)
+	}
+	if !strings.Contains(llm.userPrompt, "Profile candidates") {
+		t.Fatalf("expected a profile candidate block in the synthesis prompt, got %q", llm.userPrompt)
+	}
+	if !strings.Contains(llm.userPrompt, "Head of Procurement") {
+		t.Fatalf("expected the candidate headline in the synthesis prompt, got %q", llm.userPrompt)
+	}
+}
+
+func TestReviewChartDoesNotReportFailedReviewAsPass(t *testing.T) {
+	cacheStore := cache.NewMemoryCache(100)
+	defer cacheStore.Close()
+
+	engine := NewEngine(failingReviewLLM{}, &mockSearcher{}, &mockScraper{}, cacheStore, 1, 3, 10)
+	agent := NewCompanyAgent(engine)
+
+	review := agent.reviewChart(context.Background(), models.CompanyBrief{CompanyName: "Acme"}, &models.OrgChart{CompanyName: "Acme"}, nil, "session", nil)
+	if review.Verdict == "pass" {
+		t.Fatalf("a failed QC review must not be reported as a pass: %+v", review)
+	}
+	if review.Verdict != "unavailable" || review.Score != 0 {
+		t.Fatalf("expected an unavailable verdict with a zero score, got %+v", review)
+	}
+	if !strings.Contains(review.Reason, "review model unavailable") {
+		t.Fatalf("expected the underlying failure in the reason, got %q", review.Reason)
+	}
+}
+
+func TestHasBudgetForIteration(t *testing.T) {
+	if !hasBudgetForIteration(context.Background()) {
+		t.Error("a context without a deadline must be treated as unbounded")
+	}
+
+	plenty, cancelPlenty := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancelPlenty()
+	if !hasBudgetForIteration(plenty) {
+		t.Error("expected budget to be available for a full iteration")
+	}
+
+	scarce, cancelScarce := context.WithTimeout(context.Background(), time.Second)
+	defer cancelScarce()
+	if hasBudgetForIteration(scarce) {
+		t.Error("expected the budget to be too small for another iteration")
 	}
 }
 

@@ -62,6 +62,9 @@ type ScrapeResult struct {
 	FallbackStatus    string    `json:"fallback_status,omitempty"`
 	FallbackReason    string    `json:"fallback_reason,omitempty"`
 	FallbackError     string    `json:"fallback_error,omitempty"`
+	// ContentTruncated reports that the response body exceeded the scraper's
+	// size cap, so the extracted text came from an incomplete document.
+	ContentTruncated bool `json:"content_truncated,omitempty"`
 }
 
 // Image records webpage image metadata and optional OCR text.

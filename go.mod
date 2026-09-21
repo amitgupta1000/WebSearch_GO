@@ -5,6 +5,7 @@ go 1.23
 require (
 	github.com/PuerkitoBio/goquery v1.9.2
 	github.com/mxschmitt/playwright-go v0.6201.1
+	golang.org/x/net v0.29.0
 	google.golang.org/genai v0.1.0
 )
 
@@ -16,7 +17,7 @@ require (
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
-	golang.org/x/net v0.29.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
+	golang.org/x/text v0.18.0 // indirect
 )

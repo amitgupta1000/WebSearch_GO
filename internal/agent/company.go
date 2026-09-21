@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"net/url"
 	"sort"
@@ -19,6 +20,20 @@ type CompanyAgent struct {
 }
 
 const maxCompanyReviewIterations = 3
+
+// minQCIterationBudget is the minimum time that must remain before another
+// QC-driven iteration (search + scrape + synthesis) is worth starting.
+const minQCIterationBudget = 60 * time.Second
+
+// hasBudgetForIteration reports whether the context allows another full research
+// iteration. Contexts without a deadline are treated as unbounded.
+func hasBudgetForIteration(ctx context.Context) bool {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return true
+	}
+	return time.Until(deadline) >= minQCIterationBudget
+}
 
 const maxCompanySearchQueries = 10
 
@@ -92,6 +107,13 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 			Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventComplete, Step: 20 + iteration, Content: fmt.Sprintf("Completed research for %s after %d QC review(s).", chart.CompanyName, len(state.Reviews))})
 			return chart, state, nil
 		}
+		// A follow-up iteration costs another full search/scrape/synthesis pass.
+		// Only start one that can finish: returning the chart we already have
+		// beats failing the whole run on the deadline.
+		if !hasBudgetForIteration(ctx) {
+			Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventComplete, Step: 20 + iteration, Content: fmt.Sprintf("Completed research for %s after %d QC review(s); QC follow-up skipped (time budget exhausted).", chart.CompanyName, len(state.Reviews))})
+			return chart, state, nil
+		}
 		plan = limitQueryPlan(models.QueryPlan{Queries: review.FollowUpQueries}, 4)
 	}
 
@@ -100,9 +122,12 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 
 func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.CompanyBrief, evidence []models.Evidence, results []models.SearchResult, sessionID string, eventCh chan<- models.AgentEvent) (*models.OrgChart, error) {
 	Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 8, Content: "Synthesizing the organization chart from selected evidence..."})
-	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string. Image metadata is supporting evidence; do not invent visual facts from image URLs. Include supported department leaders even when their exact title is not in the search query: consider functional variants such as Chief, C-level, President, Executive Vice President, Senior Vice President, Vice President, VP, Head, Director, and General Manager. Treat procurement, purchasing, strategic sourcing, supply chain, logistics, operations, marketing, brand, communications, growth, and digital marketing as relevant department functions. Conference speaker evidence may identify a person's company, function, and industry relevance, but conference participation alone does not prove that the person is a current executive; label or place such people conservatively unless current employment is corroborated.`
+	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string. Image metadata is supporting evidence; do not invent visual facts from image URLs. Include supported department leaders even when their exact title is not in the search query: consider functional variants such as Chief, C-level, President, Executive Vice President, Senior Vice President, Vice President, VP, Head, Director, and General Manager. Treat procurement, purchasing, strategic sourcing, supply chain, logistics, operations, marketing, brand, communications, growth, and digital marketing as relevant department functions. Conference speaker evidence may identify a person's company, function, and industry relevance, but conference participation alone does not prove that the person is a current executive; label or place such people conservatively unless current employment is corroborated. Profile candidates are snippets from professional networks: when one pairs a person's name with a functional title and the target company, or a related group entity, treat it as evidence of that person's function, list them in the matching department, and record which entity they belong to in their title. Promote a profile candidate into leadership only for board or C-level titles. Prefer listing a named profile candidate in a department over leaving that department empty. Every object in the departments array must use the shape {"name": "<function>", "head": "<optional person>", "description": "<optional summary>", "members": [{"name": "<person>", "title": "<their title>", "public_source": "<source url>"}]}. List every person you attribute to a function inside that function's members array, and never leave members empty when you have named a person for that function.`
 	var chart models.OrgChart
 	contextData := fmt.Sprintf("Research brief: %+v\n\nSearch snippets:\n%s\n\nSelected evidence:\n%s", brief, FormatSearchSnippets(results), formatEvidence(evidence))
+	if profiles := formatProfileCandidates(evidence); profiles != "" {
+		contextData += "\n\n" + profiles
+	}
 	llmCtx, cancel := context.WithTimeout(ctx, companySynthesisTimeout)
 	defer cancel()
 	if err := ca.engine.SynthesizeJSON(llmCtx, prompt, contextData, &chart); err != nil {
@@ -128,9 +153,22 @@ func (ca *CompanyAgent) reviewChart(ctx context.Context, brief models.CompanyBri
 	err := ca.engine.GenerateStructured(llmCtx, `Act as a strict research quality reviewer. Evaluate whether the draft answers the brief and whether claims are supported by the supplied evidence. Return JSON with verdict (pass or revise), score from 0 to 1, gaps, contradictions, unsupported_claims, reason, and at most four focused follow_up_queries. Use revise only for material gaps or contradictions. Never invent facts.`, request, &review)
 	review.Verdict = strings.ToLower(strings.TrimSpace(review.Verdict))
 	if err != nil || review.Verdict == "" {
-		review.Verdict = "pass"
-		review.Score = 0.7
-		review.Reason = "No additional QC revision was required."
+		// Never report a failed or empty review as a passing one: doing so hides
+		// the failure and lets unsupported output through unchecked.
+		if err != nil {
+			log.Printf("[WARN][session %s] QC review unavailable: %v", sessionID, err)
+			review.Reason = fmt.Sprintf("QC review unavailable: %v", err)
+		} else {
+			log.Printf("[WARN][session %s] QC review returned no verdict", sessionID)
+			review.Reason = "QC review returned no verdict"
+		}
+		review.Verdict = "unavailable"
+		review.Score = 0
+		review.Gaps = nil
+		review.Contradictions = nil
+		review.UnsupportedClaims = nil
+		review.FollowUpQueries = nil
+		return review
 	}
 	if review.Verdict != "revise" {
 		review.Verdict = "pass"
@@ -725,6 +763,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 		entry.FallbackStatus = scrape.FallbackStatus
 		entry.FallbackReason = scrape.FallbackReason
 		entry.FallbackError = scrape.FallbackError
+		entry.ContentTruncated = scrape.ContentTruncated
 		if scrape.Blocked {
 			entry.Status = "blocked"
 			entry.Reason = scrape.BlockReason
@@ -806,6 +845,32 @@ func isBlockedSourceURL(targetURL string) bool {
 	}
 	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
 	return host == "wikipedia.org" || strings.HasSuffix(host, ".wikipedia.org")
+}
+
+// formatProfileCandidates renders professional-network snippet evidence as an
+// explicit candidate list.
+//
+// Company mode never scrapes profile pages (see scrapeRanked), so a collected
+// snippet is frequently the only signal that a person holds a given function at
+// the company. Labelling those snippets separately keeps the synthesizer from
+// overlooking them among the general snippet and full-page evidence.
+func formatProfileCandidates(evidence []models.Evidence) string {
+	var sb strings.Builder
+	for _, item := range evidence {
+		if item.EvidenceType != "search_snippet_fallback" {
+			continue
+		}
+		title := strings.TrimSpace(item.Title)
+		content := strings.TrimSpace(item.Content)
+		if title == "" && content == "" {
+			continue
+		}
+		if sb.Len() == 0 {
+			sb.WriteString("Profile candidates (indexed professional-network headlines; a name paired with a functional title and a company is evidence of that person's function):\n")
+		}
+		sb.WriteString(fmt.Sprintf("- %s | %s | %s\n", title, content, item.URL))
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 func snippetEvidenceForURL(item models.RankedResult, results []models.SearchResult) *models.Evidence {
