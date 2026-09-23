@@ -54,6 +54,14 @@ const (
 	// defaultMaxRetryAfter caps how long a server's Retry-After hint may delay a
 	// retry, so one unfriendly server cannot consume the run's whole budget.
 	defaultMaxRetryAfter = 5 * time.Second
+	// Hard-URL ladder budgets. Each attempt is capped so the whole ladder stays
+	// inside the handler's per-URL slice of the run's research budget.
+	hardRenderTimeout     = 15 * time.Second
+	extendedRenderTimeout = 20 * time.Second
+	// extendedNetworkIdle and extendedSettle lengthen the ladder's final step,
+	// giving slow interstitials time to clear and late hydration time to finish.
+	extendedNetworkIdle = 8 * time.Second
+	extendedSettle      = 2500 * time.Millisecond
 )
 
 // noiseSelector lists elements that never carry primary content. It is applied
@@ -64,6 +72,17 @@ const noiseSelector = "script, style, noscript, nav, footer, header, aside, svg,
 // excessiveBlankLines collapses 3+ consecutive newlines left behind by
 // removed elements into a single blank line.
 var excessiveBlankLines = regexp.MustCompile(`\n{3,}`)
+
+// Sentinel errors for the hard-URL ladder, so callers can classify outcomes
+// without matching error strings.
+var (
+	// ErrHardLadderUnavailable reports that the ladder cannot run at all,
+	// usually because no Playwright/Chromium install is present.
+	ErrHardLadderUnavailable = errors.New("hard URL ladder unavailable")
+	// ErrHardLadderExhausted reports that every ladder step ran without
+	// producing readable content (still blocked, or only a thin shell).
+	ErrHardLadderExhausted = errors.New("hard URL ladder exhausted")
+)
 
 // Scraper fetches and extracts clean text from webpages.
 type Scraper struct {
@@ -251,6 +270,101 @@ func conditionalRequestFor(ctx context.Context) (validators, bool) {
 func ConditionalRequestValidators(ctx context.Context) (etag, lastModified string, ok bool) {
 	carried, found := conditionalRequestFor(ctx)
 	return carried.etag, carried.lastModified, found
+}
+
+// jarCookies returns the shared cookie jar's cookies for the target URL. The
+// jar belongs to the Go HTTP client; Chromium keeps its own cookie store, so
+// the hard-URL ladder uses these to bridge a user-exported session into the
+// browser context (see renderOptions.cookies).
+func (s *Scraper) jarCookies(targetURL string) []*http.Cookie {
+	parsed, err := url.Parse(targetURL)
+	if err != nil || s.client == nil || s.client.Jar == nil {
+		return nil
+	}
+	return s.client.Jar.Cookies(parsed)
+}
+
+// HardScrapeOptions tunes one run of the hard-URL ladder.
+type HardScrapeOptions struct {
+	// AlreadyRendered reports that the caller's normal path already rendered
+	// the page in a browser (per-run fallback) and was still blocked, so the
+	// ladder's plain-render step would only repeat that work.
+	AlreadyRendered bool
+}
+
+// ScrapeHard escalates a URL the normal path could not read through the
+// bounded hard-URL ladder: a plain browser render, then a cookie-bridged
+// render when the jar holds cookies for the domain, then an extended-settle
+// render that gives slow interstitials time to clear. It returns a result
+// only when a step produces unblocked, non-thin content; every failure wraps
+// ErrHardLadderUnavailable or ErrHardLadderExhausted. The ladder never solves
+// challenges: an interstitial that survives every step keeps the URL blocked,
+// and the calling agent degrades to its snippet-fallback evidence as before.
+func (s *Scraper) ScrapeHard(ctx context.Context, targetURL string, opts HardScrapeOptions) (*models.ScrapeResult, error) {
+	if err := s.validateTarget(targetURL); err != nil {
+		return nil, err
+	}
+	if s.isClosed() {
+		return nil, fmt.Errorf("scraper is closed")
+	}
+	browser, err := s.getBrowser()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrHardLadderUnavailable, err)
+	}
+
+	cookies := s.jarCookies(targetURL)
+	type ladderStep struct {
+		name string
+		opts renderOptions
+	}
+	steps := make([]ladderStep, 0, 3)
+	if !opts.AlreadyRendered {
+		steps = append(steps, ladderStep{name: "plain-render", opts: renderOptions{timeout: hardRenderTimeout}})
+	}
+	if len(cookies) > 0 {
+		steps = append(steps, ladderStep{name: "cookie-render", opts: renderOptions{cookies: cookies, timeout: hardRenderTimeout}})
+	}
+	steps = append(steps, ladderStep{
+		name: "extended-settle",
+		opts: renderOptions{cookies: cookies, networkIdle: extendedNetworkIdle, settle: extendedSettle, timeout: extendedRenderTimeout},
+	})
+
+	attempted := make([]string, 0, len(steps))
+	var lastBlocked *models.ScrapeResult
+	var lastErr error
+	for _, step := range steps {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		attempted = append(attempted, step.name)
+		html, renderErr := s.render(ctx, browser, targetURL, step.opts)
+		if renderErr != nil {
+			lastErr = renderErr
+			continue
+		}
+		result, extractErr := extractHTML(targetURL, "text/html", []byte(html), "playwright-content-root", false)
+		if extractErr != nil {
+			lastErr = extractErr
+			continue
+		}
+		result.FallbackAttempted = true
+		result.FallbackReason = step.name
+		if !result.Blocked && !needsBrowserFallback(result) {
+			result.FallbackStatus = "succeeded"
+			return result, nil
+		}
+		if result.Blocked {
+			lastBlocked = result
+		}
+	}
+	names := strings.Join(attempted, " → ")
+	if lastBlocked != nil {
+		return nil, fmt.Errorf("%w (%s): %s", ErrHardLadderExhausted, names, lastBlocked.BlockReason)
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("%w (%s): %v", ErrHardLadderExhausted, names, lastErr)
+	}
+	return nil, fmt.Errorf("%w (%s)", ErrHardLadderExhausted, names)
 }
 
 // BrowserAvailable reports whether Chromium can actually be started. The console
@@ -812,7 +926,7 @@ func (s *Scraper) tryBrowser(ctx context.Context, targetURL string, base *models
 	}
 	browser, err := s.getBrowser()
 	if err == nil {
-		rendered, renderErr := s.render(ctx, browser, targetURL)
+		rendered, renderErr := s.render(ctx, browser, targetURL, renderOptions{})
 		if renderErr == nil {
 			result, extractErr := extractHTML(targetURL, "text/html", []byte(rendered), "playwright-content-root", false)
 			if extractErr == nil {
@@ -843,7 +957,7 @@ func (s *Scraper) tryBrowser(ctx context.Context, targetURL string, base *models
 
 // render renders targetURL while holding one of the bounded render slots, so a
 // burst of fallbacks cannot spawn an unbounded number of browser contexts.
-func (s *Scraper) render(ctx context.Context, browser browserRenderer, targetURL string) (string, error) {
+func (s *Scraper) render(ctx context.Context, browser browserRenderer, targetURL string, opts renderOptions) (string, error) {
 	if s.renderSem != nil {
 		select {
 		case s.renderSem <- struct{}{}:
@@ -853,9 +967,13 @@ func (s *Scraper) render(ctx context.Context, browser browserRenderer, targetURL
 		}
 	}
 
-	renderCtx, cancel := context.WithTimeout(ctx, s.browserTimeout)
+	budget := opts.timeout
+	if budget <= 0 {
+		budget = s.browserTimeout
+	}
+	renderCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	return browser.Render(renderCtx, targetURL)
+	return browser.Render(renderCtx, targetURL, opts)
 }
 
 func (s *Scraper) getBrowser() (browserRenderer, error) {

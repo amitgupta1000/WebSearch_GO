@@ -382,20 +382,25 @@ so the result can answer post-run questions:
    relevant, so without this every result the search engine returned — including
    other companies' profiles — reached the scrape stage. The unfiltered list is
    returned when filtering would empty it, so an unusual name cannot starve a run.
-4. **Scrape (`scrapeRanked`)** — walks ranked URLs in score order, validating each
-   with `url.ParseRequestURI` (absolute URL with scheme+host required), and scrapes
-   at most `MaxScrapes` pages via `Engine.ScrapeCached`. Pages whose extracted text
-   is ≤ 80 bytes are discarded as noise. Survivors become `models.Evidence`
-   (URL, title, content, score, evidence type) plus the `sources` list.
+4. **Scrape (`scrapeRanked`)** — fetches candidates in bounded parallel batches
+   (`SCRAPE_CONCURRENCY`) through `Engine.ScrapeCachedBatch`, validating each URL with
+   `url.ParseRequestURI` (absolute URL with scheme+host required), and keeps at most
+   `MaxScrapes` pages. Pages whose extracted text is ≤ 80 bytes are discarded as noise,
+   text already collected from another URL is dropped, and survivors become
+   `models.Evidence` (URL, title, content, score, evidence type) plus the `sources` list.
    *(Steps 8+: "Scraping selected relevant source…")*
-   - **Professional profiles are not fetched by default.** A `linkedin.*` host is
-     classified `professional_profile`; only its search snippet is kept as evidence
-     and the scrape report records `skipped`. The policy is enforced in two places —
-     the snippet-evidence loop in `scrapeRanked` and `selectScrapeCandidates` via
-     `excludedScrapeCandidate`. Setting `ALLOW_PROFILE_SCRAPING=true`
-     (`agent.WithProfileScraping`) lifts both and lets profile pages through the
-     normal scrape path. It is the main lever on department-level results for
-     companies whose functional leadership is only visible there.
+   - **Professional profiles are policy-driven.** A `linkedin.*` host is classified
+     `professional_profile`. When the hard-URL handler is available it gets one bounded
+     escalation attempt, and its outcome is recorded on the scrape report
+     (`HandlerStatus: recovered | failed | deferred | unavailable`); without a handler the
+     policy is enforced in two places — the snippet-evidence loop in `scrapeRanked` and
+     `selectScrapeCandidates` via `excludedScrapeCandidate` — so only the public search
+     snippet is kept. Setting `ALLOW_PROFILE_SCRAPING=true`
+     (`agent.WithProfileScraping`) also sends profiles through the normal scrape path.
+     Department-level results for a company whose functional leadership is visible only on
+     such profiles depend on these settings.
+   - **Blocked pages get the same bounded escalation** before falling back to snippet
+     evidence, so a challenge interstitial is never mistaken for page content.
    - Every attempt (success, failure, skip) lands in `chart.ScrapeReport`, which the
      console renders as the collapsible Scraping Report and summarises through
      `OrgChart.UnverifiedSourceCount`.
@@ -554,6 +559,13 @@ HTTP path errors, is blocked, or yields a JavaScript shell:
   per-run toggle and `POST /api/rerun` switch behaviour for a single run without
   mutating shared state — and why `Engine.scrapeCacheKey` includes the render mode, so
   a thin HTTP-only result can never mask a browser-rendered re-run of the same URL.
+- **The hard-URL ladder** (`Scraper.ScrapeHard`) escalates a URL the normal path could
+  not read with up to three attempts: `plain-render`, `cookie-render` (the shared jar's
+  cookies for the domain are copied into the browser context via `AddCookies` —
+  previously `COOKIE_FILE_PATH` only ever reached the HTTP client, never Chromium), and
+  `extended-settle` (8 s network-idle + 2.5 s settle for slow interstitials). Success
+  requires unblocked, non-thin content; failures wrap the sentinel errors
+  `ErrHardLadderUnavailable` / `ErrHardLadderExhausted`, which the calling agent classifies.
 
 #### `cookies.go` — browser cookie import
 
@@ -569,6 +581,9 @@ EditThisCookie extensions and populates a standard `http.CookieJar`:
 - With no path configured it returns an empty (but valid) jar.
 
 ### Scraper performance & politeness
+
+*A deep, standalone walkthrough of the fetch path — policy, hardening, the rendering
+ladder and extraction — lives in [SCRAPER_WALKTHROUGH.md](../SCRAPER_WALKTHROUGH.md).*
 
 Four mechanisms keep the scrape phase fast without hammering anyone:
 
@@ -822,17 +837,19 @@ WebSearch_GO/
 | Serper search results | `search:<sha256(query)>` | 48 h | Repeat queries (common during iterative research and drill-downs) don't cost API credits |
 | Scraped page text | `scrape:<sha256(url, render mode)>` | 7 days | Pages rarely change; re-scraping is the slowest tool call |
 | Failed scrape (negative) | same shape as above | 15 min | Stops a follow-up question re-fetching a known dead end (403, empty page, unreadable document). Cancellations are never cached |
+| Hard-URL escalation | `scrape:<sha256(url, mode=hard)>` | 7 d / 15 min | A recovered page is reused by QC follow-up iterations, and a ladder that ended still blocked is not repeated within the same run |
 
-All three share one `cache.Store`. The backend is chosen by `CACHE_BACKEND`: `memory`
+All four share one `cache.Store`. The backend is chosen by `CACHE_BACKEND`: `memory`
 (process-local, the default), `redis`, or `gcs` — the two shared backends are what make the
 cache survive a restart and serve every instance of the server. A shared backend that
 cannot be reached at startup falls back to the in-memory cache with a warning, so a cache
 outage costs speed rather than availability, and the backend in use is logged at startup.
 
-The scrape key includes the **render mode** (`default` / `http` / `browser`, derived
-from any per-request browser override). Without it, a thin HTTP-only result cached by
-an earlier run would be served to a browser-rendered re-run of the same URL — and a
-cached failure would suppress the rendered attempt that might have succeeded.
+The scrape key includes the **render mode** (`default` / `http` / `browser` / `hard`,
+derived from any per-request browser override or the hard-URL ladder). Without it, a
+thin HTTP-only result cached by an earlier run would be served to a browser-rendered
+re-run of the same URL — and a cached failure would suppress the rendered attempt that
+might have succeeded.
 
 Cached pages are **revalidated rather than re-downloaded**. A scrape result carries the
 `ETag` / `Last-Modified` the server returned, and once an entry is older than
@@ -939,6 +956,10 @@ those values are loaded and validated.
   never cut off mid-run.
 - Gemini credentials are validated at startup: the server exits rather than accepting
   requests it cannot serve.
+- `HARD_URL_HANDLER` (default `true`) gates the bounded hard-URL ladder. Its caps are code
+  constants rather than settings — at most 2 URLs per run, 30 s per URL, and escalation only
+  starts while at least 45 s of the deadline remains — so a burst of blocked pages can never
+  starve the normal scrape path.
 
 ---
 
@@ -1089,23 +1110,28 @@ server:
 
 **Known limitations (deliberate behaviour, not bugs):**
 
-- **Professional-profile sources are not fetched by default.** `linkedin.*` URLs are
-  retained as snippets only, so department-level results stay thin for a company whose
-  functional leadership is visible only there. `ALLOW_PROFILE_SCRAPING=true` lifts
-  that, but it is a policy decision — check the sites' terms first.
-- **Ranking is guarded but still heuristic.** `pruneUnconnected` drops candidates with
-  no domain or company-name connection, which removed the off-company profiles that
-  used to reach the scrape stage. A company whose name contains a common word, or that
-  legitimately appears on generic directory/news pages, can still be over- or
-  under-filtered.
+- **Professional-profile handling is policy-driven.** With the hard-URL handler enabled (the
+  default) a `linkedin.*` URL gets one bounded escalation per run — browser render,
+  cookie-bridged render, extended settle — and falls back to its public snippet when the wall
+  survives. With the handler disabled (`HARD_URL_HANDLER=0`) or Chromium unavailable,
+  profiles are never scraped, which is when department-level results stay thin for a company
+  whose functional leadership is visible only there. `ALLOW_PROFILE_SCRAPING=true` also puts
+  them through the normal scrape path — a policy decision, so check the sites' terms first.
+- **Ranking is guarded but still heuristic.** `pruneUnconnected` drops candidates with no
+  domain or company-name connection, which removed the off-company profiles that used to
+  reach the scrape stage — yet in practice the ranker still marks nearly every candidate
+  relevant, and a company whose name contains a common word, or that legitimately appears on
+  generic directory or news pages, can be over- or under-filtered. Stricter pre-filters
+  (domain or company-name must match) would tighten this further.
 - **PDF extraction is model-first, and the fallback is weaker.** A PDF is read by
   Gemini, which handles compressed streams, subsetted fonts and scanned pages; a pure-Go
   parser (`ledongthuc/pdf`) takes over when the model call fails, so extraction survives a
   rate limit but cannot recover a scanned filing that has no text layer. Adopting that
   parser raised this module's minimum Go version to `1.24.1`, so both Dockerfiles build on
   `golang:1.24-alpine`.
-- **Browser rendering is off by default** and requires a Playwright install plus the
-  per-run toggle (or `ENABLE_BROWSER_FALLBACK=true`).
+- **Browser rendering is off by default for ordinary scrapes** and requires a Playwright
+  install plus the per-run toggle (or `ENABLE_BROWSER_FALLBACK=true`). The hard-URL ladder
+  uses the same renderer whenever Chromium can start, independent of that toggle.
 - **Playwright's `chrome-headless-shell` crashes on some hosts**, so the renderer uses
   `channel: "chromium"` (the full browser) — correct, but heavier.
 - **Runs are long** (roughly 90 s–5 min). Rendered runs draw the larger budget, and the

@@ -77,6 +77,10 @@ type Config struct {
 	ScrapeRevalidateAfter time.Duration
 	// MaxRetryAfter caps how long a server's Retry-After hint may delay a retry.
 	MaxRetryAfter time.Duration
+	// HardURLHandler enables the bounded hard-URL escalation ladder for
+	// challenge pages and professional profiles. Failures degrade to the
+	// previous snippet-only behaviour, so the default is on.
+	HardURLHandler bool
 }
 
 const (
@@ -173,6 +177,7 @@ func Load() *Config {
 			int(defaultScrapeRevalidateAfter.Seconds()))) * time.Second,
 		MaxRetryAfter: time.Duration(envInt("SCRAPE_MAX_RETRY_AFTER_SECONDS",
 			int(defaultMaxRetryAfter.Seconds()))) * time.Second,
+		HardURLHandler: envBool("HARD_URL_HANDLER", true),
 	}
 }
 

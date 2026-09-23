@@ -18,7 +18,7 @@ type printingRenderer struct {
 	err       error
 }
 
-func (*printingRenderer) Render(context.Context, string) (string, error) {
+func (*printingRenderer) Render(context.Context, string, renderOptions) (string, error) {
 	return "", fmt.Errorf("scrape rendering is not used by this test")
 }
 

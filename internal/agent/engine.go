@@ -24,6 +24,13 @@ type PageFetcher interface {
 	ScrapeURL(ctx context.Context, targetURL string) (*models.ScrapeResult, error)
 }
 
+// HardURLScraper escalates URLs the normal path could not read through the
+// bounded hard-URL ladder. *tools.Scraper satisfies this interface; test
+// doubles that omit it simply disable the escalation path.
+type HardURLScraper interface {
+	ScrapeHard(ctx context.Context, targetURL string, opts tools.HardScrapeOptions) (*models.ScrapeResult, error)
+}
+
 // LLMClient generates structured output. *llm.GeminiClient satisfies this interface.
 type LLMClient interface {
 	GenerateStructured(ctx context.Context, systemPrompt, userPrompt string, target any) error
@@ -77,6 +84,10 @@ type Engine struct {
 	scrapeProfiles        bool
 	// exporter stores finished runs as Markdown and PDF artifacts.
 	exporter RunExporter
+	// hardURLsEnabled gates the bounded hard-URL escalation ladder. It is on
+	// by default and can be disabled with HARD_URL_HANDLER=0; when the scraper
+	// cannot start a browser the ladder reports itself unavailable instead.
+	hardURLsEnabled bool
 }
 
 // EngineOption customizes an Engine after its required dependencies are set.
@@ -150,6 +161,7 @@ func NewEngine(
 		maxSteps:              maxSteps,
 		scrapeConcurrency:     defaultScrapeConcurrency,
 		scrapeRevalidateAfter: defaultScrapeRevalidateAfter,
+		hardURLsEnabled:       true,
 	}
 	for _, opt := range opts {
 		opt(engine)
@@ -160,6 +172,25 @@ func NewEngine(
 // ProfileScrapingEnabled reports whether professional-profile pages may be fetched.
 func (e *Engine) ProfileScrapingEnabled() bool {
 	return e != nil && e.scrapeProfiles
+}
+
+// SetHardURLHandler toggles the bounded hard-URL escalation ladder. It is
+// wired from HARD_URL_HANDLER at startup; disabling it restores the previous
+// behaviour of never re-attempting blocked pages or professional profiles.
+func (e *Engine) SetHardURLHandler(enabled bool) {
+	if e != nil {
+		e.hardURLsEnabled = enabled
+	}
+}
+
+// HardURLsAvailable reports whether the hard-URL ladder can run: the feature
+// is enabled and the scraper supports the escalation interface.
+func (e *Engine) HardURLsAvailable() bool {
+	if e == nil || !e.hardURLsEnabled {
+		return false
+	}
+	_, ok := e.scraper.(HardURLScraper)
+	return ok
 }
 
 // MaxScrapes returns the maximum number of URLs to scrape during a research run.
@@ -426,6 +457,53 @@ func exportSummary(artifacts []models.ExportArtifact) string {
 		parts = append(parts, fmt.Sprintf("%s %s: %s", artifact.Format, artifact.SizeLabel(), artifact.URI))
 	}
 	return "Saved run output — " + strings.Join(parts, "; ")
+}
+
+// hardScrapeCacheKey scopes hard-URL ladder attempts to their own cache mode,
+// so a failed escalation can never mask (or be masked by) the normal HTTP or
+// per-run browser-mode entries for the same URL.
+func hardScrapeCacheKey(targetURL string) string {
+	return cache.HashKey("scrape", targetURL+"|mode=hard")
+}
+
+// ScrapeHardCached runs the hard-URL ladder with TTL caching. A recovered result
+// is cached for scrapeTTL; a ladder that ends still blocked or thin is
+// negative-cached briefly so QC follow-up iterations do not pay to repeat it.
+// Cancellations are never cached.
+//
+// A recovered ladder result is served until it expires rather than revalidated:
+// the entry already holds the escalated copy, and re-asking a challenged page
+// whether it changed would only repeat the escalation.
+func (e *Engine) ScrapeHardCached(ctx context.Context, targetURL string, opts tools.HardScrapeOptions) (*models.ScrapeResult, error) {
+	cacheKey := hardScrapeCacheKey(targetURL)
+	var entry cachedScrapeEntry
+	if cache.GetJSON(ctx, e.cache, cacheKey, &entry) {
+		switch entry.Kind {
+		case cachedKindFailure:
+			if entry.Error != "" {
+				return nil, errors.New(entry.Error)
+			}
+			return nil, fmt.Errorf("cached hard-URL scrape failure for %s", targetURL)
+		case cachedKindResult:
+			if entry.Result != nil {
+				return entry.Result, nil
+			}
+		}
+	}
+
+	hard, ok := e.scraper.(HardURLScraper)
+	if !ok {
+		return nil, fmt.Errorf("%w: scraper does not support the escalation ladder", tools.ErrHardLadderUnavailable)
+	}
+	res, err := hard.ScrapeHard(ctx, targetURL, opts)
+	if err != nil {
+		if ctx.Err() == nil {
+			e.storeScrapeFailure(ctx, cacheKey, err)
+		}
+		return nil, err
+	}
+	e.storeScrapeResult(ctx, cacheKey, res)
+	return res, nil
 }
 
 // Emit sends an event to the provided event channel if available. Events are

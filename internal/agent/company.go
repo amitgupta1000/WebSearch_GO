@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 // CompanyAgent conducts multi-phase organizational discovery and hierarchy mapping.
@@ -880,23 +881,62 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 			contentSeen[contentHash(item.Content)] = item.URL
 		}
 	}
-	// Professional-profile pages are normally not fetched directly: only the public
-	// search snippet is retained as evidence. When the operator opts in
-	// (ALLOW_PROFILE_SCRAPING / agent.WithProfileScraping), they fall through to the
-	// normal scrape path instead so full page text can contribute.
-	if !ca.engine.ProfileScrapingEnabled() {
-		for _, item := range ranked {
-			if item.SourceType != "professional_profile" || known[normalizeURL(item.URL)] {
+	usableScrapes := 0
+	handler := newHardURLHandler(ca.engine)
+	// Professional profiles are attempted through the bounded ladder whenever it
+	// is available: it renders public pages under its own budget, reports a wall it
+	// cannot pass, and never solves a challenge. The ALLOW_PROFILE_SCRAPING opt-in
+	// decides what happens otherwise — opted in, a profile enters the normal scrape
+	// path below and its full text can contribute; not opted in, only its public
+	// search snippet is kept.
+	for _, item := range ranked {
+		if item.SourceType != "professional_profile" || known[normalizeURL(item.URL)] {
+			continue
+		}
+		if handler.available() {
+			outcome := handler.handle(ctx, sessionID, item.URL, "professional profile", 8+len(evidence), eventCh, tools.HardScrapeOptions{})
+			if outcome.Status == "recovered" && outcome.Result != nil {
+				entry := models.ScrapeReportEntry{
+					URL: item.URL, SourceType: item.SourceType, Status: "recovered",
+					Reason:         "professional profile recovered by the hard-URL handler",
+					WordCount:      outcome.Result.WordCount,
+					QualityScore:   outcome.Result.QualityScore,
+					ImagesFound:    len(outcome.Result.Images),
+					Extractor:      outcome.Result.Extractor,
+					HandlerStatus:  outcome.Status,
+					HandlerTactics: outcome.Result.FallbackReason,
+				}
+				evidence = append(evidence, ca.evidenceWithOCR(ctx, item, outcome.Result, &entry))
+				sources = append(sources, item.URL)
+				known[normalizeURL(item.URL)] = true
+				usableScrapes++
+				report = append(report, entry)
 				continue
 			}
+			report = append(report, models.ScrapeReportEntry{
+				URL: item.URL, SourceType: item.SourceType, Status: "skipped",
+				Reason:        "public search snippet retained; the hard-URL handler could not recover the profile",
+				HandlerStatus: outcome.Status,
+			})
 			if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
 				evidence = append(evidence, *snippet)
+			}
+			if !ca.engine.ProfileScrapingEnabled() {
 				known[normalizeURL(item.URL)] = true
 			}
-			report = append(report, models.ScrapeReportEntry{URL: item.URL, SourceType: item.SourceType, Status: "skipped", Reason: "public search snippet retained; direct professional-profile scraping is disabled"})
+			continue
 		}
+		if ca.engine.ProfileScrapingEnabled() {
+			// No ladder, but profiles are opted in, so the normal scrape path below
+			// is what should fetch this page.
+			continue
+		}
+		if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
+			evidence = append(evidence, *snippet)
+			known[normalizeURL(item.URL)] = true
+		}
+		report = append(report, models.ScrapeReportEntry{URL: item.URL, SourceType: item.SourceType, Status: "skipped", Reason: "public search snippet retained; direct professional-profile scraping is disabled"})
 	}
-	usableScrapes := 0
 	attemptLimit := ca.engine.MaxScrapes() * 2
 	candidates := selectScrapeCandidates(ranked, attemptLimit, ca.engine.ProfileScrapingEnabled())
 
@@ -970,6 +1010,25 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 		entry.FallbackError = scrape.FallbackError
 		entry.ContentTruncated = scrape.ContentTruncated
 		if scrape.Blocked {
+			if handler.available() {
+				outcome := handler.handle(ctx, sessionID, item.URL, "blocked page", 8+len(evidence), eventCh, tools.HardScrapeOptions{AlreadyRendered: scrape.FallbackStatus == "blocked"})
+				if outcome.Status == "recovered" && outcome.Result != nil {
+					entry.Status = "recovered"
+					entry.Reason = "recovered by the hard-URL handler (" + outcome.Result.FallbackReason + ")"
+					entry.WordCount = outcome.Result.WordCount
+					entry.QualityScore = outcome.Result.QualityScore
+					entry.ImagesFound = len(outcome.Result.Images)
+					entry.Extractor = outcome.Result.Extractor
+					entry.HandlerStatus = outcome.Status
+					entry.HandlerTactics = outcome.Result.FallbackReason
+					evidence = append(evidence, ca.evidenceWithOCR(ctx, item, outcome.Result, &entry))
+					sources = append(sources, item.URL)
+					usableScrapes++
+					report = append(report, entry)
+					continue
+				}
+				entry.HandlerStatus = outcome.Status
+			}
 			entry.Status = "blocked"
 			entry.Reason = scrape.BlockReason
 			report = append(report, entry)
@@ -1004,36 +1063,63 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 			// skipped before it costs a fetch.
 			known[canonical] = true
 		}
-		if len(scrape.Images) > 0 {
-			entry.OCRStatus = "attempted"
-			ocrCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			textByURL, ocrErr := ca.engine.ExtractImageTextDetailed(ocrCtx, scrape.Images)
-			cancel()
-			if ocrErr != nil {
-				entry.OCRStatus = "failed"
-				entry.OCRReason = ocrErr.Error()
-			} else {
-				entry.OCRStatus = "success"
-			}
-			for index := range scrape.Images {
-				if text := textByURL[scrape.Images[index].URL]; text != "" {
-					scrape.Images[index].ExtractedText = text
-					entry.OCRImagesWithText++
-				}
-			}
-		} else {
-			entry.OCRStatus = "not_applicable"
-		}
-		evidence = append(evidence, models.Evidence{URL: scrape.CanonicalURL, Title: scrape.Title, Content: scrape.Content, Headings: scrape.Headings, JSONLD: scrape.JSONLD, Images: scrape.Images, Score: item.Score, EvidenceType: item.EvidenceType, SourceType: item.SourceType, QualityScore: scrape.QualityScore})
-		if evidence[len(evidence)-1].URL == "" {
-			evidence[len(evidence)-1].URL = item.URL
-		}
+		// OCR and evidence assembly live in evidenceWithOCR, shared with the
+		// profile-recovery path, so an entry is only ever filled in one place.
+		evidence = append(evidence, ca.evidenceWithOCR(ctx, item, scrape, &entry))
 		sources = append(sources, item.URL)
 		usableScrapes++
 		entry.Status = "success"
 		report = append(report, entry)
 	}
 	return evidence, sources, report
+}
+
+// evidenceWithOCR converts a successful scrape into evidence, running bounded
+// image OCR when images are present. entry (optional) accumulates the OCR
+// diagnostics that the scrape report renders.
+func (ca *CompanyAgent) evidenceWithOCR(ctx context.Context, item models.RankedResult, scrape *models.ScrapeResult, entry *models.ScrapeReportEntry) models.Evidence {
+	if len(scrape.Images) > 0 {
+		if entry != nil {
+			entry.OCRStatus = "attempted"
+		}
+		ocrCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		textByURL, ocrErr := ca.engine.ExtractImageTextDetailed(ocrCtx, scrape.Images)
+		cancel()
+		if ocrErr != nil {
+			if entry != nil {
+				entry.OCRStatus = "failed"
+				entry.OCRReason = ocrErr.Error()
+			}
+		} else if entry != nil {
+			entry.OCRStatus = "success"
+		}
+		for index := range scrape.Images {
+			if text := textByURL[scrape.Images[index].URL]; text != "" {
+				scrape.Images[index].ExtractedText = text
+				if entry != nil {
+					entry.OCRImagesWithText++
+				}
+			}
+		}
+	} else if entry != nil {
+		entry.OCRStatus = "not_applicable"
+	}
+	evidence := models.Evidence{
+		URL:          scrape.CanonicalURL,
+		Title:        scrape.Title,
+		Content:      scrape.Content,
+		Headings:     scrape.Headings,
+		JSONLD:       scrape.JSONLD,
+		Images:       scrape.Images,
+		Score:        item.Score,
+		EvidenceType: item.EvidenceType,
+		SourceType:   item.SourceType,
+		QualityScore: scrape.QualityScore,
+	}
+	if evidence.URL == "" {
+		evidence.URL = item.URL
+	}
+	return evidence
 }
 
 func appendUniqueScrapeReports(existing, additions []models.ScrapeReportEntry) []models.ScrapeReportEntry {

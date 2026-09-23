@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -70,8 +72,22 @@ func blockHeavyResources(browserContext playwright.BrowserContext) {
 	}
 }
 
+// renderOptions customizes a single browser render.
+type renderOptions struct {
+	// cookies are added to the shared browser context before navigation, so a
+	// user-exported session (COOKIE_FILE_PATH) can authenticate rendered pages.
+	cookies []*http.Cookie
+	// networkIdle overrides the bounded network-idle wait; zero keeps the default.
+	networkIdle time.Duration
+	// settle overrides the fixed post-navigation wait; zero keeps the default.
+	settle time.Duration
+	// timeout bounds this single render (navigation + settle); zero keeps the
+	// scraper's default browser timeout.
+	timeout time.Duration
+}
+
 type browserRenderer interface {
-	Render(context.Context, string) (string, error)
+	Render(ctx context.Context, targetURL string, opts renderOptions) (string, error)
 	Close() error
 }
 
@@ -166,7 +182,58 @@ func remainingMillis(ctx context.Context, requested time.Duration) float64 {
 	return float64(settleBudget(time.Until(deadline), requested).Milliseconds())
 }
 
-func (r *playwrightRenderer) Render(ctx context.Context, targetURL string) (string, error) {
+// addCookies bridges the scraper's HTTP cookie jar into the shared browser
+// context. The jar belongs to the Go HTTP client and Chromium keeps its own
+// store, so without this step a user-exported session (COOKIE_FILE_PATH)
+// could never authenticate a rendered page. Cookies are merged under the
+// render mutex (AddCookies is not documented as concurrency-safe) and persist
+// in the context, matching how interstitial clearance cookies are reused.
+func (r *playwrightRenderer) addCookies(browserContext playwright.BrowserContext, targetURL string, cookies []*http.Cookie) error {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return fmt.Errorf("parse target URL: %w", err)
+	}
+	converted := make([]playwright.OptionalCookie, 0, len(cookies))
+	host := parsed.Hostname()
+	for _, c := range cookies {
+		if c == nil || c.Name == "" || c.Value == "" {
+			continue
+		}
+		domain := strings.TrimPrefix(c.Domain, ".")
+		if domain == "" {
+			domain = host
+		}
+		path := c.Path
+		if path == "" {
+			path = "/"
+		}
+		cookie := playwright.OptionalCookie{Name: c.Name, Value: c.Value, Domain: &domain, Path: &path}
+		secure := c.Secure
+		httpOnly := c.HttpOnly
+		cookie.Secure = &secure
+		cookie.HttpOnly = &httpOnly
+		switch c.SameSite {
+		case http.SameSiteStrictMode:
+			cookie.SameSite = playwright.SameSiteAttributeStrict
+		case http.SameSiteNoneMode:
+			cookie.SameSite = playwright.SameSiteAttributeNone
+		default:
+			cookie.SameSite = playwright.SameSiteAttributeLax
+		}
+		converted = append(converted, cookie)
+	}
+	if len(converted) == 0 {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := browserContext.AddCookies(converted); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *playwrightRenderer) Render(ctx context.Context, targetURL string, opts renderOptions) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -175,6 +242,11 @@ func (r *playwrightRenderer) Render(ctx context.Context, targetURL string) (stri
 	if err != nil {
 		return "", err
 	}
+	if len(opts.cookies) > 0 {
+		if err := r.addCookies(browserContext, targetURL, opts.cookies); err != nil {
+			return "", fmt.Errorf("bridge session cookies: %w", err)
+		}
+	}
 
 	page, err := browserContext.NewPage()
 	if err != nil {
@@ -182,9 +254,17 @@ func (r *playwrightRenderer) Render(ctx context.Context, targetURL string) (stri
 	}
 	defer page.Close()
 
+	// A render must never overrun its attempt budget: cap navigation at the
+	// context deadline when it is shorter than the renderer default.
+	gotoTimeout := r.timeout
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 && remaining < gotoTimeout {
+			gotoTimeout = remaining
+		}
+	}
 	if _, err = page.Goto(targetURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(float64(r.timeout.Milliseconds())),
+		Timeout:   playwright.Float(float64(gotoTimeout.Milliseconds())),
 	}); err != nil {
 		return "", fmt.Errorf("navigate browser page: %w", err)
 	}
@@ -195,17 +275,27 @@ func (r *playwrightRenderer) Render(ctx context.Context, targetURL string) (stri
 	// render budget, so settling can never push the render past its deadline and
 	// report an already-loaded page as a failure.
 	//
-	// A page that already holds its content needs neither wait: measuring once
-	// and skipping saves the better part of five seconds on the many corporate
-	// pages that render server-side but still ship a JavaScript shell.
-	if visibleTextLength(page) < renderReadyRunes {
-		if wait := remainingMillis(ctx, browserNetworkIdleTimeout); wait > 0 {
+	// A page that already holds its content needs neither wait: measuring once and
+	// skipping saves the better part of five seconds on the many corporate pages
+	// that render server-side but still ship a JavaScript shell. The hard-URL
+	// ladder's extended-settle step asks for longer waits explicitly, so an
+	// explicit request always waits.
+	networkIdle := opts.networkIdle
+	if networkIdle <= 0 {
+		networkIdle = browserNetworkIdleTimeout
+	}
+	settle := opts.settle
+	if settle <= 0 {
+		settle = browserSettleTimeout
+	}
+	if visibleTextLength(page) < renderReadyRunes || opts.networkIdle > 0 || opts.settle > 0 {
+		if wait := remainingMillis(ctx, networkIdle); wait > 0 {
 			_ = page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
 				State:   playwright.LoadStateNetworkidle,
 				Timeout: playwright.Float(wait),
 			})
 		}
-		if wait := remainingMillis(ctx, browserSettleTimeout); wait > 0 {
+		if wait := remainingMillis(ctx, settle); wait > 0 {
 			page.WaitForTimeout(wait)
 		}
 	}

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,7 +21,7 @@ type fakeBrowserRenderer struct {
 	calls int
 }
 
-func (r *fakeBrowserRenderer) Render(context.Context, string) (string, error) {
+func (r *fakeBrowserRenderer) Render(context.Context, string, renderOptions) (string, error) {
 	r.calls++
 	return r.html, r.err
 }
@@ -450,7 +452,9 @@ type closeCountingRenderer struct {
 	closes int
 }
 
-func (*closeCountingRenderer) Render(context.Context, string) (string, error) { return "", nil }
+func (*closeCountingRenderer) Render(context.Context, string, renderOptions) (string, error) {
+	return "", nil
+}
 
 func (r *closeCountingRenderer) Close() error {
 	r.mu.Lock()
@@ -526,7 +530,7 @@ type concurrencyProbeRenderer struct {
 	html    string
 }
 
-func (r *concurrencyProbeRenderer) Render(context.Context, string) (string, error) {
+func (r *concurrencyProbeRenderer) Render(context.Context, string, renderOptions) (string, error) {
 	r.mu.Lock()
 	r.active++
 	if r.active > r.peakN {
@@ -626,5 +630,132 @@ func TestBrowserFallbackOverrideReporting(t *testing.T) {
 	}
 	if enabled, ok := BrowserFallbackOverride(WithBrowserFallback(context.Background(), false)); !ok || enabled {
 		t.Error("expected an opt-out override to be reported")
+	}
+}
+
+// ladderRenderer scripts one page per render call and records the render
+// options each step used, letting tests assert the hard-URL ladder order.
+type ladderRenderer struct {
+	pages []string
+	calls int
+	plans []renderOptions
+}
+
+func (r *ladderRenderer) Render(_ context.Context, _ string, opts renderOptions) (string, error) {
+	index := r.calls
+	r.calls++
+	r.plans = append(r.plans, opts)
+	if index >= len(r.pages) {
+		index = len(r.pages) - 1
+	}
+	return r.pages[index], nil
+}
+
+func (*ladderRenderer) Close() error { return nil }
+
+const hardInterstitialHTML = `<html><head><title>Checking your browser</title></head><body><p>Please verify you are human.</p></body></html>`
+
+func hardRenderedHTML() string {
+	return `<html><head><title>Rendered</title></head><body><main><h1>Rendered</h1><p>` +
+		strings.Repeat("rendered profile content ", 20) + `</p></main></body></html>`
+}
+
+func newHardScraper(t *testing.T, renderer browserRenderer, jar *cookiejar.Jar) *Scraper {
+	t.Helper()
+	scraper := NewScraperWithBrowser(jar, time.Second, false, WithPrivateHostAccess())
+	scraper.newBrowser = func(time.Duration) (browserRenderer, error) { return renderer, nil }
+	return scraper
+}
+
+func TestScrapeHardLadderRecoversAfterBlockedRender(t *testing.T) {
+	srv := newHTMLServer(t, `<html><body><div id="app"></div></body></html>`)
+	renderer := &ladderRenderer{pages: []string{hardInterstitialHTML, hardRenderedHTML()}}
+	scraper := newHardScraper(t, renderer, nil)
+
+	result, err := scraper.ScrapeHard(context.Background(), srv.URL, HardScrapeOptions{})
+	if err != nil {
+		t.Fatalf("ScrapeHard returned error: %v", err)
+	}
+	if result.FallbackStatus != "succeeded" || result.FallbackReason != "extended-settle" || result.Extractor != "playwright-content-root" {
+		t.Fatalf("expected extended-settle recovery, got %+v", result)
+	}
+	if renderer.calls != 2 {
+		t.Fatalf("ladder made %d render calls, want 2", renderer.calls)
+	}
+	if renderer.plans[0].timeout != hardRenderTimeout || len(renderer.plans[0].cookies) != 0 {
+		t.Errorf("plain-render step options: %+v", renderer.plans[0])
+	}
+	if renderer.plans[1].networkIdle != extendedNetworkIdle || renderer.plans[1].settle != extendedSettle || renderer.plans[1].timeout != extendedRenderTimeout {
+		t.Errorf("extended-settle step options: %+v", renderer.plans[1])
+	}
+}
+
+func TestScrapeHardBridgesJarCookiesIntoRender(t *testing.T) {
+	srv := newHTMLServer(t, `<html><body><div id="app"></div></body></html>`)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar.New returned error: %v", err)
+	}
+	target, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("url.Parse returned error: %v", err)
+	}
+	jar.SetCookies(target, []*http.Cookie{{Name: "session", Value: "abc123"}})
+
+	renderer := &ladderRenderer{pages: []string{hardInterstitialHTML, hardRenderedHTML()}}
+	scraper := newHardScraper(t, renderer, jar)
+
+	result, err := scraper.ScrapeHard(context.Background(), srv.URL, HardScrapeOptions{})
+	if err != nil {
+		t.Fatalf("ScrapeHard returned error: %v", err)
+	}
+	if result.FallbackReason != "cookie-render" || renderer.calls != 2 {
+		t.Fatalf("expected the cookie step to win, reason=%q calls=%d", result.FallbackReason, renderer.calls)
+	}
+	if len(renderer.plans[1].cookies) != 1 || renderer.plans[1].cookies[0].Name != "session" {
+		t.Errorf("cookie step must carry the jar cookies, got %+v", renderer.plans[1].cookies)
+	}
+	if len(renderer.plans[0].cookies) != 0 {
+		t.Errorf("plain-render step must not carry cookies, got %+v", renderer.plans[0].cookies)
+	}
+}
+
+func TestScrapeHardSkipsPlainRenderWhenAlreadyRendered(t *testing.T) {
+	srv := newHTMLServer(t, `<html><body><div id="app"></div></body></html>`)
+	renderer := &ladderRenderer{pages: []string{hardRenderedHTML()}}
+	scraper := newHardScraper(t, renderer, nil)
+
+	result, err := scraper.ScrapeHard(context.Background(), srv.URL, HardScrapeOptions{AlreadyRendered: true})
+	if err != nil {
+		t.Fatalf("ScrapeHard returned error: %v", err)
+	}
+	if renderer.calls != 1 || renderer.plans[0].networkIdle != extendedNetworkIdle {
+		t.Fatalf("expected a single extended-settle step, calls=%d plans=%+v", renderer.calls, renderer.plans)
+	}
+	if result.FallbackReason != "extended-settle" {
+		t.Errorf("unexpected winning tactic: %q", result.FallbackReason)
+	}
+}
+
+func TestScrapeHardStillBlockedAfterLadder(t *testing.T) {
+	srv := newHTMLServer(t, `<html><body><div id="app"></div></body></html>`)
+	renderer := &ladderRenderer{pages: []string{hardInterstitialHTML}}
+	scraper := newHardScraper(t, renderer, nil)
+
+	_, err := scraper.ScrapeHard(context.Background(), srv.URL, HardScrapeOptions{})
+	if !errors.Is(err, ErrHardLadderExhausted) {
+		t.Fatalf("expected ErrHardLadderExhausted, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "plain-render → extended-settle") || !strings.Contains(err.Error(), "human-verification challenge") {
+		t.Errorf("error must trace the attempted steps and the block reason, got %q", err)
+	}
+}
+
+func TestScrapeHardReportsUnavailableWithoutBrowser(t *testing.T) {
+	scraper := NewScraperWithBrowser(nil, time.Second, false, WithPrivateHostAccess())
+	scraper.newBrowser = func(time.Duration) (browserRenderer, error) { return nil, errors.New("no playwright install") }
+
+	if _, err := scraper.ScrapeHard(context.Background(), "https://example.com/page", HardScrapeOptions{}); !errors.Is(err, ErrHardLadderUnavailable) {
+		t.Fatalf("expected ErrHardLadderUnavailable, got %v", err)
 	}
 }

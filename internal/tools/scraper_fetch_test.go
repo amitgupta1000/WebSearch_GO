@@ -17,7 +17,7 @@ type renderCounter struct {
 	calls int
 }
 
-func (r *renderCounter) Render(context.Context, string) (string, error) {
+func (r *renderCounter) Render(context.Context, string, renderOptions) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls++

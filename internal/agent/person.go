@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 // PersonAgent conducts disambiguation, online footprint analysis, and dossier compilation.
@@ -80,8 +81,9 @@ func (pa *PersonAgent) ResearchPerson(
 	var sources []string
 	scrapeCount := 0
 	var gatheredScrapes strings.Builder
+	handler := newHardURLHandler(pa.engine)
 
-	// Choose the pages worth fetching first, then fetch them in parallel: the
+	// Choose the pages worth fetching first, then fetch the rest in parallel: the
 	// choice is cheap and the fetches are latency-bound, so doing them one at a
 	// time only adds the network round trips together.
 	fetchTargets := make([]models.SearchResult, 0, pa.engine.MaxScrapes())
@@ -89,14 +91,27 @@ func (pa *PersonAgent) ResearchPerson(
 		if len(fetchTargets) >= pa.engine.MaxScrapes() {
 			break
 		}
-		// Prioritize bio pages, interviews, personal sites, github, wiki
-		if strings.Contains(sr.Link, "wikipedia") || strings.Contains(sr.Link, "about") || strings.Contains(sr.Link, "github") || len(fetchTargets) == 0 {
+		// Prioritize professional profiles, bio pages, interviews, personal sites, github, wiki
+		if strings.Contains(sr.Link, "linkedin.") || strings.Contains(sr.Link, "wikipedia") || strings.Contains(sr.Link, "about") || strings.Contains(sr.Link, "github") || len(fetchTargets) == 0 {
 			fetchTargets = append(fetchTargets, sr)
 		}
 	}
 
+	// Professional-profile walls are the norm in person mode, so those URLs go
+	// straight to the bounded hard-URL handler rather than feeding an auth wall to
+	// the normal scrape path. Everything else is fetched in parallel below.
+	parallelTargets := make([]models.SearchResult, 0, len(fetchTargets))
 	fetchURLs := make([]string, 0, len(fetchTargets))
 	for _, sr := range fetchTargets {
+		if strings.Contains(sr.Link, "linkedin.") && handler.available() {
+			outcome := handler.handle(ctx, sessionID, sr.Link, "professional profile", 4+scrapeCount, eventCh, tools.HardScrapeOptions{})
+			if outcome.Status == "recovered" && outcome.Result != nil && len(outcome.Result.Content) > minScrapeContentLen {
+				gatheredScrapes.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, outcome.Result.Content))
+				sources = append(sources, sr.Link)
+				scrapeCount++
+			}
+			continue
+		}
 		Emit(eventCh, models.AgentEvent{
 			SessionID: sessionID,
 			Type:      models.EventToolCall,
@@ -105,24 +120,37 @@ func (pa *PersonAgent) ResearchPerson(
 			ToolInput: sr.Link,
 			Content:   fmt.Sprintf("Extracting details from %s...", sr.Link),
 		})
+		parallelTargets = append(parallelTargets, sr)
 		fetchURLs = append(fetchURLs, sr.Link)
 	}
 
 	outcomes := pa.engine.ScrapeCachedBatch(ctx, fetchURLs)
 
-	seenContent := make(map[string]bool, len(fetchTargets))
-	for index, sr := range fetchTargets {
-		outcome := outcomes[index]
-		if outcome.Err != nil || outcome.Result == nil || len(outcome.Result.Content) <= minScrapeContentLen {
+	seenContent := make(map[string]bool, len(parallelTargets))
+	for index, sr := range parallelTargets {
+		result, scrapeErr := outcomes[index].Result, outcomes[index].Err
+		usable := scrapeErr == nil && result != nil && !result.Blocked && len(result.Content) > minScrapeContentLen
+
+		// A challenge page used to slip in here as "content" whenever its
+		// interstitial text exceeded the minimum length; a blocked result now gets
+		// one bounded handler attempt instead.
+		if !usable && scrapeErr == nil && result != nil && result.Blocked && handler.available() {
+			escalated := handler.handle(ctx, sessionID, sr.Link, "blocked page", 4+scrapeCount, eventCh,
+				tools.HardScrapeOptions{AlreadyRendered: result.FallbackStatus == "blocked"})
+			if escalated.Status == "recovered" && escalated.Result != nil && len(escalated.Result.Content) > minScrapeContentLen {
+				result, usable = escalated.Result, true
+			}
+		}
+		if !usable {
 			continue
 		}
-		fingerprint := contentHash(outcome.Result.Content)
+		fingerprint := contentHash(result.Content)
 		if seenContent[fingerprint] {
 			// The same biography republished on several domains adds nothing.
 			continue
 		}
 		seenContent[fingerprint] = true
-		gatheredScrapes.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, outcome.Result.Content))
+		gatheredScrapes.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, result.Content))
 		sources = append(sources, sr.Link)
 		scrapeCount++
 	}

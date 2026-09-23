@@ -15,7 +15,8 @@ LLM synthesis, with TTL caching and bounded memory.
 > **Documentation:** this file is the user-facing guide (setup, configuration,
 > endpoints, policies). **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** is the
 > internals companion — request lifecycle, module-by-module deep dive, testing, and
-> known limitations.
+> known limitations — and **[SCRAPER_WALKTHROUGH.md](SCRAPER_WALKTHROUGH.md)** walks the
+> fetch path (policy, rendering ladder, extraction) end to end.
 
 ## Prerequisites
 
@@ -76,7 +77,10 @@ and final result summary.
    server's `Retry-After` hint honoured on a `429`/`503`. Identical content is collected
    once — pages are deduplicated by URL, by canonical URL, and by a fingerprint of the
    extracted text — and a `404`/`410` is reported without paying for a browser render.
-   Failures are cached briefly too, so a repeat question does not re-fetch a known dead end
+   A blocked page gets one bounded **hard-URL escalation** (plain render → cookie-bridged
+   render → extended settle) before degrading to snippet evidence; set
+   `HARD_URL_HANDLER=0` to turn that off. Failures are cached briefly too, so a repeat
+   question does not re-fetch a known dead end
    (see [Fetching policy](#fetching-policy)).
 5. **Synthesize** — Gemini writes the org chart or dossier from the supplied
    evidence only, and is instructed not to invent people or titles.
@@ -110,6 +114,7 @@ and final result summary.
 | `MAX_AGENT_STEPS` | `10` | Max agent/tool iterations per research session |
 | `ALLOW_BROWSER_TOGGLE` | `true` | Offer a per-run "render pages in a real browser" option in the console. Only shown when Chromium can actually start |
 | `ALLOW_PROFILE_SCRAPING` | `false` | Fetch professional-profile pages (e.g. `linkedin.com`) directly instead of keeping only their public search snippet. Opt-in, because that is a policy decision |
+| `HARD_URL_HANDLER` | `true` | Escalate blocked pages and professional profiles to the bounded hard-URL handler (plain render → cookie-bridged render → extended settle) |
 | `CACHE_BACKEND` | `memory` | Where cached searches and scraped pages live: `memory`, `redis` or `gcs` |
 | `REDIS_URL` | — | Redis connection URL (`redis://` / `rediss://`). Takes precedence over the split settings below |
 | `REDIS_HOST` | — | Redis host; with `REDIS_PORT` / `REDIS_PASSWORD` it is assembled into a connection URL when `REDIS_URL` is unset |
@@ -259,13 +264,18 @@ The scraper is deliberately conservative, and several of these rules surprise pe
   endpoints (`169.254.169.254`) are blocked. There is no server option to relax
   this, so the app cannot research an intranet.
 - **Bot challenges are reported, never bypassed.** A CAPTCHA or press-and-hold page
-  is rendered like any other; if the challenge is still present afterwards the
-  result is marked `blocked` with a reason rather than circumvented.
-- **Professional-profile pages are not fetched by default.** A `linkedin.*` URL
-  contributes only its public search snippet, which is why department-level results
-  stay thin for a company whose functional leadership is visible only there. Set
-  `ALLOW_PROFILE_SCRAPING=true` to fetch them directly — that is a policy decision,
-  so check the terms of the sites involved first.
+  is rendered like any other, and a blocked result is escalated once to the hard-URL
+  handler — a plain render, a cookie-bridged render, and an extended-settle render —
+  but nothing is ever clicked, held, or solved. If the challenge survives every step
+  the result is marked `blocked` with a reason and the run degrades to snippet evidence.
+- **Professional-profile pages are escalated, not fetched by default.** A `linkedin.*`
+  URL contributes its public search snippet, and the ladder gets one bounded attempt
+  (at most two URLs per run, 30 s each, and only while at least 45 s of the research
+  budget remains). The handler bridges the cookie jar into the browser context, so a
+  session exported via `COOKIE_FILE_PATH` can authenticate a rendered page. Set
+  `ALLOW_PROFILE_SCRAPING=true` to fetch such pages through the normal scrape path too,
+  or `HARD_URL_HANDLER=0` to disable escalation entirely — both are policy decisions, so
+  check the terms of the sites involved first.
 - **PDFs are read; every other non-HTML response is rejected.** A PDF is sent to
   Gemini, which reads PDFs natively, and falls back to a bundled pure-Go parser when
   that call fails — so officer lists published as registry filings become evidence. The
