@@ -96,7 +96,7 @@ func TestHardURLHandlerCapsEscalationsPerRun(t *testing.T) {
 	defer store.Close()
 
 	handler := newHardURLHandler(engine)
-	for i := 0; i < maxHardURLsPerRun; i++ {
+	for i := 0; i < engine.HardURLsPerRun(); i++ {
 		// Distinct targets so each escalation runs the ladder instead of
 		// hitting the success cache.
 		target := fmt.Sprintf("https://acme.com/page-%d", i+1)
@@ -106,10 +106,10 @@ func TestHardURLHandlerCapsEscalationsPerRun(t *testing.T) {
 	}
 	outcome := handler.handle(context.Background(), "session", "https://acme.com/page-final", "blocked page", 1, nil, tools.HardScrapeOptions{})
 	if outcome.Status != "deferred" {
-		t.Fatalf("expected the per-run cap to defer escalation %d, got %+v", maxHardURLsPerRun+1, outcome)
+		t.Fatalf("expected the per-run cap to defer escalation %d, got %+v", engine.HardURLsPerRun()+1, outcome)
 	}
-	if scraper.hardCalls != maxHardURLsPerRun {
-		t.Errorf("ladder ran %d times, want %d", scraper.hardCalls, maxHardURLsPerRun)
+	if scraper.hardCalls != engine.HardURLsPerRun() {
+		t.Errorf("ladder ran %d times, want %d", scraper.hardCalls, engine.HardURLsPerRun())
 	}
 }
 
@@ -125,7 +125,7 @@ func TestHardURLHandlerDefersWhenRunBudgetIsLow(t *testing.T) {
 	handler := newHardURLHandler(engine)
 	outcome := handler.handle(ctx, "session", target, "blocked page", 1, nil, tools.HardScrapeOptions{})
 	if outcome.Status != "deferred" || scraper.hardCalls != 0 {
-		t.Fatalf("expected deferral with under %s remaining, got %+v", hardURLMinRunRemaining, outcome)
+		t.Fatalf("expected deferral with under %s remaining, got %+v", handler.urlBudget()+hardURLPostLadderMargin, outcome)
 	}
 }
 

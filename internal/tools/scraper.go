@@ -284,6 +284,17 @@ func (s *Scraper) jarCookies(targetURL string) []*http.Cookie {
 	return s.client.Jar.Cookies(parsed)
 }
 
+// HardLadderBudget is the worst-case wall-clock allowance of one run of the
+// hard-URL ladder: every step in sequence, each using its full navigation budget.
+//
+// Callers size their own per-URL budget from this rather than from a hand-written
+// constant, so the last step — the extended-settle render that exists precisely for
+// slow interstitials — can never be clipped by an outside timeout before it has had
+// its chance.
+func HardLadderBudget() time.Duration {
+	return hardRenderTimeout + hardRenderTimeout + extendedRenderTimeout
+}
+
 // HardScrapeOptions tunes one run of the hard-URL ladder.
 type HardScrapeOptions struct {
 	// AlreadyRendered reports that the caller's normal path already rendered

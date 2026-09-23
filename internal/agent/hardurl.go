@@ -14,15 +14,21 @@ import (
 // bounded slice of the run's budget, so a burst of blocked pages or profile
 // walls can never starve the normal scrape path.
 const (
-	// maxHardURLsPerRun caps how many URLs a single research run may escalate.
-	maxHardURLsPerRun = 2
-	// hardURLBudget bounds the whole ladder for one URL.
-	hardURLBudget = 30 * time.Second
-	// hardURLMinRunRemaining: escalation is only worth starting when at least
-	// this much of the run's deadline remains (mirrors minQCIterationBudget),
-	// so a long run degrades to snippets instead of failing on the clock.
-	hardURLMinRunRemaining = 45 * time.Second
+	// defaultHardURLsPerRun caps how many URLs a single research run may escalate
+	// when no limit is configured.
+	defaultHardURLsPerRun = 2
+	// hardURLPostLadderMargin is how much of the run's deadline must still be left
+	// after the ladder, for the synthesis and QC that follow it.
+	hardURLPostLadderMargin = 20 * time.Second
 )
+
+// defaultHardURLBudget bounds the whole ladder for one URL. It is derived from the
+// ladder's own step caps, so raising a step timeout can never silently clip the
+// final step: a hand-written budget below the step sum did exactly that, leaving
+// the extended-settle render with no time to run.
+func defaultHardURLBudget() time.Duration {
+	return tools.HardLadderBudget() + 5*time.Second
+}
 
 // hardURLHandler is the bounded specialist for URLs the normal pipeline
 // refuses or fails on: bot-challenge interstitials and professional profiles
@@ -45,6 +51,28 @@ func newHardURLHandler(engine *Engine) *hardURLHandler {
 	return &hardURLHandler{engine: engine}
 }
 
+// perRunLimit is how many URLs this run may escalate: the configured value, or the
+// default when none is set.
+func (h *hardURLHandler) perRunLimit() int {
+	if h.engine != nil {
+		if configured := h.engine.HardURLsPerRun(); configured > 0 {
+			return configured
+		}
+	}
+	return defaultHardURLsPerRun
+}
+
+// urlBudget bounds the whole ladder for one URL: the configured value, or the
+// default derived from the ladder's own step caps.
+func (h *hardURLHandler) urlBudget() time.Duration {
+	if h.engine != nil {
+		if configured := h.engine.HardURLBudget(); configured > 0 {
+			return configured
+		}
+	}
+	return defaultHardURLBudget()
+}
+
 // hardOutcome is the handler's report back to the calling agent.
 type hardOutcome struct {
 	// Status is "recovered", "failed", "deferred" or "unavailable".
@@ -65,11 +93,18 @@ func (h *hardURLHandler) handle(ctx context.Context, sessionID, targetURL, label
 	if !h.available() {
 		return hardOutcome{Status: "unavailable", Reason: "hard-URL handler disabled or browser unavailable"}
 	}
-	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < hardURLMinRunRemaining {
-		return hardOutcome{Status: "deferred", Reason: "insufficient remaining research budget"}
+	if deadline, ok := ctx.Deadline(); ok {
+		// Escalation only starts when the whole ladder, plus the synthesis that must
+		// follow it, still fits inside the run's deadline. Starting one that cannot
+		// finish wastes the ladder's whole budget and returns nothing.
+		if remaining := time.Until(deadline); remaining < h.urlBudget()+hardURLPostLadderMargin {
+			return hardOutcome{Status: "deferred", Reason: fmt.Sprintf(
+				"insufficient remaining research budget (%s left, need %s)",
+				remaining.Truncate(time.Second), (h.urlBudget() + hardURLPostLadderMargin).Truncate(time.Second))}
+		}
 	}
-	if h.used >= maxHardURLsPerRun {
-		return hardOutcome{Status: "deferred", Reason: fmt.Sprintf("per-run limit of %d hard URLs reached", maxHardURLsPerRun)}
+	if limit := h.perRunLimit(); h.used >= limit {
+		return hardOutcome{Status: "deferred", Reason: fmt.Sprintf("per-run limit of %d hard URLs reached", limit)}
 	}
 	h.used++
 
@@ -82,18 +117,25 @@ func (h *hardURLHandler) handle(ctx context.Context, sessionID, targetURL, label
 		Content:   "Escalating " + label + " to the hard-URL handler...",
 	})
 
-	attemptCtx, cancel := context.WithTimeout(ctx, hardURLBudget)
+	attemptCtx, cancel := context.WithTimeout(ctx, h.urlBudget())
 	defer cancel()
 	result, err := h.engine.ScrapeHardCached(attemptCtx, targetURL, opts)
 
 	outcome := hardOutcome{Result: result}
-	if err == nil {
+	switch {
+	case err == nil:
 		outcome.Status = "recovered"
 		outcome.Reason = "hard-URL ladder recovered the page (" + result.FallbackReason + ")"
-	} else if errors.Is(err, tools.ErrHardLadderUnavailable) {
+	case errors.Is(err, tools.ErrHardLadderUnavailable):
 		outcome.Status = "unavailable"
 		outcome.Reason = err.Error()
-	} else {
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		// The ladder ran out of its own slice of the budget rather than losing to
+		// the wall. Calling that a failure would hide the fact that a step never got
+		// the time it asked for, which is exactly the signal needed to tune it.
+		outcome.Status = "deferred"
+		outcome.Reason = "hard-URL ladder ran out of budget: " + err.Error()
+	default:
 		outcome.Status = "failed"
 		outcome.Reason = err.Error()
 	}

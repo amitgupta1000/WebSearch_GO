@@ -101,6 +101,36 @@ func TestInvalidScrapeSettingsFallBackToDefaults(t *testing.T) {
 	}
 }
 
+func TestHardURLLimitDefaultsAndOverrides(t *testing.T) {
+	cfg := Load()
+	if !cfg.HardURLHandler {
+		t.Error("expected the hard-URL ladder to be on by default")
+	}
+	if cfg.HardURLsPerRun != defaultHardURLsPerRun {
+		t.Errorf("HardURLsPerRun = %d, want %d", cfg.HardURLsPerRun, defaultHardURLsPerRun)
+	}
+	// Zero means "derive it from the ladder's own step caps", so raising a step
+	// timeout can never leave the budget shorter than the ladder needs.
+	if cfg.HardURLBudget != 0 {
+		t.Errorf("HardURLBudget = %v, want 0 (derived)", cfg.HardURLBudget)
+	}
+
+	t.Setenv("HARD_URL_HANDLER", "0")
+	t.Setenv("HARD_URLS_PER_RUN", "4")
+	t.Setenv("HARD_URL_BUDGET_SECONDS", "40")
+
+	configured := Load()
+	if configured.HardURLHandler {
+		t.Error("expected HARD_URL_HANDLER=0 to disable the ladder")
+	}
+	if configured.HardURLsPerRun != 4 {
+		t.Errorf("HardURLsPerRun = %d, want the configured 4", configured.HardURLsPerRun)
+	}
+	if configured.HardURLBudget != 40*time.Second {
+		t.Errorf("HardURLBudget = %v, want the configured 40s", configured.HardURLBudget)
+	}
+}
+
 func TestBlankCacheBackendFallsBackToMemory(t *testing.T) {
 	t.Setenv("CACHE_BACKEND", "   ")
 	if got := Load().CacheBackendName(); got != "memory" {

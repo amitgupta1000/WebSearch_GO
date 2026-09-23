@@ -88,6 +88,11 @@ type Engine struct {
 	// by default and can be disabled with HARD_URL_HANDLER=0; when the scraper
 	// cannot start a browser the ladder reports itself unavailable instead.
 	hardURLsEnabled bool
+	// hardURLsPerRun caps escalations per run, and hardURLBudget bounds the whole
+	// ladder for one URL. Both fall back to defaults derived from the ladder's own
+	// step caps.
+	hardURLsPerRun int
+	hardURLBudget  time.Duration
 }
 
 // EngineOption customizes an Engine after its required dependencies are set.
@@ -162,6 +167,8 @@ func NewEngine(
 		scrapeConcurrency:     defaultScrapeConcurrency,
 		scrapeRevalidateAfter: defaultScrapeRevalidateAfter,
 		hardURLsEnabled:       true,
+		hardURLsPerRun:        defaultHardURLsPerRun,
+		hardURLBudget:         defaultHardURLBudget(),
 	}
 	for _, opt := range opts {
 		opt(engine)
@@ -191,6 +198,37 @@ func (e *Engine) HardURLsAvailable() bool {
 	}
 	_, ok := e.scraper.(HardURLScraper)
 	return ok
+}
+
+// HardURLsPerRun returns how many URLs one run may escalate.
+func (e *Engine) HardURLsPerRun() int {
+	if e == nil || e.hardURLsPerRun <= 0 {
+		return defaultHardURLsPerRun
+	}
+	return e.hardURLsPerRun
+}
+
+// HardURLBudget returns how long the whole ladder for one URL may take.
+func (e *Engine) HardURLBudget() time.Duration {
+	if e == nil || e.hardURLBudget <= 0 {
+		return defaultHardURLBudget()
+	}
+	return e.hardURLBudget
+}
+
+// WithHardURLLimits tunes the bounded hard-URL ladder: how many URLs one run may
+// escalate, and how long the ladder for one URL may take. A non-positive value
+// keeps the default, whose budget is derived from the ladder's own step caps so the
+// final (extended-settle) step cannot be clipped by an outside timeout.
+func WithHardURLLimits(perRun int, budget time.Duration) EngineOption {
+	return func(e *Engine) {
+		if perRun > 0 {
+			e.hardURLsPerRun = perRun
+		}
+		if budget > 0 {
+			e.hardURLBudget = budget
+		}
+	}
 }
 
 // MaxScrapes returns the maximum number of URLs to scrape during a research run.

@@ -95,6 +95,7 @@ func main() {
 		agent.WithProfileScraping(cfg.AllowProfileScraping),
 		agent.WithScrapeConcurrency(cfg.ScrapeConcurrency),
 		agent.WithScrapeRevalidation(cfg.ScrapeRevalidateAfter),
+		agent.WithHardURLLimits(cfg.HardURLsPerRun, cfg.HardURLBudget),
 	}
 	// Finished runs are written to the configured destination as Markdown and PDF.
 	// A nil exporter simply means the runs are not saved.

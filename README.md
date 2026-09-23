@@ -115,6 +115,8 @@ and final result summary.
 | `ALLOW_BROWSER_TOGGLE` | `true` | Offer a per-run "render pages in a real browser" option in the console. Only shown when Chromium can actually start |
 | `ALLOW_PROFILE_SCRAPING` | `false` | Fetch professional-profile pages (e.g. `linkedin.com`) directly instead of keeping only their public search snippet. Opt-in, because that is a policy decision |
 | `HARD_URL_HANDLER` | `true` | Escalate blocked pages and professional profiles to the bounded hard-URL handler (plain render → cookie-bridged render → extended settle) |
+| `HARD_URLS_PER_RUN` | `2` | Hard cap on how many URLs one run may escalate. Raise it for profile-heavy briefs, but remember each escalation can take up to `HARD_URL_BUDGET_SECONDS` |
+| `HARD_URL_BUDGET_SECONDS` | derived | Budget for the whole ladder on one URL. `0` derives it from the ladder's own step caps (15 s + 15 s + 20 s + margin), so the extended-settle step can never be clipped |
 | `CACHE_BACKEND` | `memory` | Where cached searches and scraped pages live: `memory`, `redis` or `gcs` |
 | `REDIS_URL` | — | Redis connection URL (`redis://` / `rediss://`). Takes precedence over the split settings below |
 | `REDIS_HOST` | — | Redis host; with `REDIS_PORT` / `REDIS_PASSWORD` it is assembled into a connection URL when `REDIS_URL` is unset |

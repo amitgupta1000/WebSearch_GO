@@ -81,6 +81,13 @@ type Config struct {
 	// challenge pages and professional profiles. Failures degrade to the
 	// previous snippet-only behaviour, so the default is on.
 	HardURLHandler bool
+	// HardURLsPerRun caps how many URLs one run may escalate. The ladder's other
+	// caps (per-step timeouts) are code constants, so the budget is derived from
+	// them when HardURLBudget is zero.
+	HardURLsPerRun int
+	// HardURLBudget bounds the whole ladder for one URL. Zero derives it from the
+	// ladder's own step caps.
+	HardURLBudget time.Duration
 }
 
 const (
@@ -90,11 +97,13 @@ const (
 	// defaultGCSCacheBucket and defaultOutputBucket are the project's bucket: the
 	// cache and the run artifacts share it, in separate folders. They are defaults
 	// rather than requirements, so a deployment can point anywhere else.
-	defaultGCSCacheBucket        = "crystal-crm-store"
-	defaultGCSCachePrefix        = "WebSearch_GO/cache/"
-	defaultOutputBucket          = "crystal-crm-store"
-	defaultOutputPrefix          = "WebSearch_GO/"
-	defaultOutputFormats         = "md,pdf"
+	defaultGCSCacheBucket = "crystal-crm-store"
+	defaultGCSCachePrefix = "WebSearch_GO/cache/"
+	defaultOutputBucket   = "crystal-crm-store"
+	defaultOutputPrefix   = "WebSearch_GO/"
+	defaultOutputFormats  = "md,pdf"
+	// defaultHardURLsPerRun mirrors the agent's own default for the hard-URL ladder.
+	defaultHardURLsPerRun        = 2
 	defaultScrapeConcurrency     = 4
 	defaultScrapeHostRate        = 2
 	defaultScrapeHostBurst       = 3
@@ -178,6 +187,8 @@ func Load() *Config {
 		MaxRetryAfter: time.Duration(envInt("SCRAPE_MAX_RETRY_AFTER_SECONDS",
 			int(defaultMaxRetryAfter.Seconds()))) * time.Second,
 		HardURLHandler: envBool("HARD_URL_HANDLER", true),
+		HardURLsPerRun: envInt("HARD_URLS_PER_RUN", defaultHardURLsPerRun),
+		HardURLBudget:  time.Duration(envInt("HARD_URL_BUDGET_SECONDS", 0)) * time.Second,
 	}
 }
 

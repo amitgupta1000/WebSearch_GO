@@ -956,10 +956,15 @@ those values are loaded and validated.
   never cut off mid-run.
 - Gemini credentials are validated at startup: the server exits rather than accepting
   requests it cannot serve.
-- `HARD_URL_HANDLER` (default `true`) gates the bounded hard-URL ladder. Its caps are code
-  constants rather than settings — at most 2 URLs per run, 30 s per URL, and escalation only
-  starts while at least 45 s of the deadline remains — so a burst of blocked pages can never
-  starve the normal scrape path.
+- `HARD_URL_HANDLER` (default `true`) gates the bounded hard-URL ladder. `HARD_URLS_PER_RUN`
+  caps how many URLs one run may escalate, and the ladder's per-URL budget is *derived* from
+  its own step caps (15 s + 15 s + 20 s, plus a margin) rather than written by hand, so the
+  extended-settle step cannot be clipped by an outside timeout before it runs; override it
+  with `HARD_URL_BUDGET_SECONDS` if you want a shorter leash. Escalation only starts while the
+  whole ladder **plus** the synthesis that follows it still fits inside the run's deadline
+  (currently budget + 20 s), so a late-run escalation defers instead of consuming the tail of
+  a run and returning nothing. A ladder that runs out of its own budget is reported as
+  `deferred`, not `failed` — the distinction is what says whether the wall or the clock won.
 
 ---
 
