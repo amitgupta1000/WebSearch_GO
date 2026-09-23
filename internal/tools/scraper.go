@@ -12,6 +12,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,8 +43,17 @@ const (
 	defaultFetchAttempts = 3
 	// defaultFetchBackoff is the linear backoff unit between fetch attempts.
 	defaultFetchBackoff = 400 * time.Millisecond
-	// maxConcurrentRenders bounds how many browser contexts may exist at once.
+	// maxConcurrentRenders bounds how many browser pages may be rendered at once.
 	maxConcurrentRenders = 2
+	// defaultHostRatePerSecond, defaultHostBurst and defaultHostConcurrency are
+	// the default per-host politeness budget: parallel fetching is what makes a
+	// run fast, and these keep it from concentrating on a single site.
+	defaultHostRatePerSecond = 2
+	defaultHostBurst         = 3
+	defaultHostConcurrency   = 2
+	// defaultMaxRetryAfter caps how long a server's Retry-After hint may delay a
+	// retry, so one unfriendly server cannot consume the run's whole budget.
+	defaultMaxRetryAfter = 5 * time.Second
 )
 
 // noiseSelector lists elements that never carry primary content. It is applied
@@ -72,10 +82,29 @@ type Scraper struct {
 	// used as a counting semaphore.
 	renderSem  chan struct{}
 	newBrowser func(time.Duration) (browserRenderer, error)
+	// hosts enforces the per-host request budget for HTTP fetches.
+	hosts *hostLimiter
+	// maxRetryAfter caps how long a Retry-After hint may delay a retry.
+	maxRetryAfter time.Duration
+	// extractDocument, when set, turns a non-HTML document (a PDF) into text.
+	// Without it, non-HTML responses are rejected as unsupported.
+	extractDocument DocumentTextExtractor
 }
+
+// DocumentTextExtractor converts an already-fetched non-HTML document body into plain
+// text. It returns the text plus the name of the extractor that produced it (one of
+// ExtractorPDFGemini / ExtractorPDFLocal), which is reported in the scrape result.
+type DocumentTextExtractor func(ctx context.Context, contentType string, body []byte) (text string, extractor string, err error)
 
 // Option customizes a Scraper created by NewScraper / NewScraperWithBrowser.
 type Option func(*Scraper)
+
+// WithDocumentTextExtractor enables text extraction for non-HTML documents (PDFs).
+// Extraction is opt-in because it may forward document bytes to the model provider,
+// and because the default policy is to reject anything that is not HTML.
+func WithDocumentTextExtractor(extract DocumentTextExtractor) Option {
+	return func(s *Scraper) { s.extractDocument = extract }
+}
 
 // WithPrivateHostAccess allows scraping loopback, private and link-local
 // addresses, which the scraper refuses by default. Scrape targets are derived
@@ -84,6 +113,20 @@ type Option func(*Scraper)
 // for tests that target local httptest servers.
 func WithPrivateHostAccess() Option {
 	return func(s *Scraper) { s.allowPrivate = true }
+}
+
+// WithHostLimits overrides the per-host politeness budget: at most
+// ratePerSecond requests per second (burst may start back-to-back) and at most
+// perHostConcurrency requests in flight at once. Non-positive values disable the
+// corresponding limit.
+func WithHostLimits(ratePerSecond, burst float64, perHostConcurrency int) Option {
+	return func(s *Scraper) { s.hosts = newHostLimiter(ratePerSecond, burst, perHostConcurrency) }
+}
+
+// WithMaxRetryAfter caps how long a server's Retry-After hint may delay a retry.
+// A non-positive value leaves the hint uncapped.
+func WithMaxRetryAfter(delay time.Duration) Option {
+	return func(s *Scraper) { s.maxRetryAfter = delay }
 }
 
 // NewScraper initializes a high-performance HTTP scraper with cookie support.
@@ -133,6 +176,8 @@ func NewScraperWithBrowser(jar *cookiejar.Jar, timeout time.Duration, enableBrow
 		browserTimeout: browserTimeout,
 		fetchAttempts:  defaultFetchAttempts,
 		fetchBackoff:   defaultFetchBackoff,
+		maxRetryAfter:  defaultMaxRetryAfter,
+		hosts:          newHostLimiter(defaultHostRatePerSecond, defaultHostBurst, defaultHostConcurrency),
 		renderSem:      make(chan struct{}, maxConcurrentRenders),
 		newBrowser:     newPlaywrightRenderer,
 	}
@@ -169,6 +214,45 @@ func (s *Scraper) browserFallbackFor(ctx context.Context) bool {
 	return s.browserEnabled
 }
 
+// conditionalRequestKey carries response validators for one fetch.
+type conditionalRequestKey struct{}
+
+// validators are the HTTP response validators a conditional request needs.
+type validators struct {
+	etag         string
+	lastModified string
+}
+
+// WithConditionalRequest returns a context that makes the next fetch conditional:
+// the scraper sends If-None-Match / If-Modified-Since, and a page the server
+// still considers current comes back as a 304 with no body. This is how a cached
+// page is refreshed for one round trip instead of a full download.
+//
+// A context without validators (or with only blank ones) is returned unchanged,
+// so callers can pass them through unconditionally.
+func WithConditionalRequest(ctx context.Context, etag, lastModified string) context.Context {
+	etag = strings.TrimSpace(etag)
+	lastModified = strings.TrimSpace(lastModified)
+	if etag == "" && lastModified == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, conditionalRequestKey{}, validators{etag: etag, lastModified: lastModified})
+}
+
+// conditionalRequestFor reports the validators carried by ctx, if any.
+func conditionalRequestFor(ctx context.Context) (validators, bool) {
+	carried, ok := ctx.Value(conditionalRequestKey{}).(validators)
+	return carried, ok
+}
+
+// ConditionalRequestValidators reports the response validators carried by ctx,
+// which a caller set with WithConditionalRequest. It exists so a caller can tell
+// whether a fetch it is about to make is a revalidation.
+func ConditionalRequestValidators(ctx context.Context) (etag, lastModified string, ok bool) {
+	carried, found := conditionalRequestFor(ctx)
+	return carried.etag, carried.lastModified, found
+}
+
 // BrowserAvailable reports whether Chromium can actually be started. The console
 // uses it to decide whether offering the per-request toggle would be honest. The
 // result is cached, and a successful probe leaves the browser warm for the first
@@ -176,6 +260,58 @@ func (s *Scraper) browserFallbackFor(ctx context.Context) bool {
 func (s *Scraper) BrowserAvailable() bool {
 	browser, err := s.getBrowser()
 	return err == nil && browser != nil
+}
+
+// RenderHTMLToPDF prints a self-contained HTML document to PDF using the browser,
+// which is what turns a finished run into a shareable file.
+//
+// It takes one of the same render slots the scrape fallback uses, so printing can
+// never spawn more Chromium pages than scraping already allows, and it returns an
+// error when the browser is unavailable — the caller is expected to store the
+// Markdown anyway rather than fail the run.
+func (s *Scraper) RenderHTMLToPDF(ctx context.Context, html string) ([]byte, error) {
+	if strings.TrimSpace(html) == "" {
+		return nil, fmt.Errorf("nothing to print")
+	}
+	if s.isClosed() {
+		return nil, fmt.Errorf("scraper is closed")
+	}
+
+	browser, err := s.getBrowser()
+	if err != nil {
+		return nil, fmt.Errorf("browser rendering is unavailable: %w", err)
+	}
+	printer, ok := browser.(documentPrinter)
+	if !ok {
+		return nil, fmt.Errorf("the configured browser renderer cannot print documents")
+	}
+
+	if s.renderSem != nil {
+		select {
+		case s.renderSem <- struct{}{}:
+			defer func() { <-s.renderSem }()
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	printCtx, cancel := context.WithTimeout(ctx, browserPrintTimeout)
+	defer cancel()
+	return printer.RenderHTMLToPDF(printCtx, html)
+}
+
+// DocumentPrinter reports whether the scraper can print documents to PDF, which is
+// what the exporter checks before advertising a PDF artifact.
+func (s *Scraper) DocumentPrinter() bool {
+	if s == nil || s.isClosed() {
+		return false
+	}
+	browser, err := s.getBrowser()
+	if err != nil {
+		return false
+	}
+	_, ok := browser.(documentPrinter)
+	return ok
 }
 
 // ScrapeURL fetches a target URL, strips non-content tags, and returns sanitized text.
@@ -187,18 +323,37 @@ func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.Scra
 		return nil, fmt.Errorf("scraper is closed")
 	}
 
-	body, contentType, statusCode, truncated, err := s.fetchHTTP(ctx, targetURL)
+	response, err := s.fetchHTTP(ctx, targetURL)
 	if err != nil {
 		return s.tryBrowser(ctx, targetURL, nil, "HTTP request failed", err)
 	}
-	if statusCode != http.StatusOK {
-		return s.tryBrowser(ctx, targetURL, nil, fmt.Sprintf("HTTP status %d", statusCode), fmt.Errorf("scraping returned status code: %d", statusCode))
+	if response.NotModified {
+		// The caller's cached copy is still current, so there is no body to
+		// extract; returning the validators again keeps the next revalidation
+		// conditional as well.
+		return &models.ScrapeResult{
+			URL:          targetURL,
+			CanonicalURL: targetURL,
+			ContentType:  response.ContentType,
+			ETag:         response.ETag,
+			LastModified: response.LastModified,
+			NotModified:  true,
+			FetchedAt:    time.Now(),
+		}, nil
 	}
-	if contentType != "" && !isHTMLContentType(contentType) {
-		return nil, fmt.Errorf("unsupported content type %q for scraping", contentType)
+	if response.Status != http.StatusOK {
+		if isHopelessStatus(response.Status) {
+			// A browser cannot turn an absent or explicitly gone page into
+			// evidence, so report it instead of paying seconds for a render.
+			return nil, fmt.Errorf("scraping returned status code: %d", response.Status)
+		}
+		return s.tryBrowser(ctx, targetURL, nil, fmt.Sprintf("HTTP status %d", response.Status), fmt.Errorf("scraping returned status code: %d", response.Status))
+	}
+	if response.ContentType != "" && !isHTMLContentType(response.ContentType) {
+		return s.scrapeDocument(ctx, targetURL, response.ContentType, response.Body, response.Truncated)
 	}
 
-	result, err := extractHTML(targetURL, contentType, body, "goquery-content-root", truncated)
+	result, err := extractHTML(targetURL, response.ContentType, response.Body, "goquery-content-root", response.Truncated)
 	if err != nil {
 		return s.tryBrowser(ctx, targetURL, nil, "HTTP HTML parsing failed", err)
 	}
@@ -209,7 +364,90 @@ func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.Scra
 		}
 		return s.tryBrowser(ctx, targetURL, result, reason, nil)
 	}
+	// The validators come from the HTTP response; carrying them on the result is
+	// what lets a later fetch ask whether this content is still current instead
+	// of downloading it again.
+	result.ETag = response.ETag
+	result.LastModified = response.LastModified
 	return result, nil
+}
+
+// isHopelessStatus reports statuses that a browser render cannot improve on: the
+// page is absent or explicitly gone, so rendering it would only cost seconds.
+func isHopelessStatus(status int) bool {
+	return status == http.StatusNotFound || status == http.StatusGone
+}
+
+// scrapeDocument extracts text from a non-HTML PDF. Only PDFs are supported, and only
+// when a document extractor was configured — every other non-HTML response is rejected
+// exactly as it was before, so the default policy is unchanged.
+func (s *Scraper) scrapeDocument(ctx context.Context, targetURL, contentType string, body []byte, truncated bool) (*models.ScrapeResult, error) {
+	if s.extractDocument == nil || !isExtractableDocument(contentType, body) {
+		return nil, fmt.Errorf("unsupported content type %q for scraping", contentType)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("document scrape aborted before extraction: %w", err)
+	}
+
+	text, extractor, err := s.extractDocument(ctx, contentType, body)
+	if err != nil {
+		return nil, fmt.Errorf("document text extraction failed for %q: %w", contentType, err)
+	}
+	content := normalizeDocumentText(text)
+	if content == "" {
+		return nil, fmt.Errorf("document %s contained no extractable text", targetURL)
+	}
+	if ratio := printableRatio(content); ratio < minPrintableRatio {
+		return nil, fmt.Errorf("document %s produced unreadable text (%.0f%% printable)", targetURL, ratio*100)
+	}
+	if len(content) > maxContentBytes {
+		truncated = true
+	}
+	content = runeSafeTruncate(content, maxContentBytes)
+
+	return &models.ScrapeResult{
+		URL:              targetURL,
+		CanonicalURL:     targetURL,
+		Title:            documentTitle(targetURL),
+		Content:          content,
+		WordCount:        len(strings.Fields(content)),
+		ContentType:      contentType,
+		Extractor:        extractor,
+		QualityScore:     scraperQualityScore(content, nil, nil),
+		ByteSize:         len(content),
+		FetchedAt:        time.Now(),
+		ContentTruncated: truncated,
+	}, nil
+}
+
+// documentTitle derives a title for a document URL, which has no <title> element:
+// the final path segment (the file name) when there is one, otherwise the host.
+func documentTitle(targetURL string) string {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return targetURL
+	}
+	trimmed := strings.Trim(parsed.Path, "/")
+	if index := strings.LastIndex(trimmed, "/"); index >= 0 {
+		trimmed = trimmed[index+1:]
+	}
+	if trimmed != "" {
+		if unescaped, unescapeErr := url.PathUnescape(trimmed); unescapeErr == nil {
+			return unescaped
+		}
+		return trimmed
+	}
+	return parsed.Host
+}
+
+// normalizeDocumentText tidies extractor output, which arrives as a flat run of text
+// fragments: trailing spaces are dropped per line and run-on blank lines collapse.
+func normalizeDocumentText(text string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for index, line := range lines {
+		lines[index] = strings.TrimRight(line, " \t")
+	}
+	return strings.TrimSpace(excessiveBlankLines.ReplaceAllString(strings.Join(lines, "\n"), "\n\n"))
 }
 
 // validateTarget enforces the scraper's HTTP(S)-only, public-host policy.
@@ -256,41 +494,98 @@ func isPrivateHost(host string) bool {
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast()
 }
 
-// fetchHTTP retrieves targetURL, retrying transient failures with linear
-// backoff. Non-transient statuses (e.g. 404) are returned to the caller so the
-// browser fallback can decide what to do with them. The returned bool reports
-// whether the body hit maxBodyBytes and was therefore parsed incomplete.
-func (s *Scraper) fetchHTTP(ctx context.Context, targetURL string) ([]byte, string, int, bool, error) {
+// fetchResponse is the outcome of one HTTP attempt: the body plus the response
+// metadata the rest of the scraper reacts to.
+type fetchResponse struct {
+	Body         []byte
+	ContentType  string
+	Status       int
+	Truncated    bool
+	ETag         string
+	LastModified string
+	NotModified  bool
+	RetryAfter   time.Duration
+}
+
+// fetchHTTP retrieves targetURL, retrying transient failures with linear backoff
+// that defers to the server's Retry-After hint when it sends one. Non-transient
+// statuses (e.g. 404) are returned to the caller so the browser fallback can
+// decide what to do with them.
+//
+// The host slot is held across the whole retry sequence, so a retried page
+// counts as one polite request against its host's budget rather than three.
+func (s *Scraper) fetchHTTP(ctx context.Context, targetURL string) (*fetchResponse, error) {
 	attempts := s.fetchAttempts
 	if attempts <= 0 {
 		attempts = defaultFetchAttempts
 	}
 
+	release, err := s.hosts.acquire(ctx, hostOf(targetURL))
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	var lastErr error
+	var retryAfter time.Duration
 	for attempt := 1; attempt <= attempts; attempt++ {
 		if attempt > 1 {
-			if err := sleepWithContext(ctx, s.fetchBackoff*time.Duration(attempt-1)); err != nil {
-				return nil, "", 0, false, err
+			delay := s.fetchBackoff * time.Duration(attempt-1)
+			if retryAfter > delay {
+				delay = retryAfter
+			}
+			if limit := s.maxRetryAfter; limit > 0 && delay > limit {
+				delay = limit
+			}
+			if err := sleepWithContext(ctx, delay); err != nil {
+				return nil, err
 			}
 		}
+		retryAfter = 0
 
-		body, contentType, statusCode, truncated, err := s.fetchHTTPOnce(ctx, targetURL)
+		response, err := s.fetchHTTPOnce(ctx, targetURL)
 		if err == nil {
-			if statusCode == http.StatusOK || !isRetriableStatus(statusCode) {
-				return body, contentType, statusCode, truncated, nil
+			if response.Status == http.StatusOK || response.NotModified || !isRetriableStatus(response.Status) {
+				return response, nil
 			}
-			lastErr = &retriableError{fmt.Errorf("scraping returned status code: %d", statusCode)}
+			// A 429 or 503 that carries Retry-After says exactly how long to
+			// wait; honouring it turns a rate limit into one short pause instead
+			// of three wasted attempts.
+			retryAfter = response.RetryAfter
+			lastErr = &retriableError{fmt.Errorf("scraping returned status code: %d", response.Status)}
 			continue
 		}
 
 		var retriable *retriableError
 		if !errors.As(err, &retriable) {
-			return nil, "", 0, false, err
+			return nil, err
 		}
 		lastErr = err
 	}
 
-	return nil, "", 0, false, fmt.Errorf("scraping failed after %d attempts: %w", attempts, lastErr)
+	return nil, fmt.Errorf("scraping failed after %d attempts: %w", attempts, lastErr)
+}
+
+// parseRetryAfter reads a Retry-After header, which is either a number of
+// seconds or an HTTP date. A value that is malformed or already in the past
+// yields zero, so it never shortens the normal backoff.
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if when, err := http.ParseTime(value); err == nil {
+		if delay := when.Sub(now); delay > 0 {
+			return delay
+		}
+	}
+	return 0
 }
 
 // isRetriableStatus reports whether an HTTP status is worth retrying.
@@ -312,33 +607,57 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// fetchHTTPOnce performs a single GET, marking network failures as retriable.
-func (s *Scraper) fetchHTTPOnce(ctx context.Context, targetURL string) ([]byte, string, int, bool, error) {
+// fetchHTTPOnce performs a single GET, marking network failures as retriable and
+// recording the response validators and Retry-After hint. Conditional headers are
+// sent when the caller supplied validators, so a page that has not changed comes
+// back as a bodiless 304 instead of being transferred again.
+func (s *Scraper) fetchHTTPOnce(ctx context.Context, targetURL string) (*fetchResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
-		return nil, "", 0, false, fmt.Errorf("failed to construct request: %w", err)
+		return nil, fmt.Errorf("failed to construct request: %w", err)
 	}
 
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	if carried, ok := conditionalRequestFor(ctx); ok {
+		if carried.etag != "" {
+			req.Header.Set("If-None-Match", carried.etag)
+		}
+		if carried.lastModified != "" {
+			req.Header.Set("If-Modified-Since", carried.lastModified)
+		}
+	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, "", 0, false, &retriableError{fmt.Errorf("scraping request failed: %w", err)}
+		return nil, &retriableError{fmt.Errorf("scraping request failed: %w", err)}
 	}
 	defer resp.Body.Close()
+
+	response := &fetchResponse{
+		ContentType:  resp.Header.Get("Content-Type"),
+		Status:       resp.StatusCode,
+		ETag:         resp.Header.Get("ETag"),
+		LastModified: resp.Header.Get("Last-Modified"),
+		RetryAfter:   parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
+	}
+	if resp.StatusCode == http.StatusNotModified {
+		response.NotModified = true
+		return response, nil
+	}
 
 	// Read one byte past the cap so a truncated document can be reported.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 	if err != nil {
-		return nil, "", 0, false, &retriableError{fmt.Errorf("failed to read HTML document: %w", err)}
+		return nil, &retriableError{fmt.Errorf("failed to read HTML document: %w", err)}
 	}
-	truncated := len(body) > maxBodyBytes
-	if truncated {
+	response.Truncated = len(body) > maxBodyBytes
+	if response.Truncated {
 		body = body[:maxBodyBytes]
 	}
-	return body, resp.Header.Get("Content-Type"), resp.StatusCode, truncated, nil
+	response.Body = body
+	return response, nil
 }
 
 func extractHTML(targetURL, contentType string, body []byte, extractor string, truncated bool) (*models.ScrapeResult, error) {

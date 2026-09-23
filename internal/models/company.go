@@ -20,7 +20,22 @@ type OrgChart struct {
 	Images       []Image             `json:"images,omitempty"`
 	Sources      []string            `json:"sources"`
 	ScrapeReport []ScrapeReportEntry `json:"scrape_report,omitempty"`
-	LastUpdated  time.Time           `json:"last_updated"`
+	// Timings is attached by the agent after synthesis (like ScrapeReport) so the
+	// console can show where the run's time went. It is never model output.
+	Timings []PhaseTiming `json:"timings,omitempty"`
+	// Exports lists the output files written for this run (Markdown and PDF).
+	Exports     []ExportArtifact `json:"exports,omitempty"`
+	LastUpdated time.Time        `json:"last_updated"`
+}
+
+// TimingTotalMillis is the summed duration of every recorded phase, used for the
+// "total" figure in the console's timings panel.
+func (chart OrgChart) TimingTotalMillis() int64 {
+	var total int64
+	for _, timing := range chart.Timings {
+		total += timing.Millis
+	}
+	return total
 }
 
 // UnmarshalJSON accepts both the documented headquarters string and the

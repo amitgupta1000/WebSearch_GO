@@ -11,6 +11,9 @@ const (
 	EventToolResult EventType = "tool_result"
 	EventComplete   EventType = "complete"
 	EventError      EventType = "error"
+	// EventTiming carries a per-phase duration summary for a finished run, so
+	// where the time actually went is visible in the console.
+	EventTiming EventType = "timing"
 )
 
 // AgentEvent represents a single step or output stream emitted during research.
@@ -65,6 +68,16 @@ type ScrapeResult struct {
 	// ContentTruncated reports that the response body exceeded the scraper's
 	// size cap, so the extracted text came from an incomplete document.
 	ContentTruncated bool `json:"content_truncated,omitempty"`
+	// ETag and LastModified are the response validators the HTTP path recorded.
+	// They let a later fetch ask "has this changed?" (If-None-Match /
+	// If-Modified-Since) and refresh the cached copy for one round trip when the
+	// answer is "no". Empty means the server sent no validator, so the entry can
+	// only be refreshed by a full download.
+	ETag         string `json:"etag,omitempty"`
+	LastModified string `json:"last_modified,omitempty"`
+	// NotModified reports a 304 response: the caller's cached copy is still
+	// current, and this result carries no content.
+	NotModified bool `json:"not_modified,omitempty"`
 }
 
 // Image records webpage image metadata and optional OCR text.

@@ -47,6 +47,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.EnableBrowserFallback {
 		t.Error("browser fallback should be disabled by default")
 	}
+	if cfg.AllowProfileScraping {
+		t.Error("profile scraping should be off by default")
+	}
 }
 
 func TestLoadCustomEnv(t *testing.T) {
@@ -56,6 +59,7 @@ func TestLoadCustomEnv(t *testing.T) {
 	t.Setenv("MAX_AGENT_STEPS", "20")
 	t.Setenv("RESEARCH_TIMEOUT_SECONDS", "60")
 	t.Setenv("ENABLE_BROWSER_FALLBACK", "true")
+	t.Setenv("ALLOW_PROFILE_SCRAPING", "true")
 
 	cfg := Load()
 
@@ -76,6 +80,9 @@ func TestLoadCustomEnv(t *testing.T) {
 	}
 	if !cfg.EnableBrowserFallback {
 		t.Error("expected browser fallback to be enabled")
+	}
+	if !cfg.AllowProfileScraping {
+		t.Error("expected profile scraping to be enabled when the env var is set")
 	}
 }
 

@@ -20,6 +20,8 @@ type PersonProfile struct {
 	Sources          []string          `json:"sources"`
 	ConfidenceScore  float64           `json:"confidence_score"`
 	LastUpdated      time.Time         `json:"last_updated"`
+	// Exports lists the output files written for this run (Markdown and PDF).
+	Exports []ExportArtifact `json:"exports,omitempty"`
 }
 
 // ScorePercent returns the confidence score as a whole percentage (0-100) for display.

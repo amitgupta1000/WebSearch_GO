@@ -467,3 +467,162 @@ func TestAnswerQuestionUsesRetainedEvidence(t *testing.T) {
 		t.Errorf("expected retained-evidence answer, got %+v", answer)
 	}
 }
+
+func TestCompanyTokensDropCorporateAndGenericWords(t *testing.T) {
+	tokens := companyTokens("KLJ Resources Limited")
+	if len(tokens) != 2 {
+		t.Fatalf("companyTokens() = %v, want the two distinctive words", tokens)
+	}
+	for _, token := range tokens {
+		if token == "limited" {
+			t.Errorf("a corporate suffix must not identify a company: %v", tokens)
+		}
+	}
+	for _, want := range []string{"klj", "resources"} {
+		found := false
+		for _, token := range tokens {
+			if token == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected %q in %v", want, tokens)
+		}
+	}
+
+	if got := companyTokens("Acme Group Holdings"); len(got) != 1 || got[0] != "acme" {
+		t.Errorf("companyTokens(Acme Group Holdings) = %v, want [acme]", got)
+	}
+	if got := companyTokens("Limited"); len(got) != 0 {
+		t.Errorf("a generic-only name has nothing to match on, got %v", got)
+	}
+}
+
+func TestPruneUnconnectedDropsOtherCompaniesProfiles(t *testing.T) {
+	brief := models.CompanyBrief{CompanyName: "KLJ Resources Limited"}
+	ranked := []models.RankedResult{
+		{URL: "https://kljresources.in/management.php", Relevant: true, Score: 0.8},
+		{URL: "https://ke.linkedin.com/in/jasper-ogari-a9264691", Relevant: true, Score: 0.6},
+		{URL: "https://be.linkedin.com/in/hilde-eylenbosch-29359b20", Relevant: true, Score: 0.5},
+	}
+	byURL := map[string]models.SearchResult{
+		"https://kljresources.in/management.php": {Title: "KLJ Resources Limited - Management", Snippet: "Board and management team"},
+		"https://ke.linkedin.com/in/jasper-ogari-a9264691": {
+			Title: "Jasper Ogari - LinkedIn", Snippet: "Experience: gemeente Dilbeek - Location: Ternat, Belgium"},
+		"https://be.linkedin.com/in/hilde-eylenbosch-29359b20": {
+			Title: "Hilde Eylenbosch - gemeente Dilbeek", Snippet: "500+ connections on LinkedIn"},
+	}
+
+	got := pruneUnconnected(brief, ranked, byURL)
+	if len(got) != 1 || !strings.Contains(got[0].URL, "kljresources.in") {
+		t.Fatalf("expected only the company page to survive, got %+v", got)
+	}
+}
+
+func TestPruneUnconnectedKeepsOfficialDomainMatches(t *testing.T) {
+	brief := models.CompanyBrief{CompanyName: "Zenith Holdings", Domain: "zh-corp.example"}
+	ranked := []models.RankedResult{{URL: "https://zh-corp.example/team", Relevant: true, Score: 0.4}}
+	byURL := map[string]models.SearchResult{
+		"https://zh-corp.example/team": {Title: "Our team", Snippet: "Meet the leadership"},
+	}
+
+	// The snippet never names the company, so only the domain rule can keep it.
+	if got := pruneUnconnected(brief, ranked, byURL); len(got) != 1 {
+		t.Fatalf("an official-domain match must be kept, got %+v", got)
+	}
+}
+
+func TestPruneUnconnectedNeverStarvesTheCandidateList(t *testing.T) {
+	ranked := []models.RankedResult{{URL: "https://example.com/report", Relevant: true, Score: 0.5}}
+	byURL := map[string]models.SearchResult{
+		"https://example.com/report": {Title: "Market report", Snippet: "Industry news"},
+	}
+
+	got := pruneUnconnected(models.CompanyBrief{CompanyName: "Acme Robotics"}, ranked, byURL)
+	if len(got) != 1 {
+		t.Fatalf("filtering must not empty the candidate list, got %+v", got)
+	}
+
+	// A name with nothing distinctive to match on must be left untouched.
+	if got := pruneUnconnected(models.CompanyBrief{CompanyName: "Limited"}, ranked, byURL); len(got) != 1 {
+		t.Fatalf("a generic-only name must not trigger filtering, got %+v", got)
+	}
+}
+
+func TestRankResultsPrunesCandidatesUnconnectedToTheCompany(t *testing.T) {
+	cacheStore := cache.NewMemoryCache(100)
+	defer cacheStore.Close()
+
+	engine := NewEngine(&mockLLM{}, &mockSearcher{}, &mockScraper{}, cacheStore, 5, 12, 10)
+	agent := NewCompanyAgent(engine)
+
+	results := []models.SearchResult{
+		{Title: "KLJ Resources Limited - Management", Link: "https://kljresources.in/management.php", Snippet: "KLJ Resources Limited board and management team"},
+		{Title: "Jasper Ogari - LinkedIn", Link: "https://ke.linkedin.com/in/jasper-ogari-a9264691", Snippet: "Experience: gemeente Dilbeek - Location: Ternat, Belgium"},
+		{Title: "Hilde Eylenbosch - gemeente Dilbeek", Link: "https://be.linkedin.com/in/hilde-eylenbosch-29359b20", Snippet: "500+ connections on LinkedIn"},
+	}
+
+	ranked := agent.rankResults(context.Background(), models.CompanyBrief{CompanyName: "KLJ Resources Limited"}, results)
+
+	if len(ranked) != 1 || !strings.Contains(ranked[0].URL, "kljresources.in") {
+		t.Fatalf("expected only the company page to reach the scrape stage, got %+v", ranked)
+	}
+}
+
+func TestProfessionalProfileScrapingIsOffByDefault(t *testing.T) {
+	cacheStore := cache.NewMemoryCache(100)
+	defer cacheStore.Close()
+
+	scraper := &mockScraper{}
+	engine := NewEngine(&mockLLM{}, &mockSearcher{}, scraper, cacheStore, 5, 3, 10)
+	if engine.ProfileScrapingEnabled() {
+		t.Fatal("profile scraping must be off unless explicitly enabled")
+	}
+	agent := NewCompanyAgent(engine)
+
+	profileURL := "https://www.linkedin.com/in/jane-doe"
+	ranked := []models.RankedResult{{URL: profileURL, Relevant: true, Score: 0.9, SourceType: "professional_profile"}}
+	results := []models.SearchResult{{Title: "Jane Doe - Chief Technology Officer - Acme | LinkedIn", Link: profileURL, Snippet: "Jane Doe is Chief Technology Officer at Acme."}}
+
+	evidence, _, report := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil)
+
+	if len(scraper.calledURLs) != 0 {
+		t.Errorf("profile pages must not be fetched by default, got %v", scraper.calledURLs)
+	}
+	if len(evidence) != 1 || evidence[0].EvidenceType != "search_snippet_fallback" {
+		t.Fatalf("expected the snippet fallback to be retained, got %+v", evidence)
+	}
+	if len(report) != 1 || report[0].Status != "skipped" {
+		t.Fatalf("expected a skipped report entry, got %+v", report)
+	}
+}
+
+func TestProfessionalProfileScrapingOptInFetchesProfiles(t *testing.T) {
+	cacheStore := cache.NewMemoryCache(100)
+	defer cacheStore.Close()
+
+	scraper := &mockScraper{}
+	engine := NewEngine(&mockLLM{}, &mockSearcher{}, scraper, cacheStore, 5, 3, 10, WithProfileScraping(true))
+	if !engine.ProfileScrapingEnabled() {
+		t.Fatal("expected profile scraping to be enabled")
+	}
+	agent := NewCompanyAgent(engine)
+
+	profileURL := "https://www.linkedin.com/in/jane-doe"
+	ranked := []models.RankedResult{{URL: profileURL, Relevant: true, Score: 0.9, SourceType: "professional_profile"}}
+	results := []models.SearchResult{{Title: "Jane Doe - Chief Technology Officer - Acme | LinkedIn", Link: profileURL, Snippet: "Jane Doe is Chief Technology Officer at Acme."}}
+
+	evidence, _, report := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil)
+
+	if len(scraper.calledURLs) != 1 || scraper.calledURLs[0] != profileURL {
+		t.Errorf("expected the profile to be fetched when opted in, got %v", scraper.calledURLs)
+	}
+	if len(evidence) != 1 || evidence[0].EvidenceType == "search_snippet_fallback" {
+		t.Fatalf("expected scraped page evidence, got %+v", evidence)
+	}
+	for _, entry := range report {
+		if entry.Status == "skipped" {
+			t.Errorf("no profile should be skipped when opted in, got %+v", entry)
+		}
+	}
+}

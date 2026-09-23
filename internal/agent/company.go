@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math"
@@ -62,15 +64,40 @@ func (ca *CompanyAgent) ResearchCompanyWithBrief(ctx context.Context, sessionID 
 }
 
 // ResearchCompanyRun executes bounded research/QC iterations and returns retained context.
-func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string, brief models.CompanyBrief, eventCh chan<- models.AgentEvent) (*models.OrgChart, *models.CompanyResearchContext, error) {
+func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string, brief models.CompanyBrief, eventCh chan<- models.AgentEvent) (chart *models.OrgChart, state *models.CompanyResearchContext, err error) {
 	brief.CompanyName = strings.TrimSpace(brief.CompanyName)
 	if brief.CompanyName == "" {
 		return nil, nil, fmt.Errorf("company name is required")
 	}
 
-	state := &models.CompanyResearchContext{Brief: brief}
+	timer := newPhaseTimer()
+	// Timings are attached on every return path, including failures: a run that
+	// died in the scraper should still say how long it spent there. That is what
+	// makes "the scraper is slow" a measured claim rather than a guess.
+	defer func() {
+		timings := timer.results()
+		if state != nil {
+			state.Timings = timings
+		}
+		if chart != nil {
+			chart.Timings = timings
+			// Exporting runs on a detached context inside the engine, so a run
+			// that used its whole research budget still saves its results.
+			if exports := ca.engine.ExportCompany(ctx, chart); len(exports) > 0 {
+				chart.Exports = exports
+				Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolResult, Step: 31, ToolName: "exporter", Content: exportSummary(exports)})
+			}
+		}
+		if report := timer.report(); report != "" {
+			Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventTiming, Step: 30, ToolName: "phase_timer", Content: report})
+		}
+	}()
+
+	state = &models.CompanyResearchContext{Brief: brief}
+	finishPlan := timer.start("plan queries")
 	plan := ca.planQueries(ctx, brief)
-	var chart *models.OrgChart
+	finishPlan(fmt.Sprintf("%d queries", len(plan.Queries)))
+
 	for iteration := 0; iteration < maxCompanyReviewIterations; iteration++ {
 		state.Iteration = iteration + 1
 		state.QueryPlan = plan
@@ -78,15 +105,21 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 			Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 10 + iteration, Content: fmt.Sprintf("Running focused QC follow-up %d of %d...", iteration, maxCompanyReviewIterations-1)})
 		}
 
-		results, err := ca.searchPlan(ctx, sessionID, plan, eventCh)
-		if err != nil {
-			return nil, state, err
+		finishSearch := timer.start("search")
+		results, searchErr := ca.searchPlan(ctx, sessionID, plan, eventCh)
+		finishSearch(fmt.Sprintf("%d queries -> %d results", len(plan.Queries), len(results)))
+		if searchErr != nil {
+			return nil, state, searchErr
 		}
 		state.SearchResults = appendUniqueSearchResults(state.SearchResults, results)
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 7, Content: fmt.Sprintf("Evaluating relevance of %d search results...", len(state.SearchResults))})
+		finishRank := timer.start("rank")
 		state.RankedResults = ca.rankResults(ctx, brief, state.SearchResults)
+		finishRank(fmt.Sprintf("%d candidates", len(state.RankedResults)))
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolResult, Step: 7, ToolName: "relevance_ranker", Content: fmt.Sprintf("Selected %d relevant candidates.", len(state.RankedResults))})
+		finishScrape := timer.start("scrape")
 		newEvidence, _, scrapeReport := ca.scrapeRanked(ctx, sessionID, state.RankedResults, state.SearchResults, state.Evidence, eventCh)
+		finishScrape(fmt.Sprintf("%d attempts -> %d pages kept", len(scrapeReport), len(newEvidence)))
 		state.Evidence = appendUniqueEvidence(state.Evidence, newEvidence)
 		state.ScrapeReport = appendUniqueScrapeReports(state.ScrapeReport, scrapeReport)
 		if len(state.Evidence) == 0 {
@@ -96,12 +129,16 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 			return nil, state, fmt.Errorf("no usable company evidence was collected")
 		}
 
+		finishSynthesize := timer.start("synthesize")
 		chart, err = ca.synthesizeChart(ctx, brief, state.Evidence, state.SearchResults, sessionID, eventCh)
+		finishSynthesize(fmt.Sprintf("%d evidence items", len(state.Evidence)))
 		if err != nil {
 			return nil, state, err
 		}
 		chart.ScrapeReport = state.ScrapeReport
+		finishReview := timer.start("review (QC)")
 		review := ca.reviewChart(ctx, brief, chart, state.Evidence, sessionID, eventCh)
+		finishReview(review.Verdict)
 		state.Reviews = append(state.Reviews, review)
 		if review.Verdict != "revise" || len(review.FollowUpQueries) == 0 || iteration == maxCompanyReviewIterations-1 {
 			Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventComplete, Step: 20 + iteration, Content: fmt.Sprintf("Completed research for %s after %d QC review(s).", chart.CompanyName, len(state.Reviews))})
@@ -417,12 +454,12 @@ func (ca *CompanyAgent) rankResults(ctx context.Context, brief models.CompanyBri
 	case err := <-semanticDone:
 		if err == nil && len(response.RankedResults) > 0 {
 			if normalized := normalizeRankedResults(response.RankedResults, candidateResults); len(normalized) > 0 {
-				return mergeRankings(bm25Ranked, normalized)
+				return pruneUnconnected(brief, mergeRankings(bm25Ranked, normalized), byURL)
 			}
 		}
 	case <-llmCtx.Done():
 	}
-	return bm25Ranked
+	return pruneUnconnected(brief, bm25Ranked, byURL)
 }
 
 func bm25RankResults(brief models.CompanyBrief, results []models.SearchResult) []models.RankedResult {
@@ -689,6 +726,86 @@ func deterministicRank(brief models.CompanyBrief, result models.SearchResult) mo
 	return models.RankedResult{URL: result.Link, Relevant: score >= 0.45, Score: score, Reason: "matched company and research terms", EvidenceType: "search_result"}
 }
 
+// companyNameStopWords lists corporate, geographic and industry words that appear
+// in so many company names that matching one proves nothing about a search result.
+var companyNameStopWords = map[string]bool{
+	"ltd": true, "limited": true, "llc": true, "llp": true, "inc": true, "incorporated": true,
+	"corp": true, "corporation": true, "company": true, "co": true, "plc": true, "gmbh": true,
+	"pvt": true, "private": true, "holdings": true, "holding": true, "group": true,
+	"industries": true, "industry": true, "international": true, "global": true,
+	"enterprise": true, "enterprises": true, "services": true, "solutions": true,
+	"technologies": true, "technology": true, "systems": true, "ventures": true,
+	"india": true, "usa": true, "uk": true, "singapore": true, "dubai": true,
+}
+
+// companyTokens returns the distinctive tokens of a company name. Generic
+// corporate suffixes are dropped, so "KLJ Resources Limited" is recognised by
+// "klj" or "resources" and never by "limited".
+func companyTokens(name string) []string {
+	tokens := make([]string, 0, 4)
+	for _, token := range tokenize(name) {
+		if !companyNameStopWords[token] {
+			tokens = append(tokens, token)
+		}
+	}
+	return tokens
+}
+
+// hasCompanyConnection reports whether a result plausibly concerns the target
+// company: either its host matches the official domain, or its text (title,
+// snippet or URL) carries a distinctive company-name token.
+func hasCompanyConnection(brief models.CompanyBrief, tokens []string, result models.SearchResult) bool {
+	if domain := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(brief.Domain), "www.")); domain != "" {
+		if parsed, err := url.Parse(result.Link); err == nil {
+			rawHost := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+			if rawHost == domain || strings.HasSuffix(rawHost, "."+domain) {
+				return true
+			}
+		}
+	}
+	haystack := strings.ToLower(result.Title + " " + result.Snippet + " " + result.Link)
+	for _, token := range tokens {
+		if strings.Contains(haystack, token) {
+			return true
+		}
+	}
+	return false
+}
+
+// pruneUnconnected drops ranking candidates that show no connection to the target
+// company.
+//
+// BM25 marks anything sharing the query's tokens as relevant (score >= 0.2), which
+// in practice means every result the search engine returned — including other
+// companies' profiles and off-domain pages that merely matched the query's
+// keywords. Those candidates previously consumed scrape budget and polluted the
+// evidence.
+//
+// The unfiltered set is returned when filtering would empty the list, so an
+// unusual company name can never starve a run of candidates.
+func pruneUnconnected(brief models.CompanyBrief, ranked []models.RankedResult, byURL map[string]models.SearchResult) []models.RankedResult {
+	tokens := companyTokens(brief.CompanyName)
+	if len(tokens) == 0 {
+		return ranked
+	}
+
+	kept := make([]models.RankedResult, 0, len(ranked))
+	for _, item := range ranked {
+		result, known := byURL[normalizeURL(item.URL)]
+		// Candidates with no snippet to inspect are kept rather than guessed away.
+		if !known || hasCompanyConnection(brief, tokens, result) {
+			kept = append(kept, item)
+		}
+	}
+	if len(kept) == 0 {
+		return ranked
+	}
+	if dropped := len(ranked) - len(kept); dropped > 0 {
+		log.Printf("[RANK] dropped %d of %d candidates with no connection to %q", dropped, len(ranked), brief.CompanyName)
+	}
+	return kept
+}
+
 func normalizeRankedResults(ranked []models.RankedResult, results []models.SearchResult) []models.RankedResult {
 	known := make(map[string]bool, len(results))
 	for _, result := range results {
@@ -705,7 +822,50 @@ func normalizeRankedResults(ranked []models.RankedResult, results []models.Searc
 }
 
 func normalizeURL(value string) string {
-	return strings.TrimRight(strings.ToLower(strings.TrimSpace(value)), "/")
+	trimmed := strings.TrimSpace(value)
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return strings.TrimRight(strings.ToLower(trimmed), "/")
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = strings.ToLower(strings.TrimPrefix(parsed.Host, "www."))
+	parsed.Fragment = ""
+	parsed.RawFragment = ""
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	if parsed.RawQuery != "" {
+		if query, parseErr := url.ParseQuery(parsed.RawQuery); parseErr == nil {
+			for key := range query {
+				if trackingQueryParams[strings.ToLower(key)] {
+					query.Del(key)
+				}
+			}
+			// Encode sorts the keys, so two URLs that differ only in parameter
+			// order collapse into one key.
+			parsed.RawQuery = query.Encode()
+		}
+	}
+	return strings.TrimRight(parsed.String(), "/")
+}
+
+// trackingQueryParams are query parameters that identify a campaign or a
+// referrer rather than a distinct document. Stripping them keeps a page's
+// tracking-link and canonical forms from counting as two separate sources.
+var trackingQueryParams = map[string]bool{
+	"utm_source": true, "utm_medium": true, "utm_campaign": true, "utm_term": true,
+	"utm_content": true, "utm_id": true, "utm_name": true, "utm_reader": true,
+	"gclid": true, "fbclid": true, "msclkid": true, "yclid": true, "twclid": true,
+	"mc_cid": true, "mc_eid": true, "igshid": true, "ref_src": true, "si": true,
+	"_ga": true, "hsctatracking": true,
+}
+
+// contentHash fingerprints a page's text so identical content served under
+// several URLs is only collected once. Corporate sites are the common case:
+// /about, /about-us and /company routinely return the same document, and paying
+// for three scrapes and three copies of the text helps nobody.
+func contentHash(content string) string {
+	normalized := strings.Join(strings.Fields(strings.ToLower(content)), " ")
+	sum := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(sum[:])
 }
 
 func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, ranked []models.RankedResult, searchResults []models.SearchResult, existing []models.Evidence, eventCh chan<- models.AgentEvent) ([]models.Evidence, []string, []models.ScrapeReportEntry) {
@@ -713,35 +873,80 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 	sources := make([]string, 0, ca.engine.MaxScrapes())
 	report := make([]models.ScrapeReportEntry, 0, ca.engine.MaxScrapes()*2)
 	known := make(map[string]bool, len(existing))
+	contentSeen := make(map[string]string, len(existing))
 	for _, item := range existing {
 		known[normalizeURL(item.URL)] = true
+		if strings.TrimSpace(item.Content) != "" {
+			contentSeen[contentHash(item.Content)] = item.URL
+		}
 	}
-	for _, item := range ranked {
-		if item.SourceType != "professional_profile" || known[normalizeURL(item.URL)] {
-			continue
+	// Professional-profile pages are normally not fetched directly: only the public
+	// search snippet is retained as evidence. When the operator opts in
+	// (ALLOW_PROFILE_SCRAPING / agent.WithProfileScraping), they fall through to the
+	// normal scrape path instead so full page text can contribute.
+	if !ca.engine.ProfileScrapingEnabled() {
+		for _, item := range ranked {
+			if item.SourceType != "professional_profile" || known[normalizeURL(item.URL)] {
+				continue
+			}
+			if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
+				evidence = append(evidence, *snippet)
+				known[normalizeURL(item.URL)] = true
+			}
+			report = append(report, models.ScrapeReportEntry{URL: item.URL, SourceType: item.SourceType, Status: "skipped", Reason: "public search snippet retained; direct professional-profile scraping is disabled"})
 		}
-		if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
-			evidence = append(evidence, *snippet)
-			known[normalizeURL(item.URL)] = true
-		}
-		report = append(report, models.ScrapeReportEntry{URL: item.URL, SourceType: item.SourceType, Status: "skipped", Reason: "public search snippet retained; direct professional-profile scraping is disabled"})
 	}
 	usableScrapes := 0
 	attemptLimit := ca.engine.MaxScrapes() * 2
-	for _, item := range selectScrapeCandidates(ranked, attemptLimit) {
+	candidates := selectScrapeCandidates(ranked, attemptLimit, ca.engine.ProfileScrapingEnabled())
+
+	// Candidates are fetched in small parallel batches rather than one at a time.
+	// Each fetch is dominated by network latency, so four concurrent fetches turn
+	// roughly 10 x 1.5s of serial waiting into about a quarter of that. The batch
+	// is sized to the remaining scrape budget plus one worker's worth of slack for
+	// candidates that turn out unusable, so parallelism never fetches far more
+	// pages than the run needs — and any extra page is cached for the next QC
+	// iteration or follow-up question anyway.
+	nextCandidate := 0
+	var batchItems []models.RankedResult
+	var batchOutcomes []ScrapeOutcome
+	nextOutcome := 0
+
+	for nextCandidate < len(candidates) && usableScrapes < ca.engine.MaxScrapes() {
+		if nextOutcome >= len(batchOutcomes) {
+			batchSize := ca.engine.MaxScrapes() - usableScrapes + ca.engine.ScrapeConcurrency() - 1
+			if batchSize < 1 {
+				batchSize = 1
+			}
+			batchItems = batchItems[:0]
+			batchURLs := make([]string, 0, batchSize)
+			for nextCandidate < len(candidates) && len(batchURLs) < batchSize {
+				candidate := candidates[nextCandidate]
+				nextCandidate++
+				if known[normalizeURL(candidate.URL)] {
+					continue
+				}
+				parsed, err := url.ParseRequestURI(candidate.URL)
+				if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+					report = append(report, models.ScrapeReportEntry{URL: candidate.URL, SourceType: candidate.SourceType, Status: "failed", Reason: "invalid target URL"})
+					continue
+				}
+				Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolCall, Step: 8 + len(evidence) + len(batchItems), ToolName: "web_scraper", ToolInput: candidate.URL, Content: "Scraping " + candidate.SourceType + " source..."})
+				batchItems = append(batchItems, candidate)
+				batchURLs = append(batchURLs, candidate.URL)
+			}
+			if len(batchURLs) == 0 {
+				break
+			}
+			batchOutcomes = ca.engine.ScrapeCachedBatch(ctx, batchURLs)
+			nextOutcome = 0
+		}
 		if usableScrapes >= ca.engine.MaxScrapes() {
 			break
 		}
-		if known[normalizeURL(item.URL)] {
-			continue
-		}
-		parsed, err := url.ParseRequestURI(item.URL)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			report = append(report, models.ScrapeReportEntry{URL: item.URL, SourceType: item.SourceType, Status: "failed", Reason: "invalid target URL"})
-			continue
-		}
-		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolCall, Step: 8 + len(evidence), ToolName: "web_scraper", ToolInput: item.URL, Content: "Scraping " + item.SourceType + " source..."})
-		scrape, err := ca.engine.ScrapeCached(ctx, item.URL)
+		item := batchItems[nextOutcome]
+		scrape, err := batchOutcomes[nextOutcome].Result, batchOutcomes[nextOutcome].Err
+		nextOutcome++
 		entry := models.ScrapeReportEntry{URL: item.URL, SourceType: item.SourceType, Status: "failed"}
 		if err != nil {
 			entry.Reason = err.Error()
@@ -780,6 +985,24 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 				evidence = append(evidence, *snippet)
 			}
 			continue
+		}
+		// The same document served under several URLs (a corporate /about,
+		// /about-us and /company are routinely identical) must only be collected
+		// once: a second copy adds nothing to the LLM context and pushes a
+		// genuinely different source out of the budget.
+		fingerprint := contentHash(scrape.Content)
+		if duplicateOf, duplicate := contentSeen[fingerprint]; duplicate {
+			entry.Status = "skipped"
+			entry.Reason = fmt.Sprintf("duplicate content already collected from %s", duplicateOf)
+			report = append(report, entry)
+			continue
+		}
+		contentSeen[fingerprint] = item.URL
+		if canonical := normalizeURL(scrape.CanonicalURL); canonical != "" {
+			// The canonical URL is the document's own statement of where it
+			// lives, so a later candidate pointing at the same page can be
+			// skipped before it costs a fetch.
+			known[canonical] = true
 		}
 		if len(scrape.Images) > 0 {
 			entry.OCRStatus = "attempted"
@@ -891,7 +1114,20 @@ func snippetEvidenceForURL(item models.RankedResult, results []models.SearchResu
 	return nil
 }
 
-func selectScrapeCandidates(ranked []models.RankedResult, limit int) []models.RankedResult {
+// excludedScrapeCandidate reports whether a ranked candidate must not be fetched.
+//
+// Blocked sources are always excluded. Professional-profile pages are excluded
+// unless the operator has opted into fetching them, which is the second of the two
+// places that policy is enforced (the other is the snippet-only evidence loop in
+// scrapeRanked).
+func excludedScrapeCandidate(candidate models.RankedResult, allowProfiles bool) bool {
+	if candidate.SourceType == "blocked" || isBlockedSourceURL(candidate.URL) {
+		return true
+	}
+	return candidate.SourceType == "professional_profile" && !allowProfiles
+}
+
+func selectScrapeCandidates(ranked []models.RankedResult, limit int, allowProfiles bool) []models.RankedResult {
 	candidates := append([]models.RankedResult(nil), ranked...)
 	priority := func(sourceType string) int {
 		switch sourceType {
@@ -926,7 +1162,7 @@ func selectScrapeCandidates(ranked []models.RankedResult, limit int) []models.Ra
 		if len(selected) >= limit {
 			break
 		}
-		if candidate.SourceType == "professional_profile" || candidate.SourceType == "blocked" || isBlockedSourceURL(candidate.URL) {
+		if excludedScrapeCandidate(candidate, allowProfiles) {
 			continue
 		}
 		domain := sourceDomain(candidate.URL)
@@ -943,7 +1179,7 @@ func selectScrapeCandidates(ranked []models.RankedResult, limit int) []models.Ra
 			if len(selected) >= limit {
 				break
 			}
-			if candidate.SourceType == "professional_profile" || candidate.SourceType == "blocked" || isBlockedSourceURL(candidate.URL) {
+			if excludedScrapeCandidate(candidate, allowProfiles) {
 				continue
 			}
 			alreadySelected := false

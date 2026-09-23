@@ -12,9 +12,14 @@ The HTTP layer serves an HTMX UI from templates embedded in the binary
 (`internal/web`); the agents stream-step through search (Serper API) → scrape →
 LLM synthesis, with TTL caching and bounded memory.
 
+> **Documentation:** this file is the user-facing guide (setup, configuration,
+> endpoints, policies). **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** is the
+> internals companion — request lifecycle, module-by-module deep dive, testing, and
+> known limitations.
+
 ## Prerequisites
 
-- Go 1.23+
+- Go 1.24+
 - A Serper API key ([serper.dev](https://serper.dev))
 - Gemini credentials, one of:
   - `GOOGLE_API_KEY` (Gemini API / AI Studio key), **or**
@@ -31,9 +36,11 @@ go run ./cmd/server
 # open http://localhost:8080
 ```
 
-One test that drives real Playwright/Chromium (verifying that a clearance cookie
-from a JavaScript interstitial is reused across renders) is skipped unless
-`PLAYWRIGHT_INTEGRATION=1` is set, so the default suite needs no browser.
+Tests that need external resources are skipped unless their gate is set, so the default
+suite runs offline: `PLAYWRIGHT_INTEGRATION=1` enables the real-Chromium tests
+(interstitial cookie reuse, and parsing a real generated PDF) and
+`GEMINI_INTEGRATION=1` enables the live inline-PDF check. See
+[docs/ARCHITECTURE.md § Testing](docs/ARCHITECTURE.md#testing).
 
 For Windows development, run the auto-reloading server instead:
 
@@ -50,21 +57,26 @@ browser at `http://localhost:8080` remains the full results view, including the
 organization chart and post-run questions; the terminal shows the live trace
 and final result summary.
 
-Company result ranking uses a hybrid path: an in-memory BM25 pass ranks all
-search snippets immediately, then Gemini semantically reranks only the top
-eight candidates with an eight-second deadline. If Gemini times out or returns
-invalid URLs, the BM25 ranking continues directly to scraping.
-
 ## How a run works
 
 1. **Plan** — Gemini proposes prioritized search queries (with a deterministic
    fallback plan if planning fails or times out).
 2. **Search** — every query runs through Serper; results are deduplicated across
    queries and cached for 48 h.
-3. **Rank** — BM25 scores every snippet immediately, then Gemini reranks the top
-   candidates. Only results the ranking returns as relevant are carried forward.
-4. **Scrape** — ranked pages are fetched, cleaned and cached for 7 days. Failures
-   are cached briefly too, so a repeat question does not re-fetch a known dead end
+3. **Rank** — BM25 scores every snippet immediately, then Gemini semantically reranks
+   the top eight candidates within an eight-second deadline; if that call times out or
+   returns invalid URLs, the BM25 order continues straight to scraping. Candidates
+   showing no connection to the target company — no official-domain match and no
+   distinctive company-name token in the title, snippet or URL — are dropped, so other
+   companies' profiles and off-domain pages no longer consume scrape budget. The filter
+   never empties the candidate list.
+4. **Scrape** — ranked pages are fetched, cleaned and cached for 7 days. Pages are fetched
+   several at a time (`SCRAPE_CONCURRENCY`), but politely per host: at most
+   `SCRAPE_HOST_CONCURRENCY` in flight and `SCRAPE_HOST_RATE_PER_SEC` per second, with a
+   server's `Retry-After` hint honoured on a `429`/`503`. Identical content is collected
+   once — pages are deduplicated by URL, by canonical URL, and by a fingerprint of the
+   extracted text — and a `404`/`410` is reported without paying for a browser render.
+   Failures are cached briefly too, so a repeat question does not re-fetch a known dead end
    (see [Fetching policy](#fetching-policy)).
 5. **Synthesize** — Gemini writes the org chart or dossier from the supplied
    evidence only, and is instructed not to invent people or titles.
@@ -84,6 +96,7 @@ invalid URLs, the BM25 ranking continues directly to scraping.
 | `GOOGLE_API_KEY` | — | Gemini API key (AI Studio) |
 | `GOOGLE_GENAI_USE_VERTEXAI` | unset | Set to `true` to use Vertex AI backend |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | — | Vertex AI project & region |
+| `GCP_REGION` | `us-central1` | Region recorded in config (informational; Vertex AI uses `GOOGLE_CLOUD_LOCATION`) |
 | `COOKIE_FILE_PATH` | — | Optional JSON cookie export (Cookie-Editor / EditThisCookie format) |
 | `ENABLE_BROWSER_FALLBACK` | `false` | Enable bounded Playwright rendering after HTTP errors, challenges, or low-quality JavaScript shells |
 | `CACHE_MAX_ENTRIES` | `2048` | Max entries in the in-memory TTL cache |
@@ -93,6 +106,22 @@ invalid URLs, the BM25 ranking continues directly to scraping.
 | `MAX_SEARCH_RESULTS` | `12` | Max search results fetched per search query |
 | `MAX_AGENT_STEPS` | `10` | Max agent/tool iterations per research session |
 | `ALLOW_BROWSER_TOGGLE` | `true` | Offer a per-run "render pages in a real browser" option in the console. Only shown when Chromium can actually start |
+| `ALLOW_PROFILE_SCRAPING` | `false` | Fetch professional-profile pages (e.g. `linkedin.com`) directly instead of keeping only their public search snippet. Opt-in, because that is a policy decision |
+| `CACHE_BACKEND` | `memory` | Where cached searches and scraped pages live: `memory`, `redis` or `gcs` |
+| `REDIS_URL` | — | Redis connection URL (`redis://` / `rediss://`). Takes precedence over the split settings below |
+| `REDIS_HOST` | — | Redis host; with `REDIS_PORT` / `REDIS_PASSWORD` it is assembled into a connection URL when `REDIS_URL` is unset |
+| `REDIS_PORT` | `6379` | Redis port |
+| `REDIS_PASSWORD` | — | Redis password (URL-escaped when the connection URL is assembled) |
+| `REDIS_KEY_PREFIX` | `websearch-go:` | Key namespace inside a shared Redis database |
+| `GCS_CACHE_BUCKET` | — | Bucket used when `CACHE_BACKEND=gcs` |
+| `GCS_CACHE_PREFIX` | `websearch-go/cache/` | Object-name prefix inside that bucket |
+| `GOOGLE_APPLICATION_CREDENTIALS` | — | Service-account file for the GCS cache (standard Google ADC variable; an ambient identity is used when it is unset) |
+| `SCRAPE_CONCURRENCY` | `4` | Pages fetched in parallel per run |
+| `SCRAPE_HOST_RATE_PER_SEC` | `2` | Sustained requests per second to any one host (`0` disables) |
+| `SCRAPE_HOST_BURST` | `3` | Requests that may start back-to-back per host |
+| `SCRAPE_HOST_CONCURRENCY` | `2` | Simultaneous in-flight requests per host (`0` disables) |
+| `SCRAPE_REVALIDATE_AFTER_SECONDS` | `86400` | Age at which a cached page is revalidated with `If-None-Match` / `If-Modified-Since` (`0` disables) |
+| `SCRAPE_MAX_RETRY_AFTER_SECONDS` | `5` | Cap on how long a server's `Retry-After` hint may delay a retry |
 
 When browser fallback is enabled, install the matching Playwright browser once with
 `go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium`.
@@ -156,6 +185,33 @@ The UI is a single page that streams each agent step over SSE:
 - **Ask about this research** — post-run Q&A that answers from retained evidence
   first and only performs a fresh search when the evidence is insufficient.
 
+## Caching
+
+Search results are cached for 48 h and scraped pages for 7 days; failed scrapes are remembered
+for 15 minutes so a follow-up question does not re-fetch a known dead end. Scrape entries are
+keyed by URL *and* rendering mode, so an HTTP-only result never masks a rendered re-run of the
+same page.
+
+`CACHE_BACKEND` decides where those entries live:
+
+| Backend | Survives restarts | Shared between instances | Notes |
+| :--- | :--- | :--- | :--- |
+| `memory` (default) | no | no | Bounded FIFO cache (2048 entries by default); zero setup |
+| `redis` | yes | yes | Native per-key TTL. Connect with `REDIS_URL`, or with `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` — the URL is assembled for you and the password is URL-escaped |
+| `gcs` | yes | yes | One object per entry with its expiry embedded; credentials from `GOOGLE_APPLICATION_CREDENTIALS` or an ambient identity. Set `GCS_CACHE_BUCKET`, and pair it with a bucket lifecycle rule to reclaim expired objects |
+
+A shared backend is what makes the cache real: a restarted container, or a second Cloud Run
+instance, reuses the searches and pages the first one already paid for. If the configured backend
+cannot be reached at startup, the server logs a warning and falls back to the in-memory cache — a
+cache is an optimization, not a dependency — and the backend actually in use is printed at
+startup.
+
+Cached pages are revalidated instead of re-downloaded. The scraper keeps the `ETag` /
+`Last-Modified` a page returned, and any entry older than `SCRAPE_REVALIDATE_AFTER_SECONDS`
+(`86400`) is refreshed with a conditional request: an unchanged page answers `304 Not Modified`
+in a single round trip, and a revalidation that fails for any reason keeps the cached copy rather
+than losing evidence.
+
 ## Fetching policy
 
 The scraper is deliberately conservative, and several of these rules surprise people:
@@ -169,9 +225,17 @@ The scraper is deliberately conservative, and several of these rules surprise pe
 - **Bot challenges are reported, never bypassed.** A CAPTCHA or press-and-hold page
   is rendered like any other; if the challenge is still present afterwards the
   result is marked `blocked` with a reason rather than circumvented.
-- **Non-HTML content is rejected.** A PDF response fails the scrape with
-  `unsupported content type`, which matters for registries that publish officer
-  lists as PDFs.
+- **Professional-profile pages are not fetched by default.** A `linkedin.*` URL
+  contributes only its public search snippet, which is why department-level results
+  stay thin for a company whose functional leadership is visible only there. Set
+  `ALLOW_PROFILE_SCRAPING=true` to fetch them directly — that is a policy decision,
+  so check the terms of the sites involved first.
+- **PDFs are read; every other non-HTML response is rejected.** A PDF is sent to
+  Gemini, which reads PDFs natively, and falls back to a bundled pure-Go parser when
+  that call fails — so officer lists published as registry filings become evidence. The
+  scrape report shows which path ran (`pdf-gemini` / `pdf-local`). Images, archives and
+  other binary payloads still fail with `unsupported content type`, and text that comes
+  back as machine noise rather than words is discarded instead of being quoted.
 - **Bodies are capped at 2 MiB and extracted text at ~40 KB.** A body that hits the
   cap is parsed from an incomplete document and flagged as `content_truncated`.
 - **Legacy encodings are decoded.** The `Content-Type` charset (or a `<meta>`
@@ -180,13 +244,28 @@ The scraper is deliberately conservative, and several of these rules surprise pe
   failed scrapes are remembered for 15 minutes so a follow-up question does not
   re-fetch a known dead end. The retry lengthens worst-case per-URL time, which is
   part of why rendered runs get a larger budget.
+- **Parallel fetches stay polite.** A run fetches several pages at once, but each host
+  is limited independently (`SCRAPE_HOST_CONCURRENCY` at a time, `SCRAPE_HOST_RATE_PER_SEC`
+  per second), and a `429`/`503` carrying `Retry-After` is honoured — capped by
+  `SCRAPE_MAX_RETRY_AFTER_SECONDS` — instead of burning three quick retries.
+- **Missing pages are not rendered.** A `404` or `410` is reported as a failure rather than
+  costing several seconds of browser time; `403`s still render, because a browser sometimes
+  gets through where a plain HTTP client cannot.
+- **Rendered pages load no images, fonts or CSS,** because the renderer only reads the DOM
+  text: those requests are aborted, and a page that already has its content when the DOM is
+  ready skips the network-idle and settle waits entirely. A render therefore costs seconds
+  rather than tens of seconds.
+- **Identical content is collected once.** Pages are deduplicated by URL (ignoring `www.`,
+  tracking parameters, fragments and parameter order), by the page's own canonical URL, and
+  by a fingerprint of the extracted text, so a site's `/about`, `/about-us` and `/company`
+  pages do not each consume a scrape.
 
 ## Endpoints
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
 | `GET` | `/` | Research console (HTMX UI) |
-| `POST` | `/api/research` | Form fields: `mode` (`company`/`person`), `query`, `company_name`, `location`, plus optional company scope fields `company_country`, `company_city`, `company_domain`, `company_industry`, `areas_of_interest`, `desired_output`, `time_scope`, and `research_notes`. Optional `use_browser` (`1`/`0`) opts a single run into browser rendering. Company research performs up to 3 QC reviews. Returns the live workflow console; add `?sync=1` to run synchronously and return the rendered chart or dossier fragment instead (used by CLI and automated checks). |
+| `POST` | `/api/research` | Start research: `mode` (`company`/`person`), `query`, `company_name`, `location`, optional company-brief scope fields, and optional `use_browser` (`1`/`0`) to render this run's pages in a real browser. Returns the live workflow console, or the final result fragment with `?sync=1` (used by the CLI and the org-chart drill-down). Full field list: [HTTP API reference](docs/ARCHITECTURE.md#http-api-reference). |
 | `POST` | `/api/rerun` | Form fields: `session_id`, optional `use_browser`. Re-runs a completed company session's retained brief in a new session, which is how a thin result is escalated with browser rendering. |
 | `POST` | `/api/question` | Form fields: `session_id`, `question`. Answers a question from retained evidence or runs a fresh focused search when needed. |
 | `GET` | `/api/events` | Server-Sent Events (SSE) stream for live step logs & final synthesis. |
@@ -202,15 +281,16 @@ default-src 'self';
 script-src  'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com;
 style-src   'self' 'unsafe-inline' https://cdn.tailwindcss.com;
 connect-src 'self';
-img-src     'self' data: https:
+img-src     'self' data: https: http:
 ```
 
-`img-src` allows remote `https:` images because the result panel shows a gallery of
-images discovered on scraped sources; without it the browser blocks every one of
-them. Images are passive content, and `no-referrer` keeps the browsing host out of
-the image request, which limits third-party tracking. Note that **plain `http:`
-image URLs stay blocked** — a scraped page that references `http://…/logo.png`
-will show a caption with no image.
+`img-src` allows remote images because the result panel shows a gallery of images
+discovered on scraped sources; without it the browser blocks every one of them. Both
+`https:` and `http:` are permitted, because the kind of corporate site this tool
+researches still serves images over plain http. Images are passive content and
+`no-referrer` keeps the browsing host out of the image request, which limits
+third-party tracking. (On an HTTPS deployment browsers block mixed-content `http:`
+images anyway, so the extra permission only matters for local/http origins.)
 
 The CDN allowances exist because `index.html` loads Tailwind and HTMX from
 `cdn.tailwindcss.com` and `unpkg.com`. To serve the UI without any third-party
@@ -229,5 +309,5 @@ docker run --rm -p 8080:8080 -e SERPER_API_KEY=... -e GOOGLE_API_KEY=... websear
 The default runtime image is distroless (`nonroot`); templates are embedded, so the
 image contains only the static binary. Use `Dockerfile.browser` (based on the
 matching Playwright image) together with `ENABLE_BROWSER_FALLBACK=true` or the
-per-run toggle when you need rendering in a container. See `DESIGN.md` for the
-system design.
+per-run toggle when you need rendering in a container. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system design.

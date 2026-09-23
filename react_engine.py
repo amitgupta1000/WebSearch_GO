@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WebSearch_PY - Python replica of the Go ReAct Engine (see DESIGN.md).
+"""WebSearch_PY - Python replica of the Go ReAct Engine (see docs/ARCHITECTURE.md).
 
 Module mapping to the Go codebase (WebSearch_GO):
     internal/agent/engine.go    -> ReActEngine       (thought -> action -> observation loop)

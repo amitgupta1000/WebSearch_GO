@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """WebSearch_GO Project Guide deck generator (python-pptx).
 
-Builds an executive-style presentation from PROJECT_GUIDE.md, using the same
+Builds an executive-style presentation that mirrors docs/ARCHITECTURE.md, using the same
 visual system as generate_pro_deck.py (slate dark titles, light card slides).
 
 Run:
@@ -389,9 +389,9 @@ def create_project_guide_deck():
         ("scripts/dev.ps1", "Windows hot-reload watcher (750 ms fingerprint, restarts go run)"),
         (".vscode/tasks.json", "'Go: Watch Server' task wrapping dev.ps1"),
         (".github/workflows/go.yml", "CI: tidy -> gofmt -> vet -> build -> test"),
-        ("Dockerfile", "golang:1.23-alpine -> distroless/static-debian12:nonroot"),
-        ("go.mod / go.sum", "goquery + google.golang.org/genai (Go 1.23)"),
-        ("README.md / DESIGN.md", "Usage quickstart / high-level design (HLD)"),
+        ("Dockerfile", "golang:1.24-alpine -> distroless/static-debian12:nonroot"),
+        ("go.mod / go.sum", "goquery + google.golang.org/genai (Go 1.24)"),
+        ("README.md / docs/ARCHITECTURE.md", "Usage quickstart / architecture & internals"),
         ("react_engine.py", "Standalone Python replica of the ReAct engine (CLI demo)"),
         ("generate_pro_deck.py", "python-pptx generator for the LLM reasoning deck"),
         ("websearch.exe", "Compiled Windows binary (build artifact)")
@@ -668,7 +668,7 @@ def create_project_guide_deck():
     add_card(s17, 0.8, 1.6, 3.7, 5.3, "Verified in This Review", [
         ("Tests pass", "internal/agent, cache, config, web suites green; gofmt reports no issues."),
         ("Quality highlights", "Interface-driven tools (mockable), deterministic fallbacks for every intermediate LLM stage, bounded memory everywhere, disciplined HTTP hardening."),
-        ("Docs", "README (usage) + DESIGN.md (HLD) + PROJECT_GUIDE.md (this deep dive).")
+        ("Docs", "README (usage) + docs/ARCHITECTURE.md (design, modules, deep dive).")
     ], ACCENT_TEAL, item_size=10.5)
 
     add_card(s17, 4.8, 1.6, 3.7, 5.3, "Known Issue: Corrupted Go Toolchain (Environment, Not Code)", [
@@ -681,7 +681,7 @@ def create_project_guide_deck():
         ("External cache", "Redis/disk backend would survive restarts (cache is process-local today)."),
         ("knowledgeGraph", "SerperClient parses the knowledge graph but never uses it - could enrich company evidence."),
         ("Repo hygiene", "websearch.exe at the repo root could be removed or gitignored."),
-        ("Docs", "PROJECT_GUIDE.md is the module-by-module companion to README.md and DESIGN.md.")
+        ("Docs", "docs/ARCHITECTURE.md is the module-by-module companion to README.md.")
     ], ACCENT_AMBER, item_size=10.5)
 
     # ----------------------------------------------------

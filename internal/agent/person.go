@@ -79,29 +79,54 @@ func (pa *PersonAgent) ResearchPerson(
 
 	var sources []string
 	scrapeCount := 0
+	var gatheredScrapes strings.Builder
+
+	// Choose the pages worth fetching first, then fetch them in parallel: the
+	// choice is cheap and the fetches are latency-bound, so doing them one at a
+	// time only adds the network round trips together.
+	fetchTargets := make([]models.SearchResult, 0, pa.engine.MaxScrapes())
 	for _, sr := range searchResults {
-		if scrapeCount >= pa.engine.MaxScrapes() {
+		if len(fetchTargets) >= pa.engine.MaxScrapes() {
 			break
 		}
 		// Prioritize bio pages, interviews, personal sites, github, wiki
-		if strings.Contains(sr.Link, "wikipedia") || strings.Contains(sr.Link, "about") || strings.Contains(sr.Link, "github") || scrapeCount == 0 {
-			Emit(eventCh, models.AgentEvent{
-				SessionID: sessionID,
-				Type:      models.EventToolCall,
-				Step:      4 + scrapeCount,
-				ToolName:  "web_scraper",
-				ToolInput: sr.Link,
-				Content:   fmt.Sprintf("Extracting details from %s...", sr.Link),
-			})
-
-			scrapeRes, err := pa.engine.ScrapeCached(ctx, sr.Link)
-			if err == nil && len(scrapeRes.Content) > minScrapeContentLen {
-				gatheredContext.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, scrapeRes.Content))
-				sources = append(sources, sr.Link)
-				scrapeCount++
-			}
+		if strings.Contains(sr.Link, "wikipedia") || strings.Contains(sr.Link, "about") || strings.Contains(sr.Link, "github") || len(fetchTargets) == 0 {
+			fetchTargets = append(fetchTargets, sr)
 		}
 	}
+
+	fetchURLs := make([]string, 0, len(fetchTargets))
+	for _, sr := range fetchTargets {
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID,
+			Type:      models.EventToolCall,
+			Step:      4 + len(fetchURLs),
+			ToolName:  "web_scraper",
+			ToolInput: sr.Link,
+			Content:   fmt.Sprintf("Extracting details from %s...", sr.Link),
+		})
+		fetchURLs = append(fetchURLs, sr.Link)
+	}
+
+	outcomes := pa.engine.ScrapeCachedBatch(ctx, fetchURLs)
+
+	seenContent := make(map[string]bool, len(fetchTargets))
+	for index, sr := range fetchTargets {
+		outcome := outcomes[index]
+		if outcome.Err != nil || outcome.Result == nil || len(outcome.Result.Content) <= minScrapeContentLen {
+			continue
+		}
+		fingerprint := contentHash(outcome.Result.Content)
+		if seenContent[fingerprint] {
+			// The same biography republished on several domains adds nothing.
+			continue
+		}
+		seenContent[fingerprint] = true
+		gatheredScrapes.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, outcome.Result.Content))
+		sources = append(sources, sr.Link)
+		scrapeCount++
+	}
+	gatheredContext.WriteString(gatheredScrapes.String())
 
 	// Step 2: Query for conference talks, articles, or career milestones
 	query2 := fmt.Sprintf("%s speaker interview articles career education", query1)
@@ -162,6 +187,16 @@ Synthesize the provided web search and scraped profiles into a comprehensive Per
 
 	profile.Sources = sources
 	profile.LastUpdated = time.Now()
+	if exports := pa.engine.ExportPerson(ctx, &profile); len(exports) > 0 {
+		profile.Exports = exports
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID,
+			Type:      models.EventToolResult,
+			Step:      9,
+			ToolName:  "exporter",
+			Content:   exportSummary(exports),
+		})
+	}
 
 	Emit(eventCh, models.AgentEvent{
 		SessionID: sessionID,

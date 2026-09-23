@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/agent"
-	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/config"
 	"github.com/amitgupta1000/WebSearch_GO/internal/llm"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -71,21 +70,39 @@ func main() {
 		log.Printf("[WARN] Cookie jar init: %v", err)
 	}
 
-	// 2. Initialize Cache, Scraper and Serper
-	memCache := cache.NewMemoryCache(cfg.CacheMaxEntries)
-	defer memCache.Close()
-	scraper := tools.NewScraperWithBrowser(cookieJar, 15*time.Second, cfg.EnableBrowserFallback)
-	defer scraper.Close()
-	serper := tools.NewSerperClient(cfg.SerperAPIKey)
-
-	// 3. Initialize Gemini LLM client. Fail fast: research cannot run without it.
+	// 2. Initialize the Gemini LLM client. Fail fast: research cannot run without it,
+	// and the scraper borrows it to read PDFs.
 	gemini, err := llm.NewGeminiClient(ctx, cfg.GeminiModel)
 	if err != nil {
 		log.Fatalf("Gemini client initialization failed (check GCP credentials or GOOGLE_API_KEY): %v", err)
 	}
 
+	// 3. Initialize Cache, Scraper and Serper. The scraper extracts PDF text through
+	// Gemini — registry filings and officer lists are often published only as PDFs —
+	// falling back to a local parser when the model call fails. Its per-host limits
+	// are what keep the parallel fetches below from concentrating on one site.
+	store := buildCacheStore(ctx, cfg)
+	defer store.Close()
+	scraper := tools.NewScraperWithBrowser(cookieJar, 15*time.Second, cfg.EnableBrowserFallback,
+		tools.WithDocumentTextExtractor(documentTextExtractor(gemini)),
+		tools.WithHostLimits(cfg.ScrapeHostRate, cfg.ScrapeHostBurst, cfg.ScrapeHostConcurrency),
+		tools.WithMaxRetryAfter(cfg.MaxRetryAfter))
+	defer scraper.Close()
+	serper := tools.NewSerperClient(cfg.SerperAPIKey)
+
 	// 4. Initialize Core Engine & Domain Agents
-	eng := agent.NewEngine(gemini, serper, scraper, memCache, cfg.MaxScrapesPerRun, cfg.MaxSearchResults, cfg.MaxSteps)
+	options := []agent.EngineOption{
+		agent.WithProfileScraping(cfg.AllowProfileScraping),
+		agent.WithScrapeConcurrency(cfg.ScrapeConcurrency),
+		agent.WithScrapeRevalidation(cfg.ScrapeRevalidateAfter),
+	}
+	// Finished runs are written to the configured destination as Markdown and PDF.
+	// A nil exporter simply means the runs are not saved.
+	if exporter := buildExporter(ctx, cfg, scraper); exporter != nil {
+		options = append(options, agent.WithExporter(exporter))
+	}
+	eng := agent.NewEngine(gemini, serper, scraper, store, cfg.MaxScrapesPerRun, cfg.MaxSearchResults, cfg.MaxSteps,
+		options...)
 	compAgent := agent.NewCompanyAgent(eng)
 	persAgent := agent.NewPersonAgent(eng)
 	sessionHub := agent.NewSessionHub()
@@ -167,6 +184,35 @@ func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	if err := s.tmpl.ExecuteTemplate(w, "index.html", view); err != nil {
 		log.Printf("[ERROR] index template execution failed: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
+// documentReader is the slice of the LLM client that PDF extraction needs, kept narrow
+// so the fallback policy can be tested without a live model.
+type documentReader interface {
+	ExtractDocumentText(ctx context.Context, contentType string, body []byte) (string, error)
+}
+
+// documentTextExtractor builds the extractor handed to the scraper. Gemini is tried
+// first because it reads PDFs natively, including compressed streams, subsetted fonts
+// and scanned filings that a text parser cannot recover. The local parser is the
+// fallback for when the model is unavailable, rate-limited or refuses the document.
+func documentTextExtractor(reader documentReader) tools.DocumentTextExtractor {
+	return func(ctx context.Context, contentType string, body []byte) (string, string, error) {
+		text, err := reader.ExtractDocumentText(ctx, contentType, body)
+		if err == nil && strings.TrimSpace(text) != "" {
+			return text, tools.ExtractorPDFGemini, nil
+		}
+		if err == nil {
+			err = errors.New("gemini returned no text")
+		}
+		log.Printf("[WARN] Gemini PDF extraction failed; falling back to the local parser: %v", err)
+
+		localText, localErr := tools.ExtractPDFText(body, tools.MaxDocumentTextBytes)
+		if localErr != nil {
+			return "", "", fmt.Errorf("gemini extraction failed (%v) and local parsing failed (%w)", err, localErr)
+		}
+		return localText, tools.ExtractorPDFLocal, nil
 	}
 }
 
@@ -514,14 +560,16 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		// The UI loads Tailwind/HTMX from CDNs and uses one inline script.
-		// img-src permits remote https images so the scraped-source image gallery
-		// can actually render; images are passive content and Referrer-Policy is
-		// no-referrer, which limits third-party tracking.
+		// img-src permits remote images so the scraped-source image gallery can
+		// actually render. Both https and http are allowed because legacy sources
+		// (the kind of corporate site this tool researches) still serve images over
+		// plain http; images are passive content and Referrer-Policy is no-referrer,
+		// which limits third-party tracking.
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
 				"script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com; "+
 				"style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "+
-				"connect-src 'self'; img-src 'self' data: https:")
+				"connect-src 'self'; img-src 'self' data: https: http:")
 		next.ServeHTTP(w, r)
 	})
 }

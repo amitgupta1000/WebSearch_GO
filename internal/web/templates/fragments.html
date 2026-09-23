@@ -18,6 +18,9 @@
 	{{else if eq .Type "error"}}
 		<span class="px-1.5 py-0.5 text-[10px] uppercase font-semibold rounded bg-red-500/15 text-red-400 border border-red-500/30 shrink-0">Error</span>
 		<span class="text-red-300 font-semibold break-words">{{.Content}}</span>
+	{{else if eq .Type "timing"}}
+		<span class="px-1.5 py-0.5 text-[10px] uppercase font-semibold rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 shrink-0">Timing</span>
+		<span class="text-amber-200 break-words">{{.Content}}</span>
 	{{else}}
 		<span class="px-1.5 py-0.5 text-[10px] uppercase font-semibold rounded bg-slate-500/15 text-slate-400 border border-slate-500/30 shrink-0">Event</span>
 		<span class="text-slate-300 break-words">{{.Content}}</span>
@@ -144,6 +147,26 @@
 		</div>
 	</details>
 	{{end}}
+	{{if .Timings}}
+	<details class="group">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Phase Timings
+			<span class="text-slate-500">({{len .Timings}} phases, {{.TimingTotalMillis}} ms total)</span>
+		</summary>
+		<div class="overflow-x-auto mt-4">
+			<table class="w-full text-xs text-left">
+				<thead class="text-slate-500 border-b border-slate-800"><tr><th class="py-2 pr-3">Phase</th><th class="py-2 pr-3">Duration</th><th class="py-2">Detail</th></tr></thead>
+				<tbody>
+				{{range .Timings}}
+				<tr class="border-b border-slate-800/60"><td class="py-2 pr-3 text-slate-300">{{.Phase}}</td><td class="py-2 pr-3 text-slate-300">{{.Seconds}} s</td><td class="py-2 text-slate-400">{{.Detail}}</td></tr>
+				{{end}}
+				</tbody>
+			</table>
+		</div>
+	</details>
+	{{end}}
+	{{template "export_files" .Exports}}
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Departments &amp; Functions</h4>
 		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -248,6 +271,34 @@
 </div>
 {{end}}
 
+{{define "export_files"}}
+{{if .}}
+<details class="group border-t border-slate-800/60 pt-3">
+	<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+		<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+		Saved files
+		<span class="text-slate-500">({{len .}})</span>
+	</summary>
+	<div class="flex flex-col gap-2 mt-3 text-xs">
+		{{range .}}
+		<div class="flex flex-wrap items-center gap-2">
+			<span class="px-1.5 py-0.5 text-[10px] uppercase font-semibold rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">{{.Format}}</span>
+			{{if .Failed}}
+			<span class="text-red-300 break-all">{{.Name}} &mdash; {{.Error}}</span>
+			{{else if .URL}}
+			<a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline break-all">{{.Name}}</a>
+			<span class="text-slate-500">{{.SizeLabel}}</span>
+			{{else}}
+			<span class="text-slate-300 break-all">{{.Name}}</span>
+			<span class="text-slate-500">{{.SizeLabel}}</span>
+			{{end}}
+		</div>
+		{{end}}
+	</div>
+</details>
+{{end}}
+{{end}}
+
 {{define "person_dossier"}}
 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
 	<div class="flex items-start justify-between border-b border-slate-800 pb-4">
@@ -293,5 +344,6 @@
 			</div>
 		</div>
 	</div>
+	{{template "export_files" .Exports}}
 </div>
 {{end}}

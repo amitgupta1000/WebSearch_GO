@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"sync"
@@ -8,14 +9,17 @@ import (
 )
 
 type cacheEntry struct {
-	value      any
+	value      []byte
 	expiration time.Time
 }
 
-// MemoryCache provides thread-safe TTL caching for search queries and scraped web
-// content. The number of entries is bounded by maxEntries: when the cache grows
-// beyond that, the oldest entries are evicted FIFO so long-running processes
-// cannot accumulate unbounded memory.
+// MemoryCache is the default Store: a process-local, thread-safe TTL cache for
+// search queries and scraped web content. The number of entries is bounded by
+// maxEntries: when the cache grows beyond that, the oldest entries are evicted
+// FIFO so long-running processes cannot accumulate unbounded memory.
+//
+// It is the fallback whenever no shared backend (Redis, GCS) is configured, and
+// the backend the test suite runs against.
 type MemoryCache struct {
 	mu         sync.RWMutex
 	entries    map[string]cacheEntry
@@ -43,8 +47,11 @@ func NewMemoryCache(maxEntries int) *MemoryCache {
 	return c
 }
 
+// Name identifies the backend in logs.
+func (c *MemoryCache) Name() string { return "memory" }
+
 // Close stops the background cleanup goroutine. Safe to call multiple times.
-func (c *MemoryCache) Close() {
+func (c *MemoryCache) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	select {
@@ -53,6 +60,7 @@ func (c *MemoryCache) Close() {
 	default:
 		close(c.done)
 	}
+	return nil
 }
 
 // HashKey generates a deterministic SHA-256 hash for queries or URLs.
@@ -62,7 +70,7 @@ func HashKey(prefix, input string) string {
 }
 
 // Get retrieves an item if present and not expired.
-func (c *MemoryCache) Get(key string) (any, bool) {
+func (c *MemoryCache) Get(_ context.Context, key string) ([]byte, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -70,17 +78,18 @@ func (c *MemoryCache) Get(key string) (any, bool) {
 	if !exists {
 		return nil, false
 	}
-
 	if time.Now().After(entry.expiration) {
 		return nil, false
 	}
-
 	return entry.value, true
 }
 
 // Set saves an item with a specific Time-To-Live duration, evicting the oldest
 // entries when the cache exceeds its configured maximum size.
-func (c *MemoryCache) Set(key string, value any, ttl time.Duration) {
+func (c *MemoryCache) Set(_ context.Context, key string, value []byte, ttl time.Duration) {
+	if ttl <= 0 {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -99,6 +108,23 @@ func (c *MemoryCache) Set(key string, value any, ttl time.Duration) {
 	}
 }
 
+// Delete removes an entry, keeping the FIFO queue in step so an evicted key can
+// never shadow a later insert of the same key.
+func (c *MemoryCache) Delete(_ context.Context, key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.entries[key]; !exists {
+		return
+	}
+	delete(c.entries, key)
+	for index, queued := range c.queue {
+		if queued == key {
+			c.queue = append(c.queue[:index], c.queue[index+1:]...)
+			break
+		}
+	}
+}
+
 func (c *MemoryCache) startCleanup(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -114,6 +140,15 @@ func (c *MemoryCache) startCleanup(interval time.Duration) {
 					delete(c.entries, k)
 				}
 			}
+			// Drop queue entries whose map entry is gone, so the FIFO order
+			// does not grow with expired keys.
+			live := c.queue[:0]
+			for _, queued := range c.queue {
+				if _, exists := c.entries[queued]; exists {
+					live = append(live, queued)
+				}
+			}
+			c.queue = live
 			c.mu.Unlock()
 		}
 	}

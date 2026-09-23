@@ -136,6 +136,58 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// maxDocumentBytes bounds an inline document sent to Gemini. The API caps inline
+// request size, and scraped bodies are already capped at 2 MiB upstream.
+const maxDocumentBytes = 8 << 20
+
+// ExtractDocumentText asks Gemini to read a non-HTML document (a PDF) and return the
+// text it contains.
+//
+// Gemini reads PDFs natively — including compressed and scanned documents that a
+// local parser handles poorly — so this is the preferred extraction path, with a
+// local parser used only as a fallback. The caller supplies a body that the scraper
+// has already fetched and size-capped.
+func (g *GeminiClient) ExtractDocumentText(ctx context.Context, contentType string, body []byte) (string, error) {
+	if len(body) == 0 {
+		return "", fmt.Errorf("document body is empty")
+	}
+	if len(body) > maxDocumentBytes {
+		return "", fmt.Errorf("document exceeds the %d byte inline limit", maxDocumentBytes)
+	}
+
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || !strings.HasPrefix(strings.ToLower(mediaType), "application/") {
+		mediaType = "application/pdf"
+	}
+
+	parts := []*genai.Part{
+		genai.NewPartFromText(`Return the text of the attached document verbatim, preserving headings, names, titles and list structure. Do not summarise, translate, comment, or add anything that is not present in the document. Return only the extracted text.`),
+		{InlineData: &genai.Blob{Data: body, MIMEType: mediaType}},
+	}
+	config := &genai.GenerateContentConfig{
+		SystemInstruction: &genai.Content{Parts: []*genai.Part{{Text: "You are a careful document text extractor."}}},
+		Temperature:       genai.Ptr(float64(0.1)),
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= geminiMaxAttempts; attempt++ {
+		if attempt > 1 {
+			if err := sleepWithContext(ctx, geminiBaseRetry*time.Duration(attempt-1)); err != nil {
+				return "", err
+			}
+		}
+		response, err := g.client.Models.GenerateContent(ctx, g.model, []*genai.Content{{Parts: parts}}, config)
+		if err == nil {
+			return responseText(response)
+		}
+		if !isTransientGenAIError(err) {
+			return "", fmt.Errorf("gemini document extraction failed: %w", err)
+		}
+		lastErr = err
+	}
+	return "", fmt.Errorf("gemini document extraction failed after %d attempts: %w", geminiMaxAttempts, lastErr)
+}
+
 // ExtractImageText downloads bounded image inputs and asks Gemini to transcribe
 // visible text. Image failures are returned to the caller without affecting
 // ordinary text research.

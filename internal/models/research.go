@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -127,6 +128,21 @@ func (review *QualityReview) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// PhaseTiming records how long one phase of a research run took, with a short
+// human note about what it covered. Timings are what turn "the scraper feels
+// slow" into a measurable claim, and they are reported per run.
+type PhaseTiming struct {
+	Phase  string `json:"phase"`
+	Millis int64  `json:"millis"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// PhaseTiming is declared in this package's research vocabulary; the console
+// formats it through Seconds so templates never do arithmetic.
+func (timing PhaseTiming) Seconds() string {
+	return strconv.FormatFloat(float64(timing.Millis)/1000, 'f', 1, 64)
+}
+
 // CompanyResearchContext is retained after a run for QC transparency and Q&A.
 type CompanyResearchContext struct {
 	Brief         CompanyBrief
@@ -137,6 +153,8 @@ type CompanyResearchContext struct {
 	ScrapeReport  []ScrapeReportEntry
 	Reviews       []QualityReview
 	Iteration     int
+	// Timings is the per-phase breakdown of the run, in completion order.
+	Timings []PhaseTiming
 }
 
 // QuestionAnswer is the structured result of a post-research question.

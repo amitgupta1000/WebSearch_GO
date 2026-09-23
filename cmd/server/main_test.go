@@ -10,6 +10,7 @@ import (
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/agent"
 	"github.com/amitgupta1000/WebSearch_GO/internal/config"
+	"github.com/amitgupta1000/WebSearch_GO/internal/testutil"
 	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 	"github.com/amitgupta1000/WebSearch_GO/internal/web"
 )
@@ -154,12 +155,12 @@ func TestSecurityHeadersAllowRemoteImages(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	csp := response.Header().Get("Content-Security-Policy")
-	if !strings.Contains(csp, "img-src 'self' data: https:") {
-		t.Errorf("the scraped-image gallery needs remote https images to render, got %q", csp)
+	if !strings.Contains(csp, "img-src 'self' data: https: http:") {
+		t.Errorf("the scraped-image gallery needs remote images (http and https) to render, got %q", csp)
 	}
-	// Relaxing img-src must not loosen anything else.
-	if strings.Contains(csp, "img-src *") || strings.Contains(csp, "http:") {
-		t.Errorf("img-src must stay scoped to https, got %q", csp)
+	// Widening img-src must not loosen anything else.
+	if strings.Contains(csp, "img-src *") {
+		t.Errorf("img-src must stay scoped to remote image schemes, got %q", csp)
 	}
 	for _, directive := range []string{
 		"default-src 'self'",
@@ -170,10 +171,87 @@ func TestSecurityHeadersAllowRemoteImages(t *testing.T) {
 			t.Errorf("expected %q to remain unchanged, got %q", directive, csp)
 		}
 	}
+	// The image exception must not leak into fetchable or executable directives.
+	if strings.Contains(csp, "connect-src 'self' http:") || strings.Contains(csp, "script-src 'self' 'unsafe-inline' http:") {
+		t.Errorf("only img-src may allow plain http, got %q", csp)
+	}
 	if got := response.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Errorf("expected nosniff to still be set, got %q", got)
 	}
 	if got := response.Header().Get("Referrer-Policy"); got != "no-referrer" {
 		t.Errorf("referrer policy limits image tracking and must stay, got %q", got)
+	}
+}
+
+// stubDocumentReader stands in for the LLM client so the PDF extraction policy can be
+// exercised without a live model.
+type stubDocumentReader struct {
+	text  string
+	err   error
+	calls int
+}
+
+func (r *stubDocumentReader) ExtractDocumentText(context.Context, string, []byte) (string, error) {
+	r.calls++
+	return r.text, r.err
+}
+
+func TestDocumentTextExtractorPrefersGemini(t *testing.T) {
+	reader := &stubDocumentReader{text: "Officers: A. Patel\n"}
+	text, extractor, err := documentTextExtractor(reader)(context.Background(), "application/pdf", testutil.MinimalPDF("officers"))
+	if err != nil {
+		t.Fatalf("documentTextExtractor: %v", err)
+	}
+	if extractor != tools.ExtractorPDFGemini {
+		t.Errorf("extractor = %q, want %q", extractor, tools.ExtractorPDFGemini)
+	}
+	if text != "Officers: A. Patel\n" {
+		t.Errorf("text = %q, want the model output", text)
+	}
+	if reader.calls != 1 {
+		t.Errorf("model calls = %d, want 1", reader.calls)
+	}
+}
+
+func TestDocumentTextExtractorFallsBackToLocalParser(t *testing.T) {
+	// Gemini can be rate-limited or unavailable; a PDF with a text layer must still
+	// become evidence, which is why the local parser is wired in behind it.
+	reader := &stubDocumentReader{err: errors.New("429 rate limited")}
+	text, extractor, err := documentTextExtractor(reader)(context.Background(), "application/pdf", testutil.MinimalPDF("Acme Holdings Limited officers"))
+	if err != nil {
+		t.Fatalf("expected the local parser to recover the text: %v", err)
+	}
+	if extractor != tools.ExtractorPDFLocal {
+		t.Errorf("extractor = %q, want %q", extractor, tools.ExtractorPDFLocal)
+	}
+	if !strings.Contains(text, "Acme Holdings Limited officers") {
+		t.Errorf("local text = %q, want the document text", text)
+	}
+}
+
+func TestDocumentTextExtractorTreatsBlankModelOutputAsFailure(t *testing.T) {
+	reader := &stubDocumentReader{text: " \n\t "}
+	text, extractor, err := documentTextExtractor(reader)(context.Background(), "application/pdf", testutil.MinimalPDF("Acme Holdings Limited officers"))
+	if err != nil {
+		t.Fatalf("expected the local parser to recover the text: %v", err)
+	}
+	if extractor != tools.ExtractorPDFLocal {
+		t.Errorf("extractor = %q, want a fallback to the local parser", extractor)
+	}
+	if !strings.Contains(text, "Acme Holdings Limited") {
+		t.Errorf("text = %q, want the local text", text)
+	}
+}
+
+func TestDocumentTextExtractorReportsBothFailures(t *testing.T) {
+	reader := &stubDocumentReader{err: errors.New("model refused the document")}
+	_, _, err := documentTextExtractor(reader)(context.Background(), "application/pdf", []byte("%PDF-1.4\nbroken"))
+	if err == nil {
+		t.Fatal("expected an error when both extractors fail")
+	}
+	for _, want := range []string{"gemini", "local parsing"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should mention %q, got %v", want, err)
+		}
 	}
 }
