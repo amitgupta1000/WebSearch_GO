@@ -32,11 +32,12 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 
 	if len(chart.Leadership) > 0 {
 		builder.WriteString("## Executive Leadership\n\n")
-		builder.WriteString("| Name | Title | Location | Public source |\n| :--- | :--- | :--- | :--- |\n")
+		builder.WriteString("| Name | Title | Location | As of | Public source |\n| :--- | :--- | :--- | :--- | :--- |\n")
 		for _, person := range chart.Leadership {
-			fmt.Fprintf(&builder, "| %s | %s | %s | %s |\n",
+			fmt.Fprintf(&builder, "| %s | %s | %s | %s | %s |\n",
 				markdownCell(person.Name), markdownCell(person.Title),
-				markdownCell(person.Location), markdownCell(person.PublicSource))
+				markdownCell(person.Location), markdownCell(person.Freshness()),
+				markdownCell(person.PublicSource))
 		}
 		builder.WriteString("\n")
 	}
@@ -66,6 +67,9 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 				if source := trimmed(member.PublicSource); source != "" {
 					fmt.Fprintf(&builder, " · [source](%s)", source)
 				}
+				if stamp := member.FreshnessNote(); stamp != "" {
+					fmt.Fprintf(&builder, " · _%s_", stamp)
+				}
 				builder.WriteString("\n")
 			}
 			builder.WriteString("\n")
@@ -83,9 +87,66 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 		builder.WriteString("\n")
 	}
 
+	builder.WriteString(renderValidationMarkdown(chart.Validation))
 	builder.WriteString(renderTimingsMarkdown(chart.Timings))
 	builder.WriteString(renderSourcesMarkdown(chart.Sources))
 	return strings.TrimRight(builder.String(), "\n") + "\n"
+}
+
+// renderValidationMarkdown reports what the freshness pass found: how many rows
+// sit behind a recent source, which titles are claimed twice, and what the
+// bounded reverse lookups changed. It is what lets a reader see that a "current"
+// org chart is really a dated one.
+func renderValidationMarkdown(report *models.ValidationReport) string {
+	if report == nil || report.RowsChecked == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString("## Data freshness\n\n")
+	builder.WriteString("| Verdict | Rows |\n| :--- | :--- |\n")
+	for _, entry := range []struct {
+		label string
+		count int
+	}{
+		{models.VerificationRecent, report.RowsRecent},
+		{models.VerificationDated, report.RowsDated},
+		{models.VerificationStale, report.RowsStale},
+		{models.VerificationUndated, report.RowsUndated},
+	} {
+		fmt.Fprintf(&builder, "| %s | %d |\n", entry.label, entry.count)
+	}
+	builder.WriteString("\n_Verdicts come from the newest dated source behind each row: verified-recent means a source inside the recent window from the company's own site or from two independent domains, and stale means the newest source is older than the stale window. A dated row is a statement about the evidence, not proof of current employment._\n\n")
+
+	for _, conflict := range report.Conflicts {
+		fmt.Fprintf(&builder, "- **Conflicting title:** %s\n", conflict)
+	}
+	if len(report.Conflicts) > 0 {
+		builder.WriteString("\n")
+	}
+
+	if len(report.Lookups) > 0 {
+		builder.WriteString("| Person | Reverse lookup | Outcome | Newest mention |\n| :--- | :--- | :--- | :--- |\n")
+		for _, lookup := range report.Lookups {
+			mention := trimmed(lookup.AsOf)
+			if mention == "" {
+				mention = "—"
+			}
+			// The source URL is the provenance of the date: without it the
+			// reader cannot judge whether the mention really is about this
+			// person at this company.
+			if source := trimmed(lookup.Source); source != "" {
+				mention += fmt.Sprintf(" · <%s>", source)
+			}
+			fmt.Fprintf(&builder, "| %s | %s | %s | %s |\n",
+				markdownCell(lookup.Person), markdownCell(lookup.Query),
+				markdownCell(lookup.Status), markdownCell(mention))
+		}
+		builder.WriteString("\n")
+	}
+	if message := trimmed(report.Skipped); message != "" {
+		fmt.Fprintf(&builder, "_Reverse lookups: %s._\n\n", message)
+	}
+	return builder.String()
 }
 
 // renderTimingsMarkdown renders the run's phase timings, which are what make a slow

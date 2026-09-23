@@ -76,6 +76,18 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 	// died in the scraper should still say how long it spent there. That is what
 	// makes "the scraper is slow" a measured claim rather than a guess.
 	defer func() {
+		// The freshness pass runs last and before the artifacts are written, so
+		// the rows it labels are the rows that get saved. Its own budget check
+		// means a run that spent everything still gets the offline half.
+		if chart != nil {
+			finishValidate := timer.start("validate")
+			report := ca.validateChart(ctx, sessionID, brief, chart, state, eventCh)
+			finishValidate(fmt.Sprintf("%d rows, %d lookups", report.RowsChecked, report.LookupsUsed))
+			if state != nil {
+				state.Validation = report
+			}
+			chart.Validation = report
+		}
 		timings := timer.results()
 		if state != nil {
 			state.Timings = timings
@@ -130,6 +142,10 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 			return nil, state, fmt.Errorf("no usable company evidence was collected")
 		}
 
+		// Date every source before synthesis: the model has to be able to prefer a
+		// 2025 filing over a 2020 one, and the validation pass reuses the same
+		// dates without another request.
+		annotateEvidenceDates(state.Evidence)
 		finishSynthesize := timer.start("synthesize")
 		chart, err = ca.synthesizeChart(ctx, brief, state.Evidence, state.SearchResults, sessionID, eventCh)
 		finishSynthesize(fmt.Sprintf("%d evidence items", len(state.Evidence)))
@@ -160,7 +176,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 
 func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.CompanyBrief, evidence []models.Evidence, results []models.SearchResult, sessionID string, eventCh chan<- models.AgentEvent) (*models.OrgChart, error) {
 	Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 8, Content: "Synthesizing the organization chart from selected evidence..."})
-	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string. Image metadata is supporting evidence; do not invent visual facts from image URLs. Include supported department leaders even when their exact title is not in the search query: consider functional variants such as Chief, C-level, President, Executive Vice President, Senior Vice President, Vice President, VP, Head, Director, and General Manager. Treat procurement, purchasing, strategic sourcing, supply chain, logistics, operations, marketing, brand, communications, growth, and digital marketing as relevant department functions. Conference speaker evidence may identify a person's company, function, and industry relevance, but conference participation alone does not prove that the person is a current executive; label or place such people conservatively unless current employment is corroborated. Profile candidates are snippets from professional networks: when one pairs a person's name with a functional title and the target company, or a related group entity, treat it as evidence of that person's function, list them in the matching department, and record which entity they belong to in their title. Promote a profile candidate into leadership only for board or C-level titles. Prefer listing a named profile candidate in a department over leaving that department empty. Every object in the departments array must use the shape {"name": "<function>", "head": "<optional person>", "description": "<optional summary>", "members": [{"name": "<person>", "title": "<their title>", "public_source": "<source url>"}]}. List every person you attribute to a function inside that function's members array, and never leave members empty when you have named a person for that function.`
+	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string. Image metadata is supporting evidence; do not invent visual facts from image URLs. Include supported department leaders even when their exact title is not in the search query: consider functional variants such as Chief, C-level, President, Executive Vice President, Senior Vice President, Vice President, VP, Head, Director, and General Manager. Treat procurement, purchasing, strategic sourcing, supply chain, logistics, operations, marketing, brand, communications, growth, and digital marketing as relevant department functions. Conference speaker evidence may identify a person's company, function, and industry relevance, but conference participation alone does not prove that the person is a current executive; label or place such people conservatively unless current employment is corroborated. Profile candidates are snippets from professional networks: when one pairs a person's name with a functional title and the target company, or a related group entity, treat it as evidence of that person's function, list them in the matching department, and record which entity they belong to in their title. Promote a profile candidate into leadership only for board or C-level titles. Prefer listing a named profile candidate in a department over leaving that department empty. Every object in the departments array must use the shape {"name": "<function>", "head": "<optional person>", "description": "<optional summary>", "members": [{"name": "<person>", "title": "<their title>", "public_source": "<source url>"}]}. List every person you attribute to a function inside that function's members array, and never leave members empty when you have named a person for that function. Every evidence item is stamped with the newest date its source proves (as of YYYY-MM-DD). Use those dates: when two sources disagree about a person's role, prefer the newer one, and do not present someone whose only sources are several years old as a current executive — either record their dated role or leave them out.`
 	var chart models.OrgChart
 	contextData := fmt.Sprintf("Research brief: %+v\n\nSearch snippets:\n%s\n\nSelected evidence:\n%s", brief, FormatSearchSnippets(results), formatEvidence(evidence))
 	if profiles := formatProfileCandidates(evidence); profiles != "" {
@@ -188,7 +204,7 @@ func (ca *CompanyAgent) reviewChart(ctx context.Context, brief models.CompanyBri
 	request := fmt.Sprintf("Brief:\n%+v\n\nDraft chart:\n%+v\n\nEvidence:\n%s", brief, *chart, formatEvidence(evidence))
 	llmCtx, cancel := context.WithTimeout(ctx, companyReviewTimeout)
 	defer cancel()
-	err := ca.engine.GenerateStructured(llmCtx, `Act as a strict research quality reviewer. Evaluate whether the draft answers the brief and whether claims are supported by the supplied evidence. Return JSON with verdict (pass or revise), score from 0 to 1, gaps, contradictions, unsupported_claims, reason, and at most four focused follow_up_queries. Use revise only for material gaps or contradictions. Never invent facts.`, request, &review)
+	err := ca.engine.GenerateStructured(llmCtx, `Act as a strict research quality reviewer. Evaluate whether the draft answers the brief and whether claims are supported by the supplied evidence. Return JSON with verdict (pass or revise), score from 0 to 1, gaps, contradictions, unsupported_claims, reason, and at most four focused follow_up_queries. Use revise only for material gaps or contradictions. Never invent facts. Evidence items are stamped with the date their source proves (as of YYYY-MM-DD), so also flag any person whose newest source is years old, and report as a contradiction when one title — for example Chief Financial Officer — is claimed by two different people.`, request, &review)
 	review.Verdict = strings.ToLower(strings.TrimSpace(review.Verdict))
 	if err != nil || review.Verdict == "" {
 		// Never report a failed or empty review as a passing one: doing so hides
@@ -334,13 +350,18 @@ func searchSnippetEvidence(ranked []models.RankedResult, results []models.Search
 		if !ok || strings.TrimSpace(result.Snippet) == "" {
 			continue
 		}
-		evidence = append(evidence, models.Evidence{
+		entry := models.Evidence{
 			URL:          result.Link,
 			Title:        result.Title,
 			Content:      result.Snippet,
 			Score:        item.Score * 0.75,
 			EvidenceType: "search_snippet",
-		})
+		}
+		if when, ok := searchResultDate(result); ok {
+			entry.AsOf = when
+			entry.DateSignal = dateSignalSearch
+		}
+		evidence = append(evidence, entry)
 	}
 	return evidence
 }
@@ -1115,11 +1136,17 @@ func (ca *CompanyAgent) evidenceWithOCR(ctx context.Context, item models.RankedR
 		EvidenceType: item.EvidenceType,
 		SourceType:   item.SourceType,
 		QualityScore: scrape.QualityScore,
+		LastModified: scrape.LastModified,
 	}
 	if evidence.URL == "" {
 		evidence.URL = item.URL
 	}
-	return evidence
+	// Dating here (rather than only in the later pass) means the person who
+	// reads the scrape report sees the same date the synthesiser does. The
+	// helper mutates through the slice, so the value is returned from it.
+	dated := []models.Evidence{evidence}
+	annotateEvidenceDates(dated)
+	return dated[0]
 }
 
 func appendUniqueScrapeReports(existing, additions []models.ScrapeReportEntry) []models.ScrapeReportEntry {
@@ -1187,7 +1214,7 @@ func snippetEvidenceForURL(item models.RankedResult, results []models.SearchResu
 		if normalizeURL(result.Link) != normalizeURL(item.URL) || strings.TrimSpace(result.Snippet) == "" {
 			continue
 		}
-		return &models.Evidence{
+		entry := models.Evidence{
 			URL:          result.Link,
 			Title:        result.Title,
 			Content:      result.Snippet,
@@ -1196,6 +1223,11 @@ func snippetEvidenceForURL(item models.RankedResult, results []models.SearchResu
 			SourceType:   item.SourceType,
 			QualityScore: 0.25,
 		}
+		if when, ok := searchResultDate(result); ok {
+			entry.AsOf = when
+			entry.DateSignal = dateSignalSearch
+		}
+		return &entry
 	}
 	return nil
 }
@@ -1303,7 +1335,11 @@ func rootHost(host string) string {
 func formatEvidence(evidence []models.Evidence) string {
 	var builder strings.Builder
 	for index, item := range evidence {
-		builder.WriteString(fmt.Sprintf("\n--- Evidence %d: %s (%s), score %.2f ---\n%s\n", index+1, item.Title, item.URL, item.Score, item.Content))
+		dated := ""
+		if !item.AsOf.IsZero() {
+			dated = fmt.Sprintf(", as of %s", item.AsOf.UTC().Format(asOfLayout))
+		}
+		builder.WriteString(fmt.Sprintf("\n--- Evidence %d: %s (%s), score %.2f%s ---\n%s\n", index+1, item.Title, item.URL, item.Score, dated, item.Content))
 		if len(item.Headings) > 0 {
 			builder.WriteString("Headings: ")
 			builder.WriteString(strings.Join(item.Headings, " | "))

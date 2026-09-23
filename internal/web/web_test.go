@@ -237,6 +237,14 @@ func TestCompanyChartCollapsesImagesAndScrapeReport(t *testing.T) {
 			{URL: "https://example.com/a", Status: "success"},
 			{URL: "https://example.com/b", Status: "failed", Reason: "403"},
 			{URL: "https://example.com/c", Status: "skipped"},
+			{
+				URL: "https://example.com/d", SourceType: "professional_profile", Status: "recovered",
+				WordCount: 120, HandlerStatus: "recovered", HandlerTactics: "cookie-render",
+			},
+			{
+				URL: "https://example.com/e", SourceType: "professional_profile", Status: "skipped",
+				HandlerStatus: "deferred", Reason: "public search snippet retained; the hard-URL handler could not recover the profile",
+			},
 		},
 	}
 
@@ -255,8 +263,43 @@ func TestCompanyChartCollapsesImagesAndScrapeReport(t *testing.T) {
 	if !strings.Contains(page, "Images from selected sources") || !strings.Contains(page, "(2)") {
 		t.Error("expected the image count in the disclosure label")
 	}
-	if !strings.Contains(page, "Scraping Report") || !strings.Contains(page, "(3 sources)") {
+	if !strings.Contains(page, "Scraping Report") || !strings.Contains(page, "(5 sources)") {
 		t.Error("expected the source count in the disclosure label")
+	}
+
+	// Every scrape-report row must render one cell per header column: the table
+	// used to declare five headers for six cells, which pushed the OCR and
+	// details diagnostics under the wrong headings.
+	tableStart := strings.Index(page, "Target URL")
+	if tableStart < 0 {
+		t.Fatal("expected the scrape report table header")
+	}
+	headerStart := strings.LastIndex(page[:tableStart], "<tr")
+	headerEnd := tableStart + strings.Index(page[tableStart:], "</tr>")
+	header := page[headerStart:headerEnd]
+	columns := strings.Count(header, "<th")
+	if columns != 6 {
+		t.Fatalf("expected six scrape-report columns, got %d in %q", columns, header)
+	}
+	table := page[tableStart:]
+	table = table[:strings.Index(table, "</table>")]
+	for _, row := range strings.Split(table, "<tr class=")[1:] {
+		if cells := strings.Count(row, "<td"); cells != columns {
+			t.Fatalf("scrape-report row renders %d cells but the header declares %d", cells, columns)
+		}
+	}
+
+	// The hard-URL ladder outcome must be visible: a deferred profile (out of
+	// budget or escalation slots) reads differently from a wall the ladder
+	// could not pass, and a recovered one names the step that worked.
+	if !strings.Contains(page, "&middot; ladder deferred") {
+		t.Error("expected the deferred ladder outcome in the scrape column")
+	}
+	if strings.Contains(page, "ladder recovered") {
+		t.Error("a recovered profile should not repeat its status as a ladder annotation")
+	}
+	if !strings.Contains(page, "Ladder: cookie-render") {
+		t.Error("expected the ladder tactic for a handler-recovered profile")
 	}
 
 	// Collapsing is visual only: the content must stay in the DOM.
@@ -329,5 +372,65 @@ func TestSourcesFooterCollapses(t *testing.T) {
 	answer := out.String()
 	if !strings.Contains(answer, "<summary") || !strings.Contains(answer, "(2)") {
 		t.Errorf("expected a collapsible source list on the answer, got %q", answer)
+	}
+}
+
+// TestCompanyChartShowsFreshness pins the console half: a row backed by a 2021
+// post must say so, and the panel must summarise the verdicts and conflicts.
+func TestCompanyChartShowsFreshness(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	chart := &models.OrgChart{
+		CompanyName: "KLJ Resources Limited",
+		Leadership: []models.Employee{{
+			Name: "Sanjiv Goyal", Title: "Chief Financial Officer",
+			AsOf: "2021-02-26", Verification: models.VerificationConflicting,
+			VerificationNote: `2 people claim the title "Chief Financial Officer": Suresh Chand Jalther, Sanjiv Goyal`,
+		}},
+		Departments: []models.Department{{
+			Name: "Procurement",
+			Members: []models.Employee{{
+				Name: "Rajesh Zaveri", Title: "Head Of Procurement",
+				AsOf: "2026-08-01", Verification: models.VerificationRecent,
+			}},
+		}},
+		Validation: &models.ValidationReport{
+			RowsChecked: 2, RowsRecent: 1, RowsStale: 1, LookupsUsed: 1,
+			Conflicts: []string{`2 people claim the title "Chief Financial Officer": Suresh Chand Jalther, Sanjiv Goyal`},
+			Lookups: []models.ValidationLookup{{
+				Person: "Sanjiv Goyal", Query: `"Sanjiv Goyal" "KLJ Resources Limited"`,
+				Status: "unchanged", Detail: "no dated mention in the results",
+			}},
+		},
+	}
+
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "company_chart", chart); err != nil {
+		t.Fatalf("execute company_chart: %v", err)
+	}
+	page := out.String()
+	for _, expected := range []string{
+		"Data Freshness",
+		"2021-02-26 · conflicting",
+		"verified-recent 1",
+		"stale 1",
+		`2 people claim the title`,
+		"2026-08-01",
+		"Reverse lookup",
+	} {
+		if !strings.Contains(page, expected) {
+			t.Errorf("console output is missing %q", expected)
+		}
+	}
+
+	// A chart from before the validation pass must not grow a new panel.
+	out.Reset()
+	if err := tmpl.ExecuteTemplate(&out, "company_chart", &models.OrgChart{CompanyName: "Acme"}); err != nil {
+		t.Fatalf("execute empty company_chart: %v", err)
+	}
+	if strings.Contains(out.String(), "Data Freshness") {
+		t.Error("a chart without a validation report must not render the panel")
 	}
 }

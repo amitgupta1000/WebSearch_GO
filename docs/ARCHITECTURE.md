@@ -421,10 +421,15 @@ so the result can answer post-run questions:
      failing on the deadline.
    - If the reviewer call fails or returns no verdict, the review is recorded as
      `unavailable` (score 0) and logged — never reported as a pass.
+7. **Validate (`validateChart`)** — the freshness pass described under
+   [Evidence freshness & validation](#evidence-freshness--validation). It runs on every
+   return path (success, budget exhaustion, and a partial chart) just before the
+   artifacts are written, so the labels and the reverse lookups are part of the saved
+   report. Its own budget check means an exhausted run still gets the offline half.
 
-`formatEvidence` renders the scraped pages as `--- Evidence N: title (url), score ---`
-blocks for the synthesis prompt, and `formatProfileCandidates` renders the
-snippet-sourced candidates.
+`formatEvidence` renders the scraped pages as `--- Evidence N: title (url), score, as
+of YYYY-MM-DD ---` blocks for the synthesis prompt, and `formatProfileCandidates`
+renders the snippet-sourced candidates.
 
 #### `person.go` — PersonAgent: disambiguation → footprint → dossier
 
@@ -897,8 +902,22 @@ and lets tests pass `nil` channels.
 | LLM attempts per call | `geminiMaxAttempts` | 3 (linear backoff) |
 | Concurrent browser renders | `maxConcurrentRenders` (semaphore) | 2 |
 | Failed scrape retention | `negativeScrapeTTL` | 15 min |
+| Reverse lookups per company run | `VALIDATION_LOOKUPS_PER_RUN` → `Engine.ValidationLookups` | 4 |
+| Min remaining budget for a reverse lookup | `minValidationBudget` | 15 s |
+| Per-lookup search timeout | `validationLookupTimeout` | 12 s |
+| Freshness windows | `VALIDATION_STALE_AFTER_MONTHS` / `VALIDATION_RECENT_WITHIN_MONTHS` | 36 / 18 months |
 | LLM temperature | `gemini.go` | 0.2 |
 | HTTP server timeouts | `main.go` (header/read/idle/write) | 10/30/90s / max(research, browser research)+30s |
+
+### Evidence freshness & validation
+
+Snippets and aggregator listings arrive undated, so a director appointed in 2020 and one appointed last month look identical to the synthesiser — which is how a five-year-old appointment notice became a "current" CFO. The pass that fixes this runs at the end of a company run, before the artifacts are written, in three parts:
+
+1. **Dating** (`internal/agent/evidence_dates.go`, no requests). Every source is stamped with the newest date it proves about its own content: the LinkedIn activity id's timestamp (`id >> 22` is epoch ms, which is what turns a profile URL into a dated citation), JSON-LD `datePublished`/`dateModified`, a date written into the URL or file name (`…1july2020.pdf`, `…_October 24_ 2025_…`, `/nov-dec_2023/`), and finally the response's `Last-Modified`. Content signals beat `Last-Modified`, because a re-uploaded 2020 filing is still a 2020 filing. Each stamp reaches the synthesiser as `as of YYYY-MM-DD` on the evidence item itself.
+2. **Assessment** (`internal/agent/validate.go`, no requests). Every leadership and department row is matched to the sources that support it — its recorded citation plus any evidence naming that person — and labelled `verified-recent` (a dated source inside the recent window from the company's own domain or two independent domains), `dated`, `stale`, `undated`, or `conflicting` when two people claim one title. Row metadata (`AsOf`, `Verification`, `VerifiedBy`, `VerificationNote`) is attached by the agent, never by the model.
+3. **Bounded reverse lookups.** Only the rows the assessment could not resolve get one snippet-only search — `"Name" "Company"` — capped by `VALIDATION_LOOKUPS_PER_RUN`, skipped when under `minValidationBudget` remains, and never fetched: the point is to find a *date*, and a LinkedIn result URL carries its own. A dated recent mention promotes the row; nothing is ever added to the roster from a lookup.
+
+The result renders as an `As of` column and a "Data freshness" section in the console, the Markdown and the PDF, including the conflicts and what each lookup changed. `OrgChart.UnverifiedSourceCount()` remains the separate measure of sources that could not be used at all.
 
 ### Error handling & resilience
 
@@ -919,6 +938,15 @@ and lets tests pass `nil` channels.
   re-attempt them.
 - **SSE:** buffered channel + history replay + drain-on-done ensure no event is
   lost to a late or reconnecting viewer (beyond the deliberate drop-on-overflow).
+- **Panic containment:** a panic while fetching a page fails that one URL (logged
+  with a stack, reported in the scrape report) instead of ending the process, and a
+  panic inside a background run completes that session with an error so the console
+  renders an error box. Both sit outside `net/http`'s per-request recovery, which is
+  why they need their own boundary; the test suite pins both with panicking doubles.
+- **Port collisions:** binding a busy port is fatal *by design* (`log.Fatalf`), but the
+  message names the cause (`... is already in use: another process ... is listening
+  there`) because the process otherwise prints its startup line and exits, which reads
+  like a crash. `scripts/dev.ps1` clears a stale instance off the port before every start.
 - **Shutdown:** in-flight research gets up to 30 s to finish on SIGTERM/SIGINT.
 
 ### Security posture

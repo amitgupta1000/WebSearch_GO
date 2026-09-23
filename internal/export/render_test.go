@@ -169,3 +169,81 @@ func TestSlugifyProducesPortableNames(t *testing.T) {
 		}
 	}
 }
+
+// TestArtifactsReportFreshness pins the output half of the validation pass: a
+// reader of the Markdown or the printed PDF must be able to see that a "current"
+// row rests on a five-year-old post, and that two people claim one title.
+func TestArtifactsReportFreshness(t *testing.T) {
+	chart := sampleChart()
+	chart.Leadership[0].AsOf = "2021-02-26"
+	chart.Leadership[0].Verification = models.VerificationStale
+	chart.Leadership[0].VerificationNote = `2 people claim the title "Chief Financial Officer": Asha Rao, Sanjiv Goyal`
+	chart.Leadership = append(chart.Leadership, models.Employee{
+		Name: "Sanjiv Goyal", Title: "Chief Financial Officer",
+		AsOf: "2021-02-26", Verification: models.VerificationConflicting,
+	})
+	chart.Departments[0].Members[0].AsOf = "2026-08-01"
+	chart.Departments[0].Members[0].Verification = models.VerificationRecent
+	chart.Validation = &models.ValidationReport{
+		RowsChecked: 3, RowsRecent: 1, RowsDated: 0, RowsStale: 2, RowsUndated: 0,
+		LookupsUsed: 1,
+		Conflicts:   []string{`2 people claim the title "Chief Financial Officer": Asha Rao, Sanjiv Goyal`},
+		Lookups: []models.ValidationLookup{{
+			Person: "Sanjiv Goyal", Query: `"Sanjiv Goyal" "KLJ Resources Limited"`,
+			Status: "promoted", AsOf: "2026-08-01", Source: "https://example.com/2026",
+		}},
+	}
+
+	markdown := renderCompanyMarkdown(chart)
+	for _, expected := range []string{
+		"| Name | Title | Location | As of | Public source |",
+		"2021-02-26 · stale",
+		"## Data freshness",
+		"| verified-recent | 1 |",
+		"| stale | 2 |",
+		"**Conflicting title:**",
+		"| Sanjiv Goyal |",
+		"promoted",
+		// The date's provenance has to travel with it.
+		"2026-08-01 · <https://example.com/2026>",
+		"as of 2026-08-01 · verified-recent",
+		"not proof of current employment",
+	} {
+		if !strings.Contains(markdown, expected) {
+			t.Errorf("markdown is missing %q", expected)
+		}
+	}
+
+	document := renderCompanyHTML(chart)
+	for _, expected := range []string{
+		"<th>As of</th>",
+		"2021-02-26 · stale",
+		"Data freshness",
+		"Conflicting title:",
+		"promoted",
+		"verified-recent",
+	} {
+		if !strings.Contains(document, expected) {
+			t.Errorf("HTML is missing %q", expected)
+		}
+	}
+}
+
+// TestArtifactsOmitFreshnessWithoutAReport keeps older charts byte-compatible:
+// no validation pass means no new columns or sections.
+func TestArtifactsOmitFreshnessWithoutAReport(t *testing.T) {
+	markdown := renderCompanyMarkdown(sampleChart())
+	if strings.Contains(markdown, "Data freshness") {
+		t.Error("a chart without a validation report must not gain a freshness section")
+	}
+	if !strings.Contains(markdown, "| Name | Title | Location | As of | Public source |") {
+		t.Error("the As-of column stays in the header; only its values are empty")
+	}
+	if strings.Contains(markdown, "· stale") || strings.Contains(markdown, "· undated") {
+		t.Error("a chart with no labels must not claim any")
+	}
+	document := renderCompanyHTML(sampleChart())
+	if strings.Contains(document, "Data freshness") {
+		t.Error("a chart without a validation report must not gain a freshness section")
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +53,18 @@ const (
 	negativeScrapeTTL = 15 * time.Minute
 	// defaultMaxScrapesPerResearch is the default cap on page scrapes per run.
 	defaultMaxScrapesPerResearch = 10
+	// defaultValidationLookups caps the reverse searches the freshness pass may
+	// run per company run. Each lookup is one snippet-only search (no fetch, no
+	// browser), so the cap is about how many rows are worth re-checking rather
+	// than about cost.
+	defaultValidationLookups = 4
+	// defaultValidationStaleAfter and defaultValidationRecentWithin are the
+	// freshness windows, expressed in months and converted to durations of 30
+	// days: a source older than the stale window is reported as stale, and a
+	// source inside the recent window from a company-owned site or two
+	// independent domains counts as verified-recent.
+	defaultValidationStaleAfterMonths   = 36
+	defaultValidationRecentWithinMonths = 18
 	// defaultMaxSearchResults is the default cap on search results returned per query.
 	defaultMaxSearchResults = 12
 	// defaultMaxSteps is the default cap on agent/tool iterations per run.
@@ -93,6 +106,13 @@ type Engine struct {
 	// step caps.
 	hardURLsPerRun int
 	hardURLBudget  time.Duration
+	// validateEvidence turns on the freshness pass over a finished chart, and the
+	// three fields below bound and time-box it: how many reverse lookups a run
+	// may spend, the age that counts as stale, and the age that counts as recent.
+	validateEvidence       bool
+	validationLookups      int
+	validationStaleAfter   time.Duration
+	validationRecentWithin time.Duration
 }
 
 // EngineOption customizes an Engine after its required dependencies are set.
@@ -157,18 +177,22 @@ func NewEngine(
 		maxSteps = defaultMaxSteps
 	}
 	engine := &Engine{
-		llmClient:             llmClient,
-		serperClient:          serperClient,
-		scraper:               scraper,
-		cache:                 store,
-		maxScrapesPerResearch: maxScrapes,
-		maxSearchResults:      maxSearchResults,
-		maxSteps:              maxSteps,
-		scrapeConcurrency:     defaultScrapeConcurrency,
-		scrapeRevalidateAfter: defaultScrapeRevalidateAfter,
-		hardURLsEnabled:       true,
-		hardURLsPerRun:        defaultHardURLsPerRun,
-		hardURLBudget:         defaultHardURLBudget(),
+		llmClient:              llmClient,
+		serperClient:           serperClient,
+		scraper:                scraper,
+		cache:                  store,
+		maxScrapesPerResearch:  maxScrapes,
+		maxSearchResults:       maxSearchResults,
+		maxSteps:               maxSteps,
+		scrapeConcurrency:      defaultScrapeConcurrency,
+		scrapeRevalidateAfter:  defaultScrapeRevalidateAfter,
+		hardURLsEnabled:        true,
+		hardURLsPerRun:         defaultHardURLsPerRun,
+		hardURLBudget:          defaultHardURLBudget(),
+		validateEvidence:       true,
+		validationLookups:      defaultValidationLookups,
+		validationStaleAfter:   months(defaultValidationStaleAfterMonths),
+		validationRecentWithin: months(defaultValidationRecentWithinMonths),
 	}
 	for _, opt := range opts {
 		opt(engine)
@@ -229,6 +253,65 @@ func WithHardURLLimits(perRun int, budget time.Duration) EngineOption {
 			e.hardURLBudget = budget
 		}
 	}
+}
+
+// WithValidation configures the freshness pass over a finished chart. lookups
+// caps the reverse searches, and the two month windows decide when a row counts
+// as current or stale. Zero or negative values keep the defaults.
+func WithValidation(enabled bool, lookups, staleAfterMonths, recentWithinMonths int) EngineOption {
+	return func(e *Engine) {
+		e.validateEvidence = enabled
+		if lookups >= 0 {
+			e.validationLookups = lookups
+		}
+		if staleAfterMonths > 0 {
+			e.validationStaleAfter = months(staleAfterMonths)
+		}
+		if recentWithinMonths > 0 {
+			e.validationRecentWithin = months(recentWithinMonths)
+		}
+	}
+}
+
+// months converts a month count into a duration, using 30-day months. The
+// windows are coarse by nature — a person row is either backed by something
+// recent or it is not — so calendar exactness would add nothing.
+func months(count int) time.Duration {
+	return time.Duration(count) * 30 * 24 * time.Hour
+}
+
+// ValidationEnabled reports whether the freshness pass runs.
+func (e *Engine) ValidationEnabled() bool {
+	if e == nil {
+		return false
+	}
+	return e.validateEvidence
+}
+
+// ValidationLookups returns how many reverse lookups one run may spend.
+func (e *Engine) ValidationLookups() int {
+	if e == nil || e.validationLookups < 0 {
+		return defaultValidationLookups
+	}
+	return e.validationLookups
+}
+
+// ValidationStaleAfter returns the age beyond which a row's newest source counts
+// as stale.
+func (e *Engine) ValidationStaleAfter() time.Duration {
+	if e == nil || e.validationStaleAfter <= 0 {
+		return months(defaultValidationStaleAfterMonths)
+	}
+	return e.validationStaleAfter
+}
+
+// ValidationRecentWithin returns the age inside which a corroborated source
+// counts as current.
+func (e *Engine) ValidationRecentWithin() time.Duration {
+	if e == nil || e.validationRecentWithin <= 0 {
+		return months(defaultValidationRecentWithinMonths)
+	}
+	return e.validationRecentWithin
 }
 
 // MaxScrapes returns the maximum number of URLs to scrape during a research run.
@@ -341,6 +424,17 @@ func (e *Engine) ScrapeCachedBatch(ctx context.Context, targetURLs []string) []S
 			defer waitGroup.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
+			// A panic in the fetch layer (a browser/driver fault, a malformed
+			// page) must fail this one URL, not the whole process: this
+			// goroutine is outside net/http's per-request recovery, so an
+			// unhandled panic here takes the server down with it.
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					log.Printf("[ERROR] scrape worker panicked for %s: %v\n%s", targetURL, recovered, debug.Stack())
+					outcomes[index].URL = targetURL
+					outcomes[index].Err = fmt.Errorf("scrape panicked: %v", recovered)
+				}
+			}()
 			result, err := e.ScrapeCached(ctx, targetURL)
 			outcomes[index].Result = result
 			outcomes[index].Err = err

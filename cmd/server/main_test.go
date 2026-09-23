@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/agent"
@@ -253,5 +255,32 @@ func TestDocumentTextExtractorReportsBothFailures(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should mention %q, got %v", want, err)
 		}
+	}
+}
+
+// TestIsAddrInUseClassifiesPortCollisions pins the message that keeps a port
+// collision from reading like a crash: the process exits immediately after
+// printing its startup line, so the fatal line has to name the cause.
+func TestIsAddrInUseClassifiesPortCollisions(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"wrapped syscall errno", fmt.Errorf("listen tcp :8080: bind: %w", syscall.EADDRINUSE), true},
+		{
+			"windows winsock text",
+			errors.New("listen tcp :8080: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted."),
+			true,
+		},
+		{"posix text", errors.New("listen tcp :8080: bind: address already in use"), true},
+		{"unrelated failure", errors.New("listen tcp: lookup localhost: no such host"), false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := isAddrInUse(testCase.err); got != testCase.want {
+				t.Fatalf("isAddrInUse(%v) = %t, want %t", testCase.err, got, testCase.want)
+			}
+		})
 	}
 }

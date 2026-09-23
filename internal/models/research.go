@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ResearchPreferences captures scope that can be reused by company and person research.
@@ -61,7 +62,65 @@ type Evidence struct {
 	EvidenceType string   `json:"evidence_type"`
 	SourceType   string   `json:"source_type,omitempty"`
 	QualityScore float64  `json:"quality_score,omitempty"`
+	// AsOf is the newest date this source itself proves about its content, and
+	// DateSignal names where that date came from (linkedin-activity, json-ld,
+	// last-modified, url, content). A zero AsOf means the source carries no
+	// date at all — which for an aggregator listing is the normal case, and is
+	// exactly what makes a stale person indistinguishable from a current one
+	// unless the date is recorded here.
+	// LastModified is the response validator the fetch path recorded. It is kept
+	// only so the dating pass can fall back to it when a document carries no
+	// date of its own.
+	LastModified string    `json:"last_modified,omitempty"`
+	AsOf         time.Time `json:"as_of,omitempty"`
+	DateSignal   string    `json:"date_signal,omitempty"`
 }
+
+// ValidationLookup records one bounded reverse-search check of a person row.
+type ValidationLookup struct {
+	Person string `json:"person"`
+	Query  string `json:"query"`
+	// Status is promoted, unchanged, no-results, skipped or error.
+	Status string `json:"status"`
+	// AsOf is the newest dated mention the lookup found, and Source the URL it
+	// came from. Both are empty when nothing dated was found.
+	AsOf   string `json:"as_of,omitempty"`
+	Source string `json:"source,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// ValidationReport summarises the freshness pass over a finished chart: what
+// each person row is backed by, and what the bounded reverse lookups changed.
+// It is attached by the agent (never model output), like ScrapeReport.
+type ValidationReport struct {
+	Lookups     []ValidationLookup `json:"lookups,omitempty"`
+	LookupsUsed int                `json:"lookups_used"`
+	RowsChecked int                `json:"rows_checked"`
+	RowsRecent  int                `json:"rows_recent"`
+	RowsDated   int                `json:"rows_dated"`
+	RowsStale   int                `json:"rows_stale"`
+	RowsUndated int                `json:"rows_undated"`
+	Conflicts   []string           `json:"conflicts,omitempty"`
+	// Skipped names why no reverse lookups ran (validation disabled, out of
+	// budget, or nothing needed checking).
+	Skipped string `json:"skipped,omitempty"`
+}
+
+// Verification verdicts attached to a person row.
+const (
+	// VerificationRecent means a dated source within the recent window from a
+	// company-owned site or at least two independent domains.
+	VerificationRecent = "verified-recent"
+	// VerificationDated means a dated source exists but it is neither recent nor
+	// corroborated enough to call current.
+	VerificationDated = "dated"
+	// VerificationStale means the newest source is older than the stale window.
+	VerificationStale = "stale"
+	// VerificationConflicting means another person claims the same title.
+	VerificationConflicting = "conflicting"
+	// VerificationUndated means no source carried a date at all.
+	VerificationUndated = "undated"
+)
 
 // ScrapeReportEntry records the outcome of attempting to use one target URL.
 type ScrapeReportEntry struct {
@@ -159,6 +218,8 @@ type CompanyResearchContext struct {
 	ScrapeReport  []ScrapeReportEntry
 	Reviews       []QualityReview
 	Iteration     int
+	// Validation is the freshness pass over the finished chart.
+	Validation *ValidationReport
 	// Timings is the per-phase breakdown of the run, in completion order.
 	Timings []PhaseTiming
 }

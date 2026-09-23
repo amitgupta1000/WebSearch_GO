@@ -51,7 +51,21 @@ For Windows development, run the auto-reloading server instead:
 
 It watches Go and embedded template files under `cmd` and `internal`, then
 restarts `go run ./cmd/server` after changes. The same watcher is available in
-VS Code as the `Go: Watch Server` task.
+VS Code as the `Go: Watch Server` task. Because it restarts on *every* change, a
+running research or question is cut off when you save a file — let a run finish,
+or expect it to start over.
+
+If the server exits immediately after printing its startup line, the port is
+almost always taken by a previous instance:
+
+```
+Server failed: listen tcp :8080: bind: Only one usage of each socket address ...
+[FATAL] :8080 is already in use: another process (often a previous instance) is listening there.
+```
+
+`dev.ps1` now clears a stale server off the port before each start and reports a
+dead child instead of staying silently down; to run a second instance side by
+side, give it a free `PORT`.
 
 Research events are also printed in the terminal with `[AGENT]` prefixes. The
 browser at `http://localhost:8080` remains the full results view, including the
@@ -117,6 +131,10 @@ and final result summary.
 | `HARD_URL_HANDLER` | `true` | Escalate blocked pages and professional profiles to the bounded hard-URL handler (plain render → cookie-bridged render → extended settle) |
 | `HARD_URLS_PER_RUN` | `2` | Hard cap on how many URLs one run may escalate. Raise it for profile-heavy briefs, but remember each escalation can take up to `HARD_URL_BUDGET_SECONDS` |
 | `HARD_URL_BUDGET_SECONDS` | derived | Budget for the whole ladder on one URL. `0` derives it from the ladder's own step caps (15 s + 15 s + 20 s + margin), so the extended-settle step can never be clipped |
+| `VALIDATE_EVIDENCE` | `true` | Date and label every person row from the sources behind it (`verified-recent` / `dated` / `stale` / `undated` / `conflicting`) and allow bounded reverse lookups. The offline half costs nothing; `0` keeps the labels and spends no searches |
+| `VALIDATION_LOOKUPS_PER_RUN` | `4` | Cap on reverse lookups — `"Name" "Company"`, snippet-only, never fetched — for rows the pass could not date or corroborate. `0` disables the lookups but keeps the labels |
+| `VALIDATION_STALE_AFTER_MONTHS` | `36` | Age at which a row's newest source is reported as `stale` |
+| `VALIDATION_RECENT_WITHIN_MONTHS` | `18` | Age inside which a dated source from the company's own domain, or from two independent domains, counts as `verified-recent` |
 | `CACHE_BACKEND` | `memory` | Where cached searches and scraped pages live: `memory`, `redis` or `gcs` |
 | `REDIS_URL` | — | Redis connection URL (`redis://` / `rediss://`). Takes precedence over the split settings below |
 | `REDIS_HOST` | — | Redis host; with `REDIS_PORT` / `REDIS_PASSWORD` it is assembled into a connection URL when `REDIS_URL` is unset |

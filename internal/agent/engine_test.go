@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
@@ -80,6 +81,37 @@ type failingScraper struct {
 func (s *failingScraper) ScrapeURL(context.Context, string) (*models.ScrapeResult, error) {
 	s.calls++
 	return nil, s.err
+}
+
+// panickingScraper panics inside the fetch, the way a browser-layer fault does:
+// on a worker goroutine the engine started, where net/http cannot recover it.
+type panickingScraper struct{}
+
+func (panickingScraper) ScrapeURL(context.Context, string) (*models.ScrapeResult, error) {
+	panic("browser layer fault")
+}
+
+// TestScrapeCachedBatchContainsWorkerPanics pins the containment guarantee: a
+// panic while fetching one URL must fail that URL only. Without the recovery in
+// the worker this test cannot even report a failure — the test binary dies with
+// the panic, exactly as the server used to.
+func TestScrapeCachedBatchContainsWorkerPanics(t *testing.T) {
+	cacheStore := cache.NewMemoryCache(100)
+	defer cacheStore.Close()
+
+	eng := NewEngine(&mockLLM{}, &mockSearcher{}, panickingScraper{}, cacheStore, 4, 3, 10)
+	outcomes := eng.ScrapeCachedBatch(context.Background(), []string{"https://a.example", "https://b.example"})
+	if len(outcomes) != 2 {
+		t.Fatalf("expected one outcome per URL, got %d", len(outcomes))
+	}
+	for _, outcome := range outcomes {
+		if outcome.Err == nil {
+			t.Fatalf("expected a failed outcome for %s, got %+v", outcome.URL, outcome)
+		}
+		if !strings.Contains(outcome.Err.Error(), "scrape panicked") {
+			t.Fatalf("expected the panic to be reported as a scrape failure, got %v", outcome.Err)
+		}
+	}
 }
 
 func TestScrapeCachedRemembersFailures(t *testing.T) {

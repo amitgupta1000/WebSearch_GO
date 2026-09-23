@@ -24,8 +24,12 @@ type OrgChart struct {
 	// console can show where the run's time went. It is never model output.
 	Timings []PhaseTiming `json:"timings,omitempty"`
 	// Exports lists the output files written for this run (Markdown and PDF).
-	Exports     []ExportArtifact `json:"exports,omitempty"`
-	LastUpdated time.Time        `json:"last_updated"`
+	Exports []ExportArtifact `json:"exports,omitempty"`
+	// Validation is the freshness pass over the roster: per-row dates and
+	// verdicts, plus what the bounded reverse lookups changed. Attached by the
+	// agent like ScrapeReport and Timings.
+	Validation  *ValidationReport `json:"validation,omitempty"`
+	LastUpdated time.Time         `json:"last_updated"`
 }
 
 // TimingTotalMillis is the summed duration of every recorded phase, used for the
@@ -93,6 +97,40 @@ func (chart *OrgChart) applyAlternateOrgChart(raw json.RawMessage) {
 	}
 }
 
+// Freshness renders a person's date and verdict as one cell value, for example
+// "2021-02-26 · stale" or "— · undated". It returns an empty string when the row
+// carries no freshness information, so charts from before the validation pass
+// render exactly as they did.
+func (person Employee) Freshness() string {
+	date := strings.TrimSpace(person.AsOf)
+	verdict := strings.TrimSpace(person.Verification)
+	switch {
+	case date == "" && verdict == "":
+		return ""
+	case date == "":
+		return "— · " + verdict
+	case verdict == "":
+		return date
+	default:
+		return date + " · " + verdict
+	}
+}
+
+// FreshnessNote renders a person's freshness for prose.
+func (person Employee) FreshnessNote() string {
+	date := strings.TrimSpace(person.AsOf)
+	verdict := strings.TrimSpace(person.Verification)
+	switch {
+	case date != "" && verdict != "":
+		return fmt.Sprintf("as of %s · %s", date, verdict)
+	case verdict != "":
+		return verdict
+	case date != "":
+		return "as of " + date
+	}
+	return ""
+}
+
 // UnverifiedSourceCount reports how many collected sources could not be used as
 // evidence: policy-skipped profiles, blocked pages, and failed or empty scrapes.
 // It lets the console distinguish "this function has no staff" from "we could not
@@ -153,6 +191,14 @@ type Employee struct {
 	PublicSource string   `json:"public_source,omitempty"`
 	ReportsTo    string   `json:"reports_to,omitempty"`
 	Tags         []string `json:"tags,omitempty"`
+	// AsOf is the newest date behind this row (YYYY-MM-DD), Verification is the
+	// freshness verdict the validation pass reached, VerifiedBy lists the sources
+	// behind it and VerificationNote explains a conflict. All four are attached
+	// by the agent, never by the model.
+	AsOf             string   `json:"as_of,omitempty"`
+	Verification     string   `json:"verification,omitempty"`
+	VerifiedBy       []string `json:"verified_by,omitempty"`
+	VerificationNote string   `json:"verification_note,omitempty"`
 }
 
 // Location represents an office or regional operational hub.

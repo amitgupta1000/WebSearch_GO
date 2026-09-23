@@ -139,8 +139,8 @@ var companyHTMLTemplate = documentTemplate("company", `
 {{if .Chart.Overview}}<section><h2>Overview</h2><p>{{.Chart.Overview}}</p></section>{{end}}
 {{if .Chart.Leadership}}<section>
 	<h2>Executive Leadership</h2>
-	<table><thead><tr><th>Name</th><th>Title</th><th>Location</th><th>Public source</th></tr></thead><tbody>
-	{{range .Chart.Leadership}}<tr><td>{{.Name}}</td><td>{{.Title}}</td><td>{{.Location}}</td><td class="src">{{.PublicSource}}</td></tr>{{end}}
+	<table><thead><tr><th>Name</th><th>Title</th><th>Location</th><th>As of</th><th>Public source</th></tr></thead><tbody>
+	{{range .Chart.Leadership}}<tr><td>{{.Name}}</td><td>{{.Title}}</td><td>{{.Location}}</td><td>{{.Freshness}}</td><td class="src">{{.PublicSource}}</td></tr>{{end}}
 	</tbody></table>
 </section>{{end}}
 {{if .Chart.Departments}}<section>
@@ -150,7 +150,7 @@ var companyHTMLTemplate = documentTemplate("company", `
 		<h3>{{.Name}}</h3>
 		{{if .Head}}<p class="head">Head: {{.Head}}</p>{{end}}
 		{{if .Description}}<p>{{.Description}}</p>{{end}}
-		{{if .Members}}<ul>{{range .Members}}<li><strong>{{.Name}}</strong>{{if .Title}} &mdash; {{.Title}}{{end}}{{if .Location}} <span class="dim">({{.Location}})</span>{{end}}</li>{{end}}</ul>
+		{{if .Members}}<ul>{{range .Members}}<li><strong>{{.Name}}</strong>{{if .Title}} &mdash; {{.Title}}{{end}}{{if .Location}} <span class="dim">({{.Location}})</span>{{end}}{{if .FreshnessNote}} <span class="dim">&middot; {{.FreshnessNote}}</span>{{end}}</li>{{end}}</ul>
 		{{else}}<p class="dim">No named contacts found for this function.</p>{{end}}
 	</div>
 	{{end}}
@@ -160,6 +160,21 @@ var companyHTMLTemplate = documentTemplate("company", `
 	<table><thead><tr><th>City</th><th>Country</th><th>Address</th><th>Est. headcount</th></tr></thead><tbody>
 	{{range .Chart.Locations}}<tr><td>{{.City}}</td><td>{{.Country}}</td><td>{{.Address}}</td><td>{{.HeadcountEst}}</td></tr>{{end}}
 	</tbody></table>
+</section>{{end}}
+{{if .Chart.Validation}}<section>
+	<h2>Data freshness</h2>
+	<p class="dim">Verdicts come from the newest dated source behind each row: verified-recent means a source inside the recent window from the company's own site or from two independent domains. A dated row is a statement about the evidence, not proof of current employment.</p>
+	<table><thead><tr><th>Verdict</th><th>Rows</th></tr></thead><tbody>
+	<tr><td>verified-recent</td><td>{{.Chart.Validation.RowsRecent}}</td></tr>
+	<tr><td>dated</td><td>{{.Chart.Validation.RowsDated}}</td></tr>
+	<tr><td>stale</td><td>{{.Chart.Validation.RowsStale}}</td></tr>
+	<tr><td>undated</td><td>{{.Chart.Validation.RowsUndated}}</td></tr>
+	</tbody></table>
+	{{if .Chart.Validation.Conflicts}}<ul>{{range .Chart.Validation.Conflicts}}<li><strong>Conflicting title:</strong> {{.}}</li>{{end}}</ul>{{end}}
+	{{if .Chart.Validation.Lookups}}<table><thead><tr><th>Person</th><th>Reverse lookup</th><th>Outcome</th><th>Newest mention</th><th>Source</th></tr></thead><tbody>
+	{{range .Chart.Validation.Lookups}}<tr><td>{{.Person}}</td><td class="src">{{.Query}}</td><td>{{.Status}}</td><td>{{.AsOf}}</td><td class="src">{{.Source}}</td></tr>{{end}}
+	</tbody></table>{{end}}
+	{{if .Chart.Validation.Skipped}}<p class="dim">Reverse lookups: {{.Chart.Validation.Skipped}}.</p>{{end}}
 </section>{{end}}
 {{if .Timings}}<section>
 	<h2>Run timings</h2>

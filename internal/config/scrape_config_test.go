@@ -265,3 +265,35 @@ func TestOutputArtifactSettingsAreOverridable(t *testing.T) {
 		t.Errorf("cache settings = %q / %q", cfg.GCSCacheBucket, cfg.GCSCachePrefix)
 	}
 }
+
+func TestValidationSettingsDefaultsAndOverrides(t *testing.T) {
+	cfg := Load()
+	if !cfg.ValidateEvidence {
+		t.Error("validation should be on by default: the offline half costs nothing")
+	}
+	if cfg.ValidationLookups != defaultValidationLookups {
+		t.Errorf("ValidationLookups = %d, want %d", cfg.ValidationLookups, defaultValidationLookups)
+	}
+	if cfg.ValidationStaleMonths != defaultValidationStaleMonths {
+		t.Errorf("ValidationStaleMonths = %d, want %d", cfg.ValidationStaleMonths, defaultValidationStaleMonths)
+	}
+	if cfg.ValidationRecentMonths != defaultValidationRecentMonths {
+		t.Errorf("ValidationRecentMonths = %d, want %d", cfg.ValidationRecentMonths, defaultValidationRecentMonths)
+	}
+
+	t.Setenv("VALIDATE_EVIDENCE", "0")
+	t.Setenv("VALIDATION_LOOKUPS_PER_RUN", "7")
+	t.Setenv("VALIDATION_STALE_AFTER_MONTHS", "48")
+	t.Setenv("VALIDATION_RECENT_WITHIN_MONTHS", "12")
+
+	overridden := Load()
+	if overridden.ValidateEvidence {
+		t.Error("VALIDATE_EVIDENCE=0 must disable the pass")
+	}
+	if overridden.ValidationLookups != 7 {
+		t.Errorf("ValidationLookups = %d, want 7", overridden.ValidationLookups)
+	}
+	if overridden.ValidationStaleMonths != 48 || overridden.ValidationRecentMonths != 12 {
+		t.Errorf("windows = %d/%d, want 48/12", overridden.ValidationStaleMonths, overridden.ValidationRecentMonths)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -96,6 +97,7 @@ func main() {
 		agent.WithScrapeConcurrency(cfg.ScrapeConcurrency),
 		agent.WithScrapeRevalidation(cfg.ScrapeRevalidateAfter),
 		agent.WithHardURLLimits(cfg.HardURLsPerRun, cfg.HardURLBudget),
+		agent.WithValidation(cfg.ValidateEvidence, cfg.ValidationLookups, cfg.ValidationStaleMonths, cfg.ValidationRecentMonths),
 	}
 	// Finished runs are written to the configured destination as Markdown and PDF.
 	// A nil exporter simply means the runs are not saved.
@@ -107,6 +109,8 @@ func main() {
 	// The bounded hard-URL ladder is on by default; HARD_URL_HANDLER=0 disables it,
 	// and a missing Chromium makes it report itself unavailable instead.
 	eng.SetHardURLHandler(cfg.HardURLHandler)
+	log.Printf("Evidence validation: %t (up to %d reverse lookups, stale after %d months, recent within %d months)",
+		cfg.ValidateEvidence, cfg.ValidationLookups, cfg.ValidationStaleMonths, cfg.ValidationRecentMonths)
 	compAgent := agent.NewCompanyAgent(eng)
 	persAgent := agent.NewPersonAgent(eng)
 	sessionHub := agent.NewSessionHub()
@@ -166,6 +170,9 @@ func main() {
 	go func() {
 		log.Printf("🚀 WebSearch_GO server starting on http://localhost%s", httpServer.Addr)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if isAddrInUse(err) {
+				log.Fatalf("Server failed: %v\n[FATAL] %s is already in use: another process (often a previous instance) is listening there. Stop it, or start this one with a free PORT.", err, httpServer.Addr)
+			}
 			log.Fatalf("Server failed: %v", err)
 		}
 	}()
@@ -328,6 +335,15 @@ func (s *Server) startRun(w http.ResponseWriter, sessionID, mode, query, personC
 	timeout := s.cfg.ResearchTimeoutFor(browserEnabled)
 
 	go func() {
+		// An async run sits outside net/http's per-request panic recovery, so a
+		// panic anywhere in the agent would end the whole process. Report it as a
+		// failed session instead, which the console renders as an error box.
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("[ERROR][session %s] research panicked: %v\n%s", sessionID, recovered, debug.Stack())
+				session.Complete(nil, fmt.Errorf("research panicked: %v", recovered))
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		ctx = withBrowserOverride(ctx, browserEnabled, browserExplicit)
@@ -576,6 +592,19 @@ func securityHeaders(next http.Handler) http.Handler {
 				"connect-src 'self'; img-src 'self' data: https: http:")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isAddrInUse reports whether a listen failure was a port collision. It matters
+// because that exit is immediate: the process prints its startup line, cannot
+// bind and dies, which reads like a crash when the cause is simply another
+// instance holding the port.
+func isAddrInUse(err error) bool {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "address already in use") ||
+		strings.Contains(message, "only one usage of each socket address")
 }
 
 // newSessionID returns a random session identifier that is safe under concurrency.

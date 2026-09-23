@@ -88,6 +88,17 @@ type Config struct {
 	// HardURLBudget bounds the whole ladder for one URL. Zero derives it from the
 	// ladder's own step caps.
 	HardURLBudget time.Duration
+	// ValidateEvidence turns on the freshness pass over a finished chart: every
+	// person row is dated and labelled, and unresolved rows may get one bounded
+	// reverse search each.
+	ValidateEvidence bool
+	// ValidationLookups caps the reverse searches one run may spend.
+	ValidationLookups int
+	// ValidationStaleMonths is the age at which a row's newest source counts as
+	// stale; ValidationRecentMonths is the age inside which a corroborated source
+	// counts as current.
+	ValidationStaleMonths  int
+	ValidationRecentMonths int
 }
 
 const (
@@ -103,11 +114,18 @@ const (
 	defaultOutputPrefix   = "WebSearch_GO/"
 	defaultOutputFormats  = "md,pdf"
 	// defaultHardURLsPerRun mirrors the agent's own default for the hard-URL ladder.
-	defaultHardURLsPerRun        = 2
-	defaultScrapeConcurrency     = 4
-	defaultScrapeHostRate        = 2
-	defaultScrapeHostBurst       = 3
-	defaultScrapeHostConcurrency = 2
+	defaultHardURLsPerRun = 2
+	// defaultValidationLookups, defaultValidationStaleMonths and
+	// defaultValidationRecentMonths mirror the agent's defaults for the freshness
+	// pass: four reverse lookups per run, stale beyond 36 months, current inside
+	// 18 months.
+	defaultValidationLookups      = 4
+	defaultValidationStaleMonths  = 36
+	defaultValidationRecentMonths = 18
+	defaultScrapeConcurrency      = 4
+	defaultScrapeHostRate         = 2
+	defaultScrapeHostBurst        = 3
+	defaultScrapeHostConcurrency  = 2
 	// defaultScrapeRevalidateAfter is how long a cached page is served without a
 	// freshness check.
 	defaultScrapeRevalidateAfter = 24 * time.Hour
@@ -189,6 +207,11 @@ func Load() *Config {
 		HardURLHandler: envBool("HARD_URL_HANDLER", true),
 		HardURLsPerRun: envInt("HARD_URLS_PER_RUN", defaultHardURLsPerRun),
 		HardURLBudget:  time.Duration(envInt("HARD_URL_BUDGET_SECONDS", 0)) * time.Second,
+
+		ValidateEvidence:       envBool("VALIDATE_EVIDENCE", true),
+		ValidationLookups:      envInt("VALIDATION_LOOKUPS_PER_RUN", defaultValidationLookups),
+		ValidationStaleMonths:  envInt("VALIDATION_STALE_AFTER_MONTHS", defaultValidationStaleMonths),
+		ValidationRecentMonths: envInt("VALIDATION_RECENT_WITHIN_MONTHS", defaultValidationRecentMonths),
 	}
 }
 

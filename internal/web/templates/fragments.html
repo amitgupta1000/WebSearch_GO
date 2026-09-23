@@ -122,12 +122,45 @@
 					</form>
 				</div>
 				<div class="text-xs text-indigo-400">{{.Title}}</div>
+				{{if .Freshness}}<div class="text-[11px] text-slate-500 mt-0.5">{{.Freshness}}{{if .VerificationNote}} &middot; {{.VerificationNote}}{{end}}</div>{{end}}
 				<div class="text-xs text-slate-500 mt-1">{{.Bio}}</div>
 			</div>
 			{{end}}
 		</div>
 	</div>
 	<div id="company-drilldown-result" aria-live="polite" class="border-t border-slate-800/60 pt-5"></div>
+	{{if .Validation}}
+	<details class="group">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Data Freshness
+			<span class="text-slate-500">({{.Validation.RowsChecked}} rows, {{.Validation.LookupsUsed}} reverse lookups)</span>
+		</summary>
+		<div class="mt-4 space-y-3 text-xs text-slate-400">
+			<p>Verdicts come from the newest dated source behind each row. A dated row is a statement about the evidence, not proof of current employment.</p>
+			<div class="flex flex-wrap gap-2">
+				<span class="px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">verified-recent {{.Validation.RowsRecent}}</span>
+				<span class="px-2 py-0.5 rounded border border-sky-500/30 bg-sky-500/10 text-sky-300">dated {{.Validation.RowsDated}}</span>
+				<span class="px-2 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300">stale {{.Validation.RowsStale}}</span>
+				<span class="px-2 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300">undated {{.Validation.RowsUndated}}</span>
+			</div>
+			{{if .Validation.Conflicts}}<ul class="list-disc pl-5 space-y-1 text-amber-300">{{range .Validation.Conflicts}}<li>{{.}}</li>{{end}}</ul>{{end}}
+			{{if .Validation.Lookups}}
+			<div class="overflow-x-auto">
+				<table class="w-full text-xs text-left">
+					<thead class="text-slate-500 border-b border-slate-800"><tr><th class="py-2 pr-3">Person</th><th class="py-2 pr-3">Reverse lookup</th><th class="py-2 pr-3">Outcome</th><th class="py-2">Newest mention</th></tr></thead>
+					<tbody>
+					{{range .Validation.Lookups}}
+					<tr class="border-b border-slate-800/60"><td class="py-2 pr-3 text-slate-300">{{.Person}}</td><td class="py-2 pr-3 text-slate-400 break-all">{{.Query}}</td><td class="py-2 pr-3 text-slate-300">{{.Status}}</td><td class="py-2 text-slate-400">{{.AsOf}}</td></tr>
+					{{end}}
+					</tbody>
+				</table>
+			</div>
+			{{end}}
+			{{if .Validation.Skipped}}<p class="text-slate-500">Reverse lookups: {{.Validation.Skipped}}.</p>{{end}}
+		</div>
+	</details>
+	{{end}}
 	{{if .ScrapeReport}}
 	<details class="group">
 		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
@@ -137,10 +170,10 @@
 		</summary>
 		<div class="overflow-x-auto mt-4">
 			<table class="w-full text-xs text-left">
-				<thead class="text-slate-500 border-b border-slate-800"><tr><th class="py-2 pr-3">Target URL</th><th class="py-2 pr-3">Source</th><th class="py-2 pr-3">Scrape</th><th class="py-2 pr-3">OCR</th><th class="py-2">Details</th></tr></thead>
+				<thead class="text-slate-500 border-b border-slate-800"><tr><th class="py-2 pr-3">Target URL</th><th class="py-2 pr-3">Source</th><th class="py-2 pr-3">Scrape</th><th class="py-2 pr-3">Extraction</th><th class="py-2 pr-3">OCR</th><th class="py-2">Details</th></tr></thead>
 				<tbody>
 				{{range .ScrapeReport}}
-				<tr class="border-b border-slate-800/60 align-top"><td class="py-2 pr-3"><a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline break-all">{{.URL}}</a></td><td class="py-2 pr-3 text-slate-400">{{.SourceType}}</td><td class="py-2 pr-3 text-slate-300">{{.Status}}{{if .WordCount}} ({{.WordCount}} words){{end}}</td><td class="py-2 pr-3 text-slate-300">{{.Extractor}}{{if .FallbackStatus}} / browser {{.FallbackStatus}}{{end}}</td><td class="py-2 pr-3 text-slate-300">{{.OCRStatus}}{{if .OCRImagesWithText}} ({{.OCRImagesWithText}} with text){{end}}</td><td class="py-2 text-slate-400">{{if .Reason}}{{.Reason}}{{end}}{{if .FallbackReason}} {{.FallbackReason}}{{end}}{{if .FallbackError}} Browser: {{.FallbackError}}{{end}}{{if .OCRReason}} OCR: {{.OCRReason}}{{end}}</td></tr>
+				<tr class="border-b border-slate-800/60 align-top"><td class="py-2 pr-3"><a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline break-all">{{.URL}}</a></td><td class="py-2 pr-3 text-slate-400">{{.SourceType}}</td><td class="py-2 pr-3 text-slate-300">{{.Status}}{{if .WordCount}} ({{.WordCount}} words){{end}}{{if and .HandlerStatus (ne .HandlerStatus .Status)}} &middot; ladder {{.HandlerStatus}}{{end}}</td><td class="py-2 pr-3 text-slate-300">{{.Extractor}}{{if .FallbackStatus}} / browser {{.FallbackStatus}}{{end}}</td><td class="py-2 pr-3 text-slate-300">{{.OCRStatus}}{{if .OCRImagesWithText}} ({{.OCRImagesWithText}} with text){{end}}</td><td class="py-2 text-slate-400">{{if .Reason}}{{.Reason}}{{end}}{{if .HandlerTactics}} Ladder: {{.HandlerTactics}}{{end}}{{if .FallbackReason}} {{.FallbackReason}}{{end}}{{if .FallbackError}} Browser: {{.FallbackError}}{{end}}{{if .OCRReason}} OCR: {{.OCRReason}}{{end}}</td></tr>
 				{{end}}
 				</tbody>
 			</table>
@@ -184,6 +217,7 @@
 						<span>{{.Name}}</span>
 						<div class="flex items-center gap-2 shrink-0">
 							<span class="text-slate-500">{{.Title}}</span>
+							{{if .Freshness}}<span class="text-[10px] text-slate-600">{{.Freshness}}</span>{{end}}
 							<form onsubmit="return submitDossier(event, this)">
 								<input type="hidden" name="mode" value="person">
 								<input type="hidden" name="query" value="{{.Name}}">
