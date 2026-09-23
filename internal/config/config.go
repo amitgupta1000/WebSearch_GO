@@ -80,9 +80,9 @@ type Config struct {
 }
 
 const (
-	defaultCacheBackend          = "memory"
-	defaultRedisKeyPrefix        = "websearch-go:"
-	defaultRedisPort             = 6379
+	defaultCacheBackend   = "memory"
+	defaultRedisKeyPrefix = "websearch-go:"
+	defaultRedisPort      = 6379
 	// defaultGCSCacheBucket and defaultOutputBucket are the project's bucket: the
 	// cache and the run artifacts share it, in separate folders. They are defaults
 	// rather than requirements, so a deployment can point anywhere else.

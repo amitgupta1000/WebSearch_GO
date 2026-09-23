@@ -185,3 +185,53 @@ func TestGoogleCredentialsFileIsRead(t *testing.T) {
 		t.Errorf("GoogleCredentialsFile = %q", got)
 	}
 }
+
+func TestOutputArtifactDefaults(t *testing.T) {
+	cfg := Load()
+
+	// The project's bucket and folder are the defaults, so run artifacts work
+	// without further configuration.
+	if cfg.OutputBucket != defaultOutputBucket {
+		t.Errorf("OutputBucket = %q, want %q", cfg.OutputBucket, defaultOutputBucket)
+	}
+	if cfg.OutputPrefix != defaultOutputPrefix {
+		t.Errorf("OutputPrefix = %q, want %q", cfg.OutputPrefix, defaultOutputPrefix)
+	}
+	if cfg.GCSCacheBucket != defaultGCSCacheBucket {
+		t.Errorf("GCSCacheBucket = %q, want %q", cfg.GCSCacheBucket, defaultGCSCacheBucket)
+	}
+	if cfg.GCSCachePrefix != defaultGCSCachePrefix {
+		t.Errorf("GCSCachePrefix = %q, want %q", cfg.GCSCachePrefix, defaultGCSCachePrefix)
+	}
+	if len(cfg.OutputFormats) != 2 || cfg.OutputFormats[0] != "md" || cfg.OutputFormats[1] != "pdf" {
+		t.Errorf("OutputFormats = %v, want [md pdf]", cfg.OutputFormats)
+	}
+	if cfg.OutputLocalDir != "" {
+		t.Errorf("OutputLocalDir = %q, want empty so the bucket is used", cfg.OutputLocalDir)
+	}
+}
+
+func TestOutputArtifactSettingsAreOverridable(t *testing.T) {
+	t.Setenv("OUTPUT_BUCKET", "another-bucket")
+	t.Setenv("OUTPUT_PREFIX", "reports/2026/")
+	t.Setenv("OUTPUT_LOCAL_DIR", "C:\\exports")
+	t.Setenv("OUTPUT_FORMATS", " md , ")
+	t.Setenv("GCS_CACHE_BUCKET", "cache-bucket")
+	t.Setenv("GCS_CACHE_PREFIX", "cache/")
+
+	cfg := Load()
+
+	if cfg.OutputBucket != "another-bucket" || cfg.OutputPrefix != "reports/2026/" {
+		t.Errorf("output settings = %q / %q", cfg.OutputBucket, cfg.OutputPrefix)
+	}
+	if cfg.OutputLocalDir != "C:\\exports" {
+		t.Errorf("OutputLocalDir = %q", cfg.OutputLocalDir)
+	}
+	// Blank entries are dropped, so trailing separators are harmless.
+	if len(cfg.OutputFormats) != 1 || cfg.OutputFormats[0] != "md" {
+		t.Errorf("OutputFormats = %v, want [md]", cfg.OutputFormats)
+	}
+	if cfg.GCSCacheBucket != "cache-bucket" || cfg.GCSCachePrefix != "cache/" {
+		t.Errorf("cache settings = %q / %q", cfg.GCSCacheBucket, cfg.GCSCachePrefix)
+	}
+}

@@ -14,3 +14,7 @@ coverage.out
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Python tooling (the deck generator and the ReAct replica)
+__pycache__/
+*.pyc

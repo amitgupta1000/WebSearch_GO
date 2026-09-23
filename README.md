@@ -85,6 +85,9 @@ and final result summary.
    research budget remains, so a long run returns partial results rather than
    failing on the deadline. If the reviewer call itself fails, the review is
    reported as `unavailable` rather than silently counting as a pass.
+7. **Save** — the finished chart or dossier is written to `OUTPUT_BUCKET` as a Markdown
+   document and a PDF, and the console lists both under **Saved files** (see
+   [Saved output files](#saved-output-files)).
 
 ## Environment variables
 
@@ -113,9 +116,13 @@ and final result summary.
 | `REDIS_PORT` | `6379` | Redis port |
 | `REDIS_PASSWORD` | — | Redis password (URL-escaped when the connection URL is assembled) |
 | `REDIS_KEY_PREFIX` | `websearch-go:` | Key namespace inside a shared Redis database |
-| `GCS_CACHE_BUCKET` | — | Bucket used when `CACHE_BACKEND=gcs` |
-| `GCS_CACHE_PREFIX` | `websearch-go/cache/` | Object-name prefix inside that bucket |
-| `GOOGLE_APPLICATION_CREDENTIALS` | — | Service-account file for the GCS cache (standard Google ADC variable; an ambient identity is used when it is unset) |
+| `GCS_CACHE_BUCKET` | `crystal-crm-store` | Bucket used when `CACHE_BACKEND=gcs` |
+| `GCS_CACHE_PREFIX` | `WebSearch_GO/cache/` | Object-name prefix inside that bucket |
+| `GOOGLE_APPLICATION_CREDENTIALS` | — | Service-account file for Cloud Storage (standard Google ADC variable; an ambient identity is used when it is unset) |
+| `OUTPUT_BUCKET` | `crystal-crm-store` | Bucket finished runs are saved to as Markdown + PDF. Empty disables cloud output |
+| `OUTPUT_PREFIX` | `WebSearch_GO/` | Folder inside that bucket; artifacts go to `company/` or `person/` beneath it |
+| `OUTPUT_LOCAL_DIR` | — | Write artifacts to a local directory instead of the bucket (takes precedence; useful in development) |
+| `OUTPUT_FORMATS` | `md,pdf` | Which artifacts to save (`md`, `pdf`) |
 | `SCRAPE_CONCURRENCY` | `4` | Pages fetched in parallel per run |
 | `SCRAPE_HOST_RATE_PER_SEC` | `2` | Sustained requests per second to any one host (`0` disables) |
 | `SCRAPE_HOST_BURST` | `3` | Requests that may start back-to-back per host |
@@ -173,7 +180,8 @@ The UI is a single page that streams each agent step over SSE:
 - **Live workflow console** — per-step tool calls, results and reasoning, plus a
   badge showing which research budget the run is under.
 - **Result panel** — the org chart, with Executive Leadership and Departments always
-  visible. The Images gallery, the Scraping Report and the Sources list sit behind
+  visible. The Images gallery, the Scraping Report, the Sources list, the Phase
+  Timings table and the Saved files list sit behind
   disclosure buttons (each labelled with its item count) so the answer stays
   readable. Collapsing is visual only: the content remains in the page, so it is
   still found by `Ctrl+F` and in print.
@@ -184,6 +192,34 @@ The UI is a single page that streams each agent step over SSE:
   not have to re-enter it.
 - **Ask about this research** — post-run Q&A that answers from retained evidence
   first and only performs a fresh search when the evidence is insufficient.
+
+## Saved output files
+
+Every finished run is written to `OUTPUT_BUCKET` (default `crystal-crm-store`) under
+`OUTPUT_PREFIX` (default `WebSearch_GO/`) as two files, so a result outlives the browser
+session it was produced in:
+
+```
+gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limited.md
+gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limited.pdf
+```
+
+- **Markdown** is rendered from the research models — org chart, departments and members,
+  locations, sources, and the run's phase timings. Person runs produce the dossier equivalent
+  under `person/`.
+- **PDF** is printed from the same content by the Chromium the scraper already runs, so no
+  PDF library is involved. The document is self-contained (inline styling, no remote assets).
+- **Names are `<timestamp>-<subject>.md`**, which sorts chronologically and keeps an
+  accented or non-Latin subject name from producing an unusable file name.
+- **One failure never hides the other.** If Chromium is unavailable the PDF artifact reports
+  why while the Markdown is still saved; a failed export is recorded in the run's scrape
+  report and never fails the research itself. Exports run on a detached context with their
+  own budget, so a run that used its whole research deadline still saves its results.
+- The console lists what was written in a **Saved files** panel on the result, with a link to
+  each object.
+
+Set `OUTPUT_LOCAL_DIR` to write the same files to a local directory instead of the bucket, or
+`OUTPUT_FORMATS=md` to skip the PDF.
 
 ## Caching
 

@@ -121,6 +121,8 @@ flowchart TD
 | **PDF Extraction** | `internal/tools/pdf.go`, `internal/llm/gemini.go` | Reads PDFs instead of rejecting them — officer lists and filings are often published only as PDFs. The scraper hands a PDF body to an injected `DocumentTextExtractor`: Gemini reads it inline (handling compressed streams, subsetted fonts and scans), with a local `ledongthuc/pdf` parser as the fallback. That parser is panic-guarded, capped at 200 pages, and its output must clear a 60 % printable-ratio gate before it becomes evidence; provenance is recorded as `pdf-gemini` / `pdf-local`. |
 | **Cache Store** | `internal/cache/` | A context-aware `Store` surface with three backends — in-process memory (default), Redis, and Cloud Storage through the JSON API + Application Default Credentials. Search results (48 h), scraped pages (7 days) and negative scrape results (15 min) all flow through it, so a shared backend makes them survive a restart; cached pages are revalidated with conditional requests. |
 | **Phase Timings** | `internal/agent/timing.go` | A per-phase stopwatch over plan/search/rank/scrape/synthesize/review. The result is attached to the chart, emitted as a `timing` event, and shown in the console, so "the scraper is slow" becomes a measured claim. |
+| **Output Exporter** | `internal/export/` | Turns a finished run into durable files: a Markdown document rendered from the research models, and a PDF printed from a self-contained HTML document by the Chromium the scraper already runs (no PDF library). Both are written to Cloud Storage or a local directory, one artifact per attempt, so a failed PDF never hides the Markdown. |
+| **Cloud Storage Client** | `internal/gcs/` | A thin JSON API client (upload, download, delete) shared by the cache backend and the output exporter. It uses Application Default Credentials, avoiding the gRPC/protobuf dependency tree the official library would add. |
 | **Gemini Client** | `internal/llm/gemini.go` | Wraps the Google GenAI SDK to interface with `gemini-2.5-flash-lite`, configuring system instructions, tool declarations, token budgets, and structured JSON decoding. |
 | **Embedded UI Templates** | `internal/web/` | `go:embed`'ed HTML templates (index page + HTMX result fragments) rendered with `html/template` auto-escaping. |
 | **Data Models** | `internal/models/` | Defines Go structs for `OrgChart`, `Department`, `Employee`, `PersonProfile`, `Experience`, `Education`, and agent event payloads. |
@@ -221,6 +223,11 @@ chart + CompanyResearchContext ──► SSE result ──► HTMX UI
 
 Person mode is the same skeleton without planning/QC: two searches → scrape top bio pages →
 single synthesis → `PersonProfile`.
+
+Both modes finish by saving their result: `Engine.ExportCompany` / `ExportPerson` write a
+Markdown document and a PDF (printed by the same Chromium) to the configured destination, and
+the artifacts are attached to the chart or profile so the console can list them. Exports run
+on a detached context, so they succeed even when the research budget is exhausted.
 
 ---
 
@@ -611,6 +618,39 @@ Wraps `google.golang.org/genai` (default model `gemini-2.5-flash-lite`):
   pipeline resilient to the usual LLM formatting drift.
 - `cleanJSONString` is unit-tested in `gemini_test.go`.
 
+### `internal/export` — saved output files
+
+A finished run becomes files: `ExportCompany` / `ExportPerson` render Markdown from the
+research models and a self-contained HTML document that Chromium prints to PDF. Both are
+written through a `Destination`, so the same exporter writes to Cloud Storage or a local
+directory.
+
+- **Deterministic rendering.** The Markdown and HTML come from `OrgChart` / `PersonProfile`
+  — no second model call — so an artifact can be reproduced from the run's own data.
+  Values that would break a Markdown table (`|`, newlines) are escaped, and the HTML is
+  rendered through `html/template`, so scraped text cannot inject markup into the PDF.
+- **The PDF needs no PDF library.** `tools.Scraper.RenderHTMLToPDF` prints the document with
+  the browser the scraper already manages, taking one of the same render slots. The
+  document carries inline styling and no remote assets, because the shared browser context
+  aborts image/font/stylesheet requests.
+- **One artifact per attempt.** A run reports a Markdown artifact and a PDF artifact
+  separately: if printing fails, the PDF artifact carries the reason while the stored
+  Markdown stands, and neither failure fails the research.
+- **Naming.** `<prefix><scope>/<UTC timestamp>-<slug>.<ext>`, so objects sort
+  chronologically and a subject name with accents or non-Latin characters still yields a
+  portable file name.
+- **Detached budget.** Exports run on `context.WithoutCancel` with their own timeout, so a
+  run that consumed its whole research deadline still saves its results.
+
+### `internal/gcs` — Cloud Storage JSON API client
+
+`Upload`, `Download` (with `found=false` for a missing object, which is a normal cache
+miss), `Delete`, plus `URI` / `HTTPSURL` helpers for `gs://` references and console links.
+Authentication is Application Default Credentials, so `GOOGLE_APPLICATION_CREDENTIALS` or an
+ambient identity is all it needs. Keeping it thin is deliberate: the cache and the exporter
+need three operations on small objects, and the official client library would add gRPC,
+protobuf and the googleapis tree for them.
+
 ### `internal/cache` — the cache store and its backends
 
 `cache.Store` is the byte-oriented, context-aware surface the engine caches against, which
@@ -699,6 +739,7 @@ WebSearch_GO/
 │   └── server/
 │       ├── main.go              # Composition root: config, DI, routes, SSE, shutdown
 │       ├── cache.go             # Cache-backend selection (memory/redis/gcs) + fallback
+│       ├── output.go            # Output-artifact destination + exporter wiring
 │       ├── main_test.go         # SSE termination, browser-choice policy, security headers
 │       └── sse_test.go          # SSE reconnect behaviour
 ├── internal/
@@ -719,6 +760,17 @@ WebSearch_GO/
 │   ├── config/
 │   │   ├── config.go            # Environment loading with defaults + positive-int validation
 │   │   └── config_test.go
+│   ├── export/
+│   │   ├── export.go            # Artifact/Destination types, exporter wiring, Cloud Storage
+│   │   │                        #   and filesystem destinations, format selection
+│   │   ├── run.go               # ExportCompany / ExportPerson, object naming, slugify
+│   │   ├── markdown.go          # Markdown documents for both research modes
+│   │   ├── html.go              # Self-contained printable documents for the PDF
+│   │   ├── util.go              # Small rendering helpers
+│   │   └── export_test.go / render_test.go / export_integration_test.go
+│   ├── gcs/
+│   │   ├── client.go            # Cloud Storage JSON API client (upload/download/delete)
+│   │   └── client_integration_test.go
 │   ├── llm/
 │   │   ├── gemini.go            # Gemini client: structured JSON, cleaning, JSON + transient retry
 │   │   └── gemini_test.go       # cleanJSONString + transient-error classification tests
@@ -755,9 +807,8 @@ WebSearch_GO/
 ├── README.md                    # Usage: prerequisites, env vars, endpoints, Docker, policies
 ├── docs/ARCHITECTURE.md         # This document: architecture, module deep dive, testing, known issues
 ├── react_engine.py              # Standalone Python replica of the ReAct engine (CLI)
-├── generate_pro_deck.py         # python-pptx generator for the executive guide deck
-├── LLMreasoning.md / .pdf / .pptx  # LLM reasoning executive guide artifacts
-└── websearch.exe                # Compiled Windows binary (build artifact, gitignored-safe)
+├── generate_project_guide_deck.py  # python-pptx generator for the architecture deck (run on demand)
+└── websearch.exe                # Build artifact of cmd/server (gitignored via *.exe)
 ```
 
 ---
@@ -964,6 +1015,15 @@ Both verify a real round trip, that expiry is enforced by the backend, and that 
 works. The GCS test deliberately stores one entry with an already-elapsed expiry to prove a
 stale object reads as a miss.
 
+The artifact exporter has a gate of its own, which is the only test that exercises the
+whole saving path — a real Chromium printing a real PDF, uploaded to a real bucket and read
+back — and it cleans up the objects it writes:
+
+```bash
+# needs GCS_OUTPUT_BUCKET (default crystal-crm-store), credentials, and Chromium
+OUTPUT_INTEGRATION=1 go test ./internal/export/ -run Live -v
+```
+
 
 CI (`.github/workflows/go.yml`) additionally enforces `gofmt` cleanliness, `go vet`,
 and a full build on every push to `main` and every pull request, using the Go
@@ -995,8 +1055,8 @@ with the `playwright-go` dependency) and is the one to deploy with
 
 ### Environment note for Windows dev
 
-`.vscode/tasks.json` exposes the watcher; the built `websearch.exe` at the repo root
-is a compiled artifact of `cmd/server`.
+`.vscode/tasks.json` exposes the watcher. `go build ./cmd/server` produces
+`websearch.exe` at the repository root, which `.gitignore` excludes through `*.exe`.
 
 ---
 
@@ -1008,10 +1068,8 @@ server:
 | File | Role |
 | :--- | :--- |
 | `react_engine.py` | A standalone **Python replica** of the Go ReAct engine (its docstring maps each function to the corresponding Go file). It is a CLI learning/demo companion — `python react_engine.py --task "..."` or `--demo` for a fully offline scripted run. Not part of the Go build. |
-| `generate_pro_deck.py` | A `python-pptx` script that generated the bundled `LLM_Reasoning_Executive_Guide.pptx` / `.pdf` presentation about LLM reasoning. Documentation tooling, not runtime code. |
-| `generate_project_guide_deck.py`, `WebSearch_GO_Project_Guide.pptx` | A `python-pptx` script (and its generated deck) presenting this project's architecture. Its content is embedded as literals, so it does not read the Markdown docs at runtime. Documentation tooling, not runtime code. |
-| `LLMreasoning.md`, `LLM_Reasoning_Executive_Guide.pdf`, `.pptx` | Executive-guide artifacts explaining the LLM reasoning concepts behind the agent design. |
-| `websearch.exe` | A compiled Windows binary of `cmd/server` (build artifact; rebuild with `go build ./cmd/server`). |
+| `generate_project_guide_deck.py` | A `python-pptx` script that presents this project's architecture. Its content is embedded as literals, so it does not read the Markdown docs at runtime; the `.pptx` it produces is generated on demand rather than checked in. Documentation tooling, not runtime code. |
+| `websearch.exe` | *Absent until built.* `go build ./cmd/server` produces it at the repository root, and `.gitignore` excludes it through `*.exe`. |
 | `README.md` | Usage: prerequisites, quickstart, environment variables, endpoints, Docker commands, plus the security-header and fetching-policy summaries. |
 | `docs/ARCHITECTURE.md` | This document — architecture, the module deep dive, testing, and the known-issues list. |
 | `.gitignore`, `.vscode/`, `.github/`, `scripts/` | Repo hygiene, editor task, CI pipeline, dev watcher. |
@@ -1069,8 +1127,6 @@ server:
   free-form ReAct loops (the original design vocabulary, preserved in
   [Design history & roadmap](#design-history--roadmap)) reflects the project's
   conceptual model).
-- `websearch.exe` at the repo root could be removed or gitignored to keep the
-  repository clean.
 - Negative scrape caching is time-based only; distinguishing "definitely gone" (404)
   from "try again" (timeout) would waste fewer retries.
 

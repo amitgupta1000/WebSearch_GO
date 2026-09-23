@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """WebSearch_GO Project Guide deck generator (python-pptx).
 
-Builds an executive-style presentation that mirrors docs/ARCHITECTURE.md, using the same
-visual system as generate_pro_deck.py (slate dark titles, light card slides).
+Builds an executive-style presentation that mirrors docs/ARCHITECTURE.md, using a dark-title,
+light-card visual system (slate headers, light content slides).
 
 Run:
     pip install python-pptx
     python generate_project_guide_deck.py
 Output:
-    c:/WebSearch_GO/WebSearch_GO_Project_Guide.pptx
+    WebSearch_GO_Project_Guide.pptx, next to this script (generated on demand, not checked in)
 """
+from pathlib import Path
+
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -23,7 +25,7 @@ def create_project_guide_deck():
     prs.slide_height = Inches(7.5)
     blank_layout = prs.slide_layouts[6]
 
-    # Professional Executive Color Palette (matches generate_pro_deck.py)
+    # Professional Executive Color Palette (slate headers, light cards)
     BG_DARK = RGBColor(15, 23, 42)          # Slate 900 (Deep Executive Navy)
     BG_LIGHT = RGBColor(248, 250, 252)      # Slate 50
     CARD_BG = RGBColor(255, 255, 255)       # Pure White
@@ -393,7 +395,7 @@ def create_project_guide_deck():
         ("go.mod / go.sum", "goquery + google.golang.org/genai (Go 1.24)"),
         ("README.md / docs/ARCHITECTURE.md", "Usage quickstart / architecture & internals"),
         ("react_engine.py", "Standalone Python replica of the ReAct engine (CLI demo)"),
-        ("generate_pro_deck.py", "python-pptx generator for the LLM reasoning deck"),
+        ("generate_project_guide_deck.py", "python-pptx generator for this deck"),
         ("websearch.exe", "Compiled Windows binary (build artifact)")
     ], ACCENT_TEAL, is_code=True, item_size=9.5)
 
@@ -699,7 +701,8 @@ def create_project_guide_deck():
     for title, text, x_pos, col in takeaways:
         add_dark_pillar(s18, x_pos, 1.8, 3.73, 5.0, title, [text], col, title_size=14, body_size=12)
 
-    output_path = "c:/WebSearch_GO/WebSearch_GO_Project_Guide.pptx"
+    # Written next to this script, so the deck generator works from any checkout.
+    output_path = str(Path(__file__).resolve().parent / "WebSearch_GO_Project_Guide.pptx")
     prs.save(output_path)
     print(f"Project guide presentation saved successfully to {output_path}")
     print(f"Slides: {len(prs.slides)}")
