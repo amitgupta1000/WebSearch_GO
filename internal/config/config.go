@@ -24,6 +24,10 @@ type Config struct {
 	MaxScrapesPerRun       int
 	MaxSearchResults       int
 	MaxSteps               int
+	// HardURLHandler enables the bounded hard-URL escalation ladder for
+	// challenge pages and professional profiles. Failures degrade to the
+	// previous snippet-only behaviour, so the default is on.
+	HardURLHandler bool
 }
 
 // Load loads configuration from environment variables with sensible defaults.
@@ -67,6 +71,7 @@ func Load() *Config {
 		MaxScrapesPerRun:       envInt("MAX_SCRAPES_PER_RUN", 10),
 		MaxSearchResults:       envInt("MAX_SEARCH_RESULTS", 12),
 		MaxSteps:               envInt("MAX_AGENT_STEPS", 10),
+		HardURLHandler:         envBool("HARD_URL_HANDLER", true),
 	}
 }
 

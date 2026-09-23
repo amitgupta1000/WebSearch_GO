@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 // PersonAgent conducts disambiguation, online footprint analysis, and dossier compilation.
@@ -79,12 +80,26 @@ func (pa *PersonAgent) ResearchPerson(
 
 	var sources []string
 	scrapeCount := 0
+	handler := newHardURLHandler(pa.engine)
 	for _, sr := range searchResults {
 		if scrapeCount >= pa.engine.MaxScrapes() {
 			break
 		}
-		// Prioritize bio pages, interviews, personal sites, github, wiki
-		if strings.Contains(sr.Link, "wikipedia") || strings.Contains(sr.Link, "about") || strings.Contains(sr.Link, "github") || scrapeCount == 0 {
+		// Prioritize professional profiles, bio pages, interviews, personal sites, github, wiki
+		if strings.Contains(sr.Link, "linkedin.") || strings.Contains(sr.Link, "wikipedia") || strings.Contains(sr.Link, "about") || strings.Contains(sr.Link, "github") || scrapeCount == 0 {
+			if strings.Contains(sr.Link, "linkedin.") && handler.available() {
+				// Profile walls are the norm, so professional profiles go
+				// straight to the bounded handler instead of feeding the auth
+				// wall to the normal scrape path.
+				outcome := handler.handle(ctx, sessionID, sr.Link, "professional profile", 4+scrapeCount, eventCh, tools.HardScrapeOptions{})
+				if outcome.Status == "recovered" && outcome.Result != nil && len(outcome.Result.Content) > minScrapeContentLen {
+					gatheredContext.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, outcome.Result.Content))
+					sources = append(sources, sr.Link)
+					scrapeCount++
+				}
+				continue
+			}
+
 			Emit(eventCh, models.AgentEvent{
 				SessionID: sessionID,
 				Type:      models.EventToolCall,
@@ -95,7 +110,17 @@ func (pa *PersonAgent) ResearchPerson(
 			})
 
 			scrapeRes, err := pa.engine.ScrapeCached(ctx, sr.Link)
-			if err == nil && len(scrapeRes.Content) > minScrapeContentLen {
+			// A challenge page used to slip in here as "content" whenever its
+			// interstitial text exceeded the minimum length; blocked results
+			// now get one bounded handler attempt instead.
+			usable := err == nil && scrapeRes != nil && !scrapeRes.Blocked && len(scrapeRes.Content) > minScrapeContentLen
+			if !usable && err == nil && scrapeRes != nil && scrapeRes.Blocked && handler.available() {
+				outcome := handler.handle(ctx, sessionID, sr.Link, "blocked page", 4+scrapeCount, eventCh, tools.HardScrapeOptions{AlreadyRendered: scrapeRes.FallbackStatus == "blocked"})
+				if outcome.Status == "recovered" && outcome.Result != nil && len(outcome.Result.Content) > minScrapeContentLen {
+					scrapeRes, usable = outcome.Result, true
+				}
+			}
+			if usable {
 				gatheredContext.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, scrapeRes.Content))
 				sources = append(sources, sr.Link)
 				scrapeCount++

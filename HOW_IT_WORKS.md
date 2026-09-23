@@ -116,8 +116,9 @@ The shared orchestration engine both agents delegate to. Key elements:
   query/URL into a SHA-256 cache key (`cache.HashKey`). Scrape keys also include the render
   mode, so an HTTP-only result never masks a browser-rendered re-run of the same URL, and
   **failures are cached for 15 minutes** so a follow-up question does not pay to rediscover a
-  known dead end. `SearchFresh` bypasses the cache — used by the Q&A path when the LLM
-  explicitly asks for new evidence.
+  known dead end. `ScrapeHardCached` runs the hard-URL ladder under its own `mode=hard` key
+  with the same TTLs, so a failed escalation is never repeated in the same run. `SearchFresh`
+  bypasses the cache — used by the Q&A path when the LLM explicitly asks for new evidence.
 - **Non-blocking event emission**: `Emit` writes `AgentEvent`s to the session channel with a
   `select`/`default` — a slow SSE consumer can never stall the research goroutine (events
   are dropped with a warning instead).
@@ -141,10 +142,15 @@ Runs a **plan → search → rank → scrape → synthesize → review** pipelin
    — a defensive guard against the model hallucinating URLs.
 4. **`scrapeRanked`** — scrapes the top-ranked URLs up to `MaxScrapes`, validating each URL
    with `url.ParseRequestURI` first, skipping tiny/useless pages (<80 bytes of text).
-   **Professional-profile URLs are never scraped**: their search snippet is kept as evidence
-   and the attempt is recorded as `skipped` in the scrape report. That policy is the main
-   reason department-level results stay thin for companies whose functional leadership is
-   only visible on such profiles.
+   **Professional profiles and blocked pages go to the hard-URL handler**: a bounded
+   specialist (`internal/agent/hardurl.go`) that escalates through the scraper's ladder —
+   plain browser render, cookie-bridged render (the jar's cookies are copied into the
+   Chromium context), extended-settle render — under a 30 s per-URL budget, a per-run cap of
+   2 URLs, and only when ≥45 s of the deadline remains. Recovered pages become full evidence
+   (`HandlerStatus: recovered` in the scrape report); failures degrade to the previous
+   snippet-only behaviour. Without the handler (disabled, or no Chromium) profiles are never
+   scraped — the reason department-level results can stay thin for companies whose
+   functional leadership is only visible there.
 5. **`synthesizeChart`** — one Gemini call with all evidence → `models.OrgChart`. Snippet
    evidence from professional profiles is re-presented as a labelled **profile candidates**
    block, and the prompt spells out the `departments[].members` schema — a department whose
@@ -252,6 +258,15 @@ Used only when the HTTP path errors, is blocked, or yields a JavaScript shell:
 - The setting is process-wide (`ENABLE_BROWSER_FALLBACK`) but overridable **per request**
   (`tools.WithBrowserFallback`), which is how the console toggle and `POST /api/rerun` work
   without mutating shared state.
+- **The hard-URL ladder** (`ScrapeHard`) escalates through this renderer with up to three
+  attempts: a plain render, a **cookie-bridged** render (the shared cookie jar's cookies for
+  the domain are copied into the browser context — previously `COOKIE_FILE_PATH` only ever
+  reached the HTTP client, never Chromium), and an extended-settle render (8 s network-idle
+  plus 2.5 s settle) for slow interstitials. All attempts reuse the shared context, so a
+  clearance earned earlier in the run carries forward.
+- **Cookie bridge** (`addCookies`) copies the jar's cookies for the target domain into the
+  browser context under the render mutex, so a user-exported session (`COOKIE_FILE_PATH`)
+  authenticates rendered pages exactly as it authenticates the HTTP path.
 
 ### `internal/tools/cookies.go` — Cookie Jar Loader
 

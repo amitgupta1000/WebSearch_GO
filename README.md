@@ -65,7 +65,9 @@ invalid URLs, the BM25 ranking continues directly to scraping.
    candidates. Only results the ranking returns as relevant are carried forward.
 4. **Scrape** — ranked pages are fetched, cleaned and cached for 7 days. Failures
    are cached briefly too, so a repeat question does not re-fetch a known dead end
-   (see [Fetching policy](#fetching-policy)).
+   (see [Fetching policy](#fetching-policy)). Blocked pages and professional
+   profiles get one bounded escalation via the hard-URL handler before degrading
+   to snippet evidence.
 5. **Synthesize** — Gemini writes the org chart or dossier from the supplied
    evidence only, and is instructed not to invent people or titles.
 6. **Review** — an independent QC pass scores the draft and may request focused
@@ -93,6 +95,7 @@ invalid URLs, the BM25 ranking continues directly to scraping.
 | `MAX_SEARCH_RESULTS` | `12` | Max search results fetched per search query |
 | `MAX_AGENT_STEPS` | `10` | Max agent/tool iterations per research session |
 | `ALLOW_BROWSER_TOGGLE` | `true` | Offer a per-run "render pages in a real browser" option in the console. Only shown when Chromium can actually start |
+| `HARD_URL_HANDLER` | `true` | Escalate blocked pages and professional profiles to the bounded hard-URL handler (plain render → cookie-bridged render → extended settle) |
 
 When browser fallback is enabled, install the matching Playwright browser once with
 `go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium`.
@@ -167,8 +170,16 @@ The scraper is deliberately conservative, and several of these rules surprise pe
   endpoints (`169.254.169.254`) are blocked. There is no server option to relax
   this, so the app cannot research an intranet.
 - **Bot challenges are reported, never bypassed.** A CAPTCHA or press-and-hold page
-  is rendered like any other; if the challenge is still present afterwards the
-  result is marked `blocked` with a reason rather than circumvented.
+  is escalated to the hard-URL handler, which renders it up to three times — a plain
+  render, a cookie-bridged render, and an extended-settle render — but nothing is
+  ever clicked, held, or solved. If the challenge survives every step the result is
+  marked `blocked` with a reason and the run degrades to snippet evidence.
+- **Professional profiles are escalated, not refused.** `linkedin.*` URLs go to the
+  hard-URL handler once per run (capped at two URLs, 30 s each, only when at least
+  45 s of the budget remains). The handler bridges the cookie jar into the browser
+  context, so a session exported via `COOKIE_FILE_PATH` can authenticate a rendered
+  page; failures fall back to the search snippet exactly as before. Set
+  `HARD_URL_HANDLER=0` to restore the old never-scrape policy.
 - **Non-HTML content is rejected.** A PDF response fails the scrape with
   `unsupported content type`, which matters for registries that publish officer
   lists as PDFs.

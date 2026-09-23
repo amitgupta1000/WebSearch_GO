@@ -503,6 +503,13 @@ HTTP path errors, is blocked, or yields a JavaScript shell:
   per-run toggle and `POST /api/rerun` switch behaviour for a single run without
   mutating shared state — and why `Engine.scrapeCacheKey` includes the render mode, so
   a thin HTTP-only result can never mask a browser-rendered re-run of the same URL.
+- **The hard-URL ladder** (`Scraper.ScrapeHard`) escalates a URL the normal path could
+  not read with up to three attempts: `plain-render`, `cookie-render` (the shared jar's
+  cookies for the domain are copied into the browser context via `AddCookies` —
+  previously `COOKIE_FILE_PATH` only ever reached the HTTP client, never Chromium), and
+  `extended-settle` (8 s network-idle + 2.5 s settle for slow interstitials). Success
+  requires unblocked, non-thin content; failures wrap the sentinel errors
+  `ErrHardLadderUnavailable` / `ErrHardLadderExhausted`, which the calling agent classifies.
 
 #### `cookies.go` — browser cookie import
 
@@ -612,15 +619,17 @@ All interpolation is auto-escaped by `html/template` (verified by `web_test.go`)
 | Serper search results | `search:<sha256(query)>` | 48 h | Repeat queries (common during iterative research and drill-downs) don't cost API credits |
 | Scraped page text | `scrape:<sha256(url, render mode)>` | 7 days | Pages rarely change; re-scraping is the slowest tool call |
 | Failed scrape (negative) | same shape as above | 15 min | Stops a follow-up question re-fetching a known dead end (403, PDF, empty page). Cancellations are never cached |
+| Hard-URL escalation | `scrape:<sha256(url, mode=hard)>` | 7 d / 15 min | QC follow-up iterations reuse a recovered page and never repeat a ladder that ended still blocked |
 
-All three share one bounded `MemoryCache` (FIFO-evicted at `CACHE_MAX_ENTRIES`). The
+All four share one bounded `MemoryCache` (FIFO-evicted at `CACHE_MAX_ENTRIES`). The
 cache is process-local: restarting the server clears it (a Redis/external backend
 would be the natural extension point).
 
-The scrape key includes the **render mode** (`default` / `http` / `browser`, derived
-from any per-request browser override). Without it, a thin HTTP-only result cached by
-an earlier run would be served to a browser-rendered re-run of the same URL — and a
-cached failure would suppress the rendered attempt that might have succeeded.
+The scrape key includes the **render mode** (`default` / `http` / `browser` / `hard`,
+derived from any per-request browser override or the hard-URL ladder). Without it, a
+thin HTTP-only result cached by an earlier run would be served to a browser-rendered
+re-run of the same URL — and a cached failure would suppress the rendered attempt that
+might have succeeded.
 
 ### 6.2 Agent observability (event contract)
 
@@ -725,6 +734,7 @@ All configuration comes from environment variables (`internal/config/config.go`)
 | `MAX_SCRAPES_PER_RUN` | `10` | Scrape budget per research run |
 | `MAX_SEARCH_RESULTS` | `12` | Results per Serper query |
 | `MAX_AGENT_STEPS` | `10` | Agent/tool iteration budget per run |
+| `HARD_URL_HANDLER` | `true` | Escalate blocked pages and professional profiles to the bounded hard-URL handler (ladder caps are code constants: 2 URLs/run, 30 s per URL, ≥45 s deadline remaining) |
 
 Numeric values are parsed by `envInt`, which silently falls back to the default for
 unset, invalid, or non-positive values.
@@ -860,16 +870,20 @@ server:
 
 **Known limitations (deliberate behaviour, not bugs):**
 
-- **Professional-profile sources are never scraped.** `linkedin.*` URLs are retained
-  as snippets only, so department-level results stay thin for a company whose
-  functional leadership is visible only there. Relaxing this is a policy decision.
+- **Professional-profile handling is policy-driven.** With the hard-URL handler enabled
+  (the default), `linkedin.*` URLs get one bounded escalation per run â€” browser render,
+  cookie-bridged render, extended settle â and fall back to snippets when the wall
+  survives. With the handler disabled (`HARD_URL_HANDLER=0`) or Chromium unavailable,
+  profiles are never scraped, which is when department-level results stay thin for a
+  company whose functional leadership is visible only there.
 - **The relevance ranker is permissive.** In practice it marks nearly every candidate
   relevant, so off-company profiles and off-domain pages still reach the scrape stage.
   Hard pre-filters (domain / company-name must match) would tighten this.
 - **PDFs are rejected outright** with `unsupported content type`, which costs officer
   lists published as registry filings.
-- **Browser rendering is off by default** and requires a Playwright install plus the
-  per-run toggle (or `ENABLE_BROWSER_FALLBACK=true`).
+- **Browser rendering is off by default** for ordinary scrapes and requires a Playwright
+  install plus the per-run toggle (or `ENABLE_BROWSER_FALLBACK=true`). The hard-URL
+  handler uses the same renderer whenever Chromium can start, independent of that toggle.
 - **Playwright's `chrome-headless-shell` crashes on some hosts**, so the renderer uses
   `channel: "chromium"` (the full browser) — correct, but heavier.
 - **Plain `http:` images remain CSP-blocked**, so the gallery only shows `https:` ones.

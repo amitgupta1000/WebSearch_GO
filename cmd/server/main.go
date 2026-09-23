@@ -86,6 +86,7 @@ func main() {
 
 	// 4. Initialize Core Engine & Domain Agents
 	eng := agent.NewEngine(gemini, serper, scraper, memCache, cfg.MaxScrapesPerRun, cfg.MaxSearchResults, cfg.MaxSteps)
+	eng.SetHardURLHandler(cfg.HardURLHandler)
 	compAgent := agent.NewCompanyAgent(eng)
 	persAgent := agent.NewPersonAgent(eng)
 	sessionHub := agent.NewSessionHub()
@@ -100,12 +101,12 @@ func main() {
 	// never advertises a capability that is not installed. A successful probe also
 	// leaves the browser warm for the first request.
 	browserAvailable := false
-	if cfg.AllowBrowserToggle || cfg.EnableBrowserFallback {
+	if cfg.AllowBrowserToggle || cfg.EnableBrowserFallback || cfg.HardURLHandler {
 		browserAvailable = scraper.BrowserAvailable()
 		if browserAvailable {
-			log.Printf("Browser rendering available (per-run toggle: %t)", cfg.AllowBrowserToggle)
+			log.Printf("Browser rendering available (per-run toggle: %t, hard-URL handler: %t)", cfg.AllowBrowserToggle, cfg.HardURLHandler)
 		} else {
-			log.Printf("[WARN] Browser rendering requested but Chromium could not be started; the console will not offer it and any fallback will report a failure")
+			log.Printf("[WARN] Browser rendering requested but Chromium could not be started; the console will not offer it, the hard-URL handler will report itself unavailable, and any fallback will report a failure")
 		}
 	}
 

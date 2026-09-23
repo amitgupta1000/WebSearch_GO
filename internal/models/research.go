@@ -78,6 +78,12 @@ type ScrapeReportEntry struct {
 	FallbackStatus    string  `json:"fallback_status,omitempty"`
 	FallbackReason    string  `json:"fallback_reason,omitempty"`
 	FallbackError     string  `json:"fallback_error,omitempty"`
+	// HandlerStatus records the hard-URL handler outcome when the bounded
+	// escalation ladder ran for this URL: recovered, failed, deferred or
+	// unavailable. HandlerTactics names the ladder step that produced the
+	// result (recovered URLs only).
+	HandlerStatus  string `json:"handler_status,omitempty"`
+	HandlerTactics string `json:"handler_tactics,omitempty"`
 	ContentTruncated  bool    `json:"content_truncated,omitempty"`
 }
 
