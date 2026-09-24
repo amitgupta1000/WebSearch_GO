@@ -170,6 +170,9 @@ var companyHTMLTemplate = documentTemplate("company", `
 	<tr><td>Candidates that named nothing</td><td>{{.Chart.EntityGate.CandidatesNone}}</td></tr>
 	<tr><td>Search snippets dropped before synthesis</td><td>{{.Chart.EntityGate.SnippetsDropped}}</td></tr>
 	<tr><td>People excluded from the roster</td><td>{{.Chart.EntityGate.RowsOffEntity}}</td></tr>
+	<tr><td>People kept because a reverse lookup tied them to the company</td><td>{{.Chart.EntityGate.RescuedByLookup}}</td></tr>
+	{{if .Chart.EntityGate.GapLookups}}<tr><td>Company-anchored lookups run before synthesis (areas the evidence did not cover)</td><td>{{.Chart.EntityGate.GapLookups}}, adding {{.Chart.EntityGate.GapEvidence}} source(s)</td></tr>{{end}}
+	{{if .Chart.EntityGate.LookupsDeferred}}<tr><td>People left unchecked by the lookup pass</td><td>{{.Chart.EntityGate.LookupsDeferred}}</td></tr>{{end}}
 	{{if .Chart.EntityGate.Mode}}<tr><td>Gate mode</td><td>{{.Chart.EntityGate.Mode}}</td></tr>{{end}}
 	</tbody></table>
 	{{if .Chart.EntityGate.OffEntity}}<h3>Unverified / other entities</h3>

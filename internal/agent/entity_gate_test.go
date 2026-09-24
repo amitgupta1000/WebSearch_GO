@@ -148,7 +148,85 @@ func TestEntityGateOffModeChangesNothing(t *testing.T) {
 	}
 }
 
-// TestEntityGateDropsARowNamedLikeTheCompany covers a real live output: a shareholding
+// TestEntityGateRescuesARowTheLookupTiesToTheCompany is the Sanjay Chemicals case: a CFO
+// whose only source was a name-and-title aggregator page, with nothing tying him to the
+// company, so the entity gate would drop him. One reverse lookup that returns a result
+// naming both keeps him — and the rescue is recorded rather than silent.
+func TestEntityGateRescuesARowTheLookupTiesToTheCompany(t *testing.T) {
+	brief := models.CompanyBrief{CompanyName: "Sanjay Chemicals", Domain: "sanjaychemindia.com", EntityConfirmed: true}
+	personPage := "https://www.datanyze.com/people/Chetan-Jain/12604398475"
+	chart := &models.OrgChart{
+		CompanyName: brief.CompanyName,
+		Domain:      brief.Domain,
+		Leadership: []models.Employee{
+			{Name: "Chetan Jain", Title: "Chief Financial Officer", PublicSource: personPage},
+		},
+	}
+	state := &models.CompanyResearchContext{Brief: brief, Evidence: []models.Evidence{
+		// The collected source is name-and-title only: nothing here names the company.
+		{URL: personPage, Title: "Chetan Jain", Content: "Chetan Jain — Chief Financial Officer at a chemicals distributor."},
+	}}
+	searcher := &datedSearcher{results: []models.SearchResult{{
+		Title:   "Chetan Jain, CFO at Sanjay Chemicals (India) Pvt Ltd",
+		Link:    "https://www.linkedin.com/in/chetan-jain-cfo",
+		Snippet: "Chetan Jain is the Chief Financial Officer at Sanjay Chemicals (India) Pvt Ltd, Mumbai.",
+	}}}
+	engine := NewEngine(&mockLLM{}, searcher, &failingScraper{}, cache.NewMemoryCache(50), 10, 5, 20,
+		WithValidation(true, 10, 36, 18), WithEntityGate(EntityGateEnforce))
+	agent := NewCompanyAgent(engine)
+	gate := &models.EntityGate{Confirmed: true, Mode: EntityGateEnforce}
+
+	agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil, gate)
+
+	if len(chart.Leadership) != 1 {
+		t.Fatalf("expected the lookup to rescue the CFO, got %d leader(s): %+v", len(chart.Leadership), chart.Leadership)
+	}
+	person := chart.Leadership[0]
+	if person.EntityKey != models.EntityKeyName {
+		t.Fatalf("expected the association to be recorded as a name match, got %q", person.EntityKey)
+	}
+	if !strings.Contains(person.VerificationNote, "reverse lookup") {
+		t.Fatalf("expected the rescue to be noted, got %q", person.VerificationNote)
+	}
+	if gate.RowsOffEntity != 0 || gate.RescuedByLookup != 1 {
+		t.Fatalf("expected a rescue and no exclusion, got %+v", gate)
+	}
+	if len(person.VerifiedBy) == 0 || !strings.Contains(person.VerifiedBy[0], "chetan-jain-cfo") {
+		t.Errorf("expected the confirming source first in VerifiedBy, got %v", person.VerifiedBy)
+	}
+}
+
+// TestEntityGateStillExcludesWhenTheLookupFindsNothing keeps the rescue honest: no
+// company-naming result means the person is still not in the chart.
+func TestEntityGateStillExcludesWhenTheLookupFindsNothing(t *testing.T) {
+	brief := models.CompanyBrief{CompanyName: "Sanjay Chemicals", Domain: "sanjaychemindia.com", EntityConfirmed: true}
+	personPage := "https://www.datanyze.com/people/Chetan-Jain/12604398475"
+	chart := &models.OrgChart{
+		CompanyName: brief.CompanyName,
+		Domain:      brief.Domain,
+		Leadership:  []models.Employee{{Name: "Chetan Jain", Title: "Chief Financial Officer", PublicSource: personPage}},
+	}
+	state := &models.CompanyResearchContext{Brief: brief, Evidence: []models.Evidence{
+		{URL: personPage, Title: "Chetan Jain", Content: "Chetan Jain — Chief Financial Officer."},
+	}}
+	searcher := &datedSearcher{results: []models.SearchResult{{
+		Title: "Chetan Jain", Link: "https://www.example.com/chetan-jain", Snippet: "Chetan Jain, finance professional.",
+	}}}
+	engine := NewEngine(&mockLLM{}, searcher, &failingScraper{}, cache.NewMemoryCache(50), 10, 5, 20,
+		WithValidation(true, 10, 36, 18), WithEntityGate(EntityGateEnforce))
+	agent := NewCompanyAgent(engine)
+	gate := &models.EntityGate{Confirmed: true, Mode: EntityGateEnforce}
+
+	agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil, gate)
+
+	if len(chart.Leadership) != 0 {
+		t.Fatalf("expected the row to stay excluded, got %+v", chart.Leadership)
+	}
+	if gate.RowsOffEntity != 1 || gate.RescuedByLookup != 0 {
+		t.Fatalf("expected one exclusion and no rescue, got %+v", gate)
+	}
+}
+
 // page labelled "CJ SHAH" produced a roster row "CJ Shah — Chief Financial Officer",
 // matched by the company's own name. The row is the entity, not a person, and the gate
 // excludes it with a reason a reader can act on.

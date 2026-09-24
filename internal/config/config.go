@@ -122,7 +122,7 @@ const (
 	// defaultValidationRecentMonths mirror the agent's defaults for the freshness
 	// pass: four reverse lookups per run, stale beyond 36 months, current inside
 	// 18 months.
-	defaultValidationLookups      = 4
+	defaultValidationLookups      = 10
 	defaultValidationStaleMonths  = 36
 	defaultValidationRecentMonths = 18
 	// defaultEntityGateMode mirrors the agent's default: enforce.

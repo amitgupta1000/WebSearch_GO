@@ -133,6 +133,14 @@ func renderEntityGateMarkdown(gate *models.EntityGate) string {
 	fmt.Fprintf(&builder, "| Candidates that named nothing | %d |\n", gate.CandidatesNone)
 	fmt.Fprintf(&builder, "| Search snippets dropped before synthesis | %d |\n", gate.SnippetsDropped)
 	fmt.Fprintf(&builder, "| People excluded from the roster | %d |\n", gate.RowsOffEntity)
+	fmt.Fprintf(&builder, "| People kept because a reverse lookup tied them to the company | %d |\n", gate.RescuedByLookup)
+	if gate.GapLookups > 0 {
+		fmt.Fprintf(&builder, "| Company-anchored lookups run before synthesis (areas the evidence did not cover) | %d, adding %d source(s) |\n", gate.GapLookups, gate.GapEvidence)
+	}
+	if gate.LookupsDeferred > 0 {
+		fmt.Fprintf(&builder, "| People left unchecked by the lookup pass | %d |\n", gate.LookupsDeferred)
+	}
+
 	if mode := trimmed(gate.Mode); mode != "" {
 		fmt.Fprintf(&builder, "| Gate mode | %s |\n", mode)
 	}

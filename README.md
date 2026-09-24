@@ -136,7 +136,7 @@ and final result summary.
 | `HARD_URL_BUDGET_SECONDS` | derived | Budget for the whole ladder on one URL. `0` derives it from the ladder's own step caps (15 s + 15 s + 20 s + margin), so the extended-settle step can never be clipped |
 | `VALIDATE_EVIDENCE` | `true` | Date and label every person row from the sources behind it (`verified-recent` / `dated` / `stale` / `undated` / `conflicting`) and allow bounded reverse lookups. The offline half costs nothing; `0` keeps the labels and spends no searches |
 | `ENTITY_GATE_MODE` | `enforce` | How strictly sources are held to the confirmed company: `enforce` rejects and removes people no source connects to the company, `report` labels them but keeps them (for measuring the gate's effect), `off` disables the gate entirely for comparison runs |
-| `VALIDATION_LOOKUPS_PER_RUN` | `4` | Cap on reverse lookups — `"Name" "Company"`, snippet-only, never fetched — for rows the pass could not date or corroborate. `0` disables the lookups but keeps the labels |
+| `VALIDATION_LOOKUPS_PER_RUN` | `10` | Cap on reverse lookups — `"Name" "Company"`, snippet-only, never fetched. The policy is deliberately aggressive: anything not already current *and* tied to the company by a domain, alias or registration id gets one, because a lookup is what rescues a person no collected source could tie to the company. `0` disables them but keeps the labels |
 | `VALIDATION_STALE_AFTER_MONTHS` | `36` | Age at which a row's newest source is reported as `stale` |
 | `VALIDATION_RECENT_WITHIN_MONTHS` | `18` | Age inside which a dated source from the company's own domain, or from two independent domains, counts as `verified-recent` |
 | `CACHE_BACKEND` | `memory` | Where cached searches and scraped pages live: `memory`, `redis` or `gcs` |
@@ -311,7 +311,39 @@ because gating a run on a rating agency's domain would be worse than gating on n
    entity, not a person. Rows matched by the name alone carry a visible
    `matched by company name only` warning, because a same-named company matches the same
    way.
-5. **QC** — the reviewer is told the exact identity and must report anyone the evidence
+5. **Reverse lookup before exclusion** — every row that is not already current *and* tied
+   by a domain, alias or registration id gets one snippet-only `"Name" "Company"` search
+   first. If a result names both, the person is **kept** and the rescue is recorded
+   (`rescued by lookup`, with the confirming source). Live case: a CFO whose only collected
+   source was a Datanyze name-and-title page was dropped by the gate; one lookup naming
+   both him and the company keeps him. The lookup order is by how much one search can fix:
+   a row with *no* company link at all first (that is the rescue case), then a title two
+   people claim, then a name-only match, then stale, then undated, then merely dated.
+   `VALIDATION_LOOKUPS_PER_RUN` (default 10) caps them, and when the cap is reached the
+   artifact says how many people were **left unchecked**, so a truncated pass is visible
+   rather than silent.
+6. **Anchored lookups before synthesis** — the same policy applied proactively: for the
+   functions the evidence does not cover (leadership, procurement, supply chain, finance,
+   marketing, up to four per run) the agent runs `"<Company>" <function> head director
+   manager` before the chart is built, and keeps the results that name the company. This is
+   what fills a thin chart with company-anchored sources instead of leaving a department
+   empty. The artifact reports the count and the sources it added.
+   - **Both lookup passes are protected by a reserve.** Fetching runs on a context that
+     stops `scrapeReserve` (55 s: 25 s validation + 15 s synthesis + 15 s lookups) before
+     the run's deadline, and each pass bounds its own work against the others' reserve. This
+     is measured, not theoretical: one live run spent 158 s of a 180 s budget scraping and
+     reported `no run budget left for reverse lookups` — 0 lookups, 15 rows unchecked, two
+     named directors excluded for lack of a source. After the reserve that run's successor
+     performed **10 lookups and kept 12 people who otherwise had no company-named source**,
+     including both directors.
+7. **Person-scoped mentions** — a company mention only supports a row when it appears
+   within ~300 characters of the person's name. A whole-page co-occurrence is not evidence
+   about anyone: a MoneyControl IPO story about another company contains "Sanjay Chemicals"
+   twice, and an Indian Kanoon judgment four times, and both used to enter the source list.
+8. **Job boards and content farms are never sources** — naukri, shine, iipmr, scribd,
+   ambitionbox, indiamart, cphi-online, document dumps and social networks rank with the
+   aggregators, below the relevance floor, so they are not fetched at all.
+9. **QC** — the reviewer is told the exact identity and must report anyone the evidence
    does not connect to it.
 
 The artifact states the identity and what the gate did (`## Entity gate`), so a short

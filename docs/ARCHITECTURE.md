@@ -985,11 +985,40 @@ presented as equivalent to a domain match.
    name or an alias (`entityMatcher.namesTheEntity`) is excluded as the entity rather than a
    person — a shareholding page labelled "CJ SHAH" produced exactly that row in a live run.
    An excluded department head is cleared from `Department.Head`.
-5. **Prompts** — synthesis and QC both receive `entityMatcher.promptLine()` and are told
+5. **Reverse lookup before exclusion** — the lookup policy (`unresolvedRows` +
+   `lookupWorthiness`) is deliberately aggressive, because a lookup *establishes* facts the
+   run could not collect rather than only dating rows it already has. Ranked candidates:
+   a row with no entity key at all (the lookup can rescue it) → a title two people claim →
+   a name-only match → stale → undated → merely dated. A row already `verified-recent` *and*
+   tied by a domain, alias or registration id is not looked up. `reverseLookup` reports
+   `MatchedCompany`/`MatchedKey` when a result names both the person and the company, and
+   `applyEntityRescue` upgrades the row (rescuing it from exclusion, or strengthening a
+   name-only match), counting it in `EntityGate.RescuedByLookup`; the cap-truncated pass
+   reports `EntityGate.LookupsDeferred`. The proactive counterpart lives in
+   `entity_lookup.go`: `fillEntityGaps` spends up to `defaultGapLookups` anchored searches
+   (`"<Company>" <function> head …`) on the functions the evidence does not cover, before
+   synthesis, keeping only results the matcher accepts (`EntityGate.GapLookups`/
+   `GapEvidence`). Fetching runs on `scrapeDeadlineContext`, i.e. on a context that stops
+   `scrapeReserve` = `validationReserve` + `synthesisReserve` + `gapLookupReserve` (55 s)
+   short of the deadline, and `gapLookupTimeoutFor` bounds one gap search by the headroom
+   left. This is what keeps the lookups from being starved: live, scrape 155.0 s of a 180 s
+   budget produced "0 reverse lookup(s)", 15 rows unchecked and no gap lookups; with the
+   reserve in place the same brief ran 10 lookups and kept 12 people who had no
+   company-named source, two of them directors previously excluded with no source at all.
+6. **Person-scoped mentions** — `mentionsCompanyNear` requires a name/alias mention within
+   `companyMentionWindow` (300) bytes of the person's name before a source can tie that
+   person to the company. Domain and registration-id matches are unaffected: they are
+   facts about the URL. Without this, a peer-company table in an unrelated IPO story tied
+   whoever else the page named.
+7. **Host deny-list** — `lowQualityHosts` (job boards, content farms, company directories,
+   document dumps, social networks) is classified as `aggregator`/quality 0.1, below the
+   0.25 relevance floor, so those pages are never fetched.
+8. **Prompts** — synthesis and QC both receive `entityMatcher.promptLine()` and are told
    that a page never naming the company is not evidence about it.
-6. **Output** — `renderEntityGateMarkdown` / the HTML template / the console panel report
+9. **Output** — `renderEntityGateMarkdown` / the HTML template / the console panel report
    the keys, the confirmation state, the mode, the counts (queries dropped, candidates
-   tagged/unmatched, snippets dropped, rows excluded) and the excluded people.
+   tagged/unmatched, snippets dropped, rows excluded, people rescued by lookup) and the
+   excluded people.
 
 **Modes** (`ENTITY_GATE_MODE`): `enforce` (default) removes and lists; `report` labels and
 lists without removing, which is how the gate's effect is measured against `off`, where no

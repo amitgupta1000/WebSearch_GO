@@ -55,9 +55,10 @@ const (
 	defaultMaxScrapesPerResearch = 10
 	// defaultValidationLookups caps the reverse searches the freshness pass may
 	// run per company run. Each lookup is one snippet-only search (no fetch, no
-	// browser), so the cap is about how many rows are worth re-checking rather
-	// than about cost.
-	defaultValidationLookups = 4
+	// browser), and the pass is deliberately broad: a lookup is what ties a person
+	// to the company when no collected source could, so the cap is generous rather
+	// than a last resort.
+	defaultValidationLookups = 10
 	// defaultValidationStaleAfter and defaultValidationRecentWithin are the
 	// freshness windows, expressed in months and converted to durations of 30
 	// days: a source older than the stale window is reported as stale, and a

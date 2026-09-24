@@ -34,6 +34,8 @@ type entityKey struct {
 	// a whole word for the key to match, which is what keeps "Janat Shah" from
 	// matching "CJ Shah" (no cj) and "Rakshith CJ" from matching it either (no shah).
 	tokens []*regexp.Regexp
+	// tokenValues are the same words as plain strings, for proximity checks.
+	tokenValues []string
 }
 
 // legalSuffixes are dropped when tokenising a company name, so "KLJ Resources
@@ -100,7 +102,7 @@ func nameEntityKey(kind, value string, confidence float64) (entityKey, bool) {
 	for _, token := range tokens {
 		compiled = append(compiled, regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(token)+`\b`))
 	}
-	return entityKey{kind: kind, value: trimmed, tokens: compiled, confidence: confidence}, true
+	return entityKey{kind: kind, value: trimmed, tokens: compiled, tokenValues: tokens, confidence: confidence}, true
 }
 
 // nameTokens lowercases a company name and reduces it to significant words:
@@ -214,6 +216,86 @@ func (m *entityMatcher) match(targetURL, title, content string) models.EntityMat
 		return found
 	}
 	return models.EntityMatch{Matched: false}
+}
+
+// companyMentionWindow is how close a company-name mention must be to a person's name for
+// a page to count as evidence *about that person*.
+//
+// A whole-page co-occurrence is not enough. Verified on a live run: a MoneyControl article
+// about Chemcon Speciality Chemicals' IPO contains "Sanjay Chemicals" twice and the word
+// "chemicals" 96 times, and an Indian Kanoon judgment mentions it four times — both passed
+// the old rule and entered the source list. A person whose name appears elsewhere on such
+// a page is not evidence about the company.
+const companyMentionWindow = 300
+
+// nameKeyTokens returns every token of the name and alias keys, for proximity checks.
+func (m *entityMatcher) nameKeyTokens() []string {
+	if m == nil {
+		return nil
+	}
+	tokens := make([]string, 0, 4)
+	for _, key := range m.keys {
+		if key.kind != models.EntityKeyName && key.kind != models.EntityKeyAlias {
+			continue
+		}
+		tokens = append(tokens, key.tokenValues...)
+	}
+	return tokens
+}
+
+// mentionsCompanyNear reports whether the company is named within companyMentionWindow
+// runes of the person's name in this text.
+//
+// It anchors on the person's surname (with the first token as a fallback) and requires
+// every word of the company's name inside that window, so "Ravi Menon, VP Procurement at
+// Sanjay Chemicals" qualifies while "Sanjay Chemicals" in a peer-company table on a page
+// that also happens to name someone does not. The window is measured in bytes so it is
+// slightly stricter than the rune count for non-ASCII text, which is the safe direction.
+func mentionsCompanyNear(text, personName string, matcher *entityMatcher) bool {
+	if matcher == nil {
+		return true
+	}
+	personTokens := nameTokens(personName)
+	companyTokens := matcher.nameKeyTokens()
+	if len(personTokens) == 0 || len(companyTokens) == 0 {
+		return false
+	}
+	anchors := []string{personTokens[len(personTokens)-1]}
+	if len(personTokens) > 1 {
+		anchors = append(anchors, personTokens[0])
+	}
+	lowered := strings.ToLower(text)
+	for _, anchor := range anchors {
+		searchFrom := 0
+		for {
+			index := strings.Index(lowered[searchFrom:], anchor)
+			if index < 0 {
+				break
+			}
+			index += searchFrom
+			start := index - companyMentionWindow
+			if start < 0 {
+				start = 0
+			}
+			end := index + companyMentionWindow
+			if end > len(lowered) {
+				end = len(lowered)
+			}
+			window := lowered[start:end]
+			complete := true
+			for _, token := range companyTokens {
+				if !strings.Contains(window, token) {
+					complete = false
+					break
+				}
+			}
+			if complete {
+				return true
+			}
+			searchFrom = index + 1
+		}
+	}
+	return false
 }
 
 // namesTheEntity reports whether a roster name is the company's own name or an alias

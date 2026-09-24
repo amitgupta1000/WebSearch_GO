@@ -155,6 +155,14 @@ func gatherRowSources(employee models.Employee, views []evidenceView, matcher *e
 		match := models.EntityMatch{}
 		if matcher != nil {
 			match = matcher.match(item.URL, item.Title, item.Content)
+			// A name or alias match only supports *this person* when the company is
+			// named near them: a passing mention elsewhere on the page — a peer-company
+			// table in an IPO story, a party list in a judgment — is how unrelated pages
+			// entered the source list.
+			if (match.Key == models.EntityKeyName || match.Key == models.EntityKeyAlias) &&
+				!mentionsCompanyNear(item.Content, employee.Name, matcher) {
+				match = models.EntityMatch{}
+			}
 		}
 		sources = append(sources, rowSource{
 			URL:       item.URL,
@@ -345,27 +353,19 @@ type lookupCandidate struct {
 	rank int
 }
 
-// candidateRank orders lookups by how misleading the row is: a title two people
-// claim first, then a stale date, then a row with no date at all.
-func candidateRank(verdict string) int {
-	switch verdict {
-	case models.VerificationConflicting:
-		return 0
-	case models.VerificationStale:
-		return 1
-	default:
-		return 2
-	}
-}
-
-// unresolvedRows selects the people the local pass could not date or corroborate,
-// deduplicated by name so one lookup covers every row that mentions them.
-func unresolvedRows(rows []rosterRow) []lookupCandidate {
+// unresolvedRows selects the people one reverse lookup could help, and ranks them.
+//
+// It is deliberately broad — the point of the lookup is to *establish* facts the run
+// could not collect, not merely to date rows it already has. Anything that is not already
+// verified-recent is worth one snippet-only search: a row no source ties to the company
+// (the lookup can rescue it), a title two people claim, a match that rests on the name
+// alone, and every stale, undated or merely-dated row.
+func unresolvedRows(rows []rosterRow, gateActive bool) []lookupCandidate {
 	byName := make(map[string]*lookupCandidate, 4)
 	order := make([]string, 0, 4)
 	for _, row := range rows {
-		verdict := row.employee.Verification
-		if verdict != models.VerificationUndated && verdict != models.VerificationStale && verdict != models.VerificationConflicting {
+		rank, worth := lookupWorthiness(*row.employee, gateActive)
+		if !worth {
 			continue
 		}
 		key := normalizePersonName(row.employee.Name)
@@ -376,12 +376,12 @@ func unresolvedRows(rows []rosterRow) []lookupCandidate {
 		}
 		if existing, ok := byName[key]; ok {
 			existing.rows = append(existing.rows, row)
-			if rank := candidateRank(verdict); rank < existing.rank {
+			if rank < existing.rank {
 				existing.rank = rank
 			}
 			continue
 		}
-		byName[key] = &lookupCandidate{name: strings.TrimSpace(row.employee.Name), rows: []rosterRow{row}, rank: candidateRank(verdict)}
+		byName[key] = &lookupCandidate{name: strings.TrimSpace(row.employee.Name), rows: []rosterRow{row}, rank: rank}
 		order = append(order, key)
 	}
 
@@ -391,6 +391,34 @@ func unresolvedRows(rows []rosterRow) []lookupCandidate {
 	}
 	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].rank < candidates[j].rank })
 	return candidates
+}
+
+// lookupWorthiness ranks how much a lookup would help a row, and reports whether it is
+// worth one at all. A row already verified as current by a company-owned or corroborated
+// recent source is left alone.
+func lookupWorthiness(person models.Employee, gateActive bool) (int, bool) {
+	if gateActive && strings.TrimSpace(person.EntityKey) == "" {
+		// No source ties this person to the company: the lookup is the only thing that
+		// can rescue them, so it goes first.
+		return 0, true
+	}
+	if person.Verification == models.VerificationConflicting {
+		return 1, true
+	}
+	if gateActive && person.EntityKey == models.EntityKeyName {
+		// Tied by name alone, which a same-named company also satisfies: confirming the
+		// association is the highest-value use of a lookup after a rescue.
+		return 2, true
+	}
+	switch person.Verification {
+	case models.VerificationStale:
+		return 3, true
+	case models.VerificationUndated:
+		return 4, true
+	case models.VerificationDated:
+		return 5, true
+	}
+	return 0, false
 }
 
 // hasBudgetForValidation reports whether enough of the run budget remains for a
@@ -466,7 +494,7 @@ func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, bri
 		chart.Leadership[index].VerificationNote = message
 	}
 
-	report.Lookups, report.Skipped = ca.runReverseLookups(ctx, brief, rows, assessments, buckets, position, state, now, staleAfter, recentWithin)
+	report.Lookups, report.Skipped = ca.runReverseLookups(ctx, brief, rows, assessments, buckets, position, state, now, staleAfter, recentWithin, matcher, gate)
 	report.LookupsUsed = len(report.Lookups)
 	countVerdicts(report, buckets)
 
@@ -513,7 +541,7 @@ type rowAssessment struct {
 // runReverseLookups spends the lookup budget on the rows the local pass could not
 // resolve, most misleading first. It returns the lookups it ran and, when it
 // stopped early, why.
-func (ca *CompanyAgent) runReverseLookups(ctx context.Context, brief models.CompanyBrief, rows []rosterRow, assessments []rowAssessment, buckets []string, position map[*models.Employee]int, state *models.CompanyResearchContext, now time.Time, staleAfter, recentWithin time.Duration) ([]models.ValidationLookup, string) {
+func (ca *CompanyAgent) runReverseLookups(ctx context.Context, brief models.CompanyBrief, rows []rosterRow, assessments []rowAssessment, buckets []string, position map[*models.Employee]int, state *models.CompanyResearchContext, now time.Time, staleAfter, recentWithin time.Duration, matcher *entityMatcher, gate *models.EntityGate) ([]models.ValidationLookup, string) {
 	if !ca.engine.ValidationEnabled() {
 		return nil, "validation disabled"
 	}
@@ -521,9 +549,9 @@ func (ca *CompanyAgent) runReverseLookups(ctx context.Context, brief models.Comp
 	if limit <= 0 {
 		return nil, "VALIDATION_LOOKUPS_PER_RUN is 0"
 	}
-	candidates := unresolvedRows(rows)
+	candidates := unresolvedRows(rows, matcher != nil)
 	if len(candidates) == 0 {
-		return nil, "every roster row already carries a dated or corroborated source"
+		return nil, "every roster row is already current and tied to the company by a stronger key than its name"
 	}
 
 	lookups := make([]models.ValidationLookup, 0, limit)
@@ -537,8 +565,7 @@ func (ca *CompanyAgent) runReverseLookups(ctx context.Context, brief models.Comp
 			skipped = "no run budget left for reverse lookups"
 			break
 		}
-
-		lookup, results := ca.reverseLookup(ctx, brief, candidate.name)
+		lookup, results := ca.reverseLookup(ctx, brief, candidate.name, matcher)
 		if lookup.Status == "promoted" || lookup.Status == "refreshed" {
 			changed, verdict := applyLookup(&lookup, candidate, assessments, buckets, position, now, staleAfter, recentWithin)
 			switch {
@@ -552,6 +579,17 @@ func (ca *CompanyAgent) runReverseLookups(ctx context.Context, brief models.Comp
 				lookup.Detail = fmt.Sprintf("newest mention leaves the row %s", verdict)
 			}
 		}
+		// Rescue: the lookup is what ties a person to the company when no collected
+		// source could, and what upgrades a match resting on the name alone. It follows
+		// the date handling so a rescued row keeps any date it just gained.
+		if lookup.MatchedCompany && matcher != nil {
+			if rescued := applyEntityRescue(&lookup, candidate, position, gate); rescued > 0 {
+				if lookup.Status != "promoted" && lookup.Status != "refreshed" {
+					lookup.Status = "rescued"
+				}
+				lookup.Detail = appendNote(lookup.Detail, "company association confirmed by reverse lookup")
+			}
+		}
 		lookups = append(lookups, lookup)
 
 		// Lookup snippets are kept as evidence so a follow-up question can use
@@ -560,6 +598,15 @@ func (ca *CompanyAgent) runReverseLookups(ctx context.Context, brief models.Comp
 		if state != nil && len(results) > 0 {
 			state.Evidence = appendUniqueEvidence(state.Evidence, lookupEvidence(results))
 		}
+	}
+	// A truncated pass has to say so: "0 reverse lookups" and "12 lookups, 3 candidates left
+	// unchecked" are very different statements about how well a roster was checked, and the
+	// aggressive policy is only worth anything if it actually ran.
+	if gate != nil {
+		gate.LookupsDeferred = len(candidates) - len(lookups)
+	}
+	if skipped != "" && gate != nil && gate.LookupsDeferred > 0 {
+		skipped = fmt.Sprintf("%s; %d candidate(s) left unchecked", skipped, gate.LookupsDeferred)
 	}
 	return lookups, skipped
 }
@@ -640,7 +687,7 @@ func topSources(sources []rowSource, limit int) []string {
 // reverseLookup runs one bounded reverse search for a person: "<name>"
 // "<company>", snippet-only — the results are never fetched, because the point is
 // to find a *date*, and a LinkedIn result URL carries its own date.
-func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyBrief, name string) (models.ValidationLookup, []models.SearchResult) {
+func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyBrief, name string, matcher *entityMatcher) (models.ValidationLookup, []models.SearchResult) {
 	query := fmt.Sprintf("\"%s\" \"%s\"", name, strings.TrimSpace(brief.CompanyName))
 	lookup := models.ValidationLookup{Person: name, Query: query}
 
@@ -657,10 +704,32 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 		return lookup, nil
 	}
 
+	// Association first, and it is the more important fact: a result that names both the
+	// person and the company ties them together, which is what rescues a row no collected
+	// source supports and what upgrades a match resting on the name alone. The strongest
+	// matching key wins, so a company-owned result outranks a name-only mention.
+	associationSource := ""
+	strength := 0
+	if matcher != nil {
+		for _, result := range results {
+			match := matcher.match(result.Link, result.Title, result.Snippet)
+			if !match.Matched || entityKeyStrength(match.Key) <= strength {
+				continue
+			}
+			strength = entityKeyStrength(match.Key)
+			lookup.MatchedCompany = true
+			lookup.MatchedKey = match.Key
+			associationSource = result.Link
+		}
+	}
+
 	newest, source := newestDatedResult(results)
 	if newest.IsZero() {
 		lookup.Status = "unchanged"
 		lookup.Detail = "no dated mention in the results"
+		if associationSource != "" {
+			lookup.Source = associationSource
+		}
 		return lookup, results
 	}
 	lookup.AsOf = formatAsOf(newest)
@@ -672,6 +741,34 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 	}
 	lookup.Status = "refreshed"
 	return lookup, results
+}
+
+// applyEntityRescue upgrades every row whose company association the lookup confirmed: a
+// row no collected source could tie to the company stops being off-entity, and a match that
+// rested on the name alone is upgraded when the result matched a stronger key. It reports
+// how many rows changed, and counts them on the gate so the artifact can say how many
+// people are in the chart *because* of a lookup.
+func applyEntityRescue(lookup *models.ValidationLookup, candidate lookupCandidate, position map[*models.Employee]int, gate *models.EntityGate) int {
+	rescued := 0
+	for _, row := range candidate.rows {
+		if _, ok := position[row.employee]; !ok {
+			continue
+		}
+		if entityKeyStrength(lookup.MatchedKey) <= entityKeyStrength(row.employee.EntityKey) {
+			continue
+		}
+		row.employee.EntityKey = lookup.MatchedKey
+		if source := strings.TrimSpace(lookup.Source); source != "" {
+			row.employee.VerifiedBy = append([]string{source}, row.employee.VerifiedBy...)
+		}
+		row.employee.VerificationNote = appendNote(row.employee.VerificationNote,
+			"company association confirmed by reverse lookup")
+		rescued++
+	}
+	if rescued > 0 && gate != nil {
+		gate.RescuedByLookup += rescued
+	}
+	return rescued
 }
 
 // newestDatedResult returns the newest dated result and the URL it came from.

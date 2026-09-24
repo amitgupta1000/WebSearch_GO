@@ -100,13 +100,26 @@ type EntityGate struct {
 	Keys      []string `json:"keys,omitempty"`
 	Confirmed bool     `json:"confirmed"`
 	// Mode is the gate's strictness for this run: enforce, report or off.
-	Mode             string         `json:"mode,omitempty"`
-	QueriesDropped   int            `json:"queries_dropped,omitempty"`
-	CandidatesTagged int            `json:"candidates_tagged,omitempty"`
-	CandidatesNone   int            `json:"candidates_unmatched,omitempty"`
-	SnippetsDropped  int            `json:"snippets_dropped,omitempty"`
-	RowsOffEntity    int            `json:"rows_off_entity,omitempty"`
-	OffEntity        []OffEntityRow `json:"off_entity,omitempty"`
+	Mode             string `json:"mode,omitempty"`
+	QueriesDropped   int    `json:"queries_dropped,omitempty"`
+	CandidatesTagged int    `json:"candidates_tagged,omitempty"`
+	CandidatesNone   int    `json:"candidates_unmatched,omitempty"`
+	SnippetsDropped  int    `json:"snippets_dropped,omitempty"`
+	RowsOffEntity    int    `json:"rows_off_entity,omitempty"`
+	// RescuedByLookup counts people the reverse lookup tied back to the company
+	// after no collected source could, which is why they are in the chart.
+	RescuedByLookup int `json:"rescued_by_lookup,omitempty"`
+	// GapLookups and GapEvidence count the company-anchored lookups run *before*
+	// synthesis for areas the evidence did not cover, and the sources they added.
+	// They are the proactive half of the lookup policy: the rescue above validates
+	// rows that exist, these supply the evidence a thin roster would lack.
+	GapLookups  int `json:"gap_lookups,omitempty"`
+	GapEvidence int `json:"gap_evidence,omitempty"`
+	// LookupsDeferred counts people left unchecked because the run's lookup cap or
+	// its time reserve ran out, so a reader knows the pass was truncated rather
+	// than complete.
+	LookupsDeferred int            `json:"lookups_deferred,omitempty"`
+	OffEntity       []OffEntityRow `json:"off_entity,omitempty"`
 }
 
 // PlannedQuery is a search query generated for a specific research purpose.
@@ -169,13 +182,18 @@ type Evidence struct {
 type ValidationLookup struct {
 	Person string `json:"person"`
 	Query  string `json:"query"`
-	// Status is promoted, unchanged, no-results, skipped or error.
+	// Status is promoted, refreshed, rescued, unchanged, no-results or error.
 	Status string `json:"status"`
 	// AsOf is the newest dated mention the lookup found, and Source the URL it
 	// came from. Both are empty when nothing dated was found.
 	AsOf   string `json:"as_of,omitempty"`
 	Source string `json:"source,omitempty"`
-	Detail string `json:"detail,omitempty"`
+	// MatchedCompany reports that a result names both the person and the company,
+	// which is what rescues a row no collected source could tie to the company.
+	// MatchedKey is the strongest key that result matched with.
+	MatchedCompany bool   `json:"matched_company,omitempty"`
+	MatchedKey     string `json:"matched_key,omitempty"`
+	Detail         string `json:"detail,omitempty"`
 }
 
 // ValidationReport summarises the freshness pass over a finished chart: what

@@ -28,6 +28,53 @@ const maxCompanyReviewIterations = 3
 // QC-driven iteration (search + scrape + synthesis) is worth starting.
 const minQCIterationBudget = 60 * time.Second
 
+// validationReserve is the slice of a run's budget kept back for the freshness pass, whose
+// reverse lookups are the only thing that can tie a person to the company *after* the run
+// has finished collecting.
+//
+// This is not theoretical: a live run spent 158 s of a 180 s deadline scraping, and the
+// freshness pass then reported "no run budget left for reverse lookups" — 5 stale and 5
+// undated rows, plus two named directors excluded for lack of a source, went unchecked.
+const validationReserve = 25 * time.Second
+
+// gapLookupReserve is the same idea for the anchored lookups that run before synthesis:
+// they need headroom to query and read their results.
+const gapLookupReserve = 15 * time.Second
+
+// synthesisReserve is what the synthesis and QC review need between the two lookup passes.
+// It is part of scrapeReserve because both passes run after scraping, so a scrape that spends
+// synthesis's time is the same failure as one that spends the lookups' time.
+const synthesisReserve = 15 * time.Second
+
+// scrapeReserve is what no fetch may touch: the synthesis and both lookup passes. One runs
+// before synthesis to fill what the evidence does not cover, the other after it to date and
+// rescue rows. A live run measured scrape 155.0 s of a 180 s budget and then "0 reverse
+// lookup(s)" with 15 roster rows left unchecked and no gap lookups at all — bounding a
+// batch's *start* was not enough, because a batch already in flight overruns any check.
+// Fetching therefore runs on a context that stops this much short of the deadline.
+const scrapeReserve = validationReserve + synthesisReserve + gapLookupReserve
+
+// hasValidationReserve reports whether enough of the run's budget remains to start another
+// scrape batch and still leave the freshness pass its reserve.
+func hasValidationReserve(ctx context.Context) bool {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return true
+	}
+	return time.Until(deadline) > validationReserve
+}
+
+// scrapeDeadlineContext returns a context that stops fetching scrapeReserve short of the
+// run's own deadline. A context without a deadline imposes nothing; a deadline already
+// inside the reserve yields an expired context, so nothing is fetched at all.
+func scrapeDeadlineContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return ctx, func() {}
+	}
+	return context.WithDeadline(ctx, deadline.Add(-scrapeReserve))
+}
+
 // hasBudgetForIteration reports whether the context allows another full research
 // iteration. Contexts without a deadline are treated as unbounded.
 func hasBudgetForIteration(ctx context.Context) bool {
@@ -95,14 +142,21 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 			}
 			chart.Validation = report
 			chart.EntityGate = gate
+			summary := fmt.Sprintf("Entity gate (%s): %s | %d/%d candidates named the company, %d snippets dropped, %d off-entity people removed, %d rescued by lookup",
+				ca.engine.EntityGateMode(), strings.Join(gate.Keys, ", "),
+				gate.CandidatesTagged, gate.CandidatesTagged+gate.CandidatesNone, gate.SnippetsDropped, gate.RowsOffEntity, gate.RescuedByLookup)
+			if gate.GapLookups > 0 {
+				summary += fmt.Sprintf(", %d anchored gap lookup(s) added %d source(s)", gate.GapLookups, gate.GapEvidence)
+			}
+			if gate.LookupsDeferred > 0 {
+				summary += fmt.Sprintf(", %d candidate(s) left unchecked by the lookup pass", gate.LookupsDeferred)
+			}
 			Emit(eventCh, models.AgentEvent{
 				SessionID: sessionID,
 				Type:      models.EventToolResult,
 				Step:      33,
 				ToolName:  "entity_gate",
-				Content: fmt.Sprintf("Entity gate (%s): %s | %d/%d candidates named the company, %d snippets dropped, %d off-entity people removed",
-					ca.engine.EntityGateMode(), strings.Join(gate.Keys, ", "),
-					gate.CandidatesTagged, gate.CandidatesTagged+gate.CandidatesNone, gate.SnippetsDropped, gate.RowsOffEntity),
+				Content:   summary,
 			})
 		}
 		timings := timer.results()
@@ -174,6 +228,11 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		// 2025 filing over a 2020 one, and the validation pass reuses the same
 		// dates without another request.
 		annotateEvidenceDates(state.Evidence)
+		// Now, before synthesis, spend a few company-anchored lookups on the areas the
+		// evidence does not cover. The post-synthesis pass validates and rescues rows that
+		// exist; this is what gives a thin roster something to be built from, and its
+		// queries name the company, so no unanchored snippet can enter here.
+		ca.fillEntityGaps(ctx, sessionID, brief, state, eventCh, matcher, gate)
 		// Only snippets that name the company reach the synthesiser. A snippet is a
 		// name and a title, and without this filter the results of every planned
 		// query are fair game for the roster.
@@ -769,6 +828,16 @@ func inferOfficialDomain(companyName string, ranked []models.RankedResult) strin
 	return ""
 }
 
+// lowQualityHosts are hosts that are never evidence about a company: job boards, content
+// farms, company directories, document dumps and social networks. Quality 0.1 puts them
+// below the relevance floor, so they are not fetched at all.
+var lowQualityHosts = []string{
+	"ziprecruiter", "indeed.", "glassdoor.", "zoominfo.", "rocketreach.", "naukri", "shine.",
+	"ambitionbox.", "iipmr", "scribd.", "unlistedcart", "cphi-online.", "indiamart.", "tradeindia.",
+	"exportersindia.", "studylib", "docslib", "coursehero", "yumpu", "issuu.", "calameo", "pubhtml5",
+	"slideshare", "wikipedia.", "wikidata.", "facebook.", "instagram.", "twitter.", "x.com", "tiktok.",
+}
+
 type sourceProfile struct {
 	sourceType string
 	official   bool
@@ -794,7 +863,12 @@ func classifySource(brief models.CompanyBrief, targetURL string) sourceProfile {
 		official = rawHost == domain || strings.HasSuffix(rawHost, "."+domain)
 		primary = rawHost == domain
 	}
-	if strings.Contains(host, "ziprecruiter") || strings.Contains(host, "indeed.") || strings.Contains(host, "glassdoor.") || strings.Contains(host, "zoominfo.") || strings.Contains(host, "rocketreach.") {
+	// Job boards, content farms, company directories and social networks are full of
+	// people and titles, which is exactly why they look relevant — and why live runs
+	// pulled sources from naukri, shine, iipmr, scribd, an Instagram reel and a document
+	// dump. They rank with the aggregators, so they are dropped before they can seed a
+	// roster.
+	if containsAny(host, lowQualityHosts...) {
 		return sourceProfile{sourceType: "aggregator", quality: 0.1}
 	}
 	if strings.Contains(host, "linkedin.") {
@@ -1097,6 +1171,12 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 	}
 	usableScrapes := 0
 	handler := newHardURLHandler(ca.engine)
+	// Every fetch below runs on a context that stops short of the run's deadline, so the
+	// two lookup passes always get their slice: the anchored lookups before synthesis and
+	// the freshness/rescue pass after it. A run that spends everything here has no way to
+	// tie a person to the company at all.
+	scrapeCtx, cancelScrape := scrapeDeadlineContext(ctx)
+	defer cancelScrape()
 	// Professional profiles are attempted through the bounded ladder whenever it
 	// is available: it renders public pages under its own budget, reports a wall it
 	// cannot pass, and never solves a challenge. The ALLOW_PROFILE_SCRAPING opt-in
@@ -1112,7 +1192,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 			continue
 		}
 		if handler.available() {
-			outcome := handler.handle(ctx, sessionID, item.URL, "professional profile", 8+len(evidence), eventCh, tools.HardScrapeOptions{})
+			outcome := handler.handle(scrapeCtx, sessionID, item.URL, "professional profile", 8+len(evidence), eventCh, tools.HardScrapeOptions{})
 			if outcome.Status == "recovered" && outcome.Result != nil {
 				entry := models.ScrapeReportEntry{
 					URL: item.URL, SourceType: item.SourceType, Status: "recovered",
@@ -1124,7 +1204,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 					HandlerStatus:  outcome.Status,
 					HandlerTactics: outcome.Result.FallbackReason,
 				}
-				evidence = append(evidence, ca.evidenceWithOCR(ctx, item, outcome.Result, &entry))
+				evidence = append(evidence, ca.evidenceWithOCR(scrapeCtx, item, outcome.Result, &entry))
 				sources = append(sources, item.URL)
 				known[normalizeURL(item.URL)] = true
 				usableScrapes++
@@ -1172,6 +1252,13 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 
 	for nextCandidate < len(candidates) && usableScrapes < ca.engine.MaxScrapes() {
 		if nextOutcome >= len(batchOutcomes) {
+			// The scrape context expires scrapeReserve before the run's own deadline, so
+			// this is what keeps synthesis and both lookup passes their budget. A run that
+			// spends everything here runs no lookups at all, which is how named people end
+			// up excluded for want of a source the lookups existed to find.
+			if scrapeCtx.Err() != nil {
+				break
+			}
 			batchSize := ca.engine.MaxScrapes() - usableScrapes + ca.engine.ScrapeConcurrency() - 1
 			if batchSize < 1 {
 				batchSize = 1
@@ -1196,7 +1283,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 			if len(batchURLs) == 0 {
 				break
 			}
-			batchOutcomes = ca.engine.ScrapeCachedBatch(ctx, batchURLs)
+			batchOutcomes = ca.engine.ScrapeCachedBatch(scrapeCtx, batchURLs)
 			nextOutcome = 0
 		}
 		if usableScrapes >= ca.engine.MaxScrapes() {
@@ -1229,7 +1316,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 		entry.ContentTruncated = scrape.ContentTruncated
 		if scrape.Blocked {
 			if handler.available() {
-				outcome := handler.handle(ctx, sessionID, item.URL, "blocked page", 8+len(evidence), eventCh, tools.HardScrapeOptions{AlreadyRendered: scrape.FallbackStatus == "blocked"})
+				outcome := handler.handle(scrapeCtx, sessionID, item.URL, "blocked page", 8+len(evidence), eventCh, tools.HardScrapeOptions{AlreadyRendered: scrape.FallbackStatus == "blocked"})
 				if outcome.Status == "recovered" && outcome.Result != nil {
 					entry.Status = "recovered"
 					entry.Reason = "recovered by the hard-URL handler (" + outcome.Result.FallbackReason + ")"
@@ -1239,7 +1326,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 					entry.Extractor = outcome.Result.Extractor
 					entry.HandlerStatus = outcome.Status
 					entry.HandlerTactics = outcome.Result.FallbackReason
-					evidence = append(evidence, ca.evidenceWithOCR(ctx, item, outcome.Result, &entry))
+					evidence = append(evidence, ca.evidenceWithOCR(scrapeCtx, item, outcome.Result, &entry))
 					sources = append(sources, item.URL)
 					usableScrapes++
 					report = append(report, entry)
@@ -1283,7 +1370,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 		}
 		// OCR and evidence assembly live in evidenceWithOCR, shared with the
 		// profile-recovery path, so an entry is only ever filled in one place.
-		evidence = append(evidence, ca.evidenceWithOCR(ctx, item, scrape, &entry))
+		evidence = append(evidence, ca.evidenceWithOCR(scrapeCtx, item, scrape, &entry))
 		sources = append(sources, item.URL)
 		usableScrapes++
 		entry.Status = "success"

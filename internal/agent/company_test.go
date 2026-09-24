@@ -640,3 +640,48 @@ func TestProfessionalProfileScrapingOptInFetchesProfiles(t *testing.T) {
 		}
 	}
 }
+
+// TestValidationReserveIsKeptForTheLookups pins the starvation fix that a live run exposed:
+// 158 s of a 180 s deadline went to scraping, so the freshness pass ran zero reverse lookups
+// and two named directors were excluded for want of a source. Inside the reserve no further
+// scrape batch starts; with budget to spare the page is fetched as before.
+func TestValidationReserveIsKeptForTheLookups(t *testing.T) {
+	if hasValidationReserve(mustDeadline(t, 5*time.Second)) {
+		t.Error("five seconds left is inside the reserve")
+	}
+	if !hasValidationReserve(mustDeadline(t, 5*time.Minute)) {
+		t.Error("five minutes left leaves plenty of reserve")
+	}
+	if !hasValidationReserve(context.Background()) {
+		t.Error("a context without a deadline imposes no reserve")
+	}
+
+	engine := NewEngine(&mockLLM{}, &mockSearcher{}, &mockScraper{}, cache.NewMemoryCache(50), 10, 5, 20)
+	agent := NewCompanyAgent(engine)
+	ranked := []models.RankedResult{{
+		URL: "https://acme.com/leadership", Relevant: true, Score: 0.9, SourceType: "official_leadership",
+	}}
+
+	// Inside the reserve: nothing is fetched, so the lookups keep their budget.
+	tight := mustDeadline(t, 5*time.Second)
+	evidence, sources, report := agent.scrapeRanked(tight, "session", ranked, nil, nil, nil, nil)
+	if len(evidence) != 0 || len(sources) != 0 || len(report) != 0 {
+		t.Fatalf("expected no scraping inside the reserve, got %d evidence, %d sources, %d report rows",
+			len(evidence), len(sources), len(report))
+	}
+
+	// With budget to spare the page is fetched.
+	roomy := mustDeadline(t, 2*time.Minute)
+	evidence, _, _ = agent.scrapeRanked(roomy, "session", ranked, nil, nil, nil, nil)
+	if len(evidence) != 1 {
+		t.Fatalf("expected the page to be fetched when the budget allows, got %d evidence items", len(evidence))
+	}
+}
+
+// mustDeadline returns a context with the given deadline, for the reserve tests.
+func mustDeadline(t *testing.T, within time.Duration) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), within)
+	t.Cleanup(cancel)
+	return ctx
+}
