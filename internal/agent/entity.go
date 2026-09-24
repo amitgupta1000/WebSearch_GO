@@ -60,7 +60,10 @@ type entityMatcher struct {
 func newEntityMatcher(brief models.CompanyBrief) *entityMatcher {
 	matcher := &entityMatcher{brief: brief}
 	var named []entityKey
-	if domain := normalizeDomain(brief.Domain); domain != "" {
+	// Every confirmed domain is a key, strongest first: one company under several
+	// names is still one entity, and a source naming any of its domains is on-entity.
+	// The primary domain stays first so artifacts read it as the canonical one.
+	for _, domain := range entityDomains(brief) {
 		matcher.keys = append(matcher.keys, entityKey{
 			kind: models.EntityKeyDomain, value: domain, domain: domain, confidence: 0.95,
 		})
@@ -84,6 +87,31 @@ func newEntityMatcher(brief models.CompanyBrief) *entityMatcher {
 	sort.SliceStable(named, func(i, j int) bool { return len(named[i].tokens) > len(named[j].tokens) })
 	matcher.keys = append(matcher.keys, named...)
 	return matcher
+}
+
+// NormalizeDomain reduces what a human typed into the domain the gate can use: a pasted
+// URL becomes its host, `www.` and any path are dropped, and case is folded. It returns ""
+// when the value cannot be read as a host at all, so a caller can fall back to looking the
+// company up instead of gating a run on something that is not a domain.
+func NormalizeDomain(value string) string {
+	return normalizeDomain(value)
+}
+
+// entityDomains returns the brief's confirmed domains, primary first, normalized and
+// deduplicated. The primary domain stays first even when it is repeated in Domains, so the
+// canonical domain is always the key the gate reports first.
+func entityDomains(brief models.CompanyBrief) []string {
+	var domains []string
+	seen := make(map[string]bool, len(brief.Domains)+1)
+	for _, candidate := range append([]string{brief.Domain}, brief.Domains...) {
+		domain := normalizeDomain(candidate)
+		if domain == "" || seen[domain] {
+			continue
+		}
+		seen[domain] = true
+		domains = append(domains, domain)
+	}
+	return domains
 }
 
 // nameEntityKey compiles a name or alias into a token-matching key. A single short

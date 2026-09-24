@@ -434,3 +434,207 @@ func TestCompanyChartShowsFreshness(t *testing.T) {
 		t.Error("a chart without a validation report must not render the panel")
 	}
 }
+
+// entityCandidateStub mirrors the confirmation step's view, which lives in the server
+// package. Templates read fields by name, so a mirror is enough to pin the markup that
+// makes the step one click to confirm.
+type entityCandidateStub struct {
+	Candidate       models.EntityCandidate
+	Query           string
+	Industry        string
+	Country         string
+	City            string
+	AreasOfInterest string
+	DesiredOutput   string
+	TimeScope       string
+	Notes           string
+	UseBrowser      string
+	PreSelected     bool
+	Extras          []entityExtraStub
+}
+
+type entityExtraStub struct {
+	Candidate models.EntityCandidate
+	Value     string
+	Warning   string
+}
+
+type entityCandidatesStub struct {
+	Query           string
+	Candidates      []entityCandidateStub
+	Industry        string
+	Country         string
+	City            string
+	AreasOfInterest string
+	DesiredOutput   string
+	TimeScope       string
+	Notes           string
+	UseBrowser      string
+	TypedDomain     bool
+}
+
+// personCandidateStub and personCandidatesStub mirror the person confirmation step's view,
+// which lives in the server package.
+type personCandidateStub struct {
+	Candidate   models.PersonCandidate
+	Query       string
+	Company     string
+	Location    string
+	PreSelected bool
+}
+
+type personCandidatesStub struct {
+	Query          string
+	Candidates     []personCandidateStub
+	Company        string
+	Location       string
+	TypedContext   bool
+	NoCompanyMatch bool
+}
+
+// TestIndexSendsBothModesThroughTheConfirmationStep pins the flow: the form's own submit
+// (which is what Enter does) goes to a confirmation step, so a run cannot start without a
+// confirmed identity — a company on its domain or registration id, a person on the employer
+// and place a profile states. The form's destination follows the mode, and HTMX is
+// re-processed so Enter follows it too.
+func TestIndexSendsBothModesThroughTheConfirmationStep(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "index.html", indexViewStub{}); err != nil {
+		t.Fatalf("render index: %v", err)
+	}
+	page := out.String()
+
+	if !strings.Contains(page, `hx-post="/api/resolve-entity"`) {
+		t.Error("the form must submit to the company confirmation step, so Enter cannot skip it")
+	}
+	if !strings.Contains(page, `/api/resolve-person`) {
+		t.Error("expected person mode's confirmation endpoint on the page")
+	}
+	if !strings.Contains(page, `hx-target="#confirmation-step"`) {
+		t.Error("the confirmation step must render into its own target")
+	}
+	if !strings.Contains(page, `id="confirmation-step"`) {
+		t.Error("expected the confirmation step target on the page")
+	}
+	if !strings.Contains(page, "Continue: confirm the company") || !strings.Contains(page, "Continue: confirm the person") {
+		t.Error("expected both modes to say they continue to a confirmation step")
+	}
+	if !strings.Contains(page, "htmx-indicator") {
+		t.Error("expected a loading indicator, because the lookup takes a moment")
+	}
+	if !strings.Contains(page, "htmx.process(form)") {
+		t.Error("expected the form to be re-processed when the mode changes, or Enter keeps the old destination")
+	}
+}
+
+// TestEntityCandidatesPreSelectsTheTopMatchAndOffersExtras covers what the operator sees:
+// the top candidate is pre-selected and focused, a second name can be ticked into the same
+// identity, and a contradictory registration id is flagged where it is ticked.
+func TestEntityCandidatesPreSelectsTheTopMatchAndOffersExtras(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := entityCandidatesStub{
+		Query: "Sanjay Chemicals",
+		Candidates: []entityCandidateStub{
+			{
+				Candidate:   models.EntityCandidate{Domain: "sanjaychemindia.com", Score: 3, NameMatch: true},
+				PreSelected: true,
+				Extras: []entityExtraStub{{
+					Candidate: models.EntityCandidate{Domain: "sanjaychemicals.in", Name: "Sanjay Chemicals India"},
+					Value:     "sanjaychemicals.in|Sanjay Chemicals India|",
+					Warning:   "a different registration id (U111 vs U222)",
+				}},
+			},
+			{Candidate: models.EntityCandidate{Domain: "sanjaychemicals.in", Score: 1}},
+		},
+	}
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "entity_candidates", view); err != nil {
+		t.Fatalf("render confirmation step: %v", err)
+	}
+	body := out.String()
+
+	if !strings.Contains(body, `name="entity_extra" value="sanjaychemicals.in|Sanjay Chemicals India|"`) {
+		t.Errorf("expected the tick to carry the whole identity, got %q", body)
+	}
+	if !strings.Contains(body, "a different registration id (U111 vs U222)") {
+		t.Error("expected the conflicting registration id to be flagged on the tick")
+	}
+	if !strings.Contains(body, "autofocus") {
+		t.Error("expected the pre-selected card to be focused, so confirming is one keypress")
+	}
+	if !strings.Contains(body, `name="entity_source" value="resolved"`) {
+		t.Error("expected a dialogue pick to be recorded as resolved")
+	}
+	if !strings.Contains(body, "top match") {
+		t.Error("expected the pre-selected candidate to be marked as the top match")
+	}
+	if !strings.Contains(body, "Research by name only (entity unconfirmed)") {
+		t.Error("expected the name-only escape hatch, so a failed lookup is not a dead end")
+	}
+}
+
+// TestPersonCandidatesPreSelectAndCarryTheConfirmedContext covers the person step: the top
+// match is pre-selected and focused, the employer read off the profile is pre-filled (that is
+// the disambiguation), the confirmed page travels as a seed, and a failed lookup still offers
+// the name-only path.
+func TestPersonCandidatesPreSelectAndCarryTheConfirmedContext(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := personCandidatesStub{
+		Query: "Sanjay Gupta",
+		Candidates: []personCandidateStub{
+			{
+				Candidate: models.PersonCandidate{
+					Name:            "Sanjay Kumar Gupta",
+					Title:           "Managing Director",
+					Company:         "Sanjay Chemicals (India) Pvt Ltd",
+					URL:             "https://www.linkedin.com/in/sanjay-kumar-gupta",
+					EvidenceTitle:   "Sanjay Kumar Gupta - Managing Director - Sanjay Chemicals | LinkedIn",
+					EvidenceSnippet: "Mumbai, Maharashtra",
+					MatchesCompany:  true,
+				},
+				Company:     "Sanjay Chemicals (India) Pvt Ltd",
+				PreSelected: true,
+			},
+			{
+				Candidate: models.PersonCandidate{Name: "Sanjay Gupta", Directory: true, URL: "https://rocketreach.co/sanjay-gupta"},
+			},
+		},
+	}
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "person_candidates", view); err != nil {
+		t.Fatalf("render person confirmation step: %v", err)
+	}
+	body := out.String()
+
+	if !strings.Contains(body, `name="person_seed_url" value="https://www.linkedin.com/in/sanjay-kumar-gupta"`) {
+		t.Errorf("expected the confirmed profile to travel as a seed, got %q", body)
+	}
+	if !strings.Contains(body, `name="company_name" value="Sanjay Chemicals (India) Pvt Ltd"`) {
+		t.Error("expected the employer read off the profile to be pre-filled")
+	}
+	if !strings.Contains(body, `name="person_source" value="resolved"`) {
+		t.Error("expected a confirmed person to be recorded as resolved")
+	}
+	if !strings.Contains(body, "autofocus") || !strings.Contains(body, "top match") {
+		t.Error("expected the top match to be focused and marked")
+	}
+	if !strings.Contains(body, "Names the company you gave.") {
+		t.Error("expected a candidate matching the typed company to say so")
+	}
+	if !strings.Contains(body, "people-directory listing") {
+		t.Error("expected a directory hit to be flagged rather than passed off as a profile")
+	}
+	if !strings.Contains(body, "Research on the name alone (unconfirmed)") {
+		t.Error("expected the name-only escape hatch on the person step")
+	}
+}

@@ -5,7 +5,9 @@ tracks and synthesizes structured results with Gemini:
 
 - **Company mode** — discovers leadership pages, builds an org chart with
   departments and locations.
-- **Person mode** — disambiguates a person via optional company/location
+- **Person mode** — disambiguates a person through the same confirmation step a company run
+  uses: candidates come from profile headlines and pin the employer and place the run
+  searches with (see [How a run works](#how-a-run-works))
   constraints and compiles a professional dossier.
 
 The HTTP layer serves an HTMX UI from templates embedded in the binary
@@ -73,6 +75,24 @@ organization chart and post-run questions; the terminal shows the live trace
 and final result summary.
 
 ## How a run works
+
+A run starts with the **confirmation step** — who or what is being researched — and only a
+confirmed identity starts the pipeline. Either way it always asks, is one click (the top
+match is pre-selected and focused), and never dead-ends:
+
+- **Company** (`POST /api/resolve-entity`): candidate identities with domain, evidence and a
+  registration id, plus the other candidates as *also part of this company* for a company
+  that answers to several names or domains (see [Entity gate](#entity-gate--what-the-chart-is-held-to)).
+- **Person** (`POST /api/resolve-person`): the people who share the typed name, read out of
+  the `<name> - <role> - <employer>` headlines professional networks use, with the employer
+  and place pre-filled from the profile the operator picks. That pinned context is what the
+  run searches with — `"Name" Company Location` — so a dossier is about the right Sanjay
+  Gupta rather than whichever one ranked highest, and the confirmed profile is read first as
+  a seed source. A people-directory hit (RocketReach, ZoomInfo, SignalHire…) is offered but
+  flagged as a claim rather than a profile, and if no profile is found the name-alone path
+  is right there.
+
+Then:
 
 1. **Plan** — Gemini proposes prioritized search queries (with a deterministic
    fallback plan if planning fails or times out).
@@ -286,12 +306,31 @@ author named Shah, a 2016 conference archive, papers on Malaysian procurement, a
 global wealth-management roundup. Every one of those is topically relevant to a
 procurement brief; none of them is about CJ Shah.
 
-**Confirm the entity first.** The console offers **Find the exact company first**: it runs
-one or two searches and shows candidate identities — domain, evidence, and a registration
-number (a CIN read out of a registry page, shown with the page it came from). Pick one,
-edit the domain, add other names the entity answers to ("CJ Shah & Co", "KLJ Group"), or
-run on the name alone. Candidate domains that do not carry the company's name are flagged,
-because gating a run on a rating agency's domain would be worse than gating on none.
+**Confirm the entity first, every time.** A company run now goes through a confirmation
+step: submit the form (or press Enter) and the console shows candidate identities — domain,
+evidence, and a registration number (a CIN read out of a registry page, shown with the page
+it came from). The top match is pre-selected and focused, so confirming is one click;
+person-mode research goes straight to the agent, because a person has no entity to
+disambiguate.
+
+- **Two names, one company.** Each card offers the other candidates as *also part of this
+  company*: tick one and its domain joins the identity's domains and its name joins its
+  aliases, so the gate accepts a source naming any of them. That is how a corporate site
+  plus a brand site, or a registered name plus an operating name, become one entity.
+- **A different CIN is a different company.** If a ticked candidate carries a registration
+  id that contradicts the card's, the run is refused rather than merged, naming both ids —
+  the gate's whole value is that a human confirmed exactly which company this is. Clearing
+  the registration id is the deliberate way to say "one identity anyway".
+- **It costs nothing when you already know the answer.** Type the domain and the step
+  spends no search at all: it renders that domain (normalized, so a pasted URL works) as the
+  single pre-filled candidate.
+- **A failed lookup is not a dead end.** When no domain can be identified, the step says so
+  and still offers *Research by name only* — the run is gated on the name alone, and the
+  artifact reports that.
+- Candidate domains that do not carry the company's name are flagged, because gating a run
+  on a rating agency's domain would be worse than gating on none.
+- A confirmed pick is recorded as `entity_source=resolved`, so an artifact never presents a
+  pointed-and-clicked identity as a typed one.
 
 **Then every stage is held to that identity** (`internal/agent/entity.go`):
 

@@ -417,23 +417,28 @@
 
 {{define "entity_candidates"}}
 <div class="mt-4 space-y-3">
-	<p class="text-xs text-slate-400">Which company is <span class="text-slate-200">{{.Query}}</span>? Confirming the identity is what keeps another company's people out of the chart — every source then has to name it. The fields are editable; pick one, or run on the name alone.</p>
+	<p class="text-xs text-slate-400">Which company is <span class="text-slate-200">{{.Query}}</span>? Confirming the identity is what keeps another company's people out of the chart — every source then has to name it.
+	{{if .TypedDomain}}You entered a domain, so this step spent no search; check it and confirm.{{else}}The top match is selected: press <span class="text-slate-200">Confirm</span> to start, or edit the fields first.{{end}}
+	Tick <span class="text-slate-200">also part of this company</span> when one company answers to more than one name or domain — the gate then accepts a source naming any of them.</p>
 	{{if .Candidates}}
 	<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
 		{{range .Candidates}}
-		<form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+		<form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="bg-slate-950 border {{if .PreSelected}}border-indigo-600{{else}}border-slate-800{{end}} rounded-xl p-3 space-y-2">
 			<input type="hidden" name="mode" value="company">
 			<input type="hidden" name="query" value="{{.Query}}">
 			<input type="hidden" name="company_industry" value="{{.Industry}}">
 			<input type="hidden" name="company_country" value="{{.Country}}">
 			<input type="hidden" name="company_city" value="{{.City}}">
 			<input type="hidden" name="areas_of_interest" value="{{.AreasOfInterest}}">
+			<input type="hidden" name="desired_output" value="{{.DesiredOutput}}">
+			<input type="hidden" name="time_scope" value="{{.TimeScope}}">
 			<input type="hidden" name="research_notes" value="{{.Notes}}">
+			<input type="hidden" name="use_browser" value="{{.UseBrowser}}">
 			<input type="hidden" name="entity_confirmed" value="1">
-			<input type="hidden" name="entity_source" value="user">
+			<input type="hidden" name="entity_source" value="resolved">
 			<div class="flex items-center justify-between gap-2">
 				<span class="text-sm font-medium text-white break-all">{{if .Candidate.Domain}}{{.Candidate.Domain}}{{else}}{{.Query}}{{end}}</span>
-				<span class="text-[11px] text-slate-500">score {{.Candidate.Score}}</span>
+				<span class="text-[11px] text-slate-500">{{if .PreSelected}}top match · {{end}}score {{.Candidate.Score}}</span>
 			</div>
 			<label class="block text-[11px] text-slate-400">Domain
 				<input type="text" name="entity_domain" value="{{.Candidate.Domain}}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-white text-xs mt-1">
@@ -447,12 +452,24 @@
 			{{if .Candidate.RegistrationSource}}<div class="text-[11px] text-slate-500 break-all">CIN read from <a href="{{.Candidate.RegistrationSource}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline">{{.Candidate.RegistrationSource}}</a> — check it before relying on it.</div>{{end}}
 			{{if .Candidate.EvidenceURL}}<div class="text-[11px] text-slate-500 break-all">Evidence: <a href="{{.Candidate.EvidenceURL}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline">{{.Candidate.EvidenceTitle}}</a></div>{{end}}
 			{{if not .Candidate.NameMatch}}<div class="text-[11px] text-amber-400">This domain does not carry the company's name — check it is really the company before gating a run on it.</div>{{end}}
-			<button type="submit" class="w-full text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg px-3 py-1.5">Confirm &amp; research</button>
+			{{if .Extras}}
+			<fieldset class="border-t border-slate-800/60 pt-2 space-y-1">
+				<legend class="text-[11px] text-slate-400">Also part of this company — one entity under another name or domain</legend>
+				{{range .Extras}}
+				<label class="flex items-start gap-2 text-[11px] text-slate-300">
+					<input type="checkbox" name="entity_extra" value="{{.Value}}" class="mt-0.5 accent-indigo-500">
+					<span class="break-all">{{if .Candidate.Domain}}{{.Candidate.Domain}}{{end}}{{if and .Candidate.Domain .Candidate.Name}} · {{end}}{{.Candidate.Name}}
+					{{if .Warning}}<span class="block text-amber-400">{{.Warning}}</span>{{end}}</span>
+				</label>
+				{{end}}
+			</fieldset>
+			{{end}}
+			<button type="submit" {{if .PreSelected}}autofocus{{end}} class="w-full text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg px-3 py-1.5">Confirm this company &amp; start research</button>
 		</form>
 		{{end}}
 	</div>
 	{{else}}
-	<p class="text-xs text-slate-500">No company domain could be identified from that name.</p>
+	<p class="text-xs text-slate-500">No company domain could be identified from that name. Confirm by name only below, or edit the name above — the run is still gated, but only on the name, so expect same-named companies to be mixed in unless you add one.</p>
 	{{end}}
 	<form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="bg-slate-950 border border-slate-800 rounded-xl p-3">
 		<input type="hidden" name="mode" value="company">
@@ -461,10 +478,65 @@
 		<input type="hidden" name="company_country" value="{{.Country}}">
 		<input type="hidden" name="company_city" value="{{.City}}">
 		<input type="hidden" name="areas_of_interest" value="{{.AreasOfInterest}}">
+		<input type="hidden" name="desired_output" value="{{.DesiredOutput}}">
+		<input type="hidden" name="time_scope" value="{{.TimeScope}}">
 		<input type="hidden" name="research_notes" value="{{.Notes}}">
+		<input type="hidden" name="use_browser" value="{{.UseBrowser}}">
 		<input type="hidden" name="entity_confirmed" value="0">
 		<input type="hidden" name="entity_source" value="typed">
 		<button type="submit" class="w-full text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-1.5">Research by name only (entity unconfirmed)</button>
+	</form>
+</div>
+{{end}}
+
+
+{{define "person_candidates"}}
+<div class="mt-4 space-y-3">
+	<p class="text-xs text-slate-400">Who is <span class="text-slate-200">{{.Query}}</span>? A name is not an identity: confirming the employer and the place is what keeps another person's career out of the dossier.
+	{{if .TypedContext}}You gave a company and a place, so this step spent no search; check the card and confirm.{{else}}The most likely match is selected: press <span class="text-slate-200">Confirm</span> to start, or edit the fields first.{{end}}</p>
+	{{if .Candidates}}
+	{{if .NoCompanyMatch}}<div class="text-xs text-amber-400 rounded-lg border border-amber-900 bg-amber-950/40 px-3 py-2">None of these candidates names <span class="font-medium">{{.Company}}</span>, so no card is pre-selected — check which person you are looking at before confirming, or edit the company above.</div>{{end}}
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+		{{range .Candidates}}
+		<form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="bg-slate-950 border {{if .PreSelected}}border-indigo-600{{else}}border-slate-800{{end}} rounded-xl p-3 space-y-2">
+			<input type="hidden" name="mode" value="person">
+			<input type="hidden" name="person_confirmed" value="1">
+			<input type="hidden" name="person_source" value="resolved">
+			<input type="hidden" name="person_seed_url" value="{{.Candidate.URL}}">
+			<input type="hidden" name="person_seed_title" value="{{.Candidate.EvidenceTitle}}">
+			<input type="hidden" name="person_seed_snippet" value="{{.Candidate.EvidenceSnippet}}">
+			<div class="flex items-center justify-between gap-2">
+				<span class="text-sm font-medium text-white break-all">{{.Candidate.Name}}</span>
+				<span class="text-[11px] text-slate-500">{{if .PreSelected}}top match · {{end}}score {{.Candidate.Score}}</span>
+			</div>
+			{{if .Candidate.Title}}<div class="text-[11px] text-slate-300 break-all">{{.Candidate.Title}}{{if .Candidate.Company}} · {{.Candidate.Company}}{{end}}</div>{{end}}
+			<label class="block text-[11px] text-slate-400">Name to research
+				<input type="text" name="query" value="{{.Candidate.Name}}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-white text-xs mt-1">
+			</label>
+			<label class="block text-[11px] text-slate-400">Current / known company
+				<input type="text" name="company_name" value="{{.Company}}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-white text-xs mt-1">
+			</label>
+			<label class="block text-[11px] text-slate-400">Location / region
+				<input type="text" name="location" value="{{.Location}}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-white text-xs mt-1">
+			</label>
+			{{if .Candidate.MatchesCompany}}<div class="text-[11px] text-emerald-400">Names the company you gave.</div>{{end}}
+			{{if .Candidate.Directory}}<div class="text-[11px] text-amber-400">A people-directory listing, not a profile — treat its role and employer as a claim to check.</div>{{end}}
+			{{if .Candidate.URL}}<div class="text-[11px] text-slate-500 break-all">Evidence: <a href="{{.Candidate.URL}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline">{{.Candidate.EvidenceTitle}}</a>{{if .Candidate.EvidenceSnippet}}<span class="block text-slate-500">{{.Candidate.EvidenceSnippet}}</span>{{end}}</div>{{end}}
+			<button type="submit" {{if .PreSelected}}autofocus{{end}} class="w-full text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg px-3 py-1.5">Confirm this person &amp; start research</button>
+		</form>
+		{{end}}
+	</div>
+	{{else}}
+	<p class="text-xs text-slate-500">No professional profile could be matched to that name. Confirm the name alone below, or add a company above — a bare name is the least specific identity there is.</p>
+	{{end}}
+	<form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="bg-slate-950 border border-slate-800 rounded-xl p-3">
+		<input type="hidden" name="mode" value="person">
+		<input type="hidden" name="query" value="{{.Query}}">
+		<input type="hidden" name="company_name" value="{{.Company}}">
+		<input type="hidden" name="location" value="{{.Location}}">
+		<input type="hidden" name="person_confirmed" value="0">
+		<input type="hidden" name="person_source" value="typed">
+		<button type="submit" class="w-full text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-1.5">Research on the name alone (unconfirmed)</button>
 	</form>
 </div>
 {{end}}

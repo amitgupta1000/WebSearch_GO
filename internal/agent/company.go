@@ -492,8 +492,8 @@ func searchSnippetEvidence(ranked []models.RankedResult, results []models.Search
 // gate dropped for not naming the company.
 func (ca *CompanyAgent) planQueries(ctx context.Context, brief models.CompanyBrief) (models.QueryPlan, int) {
 	var plan models.QueryPlan
-	request := fmt.Sprintf("Company: %s\nDomain: %s\nAliases: %s\nRegistration: %s\nIndustry: %s\nCountry: %s\nCity: %s\nAreas: %s\nOutput: %s\nTime: %s\nNotes: %s",
-		brief.CompanyName, brief.Domain, strings.Join(brief.Aliases, ", "), brief.RegistrationID, brief.Industry,
+	request := fmt.Sprintf("Company: %s\nDomains: %s\nAliases: %s\nRegistration: %s\nIndustry: %s\nCountry: %s\nCity: %s\nAreas: %s\nOutput: %s\nTime: %s\nNotes: %s",
+		brief.CompanyName, strings.Join(entityDomains(brief), ", "), strings.Join(brief.Aliases, ", "), brief.RegistrationID, brief.Industry,
 		brief.Country, brief.City, strings.Join(brief.AreasOfInterest, ", "),
 		strings.Join(brief.DesiredOutput, ", "), brief.TimeScope, brief.UserNotes)
 	llmCtx, cancel := context.WithTimeout(ctx, companyPlanningTimeout)
@@ -1613,13 +1613,35 @@ func sourceDomain(targetURL string) string {
 	return rootHost(parsed.Hostname())
 }
 
+// publicSuffixLabels are the second-level labels that belong to a registry suffix rather
+// than to the registrable name: sanjaychem.co.in is a company in India, not the host
+// "co.in". Without this the root of a .co.in or .co.uk site is the suffix itself, and a
+// domain key of "co.in" matches every .co.in host on the web — a gate that accepts
+// everything is worse than no gate.
+var publicSuffixLabels = map[string]bool{
+	"ac": true, "co": true, "com": true, "edu": true, "firm": true, "gen": true,
+	"go": true, "gov": true, "id": true, "ind": true, "ltd": true, "mil": true,
+	"net": true, "ne": true, "or": true, "org": true, "plc": true, "sch": true,
+}
+
+// rootHost reduces a host to the domain that identifies its owner: the registrable name
+// plus its suffix. Subdomains are dropped (mail.acme.com -> acme.com) and multi-part
+// suffixes are kept (acme.co.uk -> acme.co.uk).
 func rootHost(host string) string {
 	host = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(host), "www."))
 	parts := strings.Split(host, ".")
-	if len(parts) > 2 {
-		return strings.Join(parts[len(parts)-2:], ".")
+	if len(parts) < 3 {
+		return host
 	}
-	return host
+	// A second-level label that is part of the suffix means the registrable name is one
+	// label further left: sub.acme.co.uk keeps three labels, acme.co.uk keeps two.
+	if publicSuffixLabels[parts[len(parts)-2]] {
+		if len(parts) > 3 {
+			return strings.Join(parts[len(parts)-3:], ".")
+		}
+		return host
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
 }
 
 func formatEvidence(evidence []models.Evidence) string {

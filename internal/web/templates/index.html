@@ -38,7 +38,7 @@
             <h2 class="text-lg font-semibold text-white mb-2">Agentic Web Research Console</h2>
             <p class="text-sm text-slate-400 mb-6">Choose an autonomous research mode and specify your query.</p>
 
-            <form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="space-y-4">
+            <form id="research-form" hx-post="/api/resolve-entity" hx-target="#confirmation-step" hx-swap="innerHTML" hx-indicator="#resolve-spinner" class="space-y-4">
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <!-- Mode Radio Selection -->
                     <div class="space-y-2">
@@ -132,20 +132,21 @@
                     </label>
                 </div>
                 {{end}}
-                <div class="flex flex-col sm:flex-row justify-end gap-2 pt-2">
-                    <button type="button"
-                            hx-post="/api/resolve-entity" hx-include="closest form"
-                            hx-target="#entity-candidates" hx-swap="innerHTML"
-                            class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium px-5 py-2.5 rounded-lg text-sm border border-slate-700 transition-colors">
-                        Find the exact company first
-                    </button>
-                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-6 py-2.5 rounded-lg text-sm transition-colors flex items-center gap-2 shadow-lg shadow-indigo-600/20">
+                <div class="flex flex-col sm:flex-row justify-end items-center gap-2 pt-2">
+                    <span id="resolve-spinner" class="htmx-indicator text-xs text-slate-400 mr-auto">Looking up the company and its domains…</span>
+                    <button id="company-submit" type="submit"
+                            class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-6 py-2.5 rounded-lg text-sm transition-colors flex items-center gap-2 shadow-lg shadow-indigo-600/20">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                        Launch Autonomous Agent
+                        Continue: confirm the company
+                    </button>
+                    <button id="person-submit" type="submit"
+                            class="hidden bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-6 py-2.5 rounded-lg text-sm transition-colors flex items-center gap-2 shadow-lg shadow-indigo-600/20">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        Continue: confirm the person
                     </button>
                 </div>
             </form>
-            <div id="entity-candidates" aria-live="polite"></div>
+            <div id="confirmation-step" aria-live="polite"></div>
         </section>
 
         <!-- Dynamic Results Container -->
@@ -194,17 +195,32 @@
             const cf = document.getElementById('company-fields');
             const ql = document.getElementById('query-label');
             const qi = document.getElementById('primary-query');
+            const companySubmit = document.getElementById('company-submit');
+            const personSubmit = document.getElementById('person-submit');
+            const form = document.getElementById('research-form');
+            const spinner = document.getElementById('resolve-spinner');
             if (mode === 'person') {
                 pf.classList.remove('hidden');
                 cf.classList.add('hidden');
                 ql.innerText = 'Person Full Name';
                 qi.placeholder = 'e.g. Demis Hassabis, Ilya Sutskever...';
+                if (companySubmit) companySubmit.classList.add('hidden');
+                if (personSubmit) personSubmit.classList.remove('hidden');
+                if (spinner) spinner.innerText = 'Looking up matching profiles…';
+                if (form) form.setAttribute('hx-post', '/api/resolve-person');
             } else {
                 pf.classList.add('hidden');
                 cf.classList.remove('hidden');
                 ql.innerText = 'Company Name / Domain';
                 qi.placeholder = 'e.g. Anthropic, Stripe, Datadog...';
+                if (personSubmit) personSubmit.classList.add('hidden');
+                if (companySubmit) companySubmit.classList.remove('hidden');
+                if (spinner) spinner.innerText = 'Looking up the company and its domains…';
+                if (form) form.setAttribute('hx-post', '/api/resolve-entity');
             }
+            // The form's own submit is what Enter triggers, so its destination has to follow
+            // the mode; HTMX caches attributes, hence the re-process.
+            if (form && window.htmx) htmx.process(form);
         }
 
         // Auto-scroll the log terminal to bottom as new event lines stream in

@@ -20,8 +20,16 @@ type ResearchPreferences struct {
 // CompanyBrief identifies a company and the user's research scope.
 type CompanyBrief struct {
 	CompanyName string `json:"company_name"`
-	Domain      string `json:"domain,omitempty"`
-	Industry    string `json:"industry,omitempty"`
+	// Domain is the entity's primary domain. It is what query anchoring uses
+	// (`site:<domain> …`), so extra domains never multiply the searches.
+	Domain   string `json:"domain,omitempty"`
+	Industry string `json:"industry,omitempty"`
+	// Domains are additional domains the same confirmed entity publishes under — a
+	// corporate site and a brand site, say. They widen what the gate *accepts* (a
+	// source naming any of them is on-entity) without widening what it *searches*.
+	// The operator confirms them one by one in the entity dialogue, because adding a
+	// domain here is the strongest statement the gate can be given.
+	Domains []string `json:"domains,omitempty"`
 	// Aliases are other names the confirmed entity answers to ("CJ Shah & Co",
 	// "KLJ Group"). They are how a brand or group relationship enters the entity
 	// gate explicitly — confirmed by the operator — instead of being inferred by
@@ -36,6 +44,7 @@ type CompanyBrief struct {
 	// gate runs either way; an unconfirmed identity is reported as such.
 	EntityConfirmed bool `json:"entity_confirmed,omitempty"`
 	// EntitySource records where the identity came from: user, resolved or typed.
+	// "resolved" means the operator picked it in the entity dialogue.
 	EntitySource string `json:"entity_source,omitempty"`
 	ResearchPreferences
 }

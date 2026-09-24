@@ -68,8 +68,31 @@ type entityCandidateView struct {
 	Industry        string
 	Country         string
 	City            string
+	Domain          string
 	AreasOfInterest string
+	DesiredOutput   string
+	TimeScope       string
 	Notes           string
+	UseBrowser      string
+	// PreSelected marks the top candidate: it is the one the operator confirms by
+	// pressing Enter, so it is rendered first with autofocus on its button.
+	PreSelected bool
+	// Extras are the *other* candidates, offered on this card as "also part of this
+	// company". Ticking one folds its identity into the same confirmed entity: one more
+	// domain for the gate to accept and one more name for it to recognise.
+	Extras []entityExtraView
+}
+
+// entityExtraView is one other candidate offered as part of the same identity. Value is
+// what the checkbox submits: domain|name|registration. Checkboxes submit nothing when
+// unticked, so a parallel hidden field per extra would drift out of step with the tick.
+type entityExtraView struct {
+	Candidate models.EntityCandidate
+	Value     string
+	// Warning is set when this candidate contradicts the card's registration id. Two
+	// different CINs are two legal entities, and folding them together would defeat the
+	// point of confirming an identity at all.
+	Warning string
 }
 
 // entityCandidatesView is the dialogue rendered before a run starts.
@@ -80,7 +103,41 @@ type entityCandidatesView struct {
 	Country         string
 	City            string
 	AreasOfInterest string
+	DesiredOutput   string
+	TimeScope       string
 	Notes           string
+	UseBrowser      string
+	// TypedDomain is true when the operator already gave a domain, so the step spent no
+	// search and can say so rather than implying it looked the company up.
+	TypedDomain bool
+}
+
+// personCandidateView is one possible person plus the run's fields, so a card can post a
+// complete person request without any client-side state.
+type personCandidateView struct {
+	Candidate models.PersonCandidate
+	Query     string
+	// Company and Location are pre-filled from the candidate: reading them off a profile is
+	// the point of the step. Location is only pre-filled when the operator stated one, since
+	// a person-directory page rarely states a place in a machine-readable way.
+	Company     string
+	Location    string
+	PreSelected bool
+}
+
+// personCandidatesView is the confirmation step for a person run.
+type personCandidatesView struct {
+	Query      string
+	Candidates []personCandidateView
+	Company    string
+	Location   string
+	// TypedContext is true when company and place were both already given, so the step spent
+	// no search and says so.
+	TypedContext bool
+	// NoCompanyMatch is true when a company was typed and no candidate names it. The
+	// pre-selection is dropped in that case, because one Enter would otherwise pin a person
+	// the operator never meant.
+	NoCompanyMatch bool
 }
 
 func main() {
@@ -190,6 +247,7 @@ func main() {
 	mux.HandleFunc("GET /{$}", srv.handleIndex)
 	mux.HandleFunc("POST /api/research", srv.handleResearch)
 	mux.HandleFunc("POST /api/resolve-entity", srv.handleResolveEntity)
+	mux.HandleFunc("POST /api/resolve-person", srv.handleResolvePerson)
 	mux.HandleFunc("POST /api/rerun", srv.handleRerun)
 	mux.HandleFunc("POST /api/question", srv.handleQuestion)
 	mux.HandleFunc("GET /api/events", srv.handleEvents)
@@ -311,8 +369,6 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 
 	mode := strings.TrimSpace(r.FormValue("mode"))
 	query := strings.TrimSpace(r.FormValue("query"))
-	company := strings.TrimSpace(r.FormValue("company_name"))
-	location := strings.TrimSpace(r.FormValue("location"))
 	companyBrief := models.CompanyBrief{
 		CompanyName:     query,
 		Domain:          entityDomainValue(r),
@@ -336,6 +392,21 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The confirmation step is where the operator can fold a second name into the same
+	// identity. Those picks arrive here, and a contradictory registration id is refused:
+	// the gate's whole value is that a human confirmed exactly which company this is.
+	extras := parseEntityExtras(r)
+	if mode != "person" && len(extras) > 0 {
+		confirmed, err := confirmEntityIdentity(companyBrief, extras)
+		if err != nil {
+			s.renderError(w, err.Error())
+			return
+		}
+		companyBrief = confirmed
+		log.Printf("[ENTITY] confirmed %q with %d additional name(s): domains=%v aliases=%v",
+			companyBrief.CompanyName, len(extras), companyBrief.Domains, companyBrief.Aliases)
+	}
+
 	browserEnabled, browserExplicit, err := s.browserChoice(r)
 	if err != nil {
 		s.renderError(w, err.Error())
@@ -351,7 +422,8 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 		ctx = withBrowserOverride(ctx, browserEnabled, browserExplicit)
 
 		if mode == "person" {
-			profile, researchErr := s.personAgent.ResearchPerson(ctx, sessionID, query, company, location, nil)
+			personQuery := personQueryFromForm(r, query)
+			profile, researchErr := s.personAgent.ResearchPerson(ctx, sessionID, personQuery, nil)
 			if researchErr != nil {
 				log.Printf("[ERROR] person research failed (session %s): %v", sessionID, researchErr)
 				s.renderError(w, "Person research failed: "+researchErr.Error())
@@ -371,12 +443,33 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.startRun(w, sessionID, mode, query, company, location, companyBrief, browserEnabled, browserExplicit)
+	s.startRun(w, sessionID, mode, query, personQueryFromForm(r, query), companyBrief, browserEnabled, browserExplicit)
+}
+
+// personQueryFromForm reads the identity a person run starts from. The confirmation step
+// fills Company and Location from the profile the operator picked — a context read off a
+// source instead of recalled — and carries that profile as a seed, so the run reads the page
+// the identity was confirmed on first.
+func personQueryFromForm(r *http.Request, name string) models.PersonQuery {
+	source := strings.TrimSpace(r.FormValue("person_source"))
+	if source == "" {
+		source = "typed"
+	}
+	return models.PersonQuery{
+		Name:        strings.TrimSpace(name),
+		Company:     strings.TrimSpace(r.FormValue("company_name")),
+		Location:    strings.TrimSpace(r.FormValue("location")),
+		Confirmed:   strings.TrimSpace(r.FormValue("person_confirmed")) == "1",
+		Source:      source,
+		SeedURL:     strings.TrimSpace(r.FormValue("person_seed_url")),
+		SeedTitle:   strings.TrimSpace(r.FormValue("person_seed_title")),
+		SeedSnippet: strings.TrimSpace(r.FormValue("person_seed_snippet")),
+	}
 }
 
 // startRun launches a research session in the background and renders the live
 // workflow console for HTMX.
-func (s *Server) startRun(w http.ResponseWriter, sessionID, mode, query, personCompany, location string, brief models.CompanyBrief, browserEnabled, browserExplicit bool) {
+func (s *Server) startRun(w http.ResponseWriter, sessionID, mode, query string, person models.PersonQuery, brief models.CompanyBrief, browserEnabled, browserExplicit bool) {
 	session := s.hub.Create(sessionID, mode, query)
 
 	timeout := s.cfg.ResearchTimeoutFor(browserEnabled)
@@ -396,7 +489,7 @@ func (s *Server) startRun(w http.ResponseWriter, sessionID, mode, query, personC
 		ctx = withBrowserOverride(ctx, browserEnabled, browserExplicit)
 
 		if mode == "person" {
-			profile, err := s.personAgent.ResearchPerson(ctx, sessionID, query, personCompany, location, session.EventCh)
+			profile, err := s.personAgent.ResearchPerson(ctx, sessionID, person, session.EventCh)
 			if err != nil {
 				log.Printf("[ERROR][session %s] person research failed: %v", sessionID, err)
 			} else {
@@ -457,7 +550,7 @@ func (s *Server) handleRerun(w http.ResponseWriter, r *http.Request) {
 
 	brief := researchContext.Brief
 	log.Printf("[RERUN] session %s -> new session, browser=%t", sessionID, browserEnabled)
-	s.startRun(w, newSessionID(), "company", brief.CompanyName, "", "", brief, browserEnabled, browserExplicit)
+	s.startRun(w, newSessionID(), "company", brief.CompanyName, models.PersonQuery{}, brief, browserEnabled, browserExplicit)
 }
 
 // handleQuestion answers a question against a completed company session.
@@ -495,23 +588,19 @@ func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "question_answer", answer)
 }
 
-// handleResolveEntity offers the operator candidate identities for a company name, so
-// the entity is confirmed by a human before any research runs. Confirming here is what
-// makes the entity gate enforceable: one or two searches now, instead of a run whose
-// sources all look relevant and belong to another company.
+// handleResolveEntity renders the confirmation step for a company name: candidate
+// identities, offered before any research runs. Confirming here is what makes the entity
+// gate enforceable — one or two searches now, instead of a run whose sources all look
+// relevant and belong to another company.
+//
+// The step always renders. When the operator has already typed a domain it spends no search
+// at all and renders that domain as the single, pre-filled candidate, so "always confirm"
+// costs nothing on the runs where the answer is already known.
 func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	name := strings.TrimSpace(r.FormValue("query"))
 	if name == "" {
 		s.renderError(w, "Please provide a company name to resolve.")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), entityResolveTimeout)
-	defer cancel()
-	candidates, err := s.companyAgent.ResolveEntityCandidates(ctx, name, r.FormValue("company_country"), r.FormValue("company_city"))
-	if err != nil {
-		s.renderError(w, "Entity lookup failed: "+err.Error())
 		return
 	}
 
@@ -521,30 +610,277 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 		Country:         strings.TrimSpace(r.FormValue("company_country")),
 		City:            strings.TrimSpace(r.FormValue("company_city")),
 		AreasOfInterest: strings.TrimSpace(r.FormValue("areas_of_interest")),
+		DesiredOutput:   strings.TrimSpace(r.FormValue("desired_output")),
+		TimeScope:       strings.TrimSpace(r.FormValue("time_scope")),
 		Notes:           strings.TrimSpace(r.FormValue("research_notes")),
+		UseBrowser:      strings.TrimSpace(r.FormValue("use_browser")),
 	}
-	for _, candidate := range candidates {
-		view.Candidates = append(view.Candidates, entityCandidateView{
+
+	var candidates []models.EntityCandidate
+	if typedDomain := entityDomainValue(r); typedDomain != "" {
+		candidates = []models.EntityCandidate{{
+			Name:      name,
+			Domain:    typedDomain,
+			NameMatch: agent.DomainEchoesName(typedDomain, name),
+			Score:     1,
+		}}
+		view.TypedDomain = true
+		log.Printf("[ENTITY] confirmation step for %q uses the typed domain %s (no search spent)", name, typedDomain)
+	} else {
+		resolved, err := s.resolveEntityCandidates(r.Context(), name, view.Country, view.City)
+		if err != nil {
+			s.renderError(w, "Entity lookup failed: "+err.Error())
+			return
+		}
+		candidates = resolved
+		log.Printf("[ENTITY] resolved %d candidate(s) for %q", len(candidates), name)
+	}
+	// Every card carries the whole brief plus the other candidates, so the operator can
+	// confirm the identity in one click — or tick a second name that belongs to the same
+	// company — without re-entering anything.
+	for index, candidate := range candidates {
+		card := entityCandidateView{
 			Candidate:       candidate,
 			Query:           view.Query,
 			Industry:        view.Industry,
 			Country:         view.Country,
 			City:            view.City,
 			AreasOfInterest: view.AreasOfInterest,
+			DesiredOutput:   view.DesiredOutput,
+			TimeScope:       view.TimeScope,
 			Notes:           view.Notes,
-		})
+			UseBrowser:      view.UseBrowser,
+			PreSelected:     index == 0,
+		}
+		for otherIndex, other := range candidates {
+			if otherIndex == index {
+				continue
+			}
+			card.Extras = append(card.Extras, entityExtraView{
+				Candidate: other,
+				Value:     entityExtraValue(other),
+				Warning:   entityRegistrationConflict(candidate, other),
+			})
+		}
+		view.Candidates = append(view.Candidates, card)
 	}
-	log.Printf("[ENTITY] resolved %d candidate(s) for %q", len(candidates), name)
 	s.render(w, "entity_candidates", view)
 }
 
-// entityDomainValue resolves the domain from the confirmed-entity field, falling back to
-// the free-text company_domain field the console has always offered.
-func entityDomainValue(r *http.Request) string {
-	if domain := strings.TrimSpace(r.FormValue("entity_domain")); domain != "" {
+// resolveEntityCandidates performs the bounded identity lookup behind the confirmation
+// step. It is split out so the choice between "the operator already gave a domain" and
+// "look it up" is a decision the handler makes explicitly rather than a side effect of the
+// searched path, and it carries entityResolveTimeout with it.
+func (s *Server) resolveEntityCandidates(ctx context.Context, name, country, city string) ([]models.EntityCandidate, error) {
+	lookupCtx, cancel := context.WithTimeout(ctx, entityResolveTimeout)
+	defer cancel()
+	return s.companyAgent.ResolveEntityCandidates(lookupCtx, name, country, city)
+}
+
+// entityExtraSeparator separates the fields inside one extra-entity checkbox value. A pipe
+// cannot appear in a domain, and a company name carrying one would not survive a registry,
+// so it is safe as the field separator.
+const entityExtraSeparator = "|"
+
+// entityExtraValue encodes a candidate as one checkbox value: domain|name|registration.
+// Checkboxes submit nothing when unticked, so a whole identity has to travel in the value
+// itself rather than in parallel hidden fields, which cannot be kept in step with a tick.
+func entityExtraValue(candidate models.EntityCandidate) string {
+	return strings.Join([]string{
+		strings.TrimSpace(candidate.Domain),
+		strings.TrimSpace(candidate.Name),
+		strings.TrimSpace(candidate.RegistrationID),
+	}, entityExtraSeparator)
+}
+
+// entityRegistrationConflict explains why two candidates cannot be one identity: two
+// different registration numbers are two different legal entities. It returns "" when the
+// candidates do not contradict each other, which includes the common case where only one of
+// them has a registration id at all.
+func entityRegistrationConflict(primary, other models.EntityCandidate) string {
+	primaryID := strings.ToUpper(strings.TrimSpace(primary.RegistrationID))
+	otherID := strings.ToUpper(strings.TrimSpace(other.RegistrationID))
+	if primaryID == "" || otherID == "" || primaryID == otherID {
+		return ""
+	}
+	return fmt.Sprintf("a different registration id (%s vs %s) — a separate legal entity, not another name for this one", otherID, primaryID)
+}
+
+// parseEntityExtras reads the extras a confirmation card submitted.
+func parseEntityExtras(r *http.Request) []entityExtra {
+	if err := r.ParseForm(); err != nil {
+		return nil
+	}
+	var extras []entityExtra
+	for _, raw := range r.Form["entity_extra"] {
+		parts := strings.SplitN(strings.TrimSpace(raw), entityExtraSeparator, 3)
+		extra := entityExtra{}
+		if len(parts) > 0 {
+			extra.Domain = strings.TrimSpace(parts[0])
+		}
+		if len(parts) > 1 {
+			extra.Name = strings.TrimSpace(parts[1])
+		}
+		if len(parts) > 2 {
+			extra.RegistrationID = strings.TrimSpace(parts[2])
+		}
+		if extra.Domain == "" && extra.Name == "" {
+			continue
+		}
+		extras = append(extras, extra)
+	}
+	return extras
+}
+
+// mergeEntityExtras folds the ticked identities into the brief: their domains join Domains
+// and their names join Aliases. The gate then accepts a source naming any of them, which is
+// what "the same company under several names" means in practice.
+//
+// A ticked identity whose registration id contradicts the card's is refused rather than
+// merged: two different CINs are two legal entities, and folding them into one gate would
+// let a second company's people into the chart. Clearing the CIN field is the deliberate
+// way to say "one identity anyway".
+func confirmEntityIdentity(brief models.CompanyBrief, extras []entityExtra) (models.CompanyBrief, error) {
+	primaryID := strings.ToUpper(strings.TrimSpace(brief.RegistrationID))
+	for _, extra := range extras {
+		otherID := strings.ToUpper(strings.TrimSpace(extra.RegistrationID))
+		if primaryID == "" || otherID == "" || primaryID == otherID {
+			continue
+		}
+		return brief, fmt.Errorf("that selection includes a separate legal entity (%s: %s, this one: %s); confirm one identity at a time, or clear the registration id if you are certain they are the same company", extra.DomainOrName(), otherID, primaryID)
+	}
+	return mergeEntityExtras(brief, extras), nil
+}
+
+// entityExtra is one identity ticked as part of the confirmed company.
+type entityExtra struct {
+	Domain         string
+	Name           string
+	RegistrationID string
+}
+
+// DomainOrName names an extra in an error message, preferring what the operator saw.
+func (e entityExtra) DomainOrName() string {
+	if domain := strings.TrimSpace(e.Domain); domain != "" {
 		return domain
 	}
-	return strings.TrimSpace(r.FormValue("company_domain"))
+	return strings.TrimSpace(e.Name)
+}
+
+// mergeEntityExtras folds the ticked identities into the brief: their domains join Domains
+// and their names join Aliases, so the gate accepts a source naming any of them. That is
+// what "the same company under several names" means in practice.
+func mergeEntityExtras(brief models.CompanyBrief, extras []entityExtra) models.CompanyBrief {
+	seenDomain := make(map[string]bool, len(brief.Domains)+1)
+	for _, domain := range append([]string{brief.Domain}, brief.Domains...) {
+		seenDomain[strings.ToLower(strings.TrimSpace(domain))] = true
+	}
+	seenName := map[string]bool{strings.ToLower(brief.CompanyName): true}
+	for _, alias := range brief.Aliases {
+		seenName[strings.ToLower(strings.TrimSpace(alias))] = true
+	}
+	for _, extra := range extras {
+		if domain := strings.TrimSpace(extra.Domain); domain != "" && !seenDomain[strings.ToLower(domain)] {
+			seenDomain[strings.ToLower(domain)] = true
+			brief.Domains = append(brief.Domains, domain)
+		}
+		if name := strings.TrimSpace(extra.Name); name != "" && !seenName[strings.ToLower(name)] {
+			seenName[strings.ToLower(name)] = true
+			brief.Aliases = append(brief.Aliases, name)
+		}
+	}
+	return brief
+}
+
+// handleResolvePerson renders the confirmation step for a person: which of the people who
+// share this name is being researched. Person research is disambiguated by context — role,
+// employer, city — which is exactly what a profile states and what an operator otherwise
+// supplies from memory, so the step reads it off a profile and asks for one confirmation.
+//
+// Like the company step it always renders and never dead-ends: with nothing found, the
+// operator confirms the name alone.
+func (s *Server) handleResolvePerson(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
+	name := strings.TrimSpace(r.FormValue("query"))
+	if name == "" {
+		s.renderError(w, "Please provide a person's name to resolve.")
+		return
+	}
+
+	view := personCandidatesView{
+		Query:    name,
+		Company:  strings.TrimSpace(r.FormValue("company_name")),
+		Location: strings.TrimSpace(r.FormValue("location")),
+	}
+
+	var candidates []models.PersonCandidate
+	if view.Company != "" && view.Location != "" {
+		// Company and place already pin the person, so no search is worth spending: the
+		// step still asks, with a card that agrees with what was typed.
+		candidates = []models.PersonCandidate{
+			{Name: name, Company: view.Company, MatchesCompany: true, MatchesLocation: true, Score: 1},
+		}
+		view.TypedContext = true
+		log.Printf("[PERSON] confirmation step for %q uses the typed company and location (no search spent)", name)
+	} else {
+		ctx, cancel := context.WithTimeout(r.Context(), entityResolveTimeout)
+		defer cancel()
+		resolved, err := s.personAgent.ResolvePersonCandidates(ctx, name, view.Company, view.Location)
+		if err != nil {
+			s.renderError(w, "Person lookup failed: "+err.Error())
+			return
+		}
+		candidates = resolved
+		log.Printf("[PERSON] resolved %d candidate(s) for %q", len(candidates), name)
+	}
+
+	// A pre-selected top match is only safe when it agrees with the context the operator
+	// gave. If a company was typed and no candidate names it, the step must not hand over a
+	// pre-selected card: one Enter would pin the wrong person (live case: "Sanjay Gupta"
+	// with "Sanjay Chemicals" typed offered CNN's medical correspondent first).
+	if view.Company != "" {
+		view.NoCompanyMatch = true
+		for _, candidate := range candidates {
+			if candidate.MatchesCompany {
+				view.NoCompanyMatch = false
+				break
+			}
+		}
+	}
+
+	for index, candidate := range candidates {
+		view.Candidates = append(view.Candidates, personCandidateView{
+			Candidate:   candidate,
+			Query:       view.Query,
+			Company:     firstNonBlank(candidate.Company, view.Company),
+			Location:    view.Location,
+			PreSelected: index == 0 && !view.NoCompanyMatch,
+		})
+	}
+	s.render(w, "person_candidates", view)
+}
+
+// firstNonBlank returns the first value that is not whitespace, which is how a card keeps a
+// typed context when the profile states none.
+func firstNonBlank(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+// entityDomainValue resolves the domain from the confirmed-entity field, falling back to
+// the free-text company_domain field the console has always offered. Either way it is
+// normalized, so a pasted URL ("https://www.acme.com/about") becomes the host the gate can
+// actually match on. A value that is not a domain at all yields "", which sends the
+// confirmation step down the lookup path instead of gating a run on nonsense.
+func entityDomainValue(r *http.Request) string {
+	if domain := strings.TrimSpace(r.FormValue("entity_domain")); domain != "" {
+		return agent.NormalizeDomain(domain)
+	}
+	return agent.NormalizeDomain(strings.TrimSpace(r.FormValue("company_domain")))
 }
 
 // entitySourceValue records where the identity came from, so an artifact never presents a

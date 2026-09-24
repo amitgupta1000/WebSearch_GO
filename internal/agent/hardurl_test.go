@@ -279,7 +279,7 @@ func TestPersonAgentRoutesProfessionalProfilesThroughHandler(t *testing.T) {
 	}}, scraper, store, 5, 3, 10)
 
 	person := NewPersonAgent(engine)
-	profile, err := person.ResearchPerson(context.Background(), "session", "Jane Doe", "Acme", "", nil)
+	profile, err := person.ResearchPerson(context.Background(), "session", models.PersonQuery{Name: "Jane Doe", Company: "Acme"}, nil)
 	if err != nil {
 		t.Fatalf("ResearchPerson returned error: %v", err)
 	}

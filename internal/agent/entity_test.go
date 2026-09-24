@@ -241,3 +241,99 @@ func TestEntityGatePromptLineStatesConfirmation(t *testing.T) {
 		t.Fatalf("expected the confirmed wording, got %q", confirmed)
 	}
 }
+
+// TestEntityDomainsNormalizesAndKeepsThePrimaryFirst covers the multi-select identity: the
+// operator confirms one company under several names, and every confirmed domain becomes a
+// key — normalized, deduplicated, with the primary domain still reported first so the
+// artifact reads it as canonical.
+func TestEntityDomainsNormalizesAndKeepsThePrimaryFirst(t *testing.T) {
+	brief := models.CompanyBrief{
+		CompanyName: "Sanjay Chemicals",
+		Domain:      "www.SanjayChemIndia.com/about",
+		Domains:     []string{"sanjaychemindia.com", "https://sanjaychemicals.in/", "SANJAYCHEM.CO.IN", "  "},
+	}
+	got := entityDomains(brief)
+	want := []string{"sanjaychemindia.com", "sanjaychemicals.in", "sanjaychem.co.in"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d domains, got %v", len(want), got)
+	}
+	for index, domain := range want {
+		if got[index] != domain {
+			t.Errorf("expected %q at position %d, got %v", domain, index, got)
+		}
+	}
+}
+
+// TestEntityGateAcceptsEveryConfirmedDomain is what "select two names" means to the gate: a
+// source naming any confirmed domain is on-entity, while a domain that merely resembles one
+// is not.
+func TestEntityGateAcceptsEveryConfirmedDomain(t *testing.T) {
+	brief := models.CompanyBrief{
+		CompanyName:     "Sanjay Chemicals",
+		Domain:          "sanjaychemindia.com",
+		Domains:         []string{"sanjaychemicals.in"},
+		Aliases:         []string{"Sanjay Chemicals India"},
+		EntityConfirmed: true,
+	}
+	matcher := newEntityMatcher(brief)
+
+	keys := matcher.describe()
+	for _, want := range []string{"domain:sanjaychemindia.com", "domain:sanjaychemicals.in", "alias:Sanjay Chemicals India"} {
+		if !contains(keys, want) {
+			t.Errorf("expected the gate to carry the key %q, got %v", want, keys)
+		}
+	}
+
+	cases := []struct {
+		url   string
+		title string
+		want  bool
+	}{
+		{"https://sanjaychemindia.com/team", "Our team", true},
+		{"https://www.sanjaychemicals.in/about-us", "About us", true},
+		{"https://sanjaychemindia.in/team", "Our team", false},
+		{"https://sanjaychemicalsllp.com/team", "Our team", false},
+	}
+	for _, tc := range cases {
+		match := matcher.match(tc.url, tc.title, "")
+		if match.Matched != tc.want {
+			t.Errorf("%s: expected matched=%t, got %+v", tc.url, tc.want, match)
+		}
+		if tc.want && match.Key != models.EntityKeyDomain {
+			t.Errorf("%s: expected a domain match, got %+v", tc.url, match)
+		}
+	}
+}
+
+// TestRootHostKeepsMultiPartSuffixes covers a gate leak the multi-select would have made
+// routine: reducing every host to its last two labels turns a .co.in company into the key
+// "co.in", which then matches every .co.in host on the web. A gate that accepts everything
+// is worse than no gate, so the registrable name has to survive.
+func TestRootHostKeepsMultiPartSuffixes(t *testing.T) {
+	cases := []struct{ host, want string }{
+		{"sanjaychem.co.in", "sanjaychem.co.in"},
+		{"www.sanjaychem.co.in", "sanjaychem.co.in"},
+		{"acme.co.uk", "acme.co.uk"},
+		{"sub.acme.co.uk", "acme.co.uk"},
+		{"example.com.br", "example.com.br"},
+		{"mail.google.com", "google.com"},
+		{"www.sanjaychemindia.com", "sanjaychemindia.com"},
+		{"acme.com", "acme.com"},
+		{"acme.co", "acme.co"},
+		{"localhost", "localhost"},
+	}
+	for _, tc := range cases {
+		if got := rootHost(tc.host); got != tc.want {
+			t.Errorf("rootHost(%q) = %q, want %q", tc.host, got, tc.want)
+		}
+	}
+
+	// The leak itself: a page on a different Indian company's site must not match.
+	matcher := newEntityMatcher(models.CompanyBrief{CompanyName: "Sanjay Chemicals", Domain: "sanjaychem.co.in"})
+	if match := matcher.match("https://unrelatedchemicals.co.in/team", "Our team", ""); match.Matched {
+		t.Fatalf("a co.in sibling must not be on-entity, got %+v", match)
+	}
+	if match := matcher.match("https://sanjaychem.co.in/team", "Our team", ""); !match.Matched {
+		t.Fatalf("the company's own .co.in site must be on-entity, got %+v", match)
+	}
+}

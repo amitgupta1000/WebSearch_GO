@@ -135,6 +135,15 @@ func (ca *CompanyAgent) ResolveEntityCandidates(ctx context.Context, name, count
 	return resolved, nil
 }
 
+// DomainEchoesName reports whether a domain carries the company's name, which is the
+// strongest hint that it is the company's own site rather than a same-named firm or a
+// directory. The console uses it when the operator types a domain directly: that identity
+// is used as given, so the card must still be able to warn that the domain looks like
+// somebody else's.
+func DomainEchoesName(domain, name string) bool {
+	return domainEchoStrength(normalizeDomain(domain), nameTokens(name)) > 0
+}
+
 // filterNameMatching keeps the candidates whose domain carries the company's name.
 func filterNameMatching(candidates []models.EntityCandidate) []models.EntityCandidate {
 	kept := make([]models.EntityCandidate, 0, len(candidates))

@@ -24,11 +24,12 @@ func NewPersonAgent(engine *Engine) *PersonAgent {
 func (pa *PersonAgent) ResearchPerson(
 	ctx context.Context,
 	sessionID string,
-	personName string,
-	companyName string,
-	location string,
+	query models.PersonQuery,
 	eventCh chan<- models.AgentEvent,
 ) (*models.PersonProfile, error) {
+	personName := strings.TrimSpace(query.Name)
+	companyName := strings.TrimSpace(query.Company)
+	location := strings.TrimSpace(query.Location)
 	Emit(eventCh, models.AgentEvent{
 		SessionID: sessionID,
 		Type:      models.EventThinking,
@@ -78,6 +79,23 @@ func (pa *PersonAgent) ResearchPerson(
 	gatheredContext.WriteString("=== PRIMARY SEARCH SNIPPETS ===\n")
 	gatheredContext.WriteString(FormatSearchSnippets(searchResults))
 
+	// The profile the operator confirmed the identity from is evidence about the right
+	// person even when its fetch is walled, so its snippet is always kept — and the page is
+	// read first, because that is the page the identity was confirmed on.
+	confirmedSeed := strings.TrimSpace(query.SeedURL)
+	if confirmedSeed != "" {
+		gatheredContext.WriteString("\n=== CONFIRMED IDENTITY (chosen by the operator) ===\n")
+		gatheredContext.WriteString(fmt.Sprintf("%s — %s\n%s\n", firstNonEmpty(query.SeedTitle, "Confirmed profile"), confirmedSeed, query.SeedSnippet))
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID,
+			Type:      models.EventToolCall,
+			Step:      3,
+			ToolName:  "confirmed_profile",
+			ToolInput: confirmedSeed,
+			Content:   "Reading the profile the identity was confirmed from...",
+		})
+	}
+
 	var sources []string
 	scrapeCount := 0
 	var gatheredScrapes strings.Builder
@@ -87,6 +105,14 @@ func (pa *PersonAgent) ResearchPerson(
 	// choice is cheap and the fetches are latency-bound, so doing them one at a
 	// time only adds the network round trips together.
 	fetchTargets := make([]models.SearchResult, 0, pa.engine.MaxScrapes())
+	seedFetched := false
+	if confirmedSeed != "" {
+		fetchTargets = append(fetchTargets, models.SearchResult{
+			Title:   firstNonEmpty(query.SeedTitle, "Confirmed profile"),
+			Link:    confirmedSeed,
+			Snippet: query.SeedSnippet,
+		})
+	}
 	for _, sr := range searchResults {
 		if len(fetchTargets) >= pa.engine.MaxScrapes() {
 			break
@@ -153,8 +179,16 @@ func (pa *PersonAgent) ResearchPerson(
 		gatheredScrapes.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, result.Content))
 		sources = append(sources, sr.Link)
 		scrapeCount++
+		if sr.Link == confirmedSeed {
+			seedFetched = true
+		}
 	}
 	gatheredContext.WriteString(gatheredScrapes.String())
+	// A confirmed profile that could not be fetched still belongs in the dossier's sources:
+	// its snippet was used as evidence, and the operator pointed at it.
+	if confirmedSeed != "" && !seedFetched {
+		sources = append(sources, confirmedSeed)
+	}
 
 	// Step 2: Query for conference talks, articles, or career milestones
 	query2 := fmt.Sprintf("%s speaker interview articles career education", query1)

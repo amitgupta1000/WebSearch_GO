@@ -1025,15 +1025,65 @@ lists without removing, which is how the gate's effect is measured against `off`
 stage filters at all. A nil `entityMatcher` means "no gate" everywhere, so `off` is a true
 baseline rather than a subtly different pipeline.
 
-**The dialogue** (`POST /api/resolve-entity` → `entity_candidates` fragment) runs before a
-run: `CompanyAgent.ResolveEntityCandidates` performs one or two searches, drops
+**The confirmation step** (`POST /api/resolve-entity` → `entity_candidates` fragment) is
+where a company run starts: the console form's own submit targets it (`hx-target=
+"#entity-candidates"`), so both the button and Enter go through it, and only a card's
+`Confirm` button posts to `/api/research`. `CompanyAgent.ResolveEntityCandidates` performs
+one or two searches, drops
 directory/social hosts (registry pages are kept as *evidence* for the CIN, never as a
 candidate domain), scores candidates by how much of the company name the domain carries
 (`domainEchoStrength`: the name itself 2, contains it 1), and prefers name-matching domains
 when any exist. The operator picks or edits one and the console posts a normal research form
-carrying `entity_name`, `entity_domain`, `entity_aliases`, `entity_reg_id` and
+carrying `entity_domain`, `entity_aliases`, `entity_reg_id` and
 `entity_confirmed=1` — so the gate's key set comes from a human, not from
 `inferOfficialDomain`'s guess at the ranked results.
+
+A card always renders, and the first one is pre-selected with `autofocus`, so the step is one
+click. Three properties are worth keeping:
+
+- **A typed domain short-circuits the search.** `handleResolveEntity` normalizes what was
+  typed (`agent.NormalizeDomain`, so a pasted URL becomes its host) and renders it as the
+  single candidate without touching the agent. A value that is not a domain at all yields
+  `""`, which falls back to the lookup rather than gating a run on nonsense.
+- **Two names, one company.** Each card lists the other candidates as `entity_extra`
+  checkboxes whose *value* carries the whole identity (`domain|name|registration` — an
+  unticked checkbox submits nothing, so parallel hidden fields could not stay in step).
+  `handleResearch` reads them with `parseEntityExtras`; `confirmEntityIdentity` refuses a
+  ticked identity whose registration id contradicts the card's (two CINs are two legal
+  entities) and otherwise `mergeEntityExtras` folds the domains into `CompanyBrief.Domains`
+  and the names into `Aliases`. `entityMatcher` compiles a key per domain, all at 0.95, with
+  the primary domain first; query anchoring still uses the primary only, so extra domains
+  widen what the gate accepts without multiplying searches.
+- **Person mode opts out** with its own `hx-post="/api/research"`, and `handleRerun` never
+  re-asks: both would otherwise re-confirm an identity that is already fixed.
+
+`rootHost` (in `company.go`) reduces a host to its registrable name, keeping multi-part
+suffixes: before that, `sanjaychem.co.in` reduced to `co.in`, and a domain key of `co.in`
+matches *every* `.co.in` host on the web — a gate that accepts everything.
+
+**The person step** (`POST /api/resolve-person` → `person_candidates`) mirrors it, because a
+name is ambiguous about *which human* the way a company name is about *which organisation*.
+`PersonAgent.ResolvePersonCandidates` spends at most `personResolveQueryLimit` searches and
+reads candidates out of the hit titles:
+
+- `splitPersonHeadline` splits `<name> - <role> - <employer>` (also `|`, `–`, `—`, `·`),
+  `containsAllTokens` requires every token of the typed name as a whole word, and
+  `splitPersonNameSegment` keeps an honorific while dropping trailing prose — and returns the
+  role when it shares the name's segment ("Jane Doe, Managing Director").
+- `splitRoleAtEmployer` reads the "<role> at <employer>" shape, and `personTitleNoise` keeps
+  the platform out of the employer ("| LinkedIn" is not a company).
+- `scorePersonCandidate` ranks what an operator would use: a hit that already names the typed
+  company (+2) and place (+1) leads, a stated role/employer (+1 each) beats a bare name, a
+  people-directory host counts `-1` and is flagged on the card, and a real profile
+  (`linkedin.com/in/`, a personal site, Wikipedia) gets the tiebreak.
+
+The pinned identity travels as `models.PersonQuery`: `ResearchPerson(ctx, sessionID, query,
+eventCh)` searches `"<name> <company> <location>"`, reads the confirmed profile first
+(`SeedURL`) and always keeps its snippet as a `=== CONFIRMED IDENTITY ===` block, crediting
+the URL as a source even when the fetch is walled. Employer and place are pre-filled from the
+candidate, so the operator confirms a context read off a source instead of recalling one. If
+company *and* place were both typed, the step spends no search at all — the same cheap path
+the typed-domain case uses.
 
 ### Error handling & resilience
 
