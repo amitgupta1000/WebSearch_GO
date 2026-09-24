@@ -28,8 +28,11 @@ type OrgChart struct {
 	// Validation is the freshness pass over the roster: per-row dates and
 	// verdicts, plus what the bounded reverse lookups changed. Attached by the
 	// agent like ScrapeReport and Timings.
-	Validation  *ValidationReport `json:"validation,omitempty"`
-	LastUpdated time.Time         `json:"last_updated"`
+	Validation *ValidationReport `json:"validation,omitempty"`
+	// EntityGate is the record of what the confirmed identity filtered out, so a
+	// short roster is explainable. Also attached by the agent.
+	EntityGate  *EntityGate `json:"entity_gate,omitempty"`
+	LastUpdated time.Time   `json:"last_updated"`
 }
 
 // TimingTotalMillis is the summed duration of every recorded phase, used for the
@@ -94,6 +97,20 @@ func (chart *OrgChart) applyAlternateOrgChart(raw json.RawMessage) {
 		for _, leader := range alternate.Leadership {
 			appendAlternateEmployee(&chart.Leadership, leader, "")
 		}
+	}
+}
+
+// EntityWarning explains an entity match that rests on the name alone, which is the
+// ambiguous class: a same-named company matches it exactly the same way. It returns an
+// empty string for the stronger keys, so healthy rows stay uncluttered.
+func (person Employee) EntityWarning() string {
+	switch strings.TrimSpace(person.EntityKey) {
+	case "":
+		return ""
+	case EntityKeyName:
+		return "matched by company name only"
+	default:
+		return ""
 	}
 }
 
@@ -199,6 +216,11 @@ type Employee struct {
 	Verification     string   `json:"verification,omitempty"`
 	VerifiedBy       []string `json:"verified_by,omitempty"`
 	VerificationNote string   `json:"verification_note,omitempty"`
+	// EntityKey is how this person was tied to the researched company: domain,
+	// registration-id, name or alias. A row matched only by name is the ambiguous
+	// class — a same-named company can match the same way — so the artifacts show
+	// the key rather than presenting every match as equally strong.
+	EntityKey string `json:"entity_key,omitempty"`
 }
 
 // Location represents an office or regional operational hub.

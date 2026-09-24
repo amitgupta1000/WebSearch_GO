@@ -161,6 +161,23 @@ var companyHTMLTemplate = documentTemplate("company", `
 	{{range .Chart.Locations}}<tr><td>{{.City}}</td><td>{{.Country}}</td><td>{{.Address}}</td><td>{{.HeadcountEst}}</td></tr>{{end}}
 	</tbody></table>
 </section>{{end}}
+{{if .Chart.EntityGate}}<section>
+	<h2>Entity gate</h2>
+	<p class="dim">A source had to name the company to be used: <strong>{{range $index, $key := .Chart.EntityGate.Keys}}{{if $index}}, {{end}}{{$key}}{{end}}</strong>{{if .Chart.EntityGate.Confirmed}} (confirmed by the operator){{else}} (not confirmed — treat the identity as the operator's description){{end}}.</p>
+	<table><thead><tr><th>What the gate did</th><th>Count</th></tr></thead><tbody>
+	<tr><td>Planned queries dropped for not naming the company</td><td>{{.Chart.EntityGate.QueriesDropped}}</td></tr>
+	<tr><td>Candidates that named the company</td><td>{{.Chart.EntityGate.CandidatesTagged}}</td></tr>
+	<tr><td>Candidates that named nothing</td><td>{{.Chart.EntityGate.CandidatesNone}}</td></tr>
+	<tr><td>Search snippets dropped before synthesis</td><td>{{.Chart.EntityGate.SnippetsDropped}}</td></tr>
+	<tr><td>People excluded from the roster</td><td>{{.Chart.EntityGate.RowsOffEntity}}</td></tr>
+	{{if .Chart.EntityGate.Mode}}<tr><td>Gate mode</td><td>{{.Chart.EntityGate.Mode}}</td></tr>{{end}}
+	</tbody></table>
+	{{if .Chart.EntityGate.OffEntity}}<h3>Unverified / other entities</h3>
+	<p class="dim">Found by the searches, but no source connecting them to the company was found. They are not part of the chart.</p>
+	<table><thead><tr><th>Name</th><th>Title</th><th>Where it appeared</th><th>Source</th><th>Why excluded</th></tr></thead><tbody>
+	{{range .Chart.EntityGate.OffEntity}}<tr><td>{{.Name}}</td><td>{{.Title}}</td><td>{{.Place}}</td><td class="src">{{.Source}}</td><td>{{.Reason}}</td></tr>{{end}}
+	</tbody></table>{{end}}
+</section>{{end}}
 {{if .Chart.Validation}}<section>
 	<h2>Data freshness</h2>
 	<p class="dim">Verdicts come from the newest dated source behind each row: verified-recent means a source inside the recent window from the company's own site or from two independent domains. A dated row is a statement about the evidence, not proof of current employment.</p>

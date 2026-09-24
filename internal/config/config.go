@@ -99,6 +99,9 @@ type Config struct {
 	// counts as current.
 	ValidationStaleMonths  int
 	ValidationRecentMonths int
+	// EntityGateMode is how strictly sources are held to the confirmed company:
+	// enforce (reject and remove off-entity people), report (label only) or off.
+	EntityGateMode string
 }
 
 const (
@@ -122,10 +125,12 @@ const (
 	defaultValidationLookups      = 4
 	defaultValidationStaleMonths  = 36
 	defaultValidationRecentMonths = 18
-	defaultScrapeConcurrency      = 4
-	defaultScrapeHostRate         = 2
-	defaultScrapeHostBurst        = 3
-	defaultScrapeHostConcurrency  = 2
+	// defaultEntityGateMode mirrors the agent's default: enforce.
+	defaultEntityGateMode        = "enforce"
+	defaultScrapeConcurrency     = 4
+	defaultScrapeHostRate        = 2
+	defaultScrapeHostBurst       = 3
+	defaultScrapeHostConcurrency = 2
 	// defaultScrapeRevalidateAfter is how long a cached page is served without a
 	// freshness check.
 	defaultScrapeRevalidateAfter = 24 * time.Hour
@@ -212,6 +217,7 @@ func Load() *Config {
 		ValidationLookups:      envInt("VALIDATION_LOOKUPS_PER_RUN", defaultValidationLookups),
 		ValidationStaleMonths:  envInt("VALIDATION_STALE_AFTER_MONTHS", defaultValidationStaleMonths),
 		ValidationRecentMonths: envInt("VALIDATION_RECENT_WITHIN_MONTHS", defaultValidationRecentMonths),
+		EntityGateMode:         entityGateMode(envString("ENTITY_GATE_MODE", defaultEntityGateMode)),
 	}
 }
 
@@ -278,6 +284,17 @@ func (c *Config) MaxResearchTimeout() time.Duration {
 		return c.BrowserResearchTimeout
 	}
 	return c.ResearchTimeout
+}
+
+// entityGateMode validates the configured gate mode. An unrecognised value falls back
+// to the default rather than disabling a correctness gate on a typo.
+func entityGateMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "enforce", "report", "off":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return defaultEntityGateMode
+	}
 }
 
 // envString reads a string environment variable, falling back to def when it is

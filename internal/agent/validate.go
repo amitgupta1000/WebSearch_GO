@@ -60,6 +60,9 @@ type rowSource struct {
 	AsOf   time.Time
 	Signal string
 	Type   string
+	// EntityKey is how this source ties to the researched company: domain,
+	// registration-id, alias or name; empty when it never names the company.
+	EntityKey string
 }
 
 // collectRosterRows flattens leadership and every department member into one
@@ -140,7 +143,7 @@ func buildEvidenceViews(evidence []models.Evidence) []evidenceView {
 
 // gatherRowSources collects the sources that support one person: the row's own
 // recorded citation first, then any evidence that names them.
-func gatherRowSources(employee models.Employee, views []evidenceView) []rowSource {
+func gatherRowSources(employee models.Employee, views []evidenceView, matcher *entityMatcher) []rowSource {
 	sources := make([]rowSource, 0, 4)
 	seen := make(map[string]bool, 4)
 	add := func(item models.Evidence) {
@@ -149,12 +152,17 @@ func gatherRowSources(employee models.Employee, views []evidenceView) []rowSourc
 			return
 		}
 		seen[key] = true
+		match := models.EntityMatch{}
+		if matcher != nil {
+			match = matcher.match(item.URL, item.Title, item.Content)
+		}
 		sources = append(sources, rowSource{
-			URL:    item.URL,
-			Domain: sourceDomain(item.URL),
-			AsOf:   item.AsOf,
-			Signal: item.DateSignal,
-			Type:   item.SourceType,
+			URL:       item.URL,
+			Domain:    sourceDomain(item.URL),
+			AsOf:      item.AsOf,
+			Signal:    item.DateSignal,
+			Type:      item.SourceType,
+			EntityKey: match.Key,
 		})
 	}
 
@@ -398,7 +406,7 @@ func hasBudgetForValidation(ctx context.Context) bool {
 
 // validateChart runs the freshness pass over a finished chart and returns the
 // report attached to it. It never fails a run: a problem is recorded, not raised.
-func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, brief models.CompanyBrief, chart *models.OrgChart, state *models.CompanyResearchContext, eventCh chan<- models.AgentEvent) *models.ValidationReport {
+func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, brief models.CompanyBrief, chart *models.OrgChart, state *models.CompanyResearchContext, eventCh chan<- models.AgentEvent, gate *models.EntityGate) *models.ValidationReport {
 	report := &models.ValidationReport{}
 	if chart == nil {
 		return report
@@ -411,6 +419,7 @@ func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, bri
 		annotateEvidenceDates(evidence)
 	}
 	views := buildEvidenceViews(evidence)
+	matcher := ca.entityMatcherFor(brief)
 	now := time.Now()
 	staleAfter := ca.engine.ValidationStaleAfter()
 	recentWithin := ca.engine.ValidationRecentWithin()
@@ -424,7 +433,7 @@ func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, bri
 	position := make(map[*models.Employee]int, len(rows))
 	for index, row := range rows {
 		position[row.employee] = index
-		sources := gatherRowSources(*row.employee, views)
+		sources := gatherRowSources(*row.employee, views, matcher)
 		newest := newestSourceDate(sources)
 		owned := false
 		for _, source := range sources {
@@ -440,6 +449,12 @@ func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, bri
 		row.employee.Verification = verdict
 		row.employee.AsOf = formatAsOf(newest)
 		row.employee.VerifiedBy = topSources(sources, 2)
+		if matcher != nil {
+			// How this person is tied to the company: domain beats registration id
+			// beats alias beats a bare name, and an empty key is the case the gate
+			// acts on.
+			row.employee.EntityKey = strongestEntityKey(sources)
+		}
 	}
 
 	// A title two people claim is the most misleading thing a chart can contain,
@@ -454,6 +469,12 @@ func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, bri
 	report.Lookups, report.Skipped = ca.runReverseLookups(ctx, brief, rows, assessments, buckets, position, state, now, staleAfter, recentWithin)
 	report.LookupsUsed = len(report.Lookups)
 	countVerdicts(report, buckets)
+
+	// The entity pass runs last: it needs the labels above, and its removals must not
+	// disturb the row indexes the earlier passes used.
+	if matcher != nil && gate != nil {
+		applyEntityVerdicts(ca.engine.EntityGateRemoves(), chart, rows, gate, matcher)
+	}
 
 	Emit(eventCh, models.AgentEvent{
 		SessionID: sessionID,
@@ -715,4 +736,116 @@ func lookupEvidence(results []models.SearchResult) []models.Evidence {
 		evidence = append(evidence, entry)
 	}
 	return evidence
+}
+
+// entityKeyStrength ranks how strongly a key ties a source to the company. The bare
+// name is the weakest, because a same-named company matches it exactly the same way.
+func entityKeyStrength(key string) int {
+	switch key {
+	case models.EntityKeyDomain:
+		return 4
+	case models.EntityKeyRegistration:
+		return 3
+	case models.EntityKeyAlias:
+		return 2
+	case models.EntityKeyName:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// strongestEntityKey returns the best key across a row's sources, or "" when no source
+// names the company at all.
+func strongestEntityKey(sources []rowSource) string {
+	strongest := ""
+	for _, source := range sources {
+		if entityKeyStrength(source.EntityKey) > entityKeyStrength(strongest) {
+			strongest = source.EntityKey
+		}
+	}
+	return strongest
+}
+
+// applyEntityVerdicts records every person the entity gate could not tie to the
+// company and — in enforce mode — removes them from the chart.
+//
+// The removal is the blunt half of the gate, and the record is what keeps it honest:
+// each excluded person is listed with the title, the department and the source that
+// failed to name the company, so a short roster is explainable and a wrong exclusion
+// is visible. Report mode keeps the rows and labels them, which is how the gate's
+// effect is measured without changing the output.
+func applyEntityVerdicts(remove bool, chart *models.OrgChart, rows []rosterRow, gate *models.EntityGate, matcher *entityMatcher) {
+	excluded := make(map[*models.Employee]bool, 4)
+	excludedNames := make(map[string]bool, 4)
+	for _, row := range rows {
+		// A row whose name is the company's own name is the entity, not a person: a
+		// shareholding or registry page labels a promoter that way, and the model reads
+		// it as a person. It is excluded even though its source does name the company.
+		namesEntity := matcher.namesTheEntity(row.employee.Name)
+		if !namesEntity && strings.TrimSpace(row.employee.EntityKey) != "" {
+			continue
+		}
+		source := strings.TrimSpace(row.employee.PublicSource)
+		if len(row.employee.VerifiedBy) > 0 && strings.TrimSpace(row.employee.VerifiedBy[0]) != "" {
+			source = row.employee.VerifiedBy[0]
+		}
+		reason := "no source for this person names the researched company"
+		if namesEntity {
+			reason = "the row names the company itself, not a person"
+		}
+		gate.RowsOffEntity++
+		gate.OffEntity = append(gate.OffEntity, models.OffEntityRow{
+			Name:   strings.TrimSpace(row.employee.Name),
+			Title:  strings.TrimSpace(row.employee.Title),
+			Place:  row.context,
+			Source: source,
+			Reason: reason,
+		})
+		if !remove {
+			row.employee.VerificationNote = appendNote(row.employee.VerificationNote,
+				"not tied to the researched company (entity gate: report mode)")
+			continue
+		}
+		excluded[row.employee] = true
+		if name := normalizePersonName(row.employee.Name); name != "" {
+			excludedNames[name] = true
+		}
+	}
+	if !remove || len(excluded) == 0 {
+		return
+	}
+	removeRosterRows(chart, excluded, excludedNames)
+}
+
+// removeRosterRows drops excluded people from the leadership list and from every
+// department, and clears a department head who was excluded: a head no longer in the
+// chart must not stay named at the top of it.
+func removeRosterRows(chart *models.OrgChart, excluded map[*models.Employee]bool, excludedNames map[string]bool) {
+	if len(chart.Leadership) > 0 {
+		kept := chart.Leadership[:0]
+		for index := range chart.Leadership {
+			if excluded[&chart.Leadership[index]] {
+				continue
+			}
+			kept = append(kept, chart.Leadership[index])
+		}
+		chart.Leadership = kept
+	}
+	for department := range chart.Departments {
+		members := chart.Departments[department].Members
+		if len(members) > 0 {
+			kept := members[:0]
+			for index := range members {
+				if excluded[&members[index]] {
+					continue
+				}
+				kept = append(kept, members[index])
+			}
+			chart.Departments[department].Members = kept
+		}
+		if head := strings.TrimSpace(chart.Departments[department].Head); head != "" && excludedNames[normalizePersonName(head)] {
+			chart.Departments[department].Head = ""
+		}
+	}
 }

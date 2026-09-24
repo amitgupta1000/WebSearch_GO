@@ -206,7 +206,7 @@ func TestCompanyScrapeRankedRecoversBlockedPage(t *testing.T) {
 
 	agent := NewCompanyAgent(engine)
 	ranked := []models.RankedResult{{URL: target, Relevant: true, Score: 0.9, SourceType: "official_leadership"}}
-	evidence, sources, report := agent.scrapeRanked(context.Background(), "session", ranked, nil, nil, nil)
+	evidence, sources, report := agent.scrapeRanked(context.Background(), "session", ranked, nil, nil, nil, nil)
 
 	if len(evidence) != 1 || evidence[0].QualityScore != 0.7 {
 		t.Fatalf("expected recovered page evidence, got %+v", evidence)
@@ -230,7 +230,7 @@ func TestCompanyScrapeRankedFallsBackToSnippetWhenLadderFails(t *testing.T) {
 	agent := NewCompanyAgent(engine)
 	ranked := []models.RankedResult{{URL: target, Relevant: true, Score: 0.9, SourceType: "professional_profile"}}
 	results := []models.SearchResult{{Title: "Jane Doe - Acme | LinkedIn", Link: target, Snippet: "Jane Doe is Chief Technology Officer at Acme."}}
-	evidence, _, report := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil)
+	evidence, _, report := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil, nil)
 
 	if len(evidence) != 1 || evidence[0].EvidenceType != "search_snippet_fallback" {
 		t.Fatalf("expected snippet fallback after a failed ladder, got %+v", evidence)
@@ -252,7 +252,7 @@ func TestCompanyScrapeRankedKeepsLegacyProfilePolicyWithoutHandler(t *testing.T)
 	agent := NewCompanyAgent(engine)
 	ranked := []models.RankedResult{{URL: "https://www.linkedin.com/in/jane-doe", Relevant: true, Score: 0.9, SourceType: "professional_profile"}}
 	results := []models.SearchResult{{Title: "Jane Doe - Acme | LinkedIn", Link: ranked[0].URL, Snippet: "Jane Doe is CTO at Acme."}}
-	_, _, report := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil)
+	_, _, report := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil, nil)
 	if len(report) != 1 || report[0].Status != "skipped" || report[0].HandlerStatus != "" {
 		t.Fatalf("expected the legacy skipped entry, got %+v", report)
 	}

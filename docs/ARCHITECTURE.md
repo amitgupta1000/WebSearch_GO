@@ -571,6 +571,20 @@ HTTP path errors, is blocked, or yields a JavaScript shell:
   `extended-settle` (8 s network-idle + 2.5 s settle for slow interstitials). Success
   requires unblocked, non-thin content; failures wrap the sentinel errors
   `ErrHardLadderUnavailable` / `ErrHardLadderExhausted`, which the calling agent classifies.
+  Three policies now shape the work:
+  - **Shape ordering** (`hardshape.go`). The agent offers profile candidates in
+    `HardURLShape.EscalationPriority()` order — post, company page, other, person
+    profile, `/pub/dir/` — so the small `HARD_URLS_PER_RUN` cap is spent on shapes that
+    render on the first step.
+  - **Auth-wall skip.** With an empty jar for the host, a person profile or directory
+    page (`.AuthWalled()`) runs `plain-render` only: time cannot clear an authwall, so
+    the 20 s extended settle is kept for the synthesis that follows. The step list in the
+    failure message shows the skip, and `noCookieHint` adds why the cookie step was missing.
+  - **Cookie widening.** `LoadCookieJarFromFileDetailed` registers a host-scoped cookie
+    for its registrable parent as well, because a session exported for `www.linkedin.com`
+    is otherwise absent on `in.linkedin.com` where the profiles are served — the reason
+    the cookie step never fired in practice. Widening stops at the registrable domain
+    (`www.example.co.uk` → `example.co.uk`, never `co.uk`).
 
 #### `cookies.go` — browser cookie import
 
@@ -583,7 +597,16 @@ EditThisCookie extensions and populates a standard `http.CookieJar`:
 - Strips the leading `.` from domains (`.example.com` → `example.com`) so cookies
   cover subdomains, groups them per domain, and installs them under
   `https://<domain>`. Reports how many domains could not be parsed.
-- With no path configured it returns an empty (but valid) jar.
+- **Widens a host-scoped cookie to its registrable parent** (a second registration,
+  never a move: `www.linkedin.com` also registers `linkedin.com`), unless the export
+  already covers the parent. This is what makes an exported session reachable where the
+  ladder needs it — profiles are served on `in.linkedin.com`, and an export is usually
+  scoped to the host the user was browsing. Widening stops at the registrable domain, so
+  `www.example.co.uk` widens to `example.co.uk` and never to `co.uk`.
+- `LoadCookieJarFromFileDetailed` returns a `CookieJarReport` (count, skipped, widened,
+  per-domain counts) that startup logs, so "the session never loaded" and "the site has
+  no cookies" are distinguishable — they are indistinguishable from a ladder failure.
+- With no path configured it returns an empty (but valid) jar, and startup says so.
 
 ### Scraper performance & politeness
 
@@ -918,6 +941,70 @@ Snippets and aggregator listings arrive undated, so a director appointed in 2020
 3. **Bounded reverse lookups.** Only the rows the assessment could not resolve get one snippet-only search — `"Name" "Company"` — capped by `VALIDATION_LOOKUPS_PER_RUN`, skipped when under `minValidationBudget` remains, and never fetched: the point is to find a *date*, and a LinkedIn result URL carries its own. A dated recent mention promotes the row; nothing is ever added to the roster from a lookup.
 
 The result renders as an `As of` column and a "Data freshness" section in the console, the Markdown and the PDF, including the conflicts and what each lookup changed. `OrgChart.UnverifiedSourceCount()` remains the separate measure of sources that could not be used at all.
+
+### Entity gate
+
+Every stage of a run is held to one confirmed company identity. The gate exists because
+"relevant to the brief" is not "about the company": a live run for a company named **CJ
+Shah** assembled 204 people from 24 sources with **none** of them on the company's own
+domain — a LinkedIn name directory, a textbook by an author named Shah, a 2016 conference
+archive, papers on Malaysian construction procurement, and a global wealth-management
+roundup. All of them were topically on-brief.
+
+**The identity** (`CompanyBrief.CompanyName`, `Domain`, `Aliases`, `RegistrationID`,
+`EntityConfirmed`) is compiled once per run into an `entityMatcher` (`entity.go`) with keys
+tried strongest first:
+
+| Key | How it matches | Confidence |
+| :--- | :--- | :--- |
+| `domain` | registrable host equal to or a subdomain of the confirmed domain | 0.95 |
+| `registration-id` | normalised (case- and separator-insensitive) containment — registry publishers format a CIN differently | 0.9 |
+| `alias` / `name` | **every** token of the name appears as a whole word; legal suffixes are dropped, one-character tokens ignored, and a single short token refuses to be an identity | 0.8 / 0.7 |
+
+`name` is the weakest key on purpose: a same-named company matches it exactly the same way,
+so rows kept by it are labelled `matched by company name only` in every artifact rather than
+presented as equivalent to a domain match.
+
+**Where the gate applies**, earliest first:
+
+1. **Query plan** (`planQueries`) — the planner is instructed to anchor every query, and
+   `enforceEntityQueries` then *drops* any query that names neither the company, an alias,
+   the domain nor the registration id, refilling the plan from `entityAnchoredQueries`
+   (which always contributes `site:<domain>` when a domain is known). The drop count is
+   reported in the plan's timing detail.
+2. **Ranker** (`applySourceSignals`) — each `RankedResult` records its `EntityKey`; an
+   unmatched candidate takes a −0.35 score penalty and the reason `entity=none`, so it
+   cannot outrank a page that carries the company's name, domain or registration id, but
+   can still be fetched if scrape budget remains.
+3. **Snippets** (`filterEntitySnippets`) — only snippets naming the company reach
+   `synthesizeChart`, and `snippetNamesEntity` gates the per-candidate snippet fallback in
+   `scrapeRanked` and `searchSnippetEvidence`.
+4. **Rows** (`applyEntityVerdicts`, inside the validation pass) — a row supported by no
+   entity-naming source is recorded in `EntityGate.OffEntity` with its title, department and
+   failing source, and removed when the mode is `enforce`. A row whose name *is* the company
+   name or an alias (`entityMatcher.namesTheEntity`) is excluded as the entity rather than a
+   person — a shareholding page labelled "CJ SHAH" produced exactly that row in a live run.
+   An excluded department head is cleared from `Department.Head`.
+5. **Prompts** — synthesis and QC both receive `entityMatcher.promptLine()` and are told
+   that a page never naming the company is not evidence about it.
+6. **Output** — `renderEntityGateMarkdown` / the HTML template / the console panel report
+   the keys, the confirmation state, the mode, the counts (queries dropped, candidates
+   tagged/unmatched, snippets dropped, rows excluded) and the excluded people.
+
+**Modes** (`ENTITY_GATE_MODE`): `enforce` (default) removes and lists; `report` labels and
+lists without removing, which is how the gate's effect is measured against `off`, where no
+stage filters at all. A nil `entityMatcher` means "no gate" everywhere, so `off` is a true
+baseline rather than a subtly different pipeline.
+
+**The dialogue** (`POST /api/resolve-entity` → `entity_candidates` fragment) runs before a
+run: `CompanyAgent.ResolveEntityCandidates` performs one or two searches, drops
+directory/social hosts (registry pages are kept as *evidence* for the CIN, never as a
+candidate domain), scores candidates by how much of the company name the domain carries
+(`domainEchoStrength`: the name itself 2, contains it 1), and prefers name-matching domains
+when any exist. The operator picks or edits one and the console posts a normal research form
+carrying `entity_name`, `entity_domain`, `entity_aliases`, `entity_reg_id` and
+`entity_confirmed=1` — so the gate's key set comes from a human, not from
+`inferOfficialDomain`'s guess at the ranked results.
 
 ### Error handling & resilience
 

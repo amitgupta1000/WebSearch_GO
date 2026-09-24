@@ -56,6 +56,33 @@ type companyResultView struct {
 	BrowserToggle bool
 }
 
+// entityResolveTimeout bounds the pre-run identity lookup. It is two searches, so a
+// slow answer is not worth waiting for: the operator can always run on the typed name.
+const entityResolveTimeout = 25 * time.Second
+
+// entityCandidateView is one candidate identity plus the brief fields, so a card can
+// post a complete research request without any client-side state.
+type entityCandidateView struct {
+	Candidate       models.EntityCandidate
+	Query           string
+	Industry        string
+	Country         string
+	City            string
+	AreasOfInterest string
+	Notes           string
+}
+
+// entityCandidatesView is the dialogue rendered before a run starts.
+type entityCandidatesView struct {
+	Query           string
+	Candidates      []entityCandidateView
+	Industry        string
+	Country         string
+	City            string
+	AreasOfInterest string
+	Notes           string
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -65,10 +92,23 @@ func main() {
 
 	ctx := context.Background()
 
-	// 1. Initialize Cookie Jar (if path is provided)
-	cookieJar, err := tools.LoadCookieJarFromFile(cfg.CookieFile)
+	// 1. Initialize Cookie Jar (if path is provided). The summary is logged
+	// because a session that failed to load is otherwise indistinguishable from a
+	// site that simply has no cookies for the host the ladder escalates — and the
+	// cookie-render step is skipped silently in both cases.
+	cookieJar, cookieReport, err := tools.LoadCookieJarFromFileDetailed(cfg.CookieFile)
 	if err != nil {
 		log.Printf("[WARN] Cookie jar init: %v", err)
+	}
+	switch {
+	case strings.TrimSpace(cfg.CookieFile) == "":
+		log.Printf("Cookie jar: no COOKIE_FILE_PATH set; the hard-URL ladder's cookie-render step is skipped, so logged-in-only pages (LinkedIn person profiles) stay unreadable")
+	case cookieReport.Cookies == 0:
+		log.Printf("[WARN] Cookie jar: %s produced no usable cookies (%d skipped); cookie-render will be skipped", cfg.CookieFile, cookieReport.Skipped)
+	default:
+		log.Printf("Cookie jar: %d cookies from %s (%d skipped, %d also registered for the parent domain): %s",
+			cookieReport.Cookies, cfg.CookieFile, cookieReport.Skipped, cookieReport.WidenedToParent,
+			strings.Join(cookieReport.Domains, ", "))
 	}
 
 	// 2. Initialize the Gemini LLM client. Fail fast: research cannot run without it,
@@ -98,6 +138,7 @@ func main() {
 		agent.WithScrapeRevalidation(cfg.ScrapeRevalidateAfter),
 		agent.WithHardURLLimits(cfg.HardURLsPerRun, cfg.HardURLBudget),
 		agent.WithValidation(cfg.ValidateEvidence, cfg.ValidationLookups, cfg.ValidationStaleMonths, cfg.ValidationRecentMonths),
+		agent.WithEntityGate(cfg.EntityGateMode),
 	}
 	// Finished runs are written to the configured destination as Markdown and PDF.
 	// A nil exporter simply means the runs are not saved.
@@ -111,6 +152,7 @@ func main() {
 	eng.SetHardURLHandler(cfg.HardURLHandler)
 	log.Printf("Evidence validation: %t (up to %d reverse lookups, stale after %d months, recent within %d months)",
 		cfg.ValidateEvidence, cfg.ValidationLookups, cfg.ValidationStaleMonths, cfg.ValidationRecentMonths)
+	log.Printf("Entity gate: %s (sources must name the company, its domain, an alias or its registration id)", cfg.EntityGateMode)
 	compAgent := agent.NewCompanyAgent(eng)
 	persAgent := agent.NewPersonAgent(eng)
 	sessionHub := agent.NewSessionHub()
@@ -147,6 +189,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", srv.handleIndex)
 	mux.HandleFunc("POST /api/research", srv.handleResearch)
+	mux.HandleFunc("POST /api/resolve-entity", srv.handleResolveEntity)
 	mux.HandleFunc("POST /api/rerun", srv.handleRerun)
 	mux.HandleFunc("POST /api/question", srv.handleQuestion)
 	mux.HandleFunc("GET /api/events", srv.handleEvents)
@@ -271,9 +314,13 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	company := strings.TrimSpace(r.FormValue("company_name"))
 	location := strings.TrimSpace(r.FormValue("location"))
 	companyBrief := models.CompanyBrief{
-		CompanyName: query,
-		Domain:      strings.TrimSpace(r.FormValue("company_domain")),
-		Industry:    strings.TrimSpace(r.FormValue("company_industry")),
+		CompanyName:     query,
+		Domain:          entityDomainValue(r),
+		Aliases:         splitFormList(r.FormValue("entity_aliases")),
+		RegistrationID:  strings.TrimSpace(r.FormValue("entity_reg_id")),
+		EntityConfirmed: strings.TrimSpace(r.FormValue("entity_confirmed")) == "1",
+		EntitySource:    entitySourceValue(r),
+		Industry:        strings.TrimSpace(r.FormValue("company_industry")),
 		ResearchPreferences: models.ResearchPreferences{
 			Country:         strings.TrimSpace(r.FormValue("company_country")),
 			City:            strings.TrimSpace(r.FormValue("company_city")),
@@ -446,6 +493,70 @@ func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "question_answer", answer)
+}
+
+// handleResolveEntity offers the operator candidate identities for a company name, so
+// the entity is confirmed by a human before any research runs. Confirming here is what
+// makes the entity gate enforceable: one or two searches now, instead of a run whose
+// sources all look relevant and belong to another company.
+func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
+	name := strings.TrimSpace(r.FormValue("query"))
+	if name == "" {
+		s.renderError(w, "Please provide a company name to resolve.")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), entityResolveTimeout)
+	defer cancel()
+	candidates, err := s.companyAgent.ResolveEntityCandidates(ctx, name, r.FormValue("company_country"), r.FormValue("company_city"))
+	if err != nil {
+		s.renderError(w, "Entity lookup failed: "+err.Error())
+		return
+	}
+
+	view := entityCandidatesView{
+		Query:           name,
+		Industry:        strings.TrimSpace(r.FormValue("company_industry")),
+		Country:         strings.TrimSpace(r.FormValue("company_country")),
+		City:            strings.TrimSpace(r.FormValue("company_city")),
+		AreasOfInterest: strings.TrimSpace(r.FormValue("areas_of_interest")),
+		Notes:           strings.TrimSpace(r.FormValue("research_notes")),
+	}
+	for _, candidate := range candidates {
+		view.Candidates = append(view.Candidates, entityCandidateView{
+			Candidate:       candidate,
+			Query:           view.Query,
+			Industry:        view.Industry,
+			Country:         view.Country,
+			City:            view.City,
+			AreasOfInterest: view.AreasOfInterest,
+			Notes:           view.Notes,
+		})
+	}
+	log.Printf("[ENTITY] resolved %d candidate(s) for %q", len(candidates), name)
+	s.render(w, "entity_candidates", view)
+}
+
+// entityDomainValue resolves the domain from the confirmed-entity field, falling back to
+// the free-text company_domain field the console has always offered.
+func entityDomainValue(r *http.Request) string {
+	if domain := strings.TrimSpace(r.FormValue("entity_domain")); domain != "" {
+		return domain
+	}
+	return strings.TrimSpace(r.FormValue("company_domain"))
+}
+
+// entitySourceValue records where the identity came from, so an artifact never presents a
+// typed name as a confirmed entity.
+func entitySourceValue(r *http.Request) string {
+	if source := strings.TrimSpace(r.FormValue("entity_source")); source != "" {
+		return source
+	}
+	if strings.TrimSpace(r.FormValue("entity_confirmed")) == "1" {
+		return "user"
+	}
+	return "typed"
 }
 
 func splitFormList(value string) []string {

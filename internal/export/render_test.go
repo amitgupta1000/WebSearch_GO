@@ -247,3 +247,27 @@ func TestArtifactsOmitFreshnessWithoutAReport(t *testing.T) {
 		t.Error("a chart without a validation report must not gain a freshness section")
 	}
 }
+
+// TestMarkdownCollapsesEmptyDepartments keeps a thin result reading as thin: a run that
+// found two people should not render fifteen sections that say so.
+func TestMarkdownCollapsesEmptyDepartments(t *testing.T) {
+	chart := &models.OrgChart{
+		CompanyName: "Acme",
+		Departments: []models.Department{
+			{Name: "Finance", Members: []models.Employee{{Name: "Asha Mehta", Title: "CFO"}}},
+			{Name: "Marketing"},
+			{Name: "IT"},
+		},
+	}
+	markdown := renderCompanyMarkdown(chart)
+
+	if !strings.Contains(markdown, "_No named contacts found for: Marketing, IT._") {
+		t.Errorf("expected the empty departments collapsed into one line, got %q", markdown)
+	}
+	if strings.Contains(markdown, "### Marketing") || strings.Contains(markdown, "### IT") {
+		t.Error("empty departments must not get their own sections")
+	}
+	if !strings.Contains(markdown, "### Finance") {
+		t.Error("a department with members keeps its section")
+	}
+}

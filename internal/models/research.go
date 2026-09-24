@@ -22,7 +22,91 @@ type CompanyBrief struct {
 	CompanyName string `json:"company_name"`
 	Domain      string `json:"domain,omitempty"`
 	Industry    string `json:"industry,omitempty"`
+	// Aliases are other names the confirmed entity answers to ("CJ Shah & Co",
+	// "KLJ Group"). They are how a brand or group relationship enters the entity
+	// gate explicitly — confirmed by the operator — instead of being inferred by
+	// the model, which is what let a "related group entity" clause pull unrelated
+	// companies into one chart.
+	Aliases []string `json:"aliases,omitempty"`
+	// RegistrationID is the registry identifier (an Indian CIN, a company number).
+	// It is the one key that cannot collide with a same-named company, and registry
+	// sources publish it, so it is worth asking for.
+	RegistrationID string `json:"registration_id,omitempty"`
+	// EntityConfirmed is true when a human confirmed or edited this identity. The
+	// gate runs either way; an unconfirmed identity is reported as such.
+	EntityConfirmed bool `json:"entity_confirmed,omitempty"`
+	// EntitySource records where the identity came from: user, resolved or typed.
+	EntitySource string `json:"entity_source,omitempty"`
 	ResearchPreferences
+}
+
+// Entity key kinds, strongest first. They are stable strings so the artifacts can
+// show *how* a person row (or a candidate) was tied to the company.
+const (
+	EntityKeyDomain       = "domain"
+	EntityKeyRegistration = "registration-id"
+	EntityKeyName         = "name"
+	EntityKeyAlias        = "alias"
+)
+
+// EntityMatch records how a source was tied to the researched entity. Matched is
+// false when nothing in the source names the company, which is the case the gate
+// exists for.
+type EntityMatch struct {
+	Matched bool `json:"matched"`
+	// Key is domain, registration-id, name or alias; Value is the key that matched.
+	Key        string  `json:"key,omitempty"`
+	Value      string  `json:"value,omitempty"`
+	Confidence float64 `json:"confidence,omitempty"`
+}
+
+// OffEntityRow is one person the entity gate could not tie to the company. They are
+// removed from the roster and listed in the artifact, so a reader sees what was
+// excluded and why instead of wondering why a chart is short.
+type OffEntityRow struct {
+	Name   string `json:"name"`
+	Title  string `json:"title,omitempty"`
+	Place  string `json:"place,omitempty"`
+	Source string `json:"source,omitempty"`
+	Reason string `json:"reason"`
+}
+
+// EntityCandidate is one possible company identity offered to the operator before a
+// run starts, so a name like "CJ Shah" is disambiguated by a human instead of guessed
+// from search results.
+type EntityCandidate struct {
+	Name   string `json:"name"`
+	Domain string `json:"domain,omitempty"`
+	// RegistrationID is filled when a registry source publishes one (an Indian CIN
+	// can be read straight out of a ZaubaCorp/Tofler URL), and RegistrationSource
+	// names the page it was read from, so the operator can check it before using it.
+	RegistrationID     string `json:"registration_id,omitempty"`
+	RegistrationSource string `json:"registration_source,omitempty"`
+	// NameMatch reports that the domain carries the company's name, which is the
+	// strongest available hint that it is the company's own site. Candidates without
+	// it are flagged in the dialogue, because gating a run on a rating agency's domain
+	// would be worse than gating on no domain at all.
+	NameMatch     bool    `json:"name_match,omitempty"`
+	EvidenceTitle string  `json:"evidence_title,omitempty"`
+	EvidenceURL   string  `json:"evidence_url,omitempty"`
+	Score         float64 `json:"score,omitempty"`
+}
+
+// EntityGate summarises what the confirmed identity filtered: the keys in play, what
+// was tagged, and what was excluded. It is attached by the agent, never by the
+// model, and it is what makes "the roster is short because those people belong to
+// another company" a statement the artifact can make.
+type EntityGate struct {
+	Keys      []string `json:"keys,omitempty"`
+	Confirmed bool     `json:"confirmed"`
+	// Mode is the gate's strictness for this run: enforce, report or off.
+	Mode             string         `json:"mode,omitempty"`
+	QueriesDropped   int            `json:"queries_dropped,omitempty"`
+	CandidatesTagged int            `json:"candidates_tagged,omitempty"`
+	CandidatesNone   int            `json:"candidates_unmatched,omitempty"`
+	SnippetsDropped  int            `json:"snippets_dropped,omitempty"`
+	RowsOffEntity    int            `json:"rows_off_entity,omitempty"`
+	OffEntity        []OffEntityRow `json:"off_entity,omitempty"`
 }
 
 // PlannedQuery is a search query generated for a specific research purpose.
@@ -41,6 +125,8 @@ type QueryPlan struct {
 // RankedResult records an LLM relevance judgment for a search result.
 type RankedResult struct {
 	URL          string  `json:"url"`
+	Title        string  `json:"title,omitempty"`
+	Snippet      string  `json:"snippet,omitempty"`
 	Relevant     bool    `json:"relevant"`
 	Score        float64 `json:"score"`
 	Reason       string  `json:"reason"`
@@ -48,6 +134,9 @@ type RankedResult struct {
 	SourceType   string  `json:"source_type,omitempty"`
 	Official     bool    `json:"official"`
 	QualityScore float64 `json:"quality_score"`
+	// EntityKey is how this candidate was tied to the researched company: domain,
+	// registration-id, name, alias, or empty when nothing in the candidate names it.
+	EntityKey string `json:"entity_key,omitempty"`
 }
 
 // Evidence is a selected source prepared for final synthesis.
@@ -218,8 +307,12 @@ type CompanyResearchContext struct {
 	ScrapeReport  []ScrapeReportEntry
 	Reviews       []QualityReview
 	Iteration     int
-	// Validation is the freshness pass over the finished chart.
+	// Validation is the freshness pass over the finished chart, and EntityGate is the
+	// record of what the confirmed company identity filtered. Both are attached by
+	// the agent.
 	Validation *ValidationReport
+	// EntityGate is the record of what the entity gate filtered out.
+	EntityGate *EntityGate
 	// Timings is the per-phase breakdown of the run, in completion order.
 	Timings []PhaseTiming
 }

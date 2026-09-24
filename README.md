@@ -93,7 +93,10 @@ and final result summary.
    extracted text — and a `404`/`410` is reported without paying for a browser render.
    A blocked page gets one bounded **hard-URL escalation** (plain render → cookie-bridged
    render → extended settle) before degrading to snippet evidence; set
-   `HARD_URL_HANDLER=0` to turn that off. Failures are cached briefly too, so a repeat
+   `HARD_URL_HANDLER=0` to turn that off. Escalations are offered to the shapes the
+   ladder can actually read first — a public LinkedIn post or company page renders on
+   the first step, while a person profile is an auth-wall without a session and gets
+   one cheap attempt instead of two. Failures are cached briefly too, so a repeat
    question does not re-fetch a known dead end
    (see [Fetching policy](#fetching-policy)).
 5. **Synthesize** — Gemini writes the org chart or dossier from the supplied
@@ -118,7 +121,7 @@ and final result summary.
 | `GOOGLE_GENAI_USE_VERTEXAI` | unset | Set to `true` to use Vertex AI backend |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | — | Vertex AI project & region |
 | `GCP_REGION` | `us-central1` | Region recorded in config (informational; Vertex AI uses `GOOGLE_CLOUD_LOCATION`) |
-| `COOKIE_FILE_PATH` | — | Optional JSON cookie export (Cookie-Editor / EditThisCookie format) |
+| `COOKIE_FILE_PATH` | — | Optional JSON cookie export (Cookie-Editor / EditThisCookie format) for the cookie-bridged ladder step. A cookie scoped to `www.example.com` is also registered for `example.com`, so `in.linkedin.com` receives a session exported for `www.linkedin.com`; startup logs what loaded (`Cookie jar: 7 cookies from …`) |
 | `ENABLE_BROWSER_FALLBACK` | `false` | Enable bounded Playwright rendering after HTTP errors, challenges, or low-quality JavaScript shells |
 | `CACHE_MAX_ENTRIES` | `2048` | Max entries in the in-memory TTL cache |
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Per-request research budget |
@@ -132,6 +135,7 @@ and final result summary.
 | `HARD_URLS_PER_RUN` | `2` | Hard cap on how many URLs one run may escalate. Raise it for profile-heavy briefs, but remember each escalation can take up to `HARD_URL_BUDGET_SECONDS` |
 | `HARD_URL_BUDGET_SECONDS` | derived | Budget for the whole ladder on one URL. `0` derives it from the ladder's own step caps (15 s + 15 s + 20 s + margin), so the extended-settle step can never be clipped |
 | `VALIDATE_EVIDENCE` | `true` | Date and label every person row from the sources behind it (`verified-recent` / `dated` / `stale` / `undated` / `conflicting`) and allow bounded reverse lookups. The offline half costs nothing; `0` keeps the labels and spends no searches |
+| `ENTITY_GATE_MODE` | `enforce` | How strictly sources are held to the confirmed company: `enforce` rejects and removes people no source connects to the company, `report` labels them but keeps them (for measuring the gate's effect), `off` disables the gate entirely for comparison runs |
 | `VALIDATION_LOOKUPS_PER_RUN` | `4` | Cap on reverse lookups — `"Name" "Company"`, snippet-only, never fetched — for rows the pass could not date or corroborate. `0` disables the lookups but keeps the labels |
 | `VALIDATION_STALE_AFTER_MONTHS` | `36` | Age at which a row's newest source is reported as `stale` |
 | `VALIDATION_RECENT_WITHIN_MONTHS` | `18` | Age inside which a dated source from the company's own domain, or from two independent domains, counts as `verified-recent` |
@@ -273,6 +277,48 @@ Cached pages are revalidated instead of re-downloaded. The scraper keeps the `ET
 in a single round trip, and a revalidation that fails for any reason keeps the cached copy rather
 than losing evidence.
 
+## Entity gate — what the chart is held to
+
+"Relevant to the brief" is not "about the company". A run for a company called **CJ Shah**
+(a name that reads as initials plus a surname) assembled 204 people from 24 sources —
+none of them on the company's own domain: a LinkedIn name directory, a textbook by an
+author named Shah, a 2016 conference archive, papers on Malaysian procurement, and a
+global wealth-management roundup. Every one of those is topically relevant to a
+procurement brief; none of them is about CJ Shah.
+
+**Confirm the entity first.** The console offers **Find the exact company first**: it runs
+one or two searches and shows candidate identities — domain, evidence, and a registration
+number (a CIN read out of a registry page, shown with the page it came from). Pick one,
+edit the domain, add other names the entity answers to ("CJ Shah & Co", "KLJ Group"), or
+run on the name alone. Candidate domains that do not carry the company's name are flagged,
+because gating a run on a rating agency's domain would be worse than gating on none.
+
+**Then every stage is held to that identity** (`internal/agent/entity.go`):
+
+1. **Query plan** — a planned query that names neither the company, an alias, the domain
+   nor the registration id is dropped, and the plan is refilled with anchored queries
+   (`site:<domain> …`). It is the cheapest gate: an unanchored query is never fetched.
+2. **Ranker** — every candidate records *how* it is tied to the company (`domain`,
+   `registration-id`, `name`, `alias`), and one that names it nowhere is pushed to the
+   back of the queue.
+3. **Snippets** — only snippets naming the company reach synthesis. A snippet is a name
+   and a title; this is the widest hole, and closing it removed the wealth-management
+   roundup and the 2016 summit in one step.
+4. **Rows** — with `ENTITY_GATE_MODE=enforce`, a person no source connects to the company
+   is removed from the chart and listed under **Unverified / other entities** with the
+   title, the department and the source that failed to name the company. A row whose name
+   *is* the company name (a shareholding page labelled "CJ SHAH") is excluded as the
+   entity, not a person. Rows matched by the name alone carry a visible
+   `matched by company name only` warning, because a same-named company matches the same
+   way.
+5. **QC** — the reviewer is told the exact identity and must report anyone the evidence
+   does not connect to it.
+
+The artifact states the identity and what the gate did (`## Entity gate`), so a short
+roster is explainable rather than mysterious. `report` mode records everything without
+removing anyone, which is how the gate's effect is measured; `off` is the pre-gate
+behaviour.
+
 ## Fetching policy
 
 The scraper is deliberately conservative, and several of these rules surprise people:
@@ -296,6 +342,19 @@ The scraper is deliberately conservative, and several of these rules surprise pe
   `ALLOW_PROFILE_SCRAPING=true` to fetch such pages through the normal scrape path too,
   or `HARD_URL_HANDLER=0` to disable escalation entirely — both are policy decisions, so
   check the terms of the sites involved first.
+  - **The shapes are not equally recoverable, and the ladder now says so.** Measured
+    across live runs: LinkedIn posts and company pages came back on the first render
+    (1–2 s, 160–2,919 words), while every logged-out `/in/…` person profile exhausted
+    both steps (15–25 s) and fell back to its snippet. Escalation slots therefore go to
+    posts and company pages first, and a logged-out person profile or `/pub/dir/` page
+    gets only the cheap first attempt instead of also waiting 20 s of extended settling
+    for a sign-in page. A blocked page (no session involved) still gets all three steps.
+  - **A failure now says which session was missing:** the reason carries
+    `(no cookies for in.linkedin.com: set COOKIE_FILE_PATH …)` whenever the cookie step
+    was skipped for lack of a session, so an unreachable profile is no longer ambiguous.
+  - **Raising `HARD_URLS_PER_RUN` buys attempts, not results.** With the cap at 2 vs 6 in
+    an A/B on the same brief, more escalations added prose and two office locations but
+    no new people, at +67 % scrape time. Keep it low and spend the budget on the run.
 - **PDFs are read; every other non-HTML response is rejected.** A PDF is sent to
   Gemini, which reads PDFs natively, and falls back to a bundled pure-Go parser when
   that call fails — so officer lists published as registry filings become evidence. The

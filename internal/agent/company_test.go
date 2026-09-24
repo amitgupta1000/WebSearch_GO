@@ -62,40 +62,54 @@ func (blockingRankingLLM) GenerateStructured(ctx context.Context, _ string, _ st
 }
 
 func TestFallbackQueryPlanUsesCompanyScope(t *testing.T) {
-	plan := fallbackQueryPlan(models.CompanyBrief{
+	brief := models.CompanyBrief{
 		CompanyName: "Acme",
+		Industry:    "chemicals",
 		ResearchPreferences: models.ResearchPreferences{
 			Country:         "Germany",
 			City:            "Berlin",
 			AreasOfInterest: []string{"subsidiaries"},
 		},
-	})
-
-	if len(plan.Queries) != 7 {
-		t.Fatalf("expected seven planned queries, got %d", len(plan.Queries))
 	}
-	if plan.Queries[0].Query != "Acme Germany Berlin leadership executive team" {
+	plan := fallbackQueryPlan(brief)
+
+	// Every query must be anchored on the company: the entity gate drops the ones
+	// that are not, so the fallback plan has to satisfy its own filter.
+	matcher := newEntityMatcher(brief)
+	for _, query := range plan.Queries {
+		if !matcher.covers(query.Query) {
+			t.Errorf("fallback query %q is not anchored on the company", query.Query)
+		}
+	}
+	if len(plan.Queries) < 6 || len(plan.Queries) > maxCompanySearchQueries {
+		t.Fatalf("expected a full plan, got %d queries", len(plan.Queries))
+	}
+	if plan.Queries[0].Query != "Acme Germany Berlin leadership executive team management" {
 		t.Errorf("unexpected first query: %q", plan.Queries[0].Query)
 	}
-	foundInterest := false
+
+	foundInterest, foundConference, foundLocations := false, false, false
 	for _, query := range plan.Queries {
-		if query.TargetArea == "subsidiaries" {
+		switch {
+		case query.TargetArea == "subsidiaries":
 			foundInterest = true
-			break
+		case strings.Contains(strings.ToLower(query.Query), "conference speaker"):
+			foundConference = true
+			if !strings.Contains(query.Query, "Acme") {
+				t.Errorf("a conference query must name the company, got %q", query.Query)
+			}
+		case query.TargetArea == "locations":
+			foundLocations = true
 		}
 	}
 	if !foundInterest {
 		t.Errorf("expected interest query target area in plan, got %+v", plan.Queries)
 	}
-	foundConferenceQuery := false
-	for _, query := range plan.Queries {
-		if strings.Contains(query.Query, "Argus Petrochemicals Conference") && strings.Contains(query.Query, "Platts Global Energy Trading") && strings.Contains(query.Query, "S&P Global Chemicals Summit") {
-			foundConferenceQuery = true
-			break
-		}
+	if !foundConference {
+		t.Errorf("expected an anchored conference speaker query, got %+v", plan.Queries)
 	}
-	if !foundConferenceQuery {
-		t.Errorf("expected chemical conference speaker query in plan, got %+v", plan.Queries)
+	if !foundLocations {
+		t.Errorf("expected a locations query in plan, got %+v", plan.Queries)
 	}
 }
 
@@ -128,7 +142,7 @@ func TestRankResultsFallsBackWhenLLMReturnsUnknownURLs(t *testing.T) {
 func TestSearchSnippetEvidenceHandlesScrapeFailure(t *testing.T) {
 	ranked := []models.RankedResult{{URL: "https://acme.com/leadership", Relevant: true, Score: 0.8}}
 	results := []models.SearchResult{{Title: "Acme leadership", Link: "https://acme.com/leadership", Snippet: "Acme executive team"}}
-	evidence := searchSnippetEvidence(ranked, results, 1)
+	evidence := searchSnippetEvidence(ranked, results, 1, nil)
 	if len(evidence) != 1 || evidence[0].EvidenceType != "search_snippet" {
 		t.Fatalf("expected search snippet evidence, got %+v", evidence)
 	}
@@ -145,7 +159,7 @@ func TestScrapeRankedRetainsStructuredMetadata(t *testing.T) {
 		Relevant:   true,
 		Score:      0.9,
 		SourceType: "official_leadership",
-	}}, nil, nil, nil)
+	}}, nil, nil, nil, nil)
 	if len(evidence) != 1 || len(evidence[0].Headings) != 1 || len(evidence[0].JSONLD) != 1 {
 		t.Fatalf("expected structured metadata to be retained, got %+v", evidence)
 	}
@@ -154,7 +168,7 @@ func TestScrapeRankedRetainsStructuredMetadata(t *testing.T) {
 		Relevant:   true,
 		Score:      0.9,
 		SourceType: "official_leadership",
-	}}, nil, nil, nil)
+	}}, nil, nil, nil, nil)
 	if len(report) != 1 || report[0].Status != "success" {
 		t.Fatalf("expected successful scrape report, got %+v", report)
 	}
@@ -181,7 +195,7 @@ func TestLinkedInSearchSnippetIsRetainedWithoutDirectScrape(t *testing.T) {
 		Link:    ranked[0].URL,
 		Snippet: "Jane Doe is Chief Technology Officer at Acme.",
 	}}
-	evidence, _, _ := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil)
+	evidence, _, _ := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil, nil)
 	if len(evidence) != 1 || evidence[0].EvidenceType != "search_snippet_fallback" {
 		t.Fatalf("expected LinkedIn snippet fallback, got %+v", evidence)
 	}
@@ -226,7 +240,7 @@ func TestSourceSignalsPreferOfficialLeadershipOverAggregator(t *testing.T) {
 		{Title: "Acme executives", Link: "https://www.ziprecruiter.com/company/acme", Snippet: "Acme leadership information"},
 		{Title: "Acme leadership", Link: "https://acme.com/about/leadership", Snippet: "Acme executive team"},
 	}
-	ranked := applySourceSignals(models.CompanyBrief{CompanyName: "Acme", Domain: "acme.com"}, bm25RankResults(models.CompanyBrief{CompanyName: "Acme", Domain: "acme.com"}, results))
+	ranked := applySourceSignals(models.CompanyBrief{CompanyName: "Acme", Domain: "acme.com"}, bm25RankResults(models.CompanyBrief{CompanyName: "Acme", Domain: "acme.com"}, results), true)
 	if len(ranked) != 2 || ranked[0].SourceType != "official_leadership" || !ranked[0].Official {
 		t.Fatalf("expected official leadership first, got %+v", ranked)
 	}
@@ -239,7 +253,7 @@ func TestSourceSignalsPreferPrimaryDomainOverOfficialSubdomain(t *testing.T) {
 	ranked := applySourceSignals(models.CompanyBrief{CompanyName: "Acme", Domain: "acme.com"}, []models.RankedResult{
 		{URL: "https://europe.acme.com/leadership", Relevant: true, Score: 0.70},
 		{URL: "https://acme.com/about/leadership", Relevant: true, Score: 0.68},
-	})
+	}, true)
 	if len(ranked) != 2 || ranked[0].URL != "https://acme.com/about/leadership" {
 		t.Fatalf("expected primary domain first, got %+v", ranked)
 	}
@@ -584,7 +598,7 @@ func TestProfessionalProfileScrapingIsOffByDefault(t *testing.T) {
 	ranked := []models.RankedResult{{URL: profileURL, Relevant: true, Score: 0.9, SourceType: "professional_profile"}}
 	results := []models.SearchResult{{Title: "Jane Doe - Chief Technology Officer - Acme | LinkedIn", Link: profileURL, Snippet: "Jane Doe is Chief Technology Officer at Acme."}}
 
-	evidence, _, report := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil)
+	evidence, _, report := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil, nil)
 
 	if len(scraper.calledURLs) != 0 {
 		t.Errorf("profile pages must not be fetched by default, got %v", scraper.calledURLs)
@@ -612,7 +626,7 @@ func TestProfessionalProfileScrapingOptInFetchesProfiles(t *testing.T) {
 	ranked := []models.RankedResult{{URL: profileURL, Relevant: true, Score: 0.9, SourceType: "professional_profile"}}
 	results := []models.SearchResult{{Title: "Jane Doe - Chief Technology Officer - Acme | LinkedIn", Link: profileURL, Snippet: "Jane Doe is Chief Technology Officer at Acme."}}
 
-	evidence, _, report := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil)
+	evidence, _, report := agent.scrapeRanked(context.Background(), "session", ranked, results, nil, nil, nil)
 
 	if len(scraper.calledURLs) != 1 || scraper.calledURLs[0] != profileURL {
 		t.Errorf("expected the profile to be fetched when opted in, got %v", scraper.calledURLs)

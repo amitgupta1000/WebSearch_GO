@@ -72,6 +72,13 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 	}
 
 	timer := newPhaseTimer()
+	// The entity gate is built first: the deferred block below reports it, and every
+	// later stage consults the same identity.
+	matcher := ca.entityMatcherFor(brief)
+	gate := &models.EntityGate{Confirmed: brief.EntityConfirmed, Mode: ca.engine.EntityGateMode()}
+	if matcher != nil {
+		gate.Keys = matcher.describe()
+	}
 	// Timings are attached on every return path, including failures: a run that
 	// died in the scraper should still say how long it spent there. That is what
 	// makes "the scraper is slow" a measured claim rather than a guess.
@@ -81,12 +88,22 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		// means a run that spent everything still gets the offline half.
 		if chart != nil {
 			finishValidate := timer.start("validate")
-			report := ca.validateChart(ctx, sessionID, brief, chart, state, eventCh)
+			report := ca.validateChart(ctx, sessionID, brief, chart, state, eventCh, gate)
 			finishValidate(fmt.Sprintf("%d rows, %d lookups", report.RowsChecked, report.LookupsUsed))
 			if state != nil {
 				state.Validation = report
 			}
 			chart.Validation = report
+			chart.EntityGate = gate
+			Emit(eventCh, models.AgentEvent{
+				SessionID: sessionID,
+				Type:      models.EventToolResult,
+				Step:      33,
+				ToolName:  "entity_gate",
+				Content: fmt.Sprintf("Entity gate (%s): %s | %d/%d candidates named the company, %d snippets dropped, %d off-entity people removed",
+					ca.engine.EntityGateMode(), strings.Join(gate.Keys, ", "),
+					gate.CandidatesTagged, gate.CandidatesTagged+gate.CandidatesNone, gate.SnippetsDropped, gate.RowsOffEntity),
+			})
 		}
 		timings := timer.results()
 		if state != nil {
@@ -107,9 +124,12 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 	}()
 
 	state = &models.CompanyResearchContext{Brief: brief}
+	state.EntityGate = gate
+
 	finishPlan := timer.start("plan queries")
-	plan := ca.planQueries(ctx, brief)
-	finishPlan(fmt.Sprintf("%d queries", len(plan.Queries)))
+	plan, droppedQueries := ca.planQueries(ctx, brief)
+	gate.QueriesDropped = droppedQueries
+	finishPlan(fmt.Sprintf("%d queries (%d dropped as unanchored)", len(plan.Queries), droppedQueries))
 
 	for iteration := 0; iteration < maxCompanyReviewIterations; iteration++ {
 		state.Iteration = iteration + 1
@@ -128,15 +148,23 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 7, Content: fmt.Sprintf("Evaluating relevance of %d search results...", len(state.SearchResults))})
 		finishRank := timer.start("rank")
 		state.RankedResults = ca.rankResults(ctx, brief, state.SearchResults)
-		finishRank(fmt.Sprintf("%d candidates", len(state.RankedResults)))
+		gate.CandidatesTagged, gate.CandidatesNone = 0, 0
+		for _, candidate := range state.RankedResults {
+			if candidate.EntityKey != "" {
+				gate.CandidatesTagged++
+			} else {
+				gate.CandidatesNone++
+			}
+		}
+		finishRank(fmt.Sprintf("%d candidates (%d named the company)", len(state.RankedResults), gate.CandidatesTagged))
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolResult, Step: 7, ToolName: "relevance_ranker", Content: fmt.Sprintf("Selected %d relevant candidates.", len(state.RankedResults))})
 		finishScrape := timer.start("scrape")
-		newEvidence, _, scrapeReport := ca.scrapeRanked(ctx, sessionID, state.RankedResults, state.SearchResults, state.Evidence, eventCh)
+		newEvidence, _, scrapeReport := ca.scrapeRanked(ctx, sessionID, state.RankedResults, state.SearchResults, state.Evidence, eventCh, matcher)
 		finishScrape(fmt.Sprintf("%d attempts -> %d pages kept", len(scrapeReport), len(newEvidence)))
 		state.Evidence = appendUniqueEvidence(state.Evidence, newEvidence)
 		state.ScrapeReport = appendUniqueScrapeReports(state.ScrapeReport, scrapeReport)
 		if len(state.Evidence) == 0 {
-			state.Evidence = appendUniqueEvidence(state.Evidence, searchSnippetEvidence(state.RankedResults, state.SearchResults, ca.engine.MaxScrapes()))
+			state.Evidence = appendUniqueEvidence(state.Evidence, searchSnippetEvidence(state.RankedResults, state.SearchResults, ca.engine.MaxScrapes(), matcher))
 		}
 		if len(state.Evidence) == 0 {
 			return nil, state, fmt.Errorf("no usable company evidence was collected")
@@ -146,8 +174,13 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		// 2025 filing over a 2020 one, and the validation pass reuses the same
 		// dates without another request.
 		annotateEvidenceDates(state.Evidence)
+		// Only snippets that name the company reach the synthesiser. A snippet is a
+		// name and a title, and without this filter the results of every planned
+		// query are fair game for the roster.
+		synthesisSnippets, droppedSnippets := filterEntitySnippets(state.SearchResults, matcher)
+		gate.SnippetsDropped = droppedSnippets
 		finishSynthesize := timer.start("synthesize")
-		chart, err = ca.synthesizeChart(ctx, brief, state.Evidence, state.SearchResults, sessionID, eventCh)
+		chart, err = ca.synthesizeChart(ctx, brief, state.Evidence, synthesisSnippets, sessionID, eventCh)
 		finishSynthesize(fmt.Sprintf("%d evidence items", len(state.Evidence)))
 		if err != nil {
 			return nil, state, err
@@ -176,9 +209,12 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 
 func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.CompanyBrief, evidence []models.Evidence, results []models.SearchResult, sessionID string, eventCh chan<- models.AgentEvent) (*models.OrgChart, error) {
 	Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 8, Content: "Synthesizing the organization chart from selected evidence..."})
-	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string. Image metadata is supporting evidence; do not invent visual facts from image URLs. Include supported department leaders even when their exact title is not in the search query: consider functional variants such as Chief, C-level, President, Executive Vice President, Senior Vice President, Vice President, VP, Head, Director, and General Manager. Treat procurement, purchasing, strategic sourcing, supply chain, logistics, operations, marketing, brand, communications, growth, and digital marketing as relevant department functions. Conference speaker evidence may identify a person's company, function, and industry relevance, but conference participation alone does not prove that the person is a current executive; label or place such people conservatively unless current employment is corroborated. Profile candidates are snippets from professional networks: when one pairs a person's name with a functional title and the target company, or a related group entity, treat it as evidence of that person's function, list them in the matching department, and record which entity they belong to in their title. Promote a profile candidate into leadership only for board or C-level titles. Prefer listing a named profile candidate in a department over leaving that department empty. Every object in the departments array must use the shape {"name": "<function>", "head": "<optional person>", "description": "<optional summary>", "members": [{"name": "<person>", "title": "<their title>", "public_source": "<source url>"}]}. List every person you attribute to a function inside that function's members array, and never leave members empty when you have named a person for that function. Every evidence item is stamped with the newest date its source proves (as of YYYY-MM-DD). Use those dates: when two sources disagree about a person's role, prefer the newer one, and do not present someone whose only sources are several years old as a current executive — either record their dated role or leave them out.`
+	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string. Image metadata is supporting evidence; do not invent visual facts from image URLs. Include supported department leaders even when their exact title is not in the search query: consider functional variants such as Chief, C-level, President, Executive Vice President, Senior Vice President, Vice President, VP, Head, Director, and General Manager. Treat procurement, purchasing, strategic sourcing, supply chain, logistics, operations, marketing, brand, communications, growth, and digital marketing as relevant department functions. Conference speaker evidence may identify a person's company, function, and industry relevance, but conference participation alone does not prove that the person is a current executive; label or place such people conservatively unless current employment is corroborated. Profile candidates are snippets from professional networks: when one pairs a person's name with a functional title and the target company (or one of the aliases the request lists), treat it as evidence of that person's function, list them in the matching department, and record which entity they belong to in their title. Promote a profile candidate into leadership only for board or C-level titles. Prefer listing a named profile candidate in a department over leaving that department empty, but only when the company is named in the same snippet. Every object in the departments array must use the shape {"name": "<function>", "head": "<optional person>", "description": "<optional summary>", "members": [{"name": "<person>", "title": "<their title>", "public_source": "<source url>"}]}. List every person you attribute to a function inside that function's members array, and never leave members empty when you have named a person for that function. Every evidence item is stamped with the newest date its source proves (as of YYYY-MM-DD). Use those dates: when two sources disagree about a person's role, prefer the newer one, and do not present someone whose only sources are several years old as a current executive — either record their dated role or leave them out. Every person you list must be tied to the researched company stated at the top of the request: a page that never names that company is not evidence about it, however relevant it looks.`
 	var chart models.OrgChart
 	contextData := fmt.Sprintf("Research brief: %+v\n\nSearch snippets:\n%s\n\nSelected evidence:\n%s", brief, FormatSearchSnippets(results), formatEvidence(evidence))
+	if matcher := ca.entityMatcherFor(brief); matcher != nil {
+		contextData = matcher.promptLine() + "\n\n" + contextData
+	}
 	if profiles := formatProfileCandidates(evidence); profiles != "" {
 		contextData += "\n\n" + profiles
 	}
@@ -199,12 +235,33 @@ func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.Compan
 	return &chart, nil
 }
 
+// entityGateActive reports whether the gate filters anything. It is kept on the agent
+// so the ranking helpers, which are free functions, can be told without reaching into
+// the engine.
+func (ca *CompanyAgent) entityGateActive() bool {
+	return ca.engine == nil || ca.engine.EntityGateActive()
+}
+
+// entityMatcherFor builds the run's entity matcher, or nil when the gate is off. A
+// nil matcher means "no gate" everywhere it is used, which keeps the off mode a true
+// comparison baseline rather than a subtly different pipeline.
+func (ca *CompanyAgent) entityMatcherFor(brief models.CompanyBrief) *entityMatcher {
+	if ca.engine != nil && !ca.engine.EntityGateActive() {
+		return nil
+	}
+	return newEntityMatcher(brief)
+}
+
 func (ca *CompanyAgent) reviewChart(ctx context.Context, brief models.CompanyBrief, chart *models.OrgChart, evidence []models.Evidence, sessionID string, eventCh chan<- models.AgentEvent) models.QualityReview {
 	var review models.QualityReview
-	request := fmt.Sprintf("Brief:\n%+v\n\nDraft chart:\n%+v\n\nEvidence:\n%s", brief, *chart, formatEvidence(evidence))
+	entityLine := ""
+	if matcher := ca.entityMatcherFor(brief); matcher != nil {
+		entityLine = "\n\nResearched entity:\n" + matcher.promptLine()
+	}
+	request := fmt.Sprintf("Brief:\n%+v\n\nDraft chart:\n%+v\n\nEvidence:\n%s%s", brief, *chart, formatEvidence(evidence), entityLine)
 	llmCtx, cancel := context.WithTimeout(ctx, companyReviewTimeout)
 	defer cancel()
-	err := ca.engine.GenerateStructured(llmCtx, `Act as a strict research quality reviewer. Evaluate whether the draft answers the brief and whether claims are supported by the supplied evidence. Return JSON with verdict (pass or revise), score from 0 to 1, gaps, contradictions, unsupported_claims, reason, and at most four focused follow_up_queries. Use revise only for material gaps or contradictions. Never invent facts. Evidence items are stamped with the date their source proves (as of YYYY-MM-DD), so also flag any person whose newest source is years old, and report as a contradiction when one title — for example Chief Financial Officer — is claimed by two different people.`, request, &review)
+	err := ca.engine.GenerateStructured(llmCtx, `Act as a strict research quality reviewer. Evaluate whether the draft answers the brief and whether claims are supported by the supplied evidence. Return JSON with verdict (pass or revise), score from 0 to 1, gaps, contradictions, unsupported_claims, reason, and at most four focused follow_up_queries. Use revise only for material gaps or contradictions. Never invent facts. Evidence items are stamped with the date their source proves (as of YYYY-MM-DD), so also flag any person whose newest source is years old, and report as a contradiction when one title — for example Chief Financial Officer — is claimed by two different people. Every person in the chart must be tied to the researched company named in the request: report anyone whose evidence does not connect to that company as an unsupported claim.`, request, &review)
 	review.Verdict = strings.ToLower(strings.TrimSpace(review.Verdict))
 	if err != nil || review.Verdict == "" {
 		// Never report a failed or empty review as a passing one: doing so hides
@@ -258,6 +315,9 @@ func (ca *CompanyAgent) AnswerQuestion(ctx context.Context, state *models.Compan
 		return nil, fmt.Errorf("fresh question search failed: %w", err)
 	}
 	freshResults = filterBlockedSearchResults(freshResults)
+	// The question path is gated too: a fresh follow-up search is exactly where an
+	// unrelated company's page can enter a finished chart.
+	matcher := ca.entityMatcherFor(state.Brief)
 	freshRanked := make([]models.RankedResult, 0, len(freshResults))
 	for index, result := range freshResults {
 		if index >= ca.engine.MaxScrapes() {
@@ -265,7 +325,7 @@ func (ca *CompanyAgent) AnswerQuestion(ctx context.Context, state *models.Compan
 		}
 		freshRanked = append(freshRanked, models.RankedResult{URL: result.Link, Relevant: true, Score: 1 - float64(index)/100, Reason: "selected for question follow-up", EvidenceType: "question_search"})
 	}
-	freshEvidence, _, _ := ca.scrapeRanked(ctx, "question", freshRanked, freshResults, nil, nil)
+	freshEvidence, _, _ := ca.scrapeRanked(ctx, "question", freshRanked, freshResults, nil, nil, matcher)
 	combinedEvidence := append(append([]models.Evidence{}, state.Evidence...), freshEvidence...)
 	var finalAnswer models.QuestionAnswer
 	finalPrompt := fmt.Sprintf("Company brief:\n%+v\n\nOrg chart:\n%+v\n\nOriginal evidence:\n%s\n\nFresh search query: %s\nFresh search results:\n%s\n\nFresh evidence:\n%s\n\nQuestion: %s", state.Brief, *chart, formatEvidence(state.Evidence), query, FormatSearchSnippets(freshResults), formatEvidence(freshEvidence), question)
@@ -336,7 +396,7 @@ func evidenceImages(evidence []models.Evidence) []models.Image {
 	return images
 }
 
-func searchSnippetEvidence(ranked []models.RankedResult, results []models.SearchResult, limit int) []models.Evidence {
+func searchSnippetEvidence(ranked []models.RankedResult, results []models.SearchResult, limit int, matcher *entityMatcher) []models.Evidence {
 	byURL := make(map[string]models.SearchResult, len(results))
 	for _, result := range results {
 		byURL[normalizeURL(result.Link)] = result
@@ -348,6 +408,9 @@ func searchSnippetEvidence(ranked []models.RankedResult, results []models.Search
 		}
 		result, ok := byURL[normalizeURL(item.URL)]
 		if !ok || strings.TrimSpace(result.Snippet) == "" {
+			continue
+		}
+		if !snippetNamesEntity(result, matcher) {
 			continue
 		}
 		entry := models.Evidence{
@@ -366,33 +429,119 @@ func searchSnippetEvidence(ranked []models.RankedResult, results []models.Search
 	return evidence
 }
 
-func (ca *CompanyAgent) planQueries(ctx context.Context, brief models.CompanyBrief) models.QueryPlan {
+// planQueries returns the run's query plan and how many planned queries the entity
+// gate dropped for not naming the company.
+func (ca *CompanyAgent) planQueries(ctx context.Context, brief models.CompanyBrief) (models.QueryPlan, int) {
 	var plan models.QueryPlan
-	request := fmt.Sprintf("Company: %s\nDomain: %s\nIndustry: %s\nCountry: %s\nCity: %s\nAreas: %s\nOutput: %s\nTime: %s\nNotes: %s", brief.CompanyName, brief.Domain, brief.Industry, brief.Country, brief.City, strings.Join(brief.AreasOfInterest, ", "), strings.Join(brief.DesiredOutput, ", "), brief.TimeScope, brief.UserNotes)
+	request := fmt.Sprintf("Company: %s\nDomain: %s\nAliases: %s\nRegistration: %s\nIndustry: %s\nCountry: %s\nCity: %s\nAreas: %s\nOutput: %s\nTime: %s\nNotes: %s",
+		brief.CompanyName, brief.Domain, strings.Join(brief.Aliases, ", "), brief.RegistrationID, brief.Industry,
+		brief.Country, brief.City, strings.Join(brief.AreasOfInterest, ", "),
+		strings.Join(brief.DesiredOutput, ", "), brief.TimeScope, brief.UserNotes)
 	llmCtx, cancel := context.WithTimeout(ctx, companyPlanningTimeout)
 	defer cancel()
-	err := ca.engine.GenerateStructured(llmCtx, `Create a focused company web research query plan. Return JSON with a queries array. Each query needs query, purpose, target_area, and priority from 1 to 5. Cover leadership, locations, and user-requested areas. Treat procurement, sourcing, supply chain, and marketing as explicit department targets. Search conference speaker lists for Argus Petrochemicals Conference, Platts Global Energy Trading, and S&P Global Chemicals Summits when relevant to the company or industry. For department-level executives, create targeted queries using title variants such as CPO, Chief Procurement Officer, CSCO, Chief Supply Chain Officer, VP Sourcing, VP Supply Chain, CMO, Chief Marketing Officer, VP Sales, CRO, VP Engineering, CTO, and CFO. You may use site:linkedin.com/in/ in search queries to find public profile snippets, but do not assume LinkedIn pages can be directly scraped or that snippets prove employment without corroboration.`, request, &plan)
-	if err == nil && len(plan.Queries) > 0 {
-		return limitQueryPlan(plan, maxCompanySearchQueries)
+	err := ca.engine.GenerateStructured(llmCtx, `Create a focused company web research query plan. Return JSON with a queries array. Each query needs query, purpose, target_area, and priority from 1 to 5. EVERY query must contain the company name, one of its aliases, or its domain — a query without one of those is discarded before it runs, because an unanchored query returns another company's pages that merely look relevant. Prefer "site:<domain>" queries for the company's own pages. Cover leadership, locations, and user-requested areas. Treat procurement, sourcing, supply chain, and marketing as explicit department targets, and write them against the company ("<company> chief procurement officer", not "chief procurement officer India"). Conference speaker lists may only be searched together with the company name. For department-level executives, use title variants such as CPO, Chief Procurement Officer, CSCO, Chief Supply Chain Officer, VP Sourcing, VP Supply Chain, CMO, Chief Marketing Officer, VP Sales, CRO, VP Engineering, CTO, and CFO. You may use site:linkedin.com/in/ in search queries to find public profile snippets, but do not assume LinkedIn pages can be directly scraped or that snippets prove employment without corroboration.`, request, &plan)
+	if err != nil || len(plan.Queries) == 0 {
+		return fallbackQueryPlan(brief), 0
 	}
-	return fallbackQueryPlan(brief)
+	// The planner is instructed to anchor every query, but an LLM plan is not a
+	// guarantee, and an unanchored query is what produced a 2016 conference archive
+	// and a Malaysian research paper in one live run. The filter is deterministic.
+	if ca.engine != nil && !ca.engine.EntityGateActive() {
+		return limitQueryPlan(plan, maxCompanySearchQueries), 0
+	}
+	enforced, dropped := enforceEntityQueries(limitQueryPlan(plan, maxCompanySearchQueries), brief)
+	return enforced, dropped
+}
+
+// enforceEntityQueries drops planned queries that are not anchored on the company and
+// refills the plan with anchored ones, returning the enforced plan and how many
+// queries it dropped. It is the earliest gate: a query that is not about the company
+// never runs, so the pages it would have returned are never fetched, ranked or mined.
+func enforceEntityQueries(plan models.QueryPlan, brief models.CompanyBrief) (models.QueryPlan, int) {
+	matcher := newEntityMatcher(brief)
+	kept := make([]models.PlannedQuery, 0, len(plan.Queries))
+	seen := make(map[string]bool, len(plan.Queries))
+	dropped := 0
+	for _, query := range plan.Queries {
+		trimmed := strings.TrimSpace(query.Query)
+		if trimmed == "" {
+			dropped++
+			continue
+		}
+		if !matcher.covers(trimmed) {
+			dropped++
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if seen[key] {
+			dropped++
+			continue
+		}
+		seen[key] = true
+		query.Query = trimmed
+		kept = append(kept, query)
+	}
+
+	// Refill with queries that are safe by construction, which also guarantees a
+	// site:<domain> query when a domain is known.
+	for _, anchor := range entityAnchoredQueries(brief) {
+		if len(kept) >= maxCompanySearchQueries {
+			break
+		}
+		key := strings.ToLower(strings.TrimSpace(anchor.Query))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		kept = append(kept, anchor)
+	}
+	return limitQueryPlan(models.QueryPlan{Queries: kept}, maxCompanySearchQueries), dropped
+}
+
+// entityAnchoredQueries are the queries that cannot stray: they either restrict the
+// search to the company's own domain or name the company outright. The location is
+// included with the name because it is the cheapest way to disambiguate a company
+// whose name is also a person's name.
+func entityAnchoredQueries(brief models.CompanyBrief) []models.PlannedQuery {
+	base := strings.TrimSpace(strings.Join([]string{brief.CompanyName, brief.Country, brief.City}, " "))
+	queries := make([]models.PlannedQuery, 0, 6)
+	if domain := normalizeDomain(brief.Domain); domain != "" {
+		queries = append(queries,
+			models.PlannedQuery{Query: "site:" + domain + " leadership management team", Purpose: "read the company's own leadership pages", TargetArea: "leadership", Priority: 1},
+			models.PlannedQuery{Query: "site:" + domain + " offices locations contact", Purpose: "read the company's own locations", TargetArea: "locations", Priority: 3},
+			models.PlannedQuery{Query: "site:" + domain, Purpose: "any other page on the company's own domain", TargetArea: "general", Priority: 4},
+		)
+	}
+	if base != "" {
+		queries = append(queries,
+			models.PlannedQuery{Query: base + " leadership executive team management", Purpose: "identify leadership", TargetArea: "leadership", Priority: 1},
+			models.PlannedQuery{Query: base + " procurement supply chain sourcing head director", Purpose: "identify procurement and supply chain leads", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
+		)
+	}
+	return queries
 }
 
 func fallbackQueryPlan(brief models.CompanyBrief) models.QueryPlan {
 	base := strings.TrimSpace(strings.Join([]string{brief.CompanyName, brief.Country, brief.City}, " "))
-	queries := []models.PlannedQuery{
-		{Query: base + " leadership executive team", Purpose: "identify leadership", TargetArea: "leadership", Priority: 1},
-		{Query: base + " procurement purchasing sourcing strategic sourcing supply chain logistics CPO CSCO VP Head Director", Purpose: "identify procurement and supply chain executives", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
-		{Query: base + " marketing brand communications growth digital marketing CMO VP Head Director", Purpose: "identify marketing executives", TargetArea: "marketing", Priority: 2},
-		{Query: base + " chemicals procurement sourcing supply chain marketing speaker Argus Petrochemicals Conference Platts Global Energy Trading S&P Global Chemicals Summit", Purpose: "identify relevant industry conference speakers", TargetArea: "industry conference speakers", Priority: 2},
-		{Query: base + " department leaders executives Chief VP Head Director General Manager", Purpose: "identify additional department executives", TargetArea: "department leadership", Priority: 2},
-		{Query: base + " offices locations headquarters", Purpose: "identify locations", TargetArea: "locations", Priority: 3},
-	}
+	// Anchored queries come first: when the planner fails, the company's own domain
+	// is the best material available, and every query below still names the company.
+	queries := entityAnchoredQueries(brief)
+	queries = append(queries,
+		models.PlannedQuery{Query: base + " procurement purchasing sourcing supply chain logistics CPO CSCO VP Head Director", Purpose: "identify procurement and supply chain executives", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
+		models.PlannedQuery{Query: base + " marketing brand communications growth digital marketing CMO VP Head Director", Purpose: "identify marketing executives", TargetArea: "marketing", Priority: 2},
+		models.PlannedQuery{Query: base + " department leaders executives Chief VP Head Director General Manager", Purpose: "identify additional department executives", TargetArea: "department leadership", Priority: 2},
+		models.PlannedQuery{Query: base + " offices locations headquarters", Purpose: "identify locations", TargetArea: "locations", Priority: 3},
+	)
 	for _, area := range brief.AreasOfInterest {
 		area = strings.TrimSpace(area)
 		if area != "" {
 			queries = append(queries, models.PlannedQuery{Query: base + " " + area, Purpose: "investigate requested area", TargetArea: area, Priority: 2})
 		}
+	}
+	// The conference angle stays, but anchored on the company: a bare industry query
+	// is what pulled a 2016 summit delegate list into a live run.
+	if industry := strings.TrimSpace(brief.Industry); industry != "" {
+		queries = append(queries, models.PlannedQuery{Query: base + " " + industry + " conference speaker", Purpose: "identify industry conference speakers", TargetArea: "industry conference speakers", Priority: 3})
 	}
 	return limitQueryPlan(models.QueryPlan{Queries: queries}, maxCompanySearchQueries)
 }
@@ -446,7 +595,7 @@ func (ca *CompanyAgent) rankResults(ctx context.Context, brief models.CompanyBri
 	if len(bm25Ranked) == 0 {
 		return bm25Ranked
 	}
-	bm25Ranked = applySourceSignals(brief, bm25Ranked)
+	bm25Ranked = applySourceSignals(brief, bm25Ranked, ca.entityGateActive())
 
 	semanticCandidates := bm25Ranked
 	if len(semanticCandidates) > 12 {
@@ -534,22 +683,42 @@ func bm25RankResults(brief models.CompanyBrief, results []models.SearchResult) [
 		if score > 1 {
 			score = 1
 		}
-		ranked = append(ranked, models.RankedResult{URL: result.Link, Relevant: score >= 0.2, Score: score, Reason: reason, EvidenceType: "bm25"})
+		ranked = append(ranked, models.RankedResult{
+			URL: result.Link, Title: result.Title, Snippet: result.Snippet,
+			Relevant: score >= 0.2, Score: score, Reason: reason, EvidenceType: "bm25",
+		})
 	}
 	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Score > ranked[j].Score })
 	return ranked
 }
 
-func applySourceSignals(brief models.CompanyBrief, ranked []models.RankedResult) []models.RankedResult {
+func applySourceSignals(brief models.CompanyBrief, ranked []models.RankedResult, gateActive bool) []models.RankedResult {
 	if brief.Domain == "" {
 		brief.Domain = inferOfficialDomain(brief.CompanyName, ranked)
 	}
+	matcher := newEntityMatcher(brief)
 	for index := range ranked {
 		item := &ranked[index]
 		profile := classifySource(brief, item.URL)
 		item.SourceType = profile.sourceType
 		item.Official = profile.official
 		item.QualityScore = profile.quality
+		// Entity gate: record how this candidate is tied to the company, and push the
+		// ones that name it nowhere to the back. A page about another company can be
+		// perfectly on-brief — a 2016 procurement summit archive, a wealth-management
+		// roundup — which is the failure this prevents. The penalty keeps such a page
+		// reachable while scrape budget remains, but it can never outrank a page that
+		// carries the company's name, domain or registration id.
+		if gateActive {
+			if match := matcher.match(item.URL, item.Title, item.Snippet); match.Matched {
+				item.EntityKey = match.Key
+				item.Score += 0.05
+				item.Reason += "; entity=" + match.Key
+			} else {
+				item.Score -= 0.35
+				item.Reason += "; entity=none"
+			}
+		}
 		item.Score += 0.18 * (profile.quality - 0.5)
 		if profile.official {
 			item.Score += 0.12
@@ -890,7 +1059,31 @@ func contentHash(content string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, ranked []models.RankedResult, searchResults []models.SearchResult, existing []models.Evidence, eventCh chan<- models.AgentEvent) ([]models.Evidence, []string, []models.ScrapeReportEntry) {
+// orderProfileEscalations returns the professional-profile candidates ordered by
+// how likely the hard-URL ladder is to read them, preserving the ranker's order
+// within each shape.
+//
+// It exists because the escalation cap is small and the shapes are not equally
+// recoverable: measured across live runs, LinkedIn posts and company pages came
+// back on the first render (1-2 s, 160-2,919 words) while every logged-out person
+// profile exhausted both steps (15-25 s) and fell back to its snippet. Ordering by
+// shape makes the cap spend its slots on pages that can actually be kept, and the
+// remaining profiles still contribute their snippets as before.
+func orderProfileEscalations(ranked []models.RankedResult) []models.RankedResult {
+	profiles := make([]models.RankedResult, 0, len(ranked))
+	for _, item := range ranked {
+		if item.SourceType == "professional_profile" {
+			profiles = append(profiles, item)
+		}
+	}
+	sort.SliceStable(profiles, func(i, j int) bool {
+		return tools.HardURLShapeOf(profiles[i].URL).EscalationPriority() <
+			tools.HardURLShapeOf(profiles[j].URL).EscalationPriority()
+	})
+	return profiles
+}
+
+func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, ranked []models.RankedResult, searchResults []models.SearchResult, existing []models.Evidence, eventCh chan<- models.AgentEvent, matcher *entityMatcher) ([]models.Evidence, []string, []models.ScrapeReportEntry) {
 	evidence := make([]models.Evidence, 0, ca.engine.MaxScrapes())
 	sources := make([]string, 0, ca.engine.MaxScrapes())
 	report := make([]models.ScrapeReportEntry, 0, ca.engine.MaxScrapes()*2)
@@ -910,8 +1103,12 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 	// decides what happens otherwise — opted in, a profile enters the normal scrape
 	// path below and its full text can contribute; not opted in, only its public
 	// search snippet is kept.
-	for _, item := range ranked {
-		if item.SourceType != "professional_profile" || known[normalizeURL(item.URL)] {
+	// The ladder's escalation slots are scarce (HARD_URLS_PER_RUN), so profile
+	// candidates are offered in the order the ladder can actually read: a public
+	// post or company page renders on the first step in a second or two, while a
+	// logged-out person profile is an authwall that exhausts the ladder in 15-25 s.
+	for _, item := range orderProfileEscalations(ranked) {
+		if known[normalizeURL(item.URL)] {
 			continue
 		}
 		if handler.available() {
@@ -939,7 +1136,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 				Reason:        "public search snippet retained; the hard-URL handler could not recover the profile",
 				HandlerStatus: outcome.Status,
 			})
-			if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
+			if snippet := snippetEvidenceForURL(item, searchResults, matcher); snippet != nil {
 				evidence = append(evidence, *snippet)
 			}
 			if !ca.engine.ProfileScrapingEnabled() {
@@ -952,7 +1149,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 			// is what should fetch this page.
 			continue
 		}
-		if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
+		if snippet := snippetEvidenceForURL(item, searchResults, matcher); snippet != nil {
 			evidence = append(evidence, *snippet)
 			known[normalizeURL(item.URL)] = true
 		}
@@ -1012,7 +1209,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 		if err != nil {
 			entry.Reason = err.Error()
 			report = append(report, entry)
-			if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
+			if snippet := snippetEvidenceForURL(item, searchResults, matcher); snippet != nil {
 				evidence = append(evidence, *snippet)
 			}
 			continue
@@ -1053,7 +1250,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 			entry.Status = "blocked"
 			entry.Reason = scrape.BlockReason
 			report = append(report, entry)
-			if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
+			if snippet := snippetEvidenceForURL(item, searchResults, matcher); snippet != nil {
 				evidence = append(evidence, *snippet)
 			}
 			continue
@@ -1061,7 +1258,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 		if len(scrape.Content) <= minScrapeContentLen {
 			entry.Reason = "insufficient extracted content"
 			report = append(report, entry)
-			if snippet := snippetEvidenceForURL(item, searchResults); snippet != nil {
+			if snippet := snippetEvidenceForURL(item, searchResults, matcher); snippet != nil {
 				evidence = append(evidence, *snippet)
 			}
 			continue
@@ -1209,9 +1406,15 @@ func formatProfileCandidates(evidence []models.Evidence) string {
 	return strings.TrimSpace(sb.String())
 }
 
-func snippetEvidenceForURL(item models.RankedResult, results []models.SearchResult) *models.Evidence {
+func snippetEvidenceForURL(item models.RankedResult, results []models.SearchResult, matcher *entityMatcher) *models.Evidence {
 	for _, result := range results {
 		if normalizeURL(result.Link) != normalizeURL(item.URL) || strings.TrimSpace(result.Snippet) == "" {
+			continue
+		}
+		if !snippetNamesEntity(result, matcher) {
+			// The snippet describes somebody else's company. Keeping it as evidence
+			// is exactly how an unrelated name becomes a roster entry — a name and a
+			// title is all the synthesiser needs.
 			continue
 		}
 		entry := models.Evidence{

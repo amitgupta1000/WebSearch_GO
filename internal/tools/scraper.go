@@ -324,21 +324,13 @@ func (s *Scraper) ScrapeHard(ctx context.Context, targetURL string, opts HardScr
 	}
 
 	cookies := s.jarCookies(targetURL)
-	type ladderStep struct {
-		name string
-		opts renderOptions
+	steps := hardLadderSteps(targetURL, cookies, opts.AlreadyRendered)
+	if len(steps) == 0 {
+		// Nothing left to try: the caller already rendered this page and there is
+		// no session to unlock the shape, so an attempt would only spend the run's
+		// budget reaching the same wall.
+		return nil, fmt.Errorf("%w: no applicable ladder step for %s", ErrHardLadderUnavailable, targetURL)
 	}
-	steps := make([]ladderStep, 0, 3)
-	if !opts.AlreadyRendered {
-		steps = append(steps, ladderStep{name: "plain-render", opts: renderOptions{timeout: hardRenderTimeout}})
-	}
-	if len(cookies) > 0 {
-		steps = append(steps, ladderStep{name: "cookie-render", opts: renderOptions{cookies: cookies, timeout: hardRenderTimeout}})
-	}
-	steps = append(steps, ladderStep{
-		name: "extended-settle",
-		opts: renderOptions{cookies: cookies, networkIdle: extendedNetworkIdle, settle: extendedSettle, timeout: extendedRenderTimeout},
-	})
 
 	attempted := make([]string, 0, len(steps))
 	var lastBlocked *models.ScrapeResult
@@ -369,13 +361,58 @@ func (s *Scraper) ScrapeHard(ctx context.Context, targetURL string, opts HardScr
 		}
 	}
 	names := strings.Join(attempted, " → ")
+	hint := noCookieHint(targetURL, cookies)
 	if lastBlocked != nil {
-		return nil, fmt.Errorf("%w (%s): %s", ErrHardLadderExhausted, names, lastBlocked.BlockReason)
+		return nil, fmt.Errorf("%w (%s): %s%s", ErrHardLadderExhausted, names, lastBlocked.BlockReason, hint)
 	}
 	if lastErr != nil {
-		return nil, fmt.Errorf("%w (%s): %v", ErrHardLadderExhausted, names, lastErr)
+		return nil, fmt.Errorf("%w (%s): %v%s", ErrHardLadderExhausted, names, lastErr, hint)
 	}
-	return nil, fmt.Errorf("%w (%s)", ErrHardLadderExhausted, names)
+	return nil, fmt.Errorf("%w (%s)%s", ErrHardLadderExhausted, names, hint)
+}
+
+// ladderStep is one attempt in the hard-URL ladder.
+type ladderStep struct {
+	name string
+	opts renderOptions
+}
+
+// hardLadderSteps returns the steps that apply to this URL, in order. It is the
+// single place the ladder's policy lives, so tests can pin it without a browser.
+func hardLadderSteps(targetURL string, cookies []*http.Cookie, alreadyRendered bool) []ladderStep {
+	steps := make([]ladderStep, 0, 3)
+	if !alreadyRendered {
+		steps = append(steps, ladderStep{name: "plain-render", opts: renderOptions{timeout: hardRenderTimeout}})
+	}
+	if len(cookies) > 0 {
+		steps = append(steps, ladderStep{name: "cookie-render", opts: renderOptions{cookies: cookies, timeout: hardRenderTimeout}})
+	}
+	if len(cookies) == 0 && HardURLShapeOf(targetURL).AuthWalled() {
+		// Logged out, an auth-walled shape does not clear with time: every
+		// observed attempt spent the full extended settle and reached the same
+		// sign-in page. Skipping the step keeps that budget for the synthesis
+		// that follows, and the step list in the failure message shows the skip.
+		return steps
+	}
+	steps = append(steps, ladderStep{
+		name: "extended-settle",
+		opts: renderOptions{cookies: cookies, networkIdle: extendedNetworkIdle, settle: extendedSettle, timeout: extendedRenderTimeout},
+	})
+	return steps
+}
+
+// noCookieHint explains an escalation failure that had no session to bridge. The
+// step list already shows cookie-render was skipped; this says why, which is the
+// difference between "the wall won" and "we never brought the session".
+func noCookieHint(targetURL string, cookies []*http.Cookie) string {
+	if len(cookies) > 0 {
+		return ""
+	}
+	parsed, err := url.Parse(strings.TrimSpace(targetURL))
+	if err != nil || parsed.Hostname() == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (no cookies for %s: set COOKIE_FILE_PATH with an exported session to enable the cookie-render step)", parsed.Hostname())
 }
 
 // BrowserAvailable reports whether Chromium can actually be started. The console

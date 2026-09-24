@@ -71,7 +71,7 @@ func TestValidateChartLabelsRowsFromTheSourcesTheyAlreadyHave(t *testing.T) {
 	eng := newValidationEngine(&datedSearcher{}, 4, true)
 	agent := NewCompanyAgent(eng)
 
-	report := agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil)
+	report := agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil, nil)
 
 	if report.RowsChecked != 3 {
 		t.Fatalf("expected 3 rows checked, got %d", report.RowsChecked)
@@ -118,7 +118,7 @@ func TestValidateChartFlagsTwoPeopleClaimingOneTitle(t *testing.T) {
 	eng := newValidationEngine(&datedSearcher{}, 0, true)
 	agent := NewCompanyAgent(eng)
 
-	report := agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil)
+	report := agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil, nil)
 
 	if len(report.Conflicts) != 1 {
 		t.Fatalf("expected one conflict, got %v", report.Conflicts)
@@ -150,7 +150,7 @@ func TestValidateChartPromotesOnADatedRecentMention(t *testing.T) {
 	agent := NewCompanyAgent(newValidationEngine(searcher, 4, true))
 
 	leadershipBefore := len(chart.Leadership)
-	report := agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil)
+	report := agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil, nil)
 
 	if len(chart.Leadership) != leadershipBefore {
 		t.Fatalf("validation must not add people: %d -> %d", leadershipBefore, len(chart.Leadership))
@@ -196,7 +196,7 @@ func TestValidateChartRespectsTheLookupCap(t *testing.T) {
 	searcher := &datedSearcher{}
 	agent := NewCompanyAgent(newValidationEngine(searcher, 1, true))
 
-	report := agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil)
+	report := agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil, nil)
 
 	if report.LookupsUsed != 1 {
 		t.Fatalf("expected 1 lookup, got %d", report.LookupsUsed)
@@ -219,7 +219,7 @@ func TestValidateChartKeepsLabelsWhenTheBudgetIsGone(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	report := agent.validateChart(ctx, "sess_test", brief, chart, state, nil)
+	report := agent.validateChart(ctx, "sess_test", brief, chart, state, nil, nil)
 
 	if report.LookupsUsed != 0 || len(searcher.queries) != 0 {
 		t.Fatalf("expected no lookups, got %d (%v)", report.LookupsUsed, searcher.queries)
@@ -239,7 +239,7 @@ func TestValidateChartDisabledStillLabelsRows(t *testing.T) {
 	searcher := &datedSearcher{}
 	agent := NewCompanyAgent(newValidationEngine(searcher, 4, false))
 
-	report := agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil)
+	report := agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil, nil)
 
 	if report.Skipped != "validation disabled" {
 		t.Fatalf("expected the disabled reason, got %q", report.Skipped)

@@ -22,6 +22,13 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 	builder.WriteString(markdownRow("Leadership listed", fmt.Sprintf("%d", len(chart.Leadership))))
 	builder.WriteString(markdownRow("Departments", fmt.Sprintf("%d", len(chart.Departments))))
 	builder.WriteString(markdownRow("Sources used", fmt.Sprintf("%d", len(chart.Sources))))
+	if gate := chart.EntityGate; gate != nil {
+		confirmation := "not confirmed"
+		if gate.Confirmed {
+			confirmation = "confirmed by the operator"
+		}
+		builder.WriteString(markdownRow("Entity", strings.Join(gate.Keys, ", ")+" ("+confirmation+")"))
+	}
 	builder.WriteString("\n")
 
 	if overview := trimmed(chart.Overview); overview != "" {
@@ -36,25 +43,29 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 		for _, person := range chart.Leadership {
 			fmt.Fprintf(&builder, "| %s | %s | %s | %s | %s |\n",
 				markdownCell(person.Name), markdownCell(person.Title),
-				markdownCell(person.Location), markdownCell(person.Freshness()),
+				markdownCell(person.Location), markdownCell(combineNotes(person.Freshness(), person.EntityWarning())),
 				markdownCell(person.PublicSource))
 		}
 		builder.WriteString("\n")
 	}
 
+	// Departments the run found nobody for are collapsed into a single line: fifteen
+	// sections reading "no named contacts" make a thin result look busy, and the reader
+	// needs to see that the run found two people, not fifteen departments.
+	empty := make([]string, 0, len(chart.Departments))
 	if len(chart.Departments) > 0 {
 		builder.WriteString("## Departments & Functions\n\n")
 		for _, department := range chart.Departments {
+			if len(department.Members) == 0 {
+				empty = append(empty, nonEmpty(trimmed(department.Name), "unnamed function"))
+				continue
+			}
 			fmt.Fprintf(&builder, "### %s\n\n", nonEmpty(department.Name, "Unnamed function"))
 			if head := trimmed(department.Head); head != "" {
 				fmt.Fprintf(&builder, "**Head:** %s\n\n", head)
 			}
 			if description := trimmed(department.Description); description != "" {
 				fmt.Fprintf(&builder, "%s\n\n", description)
-			}
-			if len(department.Members) == 0 {
-				builder.WriteString("_No named contacts found for this function._\n\n")
-				continue
 			}
 			for _, member := range department.Members {
 				fmt.Fprintf(&builder, "- **%s**", nonEmpty(member.Name, "Unnamed"))
@@ -67,13 +78,17 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 				if source := trimmed(member.PublicSource); source != "" {
 					fmt.Fprintf(&builder, " · [source](%s)", source)
 				}
-				if stamp := member.FreshnessNote(); stamp != "" {
+				if stamp := combineNotes(member.FreshnessNote(), member.EntityWarning()); stamp != "" {
 					fmt.Fprintf(&builder, " · _%s_", stamp)
 				}
 				builder.WriteString("\n")
 			}
 			builder.WriteString("\n")
 		}
+	}
+
+	if len(empty) > 0 {
+		fmt.Fprintf(&builder, "_No named contacts found for: %s._\n\n", strings.Join(empty, ", "))
 	}
 
 	if len(chart.Locations) > 0 {
@@ -87,10 +102,58 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 		builder.WriteString("\n")
 	}
 
+	builder.WriteString(renderEntityGateMarkdown(chart.EntityGate))
 	builder.WriteString(renderValidationMarkdown(chart.Validation))
 	builder.WriteString(renderTimingsMarkdown(chart.Timings))
 	builder.WriteString(renderSourcesMarkdown(chart.Sources))
 	return strings.TrimRight(builder.String(), "\n") + "\n"
+}
+
+// renderEntityGateMarkdown reports what the confirmed company identity filtered, and
+// lists the people it excluded. The list is the point: a short roster has to be
+// explainable, and an exclusion that turns out to be wrong has to be visible.
+func renderEntityGateMarkdown(gate *models.EntityGate) string {
+	if gate == nil {
+		return ""
+	}
+	if len(gate.Keys) == 0 && gate.RowsOffEntity == 0 && gate.CandidatesTagged+gate.CandidatesNone == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString("## Entity gate\n\n")
+	confirmation := "not confirmed — treat the identity as the operator's description"
+	if gate.Confirmed {
+		confirmation = "confirmed by the operator"
+	}
+	fmt.Fprintf(&builder, "A source had to name the company to be used: **%s** (%s).\n\n",
+		strings.Join(gate.Keys, ", "), confirmation)
+	builder.WriteString("| What the gate did | Count |\n| :--- | :--- |\n")
+	fmt.Fprintf(&builder, "| Planned queries dropped for not naming the company | %d |\n", gate.QueriesDropped)
+	fmt.Fprintf(&builder, "| Candidates that named the company | %d |\n", gate.CandidatesTagged)
+	fmt.Fprintf(&builder, "| Candidates that named nothing | %d |\n", gate.CandidatesNone)
+	fmt.Fprintf(&builder, "| Search snippets dropped before synthesis | %d |\n", gate.SnippetsDropped)
+	fmt.Fprintf(&builder, "| People excluded from the roster | %d |\n", gate.RowsOffEntity)
+	if mode := trimmed(gate.Mode); mode != "" {
+		fmt.Fprintf(&builder, "| Gate mode | %s |\n", mode)
+	}
+	builder.WriteString("\n")
+
+	if len(gate.OffEntity) > 0 {
+		builder.WriteString("### Unverified / other entities\n\n")
+		builder.WriteString("These people were found by the searches, but no source connecting them to the company was found")
+		if gate.Mode == "report" {
+			builder.WriteString(" — the gate is in report mode, so they are still listed in the chart above, labelled")
+		}
+		builder.WriteString(":\n\n")
+		builder.WriteString("| Name | Title | Where it appeared | Source | Why excluded |\n| :--- | :--- | :--- | :--- | :--- |\n")
+		for _, row := range gate.OffEntity {
+			fmt.Fprintf(&builder, "| %s | %s | %s | %s | %s |\n",
+				markdownCell(row.Name), markdownCell(row.Title), markdownCell(row.Place),
+				markdownCell(row.Source), markdownCell(row.Reason))
+		}
+		builder.WriteString("\n")
+	}
+	return builder.String()
 }
 
 // renderValidationMarkdown reports what the freshness pass found: how many rows
@@ -245,6 +308,18 @@ func renderPersonMarkdown(profile *models.PersonProfile) string {
 
 	builder.WriteString(renderSourcesMarkdown(profile.Sources))
 	return strings.TrimRight(builder.String(), "\n") + "\n"
+}
+
+// combineNotes joins non-empty notes with a middot, so a cell can carry a freshness
+// verdict and an entity warning without either crowding the other out.
+func combineNotes(values ...string) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 // renderSourcesMarkdown renders the evidence list.

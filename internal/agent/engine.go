@@ -113,6 +113,50 @@ type Engine struct {
 	validationLookups      int
 	validationStaleAfter   time.Duration
 	validationRecentWithin time.Duration
+	// entityGateMode is how strictly the run holds sources to the confirmed
+	// company: enforce (reject and remove), report (label and keep) or off.
+	entityGateMode string
+}
+
+// Entity gate modes.
+const (
+	// EntityGateEnforce rejects and removes anything that does not name the company.
+	EntityGateEnforce = "enforce"
+	// EntityGateReport labels without removing, for measuring the gate's effect.
+	EntityGateReport = "report"
+	// EntityGateOff disables the gate entirely, for comparison runs.
+	EntityGateOff = "off"
+)
+
+// WithEntityGate sets how strictly sources are held to the confirmed company. An
+// unknown value keeps the default, because silently disabling a correctness gate on a
+// typo would be worse than ignoring the typo.
+func WithEntityGate(mode string) EngineOption {
+	return func(e *Engine) {
+		switch strings.ToLower(strings.TrimSpace(mode)) {
+		case EntityGateEnforce, EntityGateReport, EntityGateOff:
+			e.entityGateMode = strings.ToLower(strings.TrimSpace(mode))
+		}
+	}
+}
+
+// EntityGateMode returns the configured gate mode, defaulting to enforce.
+func (e *Engine) EntityGateMode() string {
+	if e == nil || e.entityGateMode == "" {
+		return EntityGateEnforce
+	}
+	return e.entityGateMode
+}
+
+// EntityGateActive reports whether the gate filters anything at all.
+func (e *Engine) EntityGateActive() bool {
+	return e.EntityGateMode() != EntityGateOff
+}
+
+// EntityGateRemoves reports whether off-entity people are removed from the roster
+// rather than only labelled.
+func (e *Engine) EntityGateRemoves() bool {
+	return e.EntityGateMode() == EntityGateEnforce
 }
 
 // EngineOption customizes an Engine after its required dependencies are set.
@@ -193,6 +237,7 @@ func NewEngine(
 		validationLookups:      defaultValidationLookups,
 		validationStaleAfter:   months(defaultValidationStaleAfterMonths),
 		validationRecentWithin: months(defaultValidationRecentWithinMonths),
+		entityGateMode:         EntityGateEnforce,
 	}
 	for _, opt := range opts {
 		opt(engine)

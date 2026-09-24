@@ -123,12 +123,44 @@
 				</div>
 				<div class="text-xs text-indigo-400">{{.Title}}</div>
 				{{if .Freshness}}<div class="text-[11px] text-slate-500 mt-0.5">{{.Freshness}}{{if .VerificationNote}} &middot; {{.VerificationNote}}{{end}}</div>{{end}}
+				{{if .EntityWarning}}<div class="text-[11px] text-amber-400 mt-0.5">{{.EntityWarning}}</div>{{end}}
 				<div class="text-xs text-slate-500 mt-1">{{.Bio}}</div>
 			</div>
 			{{end}}
 		</div>
 	</div>
 	<div id="company-drilldown-result" aria-live="polite" class="border-t border-slate-800/60 pt-5"></div>
+	{{if .EntityGate}}
+	<details class="group">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Entity Gate
+			<span class="text-slate-500">({{len .EntityGate.Keys}} key(s), {{.EntityGate.RowsOffEntity}} excluded)</span>
+		</summary>
+		<div class="mt-4 space-y-3 text-xs text-slate-400">
+			<p>A source had to name the company to be used: <span class="text-slate-300">{{range $index, $key := .EntityGate.Keys}}{{if $index}}, {{end}}{{$key}}{{end}}</span>{{if .EntityGate.Confirmed}} (confirmed by the operator){{else}} (not confirmed — treat the identity as the operator's description){{end}}.</p>
+			<div class="flex flex-wrap gap-2">
+				<span class="px-2 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300">queries dropped {{.EntityGate.QueriesDropped}}</span>
+				<span class="px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">candidates named {{.EntityGate.CandidatesTagged}}</span>
+				<span class="px-2 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300">candidates unmatched {{.EntityGate.CandidatesNone}}</span>
+				<span class="px-2 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300">snippets dropped {{.EntityGate.SnippetsDropped}}</span>
+				<span class="px-2 py-0.5 rounded border border-red-500/30 bg-red-500/10 text-red-300">excluded {{.EntityGate.RowsOffEntity}}</span>
+			</div>
+			{{if .EntityGate.OffEntity}}
+			<div class="overflow-x-auto">
+				<table class="w-full text-xs text-left">
+					<thead class="text-slate-500 border-b border-slate-800"><tr><th class="py-2 pr-3">Name</th><th class="py-2 pr-3">Title</th><th class="py-2 pr-3">Where</th><th class="py-2 pr-3">Source</th><th class="py-2">Why excluded</th></tr></thead>
+					<tbody>
+					{{range .EntityGate.OffEntity}}
+					<tr class="border-b border-slate-800/60"><td class="py-2 pr-3 text-slate-300">{{.Name}}</td><td class="py-2 pr-3 text-slate-400">{{.Title}}</td><td class="py-2 pr-3 text-slate-400">{{.Place}}</td><td class="py-2 pr-3 text-slate-400 break-all">{{.Source}}</td><td class="py-2 text-slate-400">{{.Reason}}</td></tr>
+					{{end}}
+					</tbody>
+				</table>
+			</div>
+			{{end}}
+		</div>
+	</details>
+	{{end}}
 	{{if .Validation}}
 	<details class="group">
 		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
@@ -379,5 +411,59 @@
 		</div>
 	</div>
 	{{template "export_files" .Exports}}
+</div>
+{{end}}
+
+{{define "entity_candidates"}}
+<div class="mt-4 space-y-3">
+	<p class="text-xs text-slate-400">Which company is <span class="text-slate-200">{{.Query}}</span>? Confirming the identity is what keeps another company's people out of the chart — every source then has to name it. The fields are editable; pick one, or run on the name alone.</p>
+	{{if .Candidates}}
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+		{{range .Candidates}}
+		<form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+			<input type="hidden" name="mode" value="company">
+			<input type="hidden" name="query" value="{{.Query}}">
+			<input type="hidden" name="company_industry" value="{{.Industry}}">
+			<input type="hidden" name="company_country" value="{{.Country}}">
+			<input type="hidden" name="company_city" value="{{.City}}">
+			<input type="hidden" name="areas_of_interest" value="{{.AreasOfInterest}}">
+			<input type="hidden" name="research_notes" value="{{.Notes}}">
+			<input type="hidden" name="entity_confirmed" value="1">
+			<input type="hidden" name="entity_source" value="user">
+			<div class="flex items-center justify-between gap-2">
+				<span class="text-sm font-medium text-white break-all">{{if .Candidate.Domain}}{{.Candidate.Domain}}{{else}}{{.Query}}{{end}}</span>
+				<span class="text-[11px] text-slate-500">score {{.Candidate.Score}}</span>
+			</div>
+			<label class="block text-[11px] text-slate-400">Domain
+				<input type="text" name="entity_domain" value="{{.Candidate.Domain}}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-white text-xs mt-1">
+			</label>
+			<label class="block text-[11px] text-slate-400">Other names this entity answers to (comma separated)
+				<input type="text" name="entity_aliases" placeholder="e.g. CJ Shah &amp; Co" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-white text-xs mt-1">
+			</label>
+			<label class="block text-[11px] text-slate-400">Registration id / CIN (optional)
+				<input type="text" name="entity_reg_id" value="{{.Candidate.RegistrationID}}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-white text-xs mt-1">
+			</label>
+			{{if .Candidate.RegistrationSource}}<div class="text-[11px] text-slate-500 break-all">CIN read from <a href="{{.Candidate.RegistrationSource}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline">{{.Candidate.RegistrationSource}}</a> — check it before relying on it.</div>{{end}}
+			{{if .Candidate.EvidenceURL}}<div class="text-[11px] text-slate-500 break-all">Evidence: <a href="{{.Candidate.EvidenceURL}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline">{{.Candidate.EvidenceTitle}}</a></div>{{end}}
+			{{if not .Candidate.NameMatch}}<div class="text-[11px] text-amber-400">This domain does not carry the company's name — check it is really the company before gating a run on it.</div>{{end}}
+			<button type="submit" class="w-full text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg px-3 py-1.5">Confirm &amp; research</button>
+		</form>
+		{{end}}
+	</div>
+	{{else}}
+	<p class="text-xs text-slate-500">No company domain could be identified from that name.</p>
+	{{end}}
+	<form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="bg-slate-950 border border-slate-800 rounded-xl p-3">
+		<input type="hidden" name="mode" value="company">
+		<input type="hidden" name="query" value="{{.Query}}">
+		<input type="hidden" name="company_industry" value="{{.Industry}}">
+		<input type="hidden" name="company_country" value="{{.Country}}">
+		<input type="hidden" name="company_city" value="{{.City}}">
+		<input type="hidden" name="areas_of_interest" value="{{.AreasOfInterest}}">
+		<input type="hidden" name="research_notes" value="{{.Notes}}">
+		<input type="hidden" name="entity_confirmed" value="0">
+		<input type="hidden" name="entity_source" value="typed">
+		<button type="submit" class="w-full text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-1.5">Research by name only (entity unconfirmed)</button>
+	</form>
 </div>
 {{end}}
