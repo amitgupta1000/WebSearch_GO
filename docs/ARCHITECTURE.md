@@ -1089,6 +1089,18 @@ the typed-domain case uses.
 
 - **Serper:** retries transient failures (network, 429, 5xx) with linear backoff;
   fatal errors surface immediately.
+- **Documents (PDFs):** every ingest is bounded three ways, because a workflow that stalls is
+  worse than one that reports a failure. `documentSkipBytes` (40 MiB) refuses an oversized
+  document from its declared `Content-Length` before the transfer — as a `terminalFetchError`
+  that `ScrapeURL` reports rather than handing to `tryBrowser`, since a render cannot turn a
+  large filing into HTML. `WithDocumentTimeout` (env `DOCUMENT_EXTRACT_TIMEOUT_SECONDS`,
+  default 60 s) bounds `scrapeDocument`'s extraction: the extractor is called on its own
+  context, so a model call or a parser walk that does not return is abandoned with
+  "context deadline exceeded" in the scrape report and the run continues. And
+  `ExtractPDFTextPartial` checks the deadline between pages (the parser library offers no
+  cancellation) and returns what it read, which `documentTextExtractor` keeps while logging
+  the shortfall; `ExtractPDFTextContext` stays all-or-nothing for callers that cannot use
+  partial text. The model side adds `documentRequestTimeout` (60 s) per extraction request.
 - **Gemini:** one stricter retry when JSON parsing fails, plus up to 3 attempts for
   transient API failures (5xx / 429 / 408). Non-transient request errors and
   cancellations return immediately.

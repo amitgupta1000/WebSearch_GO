@@ -183,6 +183,7 @@ func main() {
 	defer store.Close()
 	scraper := tools.NewScraperWithBrowser(cookieJar, 15*time.Second, cfg.EnableBrowserFallback,
 		tools.WithDocumentTextExtractor(documentTextExtractor(gemini)),
+		tools.WithDocumentTimeout(cfg.DocumentExtractTimeout),
 		tools.WithHostLimits(cfg.ScrapeHostRate, cfg.ScrapeHostBurst, cfg.ScrapeHostConcurrency),
 		tools.WithMaxRetryAfter(cfg.MaxRetryAfter))
 	defer scraper.Close()
@@ -320,9 +321,15 @@ func documentTextExtractor(reader documentReader) tools.DocumentTextExtractor {
 		}
 		log.Printf("[WARN] Gemini PDF extraction failed; falling back to the local parser: %v", err)
 
-		localText, localErr := tools.ExtractPDFText(body, tools.MaxDocumentTextBytes)
-		if localErr != nil {
+		localText, localErr := tools.ExtractPDFTextPartial(ctx, body, tools.MaxDocumentTextBytes)
+		if localErr != nil && strings.TrimSpace(localText) == "" {
 			return "", "", fmt.Errorf("gemini extraction failed (%v) and local parsing failed (%w)", err, localErr)
+		}
+		if localErr != nil {
+			// The parser was cut short — a very large filing, usually by the document
+			// timeout. What it did read is still evidence, so it is kept and the shortfall is
+			// reported rather than silently presented as the whole document.
+			log.Printf("[WARN] document extraction stopped early: recovered %d bytes: %v", len(localText), localErr)
 		}
 		return localText, tools.ExtractorPDFLocal, nil
 	}

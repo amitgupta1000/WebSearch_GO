@@ -77,6 +77,10 @@ type Config struct {
 	ScrapeRevalidateAfter time.Duration
 	// MaxRetryAfter caps how long a server's Retry-After hint may delay a retry.
 	MaxRetryAfter time.Duration
+	// DocumentExtractTimeout bounds the text extraction of one document (a PDF). Past it the
+	// document is reported as failed and the run continues, which is what keeps a very large
+	// filing from stalling a run.
+	DocumentExtractTimeout time.Duration
 	// HardURLHandler enables the bounded hard-URL escalation ladder for
 	// challenge pages and professional profiles. Failures degrade to the
 	// previous snippet-only behaviour, so the default is on.
@@ -137,6 +141,10 @@ const (
 	// defaultMaxRetryAfter caps a server's Retry-After hint so one unfriendly
 	// host cannot consume a run's whole budget.
 	defaultMaxRetryAfter = 5 * time.Second
+	// defaultDocumentExtractTimeout bounds one document's text extraction. A large filing
+	// otherwise holds the whole run: the extractor is model-backed and the local fallback
+	// walks the PDF page by page.
+	defaultDocumentExtractTimeout = 60 * time.Second
 )
 
 // Load loads configuration from environment variables with sensible defaults.
@@ -209,6 +217,8 @@ func Load() *Config {
 			int(defaultScrapeRevalidateAfter.Seconds()))) * time.Second,
 		MaxRetryAfter: time.Duration(envInt("SCRAPE_MAX_RETRY_AFTER_SECONDS",
 			int(defaultMaxRetryAfter.Seconds()))) * time.Second,
+		DocumentExtractTimeout: time.Duration(envInt("DOCUMENT_EXTRACT_TIMEOUT_SECONDS",
+			int(defaultDocumentExtractTimeout.Seconds()))) * time.Second,
 		HardURLHandler: envBool("HARD_URL_HANDLER", true),
 		HardURLsPerRun: envInt("HARD_URLS_PER_RUN", defaultHardURLsPerRun),
 		HardURLBudget:  time.Duration(envInt("HARD_URL_BUDGET_SECONDS", 0)) * time.Second,

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -138,6 +139,121 @@ func TestPrintableRatioRejectsMachineNoise(t *testing.T) {
 		if got := printableRatio(testCase.text); got != testCase.want {
 			t.Errorf("%s: printableRatio = %v, want %v", testCase.name, got, testCase.want)
 		}
+	}
+}
+
+// TestExtractPDFTextHonoursTheDeadline covers the guardrail a stalled ingest needed. The
+// parser offers no cancellation, so the deadline is checked between pages and the extractor
+// says where it stopped instead of running to its page cap while the run waits on it.
+func TestExtractPDFTextHonoursTheDeadline(t *testing.T) {
+	body := testutil.MinimalPDF(samplePDFLine)
+
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	partial, err := ExtractPDFTextPartial(expired, body, 0)
+	if err == nil {
+		t.Fatal("expected the deadline to be reported")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected the reason to wrap the context error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "stopped after") {
+		t.Errorf("expected the reason to say where extraction stopped, got %v", err)
+	}
+	if partial != "" {
+		t.Errorf("expected no text before the first page, got %q", partial)
+	}
+
+	// The all-or-nothing wrapper reports it as a failure, so a caller that cannot use
+	// partial text never mistakes a cut-short document for a complete one.
+	if _, err := ExtractPDFTextContext(expired, body, 0); err == nil {
+		t.Error("expected the wrapper to report the deadline as an error")
+	}
+
+	// A live deadline is not an error, and the text ceiling stays a success: a long filing
+	// whose first pages carry the roster is still worth keeping.
+	if got, err := ExtractPDFTextContext(context.Background(), body, 0); err != nil || !strings.Contains(got, samplePDFLine) {
+		t.Fatalf("expected normal extraction, got %q err=%v", got, err)
+	}
+	if got, err := ExtractPDFTextContext(context.Background(), body, 1); err != nil || got == "" {
+		t.Fatalf("expected a text-limit hit to remain a success, got %q err=%v", got, err)
+	}
+}
+
+// TestScrapeURLSkipsOversizedDocumentsBeforeDownloading pins the size guardrail: a document
+// above the download limit is refused from its declared length, and the failure is terminal —
+// no browser render is attempted, because rendering cannot turn a huge filing into HTML.
+func TestScrapeURLSkipsOversizedDocumentsBeforeDownloading(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Length", strconv.FormatInt(documentSkipBytes+1, 10))
+	}))
+	defer srv.Close()
+
+	extractCalled := false
+	extract := func(_ context.Context, _ string, _ []byte) (string, string, error) {
+		extractCalled = true
+		return "should not be reached", ExtractorPDFLocal, nil
+	}
+
+	// The browser fallback is left at its default (off): if the refusal were ever handed to
+	// the renderer instead of being reported, the error would name the browser, not the
+	// download limit, and this test would fail.
+	s := NewScraper(nil, time.Second, WithPrivateHostAccess(),
+		WithDocumentTextExtractor(extract), WithDocumentTimeout(50*time.Millisecond))
+
+	started := time.Now()
+	_, err := s.ScrapeURL(context.Background(), srv.URL+"/filings/annual-report.pdf")
+	if err == nil {
+		t.Fatal("expected an oversized document to be refused")
+	}
+	if !strings.Contains(err.Error(), "download limit") {
+		t.Fatalf("expected the reason to name the download limit, got %v", err)
+	}
+	if extractCalled {
+		t.Error("expected no extraction attempt on a document that was never downloaded")
+	}
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Errorf("expected a refusal, not a stall: took %s", elapsed)
+	}
+}
+
+// TestDocumentExtractionRespectsItsBudget is the end-to-end guardrail for the stall: an
+// extraction that never returns on its own must fail within the document budget, so the run
+// continues with a reported failure instead of waiting.
+func TestDocumentExtractionRespectsItsBudget(t *testing.T) {
+	body := testutil.MinimalPDF(samplePDFLine)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	called := make(chan struct{}, 1)
+	extract := func(ctx context.Context, _ string, _ []byte) (string, string, error) {
+		called <- struct{}{}
+		<-ctx.Done()
+		return "", "", ctx.Err()
+	}
+
+	s := NewScraper(nil, time.Second, WithPrivateHostAccess(),
+		WithDocumentTextExtractor(extract), WithDocumentTimeout(100*time.Millisecond))
+
+	started := time.Now()
+	_, err := s.ScrapeURL(context.Background(), srv.URL+"/filings/huge.pdf")
+	if err == nil {
+		t.Fatal("expected the extraction to fail once its budget was spent")
+	}
+	if !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("expected the failure to name the deadline, got %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("expected the document budget to bound the extraction, took %s", elapsed)
+	}
+	select {
+	case <-called:
+	default:
+		t.Fatal("expected the extractor to have been called")
 	}
 }
 

@@ -101,8 +101,21 @@ func TestInvalidScrapeSettingsFallBackToDefaults(t *testing.T) {
 	}
 }
 
+// TestDocumentExtractTimeoutDefaultsAndOverrides covers the guardrail knob: a document's
+// extraction is bounded by default, and an operator can tighten or loosen it.
+func TestDocumentExtractTimeoutDefaultsAndOverrides(t *testing.T) {
+	if got := Load().DocumentExtractTimeout; got != defaultDocumentExtractTimeout {
+		t.Errorf("DocumentExtractTimeout = %v, want %v", got, defaultDocumentExtractTimeout)
+	}
+	t.Setenv("DOCUMENT_EXTRACT_TIMEOUT_SECONDS", "15")
+	if got := Load().DocumentExtractTimeout; got != 15*time.Second {
+		t.Errorf("DocumentExtractTimeout = %v, want 15s", got)
+	}
+}
+
 func TestHardURLLimitDefaultsAndOverrides(t *testing.T) {
 	cfg := Load()
+
 	if !cfg.HardURLHandler {
 		t.Error("expected the hard-URL ladder to be on by default")
 	}

@@ -178,6 +178,7 @@ Then:
 | `SCRAPE_HOST_CONCURRENCY` | `2` | Simultaneous in-flight requests per host (`0` disables) |
 | `SCRAPE_REVALIDATE_AFTER_SECONDS` | `86400` | Age at which a cached page is revalidated with `If-None-Match` / `If-Modified-Since` (`0` disables) |
 | `SCRAPE_MAX_RETRY_AFTER_SECONDS` | `5` | Cap on how long a server's `Retry-After` hint may delay a retry |
+| `DOCUMENT_EXTRACT_TIMEOUT_SECONDS` | `60` | How long one document's text extraction may take before it is reported as failed and the run continues |
 
 When browser fallback is enabled, install the matching Playwright browser once with
 `go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium`.
@@ -432,6 +433,17 @@ The scraper is deliberately conservative, and several of these rules surprise pe
   scrape report shows which path ran (`pdf-gemini` / `pdf-local`). Images, archives and
   other binary payloads still fail with `unsupported content type`, and text that comes
   back as machine noise rather than words is discarded instead of being quoted.
+- **Ingesting a document is bounded in time, not just in size.** This is the guardrail
+  against a workflow that simply stops: one very large filing must never hold a run while
+  nothing else progresses. Three limits apply — the declared size (`Content-Length` above
+  40 MiB is refused *before* the transfer, and a render cannot fix that, so it is reported
+  rather than handed to the browser), the extraction budget
+  (`DOCUMENT_EXTRACT_TIMEOUT_SECONDS`, default 60 s, after which the document is reported as
+  failed and the run continues), and the parser's own page/text ceilings. The pure-Go parser
+  honours the deadline *between pages* and hands back what it read, which the local fallback
+  keeps — a filing whose first pages carry the roster is worth more than nothing, and the
+  shortfall is logged rather than presented as the whole document. On the model side each
+  verbatim-extraction request also carries its own 60 s deadline.
 - **Bodies are capped at 2 MiB and extracted text at ~40 KB.** A body that hits the
   cap is parsed from an incomplete document and flagged as `content_truncated`.
 - **Legacy encodings are decoded.** The `Content-Type` charset (or a `<meta>`

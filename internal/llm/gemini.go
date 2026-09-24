@@ -24,6 +24,10 @@ const defaultGeminiModel = "gemini-2.5-flash-lite"
 const (
 	geminiMaxAttempts = 3
 	geminiBaseRetry   = 500 * time.Millisecond
+	// documentRequestTimeout bounds one document-extraction request on the model side. The
+	// caller's own budget usually binds first; this is the backstop that keeps a single
+	// verbatim-extraction call from running indefinitely when it does not.
+	documentRequestTimeout = 60 * time.Second
 )
 
 // GeminiClient wraps the Google GenAI SDK for Gemini 2.5 Flash Lite.
@@ -176,7 +180,12 @@ func (g *GeminiClient) ExtractDocumentText(ctx context.Context, contentType stri
 				return "", err
 			}
 		}
-		response, err := g.client.Models.GenerateContent(ctx, g.model, []*genai.Content{{Parts: parts}}, config)
+		// One document request gets its own deadline. Extracting a filing verbatim is far
+		// slower than a normal generation, and a single call must never be able to run until
+		// the caller's own budget is gone without saying so.
+		requestCtx, cancel := context.WithTimeout(ctx, documentRequestTimeout)
+		response, err := g.client.Models.GenerateContent(requestCtx, g.model, []*genai.Content{{Parts: parts}}, config)
+		cancel()
 		if err == nil {
 			return responseText(response)
 		}

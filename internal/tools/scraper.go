@@ -26,6 +26,16 @@ import (
 const (
 	defaultScraperTimeout = 15 * time.Second
 	maxRedirects          = 5
+	// documentExtractTimeout bounds one document's text extraction, and is the guardrail a
+	// stalled ingest needs: the extractor is model-backed and the local fallback walks a PDF
+	// page by page, so without this a single large filing can hold the entire run while
+	// nothing else progresses. Past the deadline the document degrades to the failure the
+	// scrape report already knows how to describe.
+	documentExtractTimeout = 60 * time.Second
+	// documentSkipBytes is the size above which a document is not downloaded at all. The
+	// report then says so, which is more useful than a truncated body that no extractor can
+	// read: a filing larger than this is not something a run can cite with confidence.
+	documentSkipBytes = 40 << 20
 	// maxBodyBytes caps the downloaded HTML size before parsing to avoid
 	// memory blowups on huge or hostile pages.
 	maxBodyBytes = 2 << 20 // 2 MiB
@@ -108,6 +118,24 @@ type Scraper struct {
 	// extractDocument, when set, turns a non-HTML document (a PDF) into text.
 	// Without it, non-HTML responses are rejected as unsupported.
 	extractDocument DocumentTextExtractor
+	// documentTimeout bounds one document's extraction; zero means documentExtractTimeout.
+	documentTimeout time.Duration
+}
+
+// documentBudget is the deadline one document's extraction gets: the configured value, or
+// the default when none is configured.
+func (s *Scraper) documentBudget() time.Duration {
+	if s != nil && s.documentTimeout > 0 {
+		return s.documentTimeout
+	}
+	return documentExtractTimeout
+}
+
+// WithDocumentTimeout bounds how long one document's text extraction may take. It is the
+// difference between a run that degrades (one filing becomes "failed: extraction exceeded
+// 60s" in the report) and a run that stalls on it until its own deadline.
+func WithDocumentTimeout(timeout time.Duration) Option {
+	return func(s *Scraper) { s.documentTimeout = timeout }
 }
 
 // DocumentTextExtractor converts an already-fetched non-HTML document body into plain
@@ -487,6 +515,12 @@ func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.Scra
 
 	response, err := s.fetchHTTP(ctx, targetURL)
 	if err != nil {
+		// A terminal failure is one a render cannot fix, so it is reported rather than
+		// handed to the browser: an oversized document has no HTML to recover.
+		var terminal *terminalFetchError
+		if errors.As(err, &terminal) {
+			return nil, terminal
+		}
 		return s.tryBrowser(ctx, targetURL, nil, "HTTP request failed", err)
 	}
 	if response.NotModified {
@@ -550,8 +584,13 @@ func (s *Scraper) scrapeDocument(ctx context.Context, targetURL, contentType str
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("document scrape aborted before extraction: %w", err)
 	}
+	// The extraction gets its own deadline: a large filing must not hold the run. The
+	// timeout is the smaller of the configured document budget and whatever the run has
+	// left, so a run near its own deadline never starts an extraction it cannot finish.
+	extractCtx, cancelExtract := context.WithTimeout(ctx, s.documentBudget())
+	defer cancelExtract()
 
-	text, extractor, err := s.extractDocument(ctx, contentType, body)
+	text, extractor, err := s.extractDocument(extractCtx, contentType, body)
 	if err != nil {
 		return nil, fmt.Errorf("document text extraction failed for %q: %w", contentType, err)
 	}
@@ -668,6 +707,15 @@ type fetchResponse struct {
 	NotModified  bool
 	RetryAfter   time.Duration
 }
+
+// terminalFetchError marks a fetch failure that no fallback can fix — an oversized document
+// is not made readable by rendering it — so the scrape reports it instead of paying seconds
+// for a browser attempt that cannot succeed.
+type terminalFetchError struct{ err error }
+
+func (e *terminalFetchError) Error() string { return e.err.Error() }
+
+func (e *terminalFetchError) Unwrap() error { return e.err }
 
 // fetchHTTP retrieves targetURL, retrying transient failures with linear backoff
 // that defers to the server's Retry-After hint when it sends one. Non-transient
@@ -807,6 +855,13 @@ func (s *Scraper) fetchHTTPOnce(ctx context.Context, targetURL string) (*fetchRe
 	if resp.StatusCode == http.StatusNotModified {
 		response.NotModified = true
 		return response, nil
+	}
+
+	// A document far larger than any run could use is not downloaded at all. The check uses
+	// the declared length, which is enough to stop the transfer before it starts; the body
+	// cap below still guards a server that understates or omits it.
+	if response.ContentType != "" && !isHTMLContentType(response.ContentType) && resp.ContentLength > documentSkipBytes {
+		return nil, &terminalFetchError{fmt.Errorf("document is %d bytes, above the %d byte download limit", resp.ContentLength, documentSkipBytes)}
 	}
 
 	// Read one byte past the cap so a truncated document can be reported.

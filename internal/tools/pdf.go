@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"mime"
 	"strings"
@@ -98,17 +99,20 @@ func isPDFBody(body []byte) bool {
 // fallback for when the model-backed extractor is unavailable, and returns an error
 // when the body is not a PDF or holds no extractable text.
 func ExtractPDFText(body []byte, maxBytes int) (string, error) {
-	if len(body) == 0 {
-		return "", fmt.Errorf("pdf body is empty")
-	}
-	if !isPDFBody(body) {
-		return "", fmt.Errorf("body does not carry a pdf header")
-	}
-	if maxBytes <= 0 {
-		maxBytes = MaxDocumentTextBytes
-	}
+	return ExtractPDFTextContext(context.Background(), body, maxBytes)
+}
 
-	text, err := readPDFText(body, maxBytes)
+// ExtractPDFTextContext is ExtractPDFText with a deadline. The third-party parser offers no
+// cancellation, so the deadline is honoured between pages: a long or pathological document
+// yields the text recovered so far instead of running to the end of its page cap. That is
+// the guardrail a stalled ingest needed — a 2 MiB scanned filing can otherwise spend minutes
+// inside the parser while the whole run waits on it, and nothing it produces would be worth
+// that wait.
+//
+// A deadline hit returns the partial text with a non-nil error naming the cause. Callers
+// that can use partial text should use ExtractPDFTextPartial instead.
+func ExtractPDFTextContext(ctx context.Context, body []byte, maxBytes int) (string, error) {
+	text, err := ExtractPDFTextPartial(ctx, body, maxBytes)
 	if err != nil {
 		return "", err
 	}
@@ -121,10 +125,27 @@ func ExtractPDFText(body []byte, maxBytes int) (string, error) {
 	return text, nil
 }
 
+// ExtractPDFTextPartial returns whatever text the parser recovered, together with the reason
+// it stopped early (nil when it read the whole document). It exists because a large filing
+// whose first pages already carry the roster is worth more than nothing: the caller can keep
+// the partial text and record that it was cut short.
+func ExtractPDFTextPartial(ctx context.Context, body []byte, maxBytes int) (string, error) {
+	if len(body) == 0 {
+		return "", fmt.Errorf("pdf body is empty")
+	}
+	if !isPDFBody(body) {
+		return "", fmt.Errorf("body does not carry a pdf header")
+	}
+	if maxBytes <= 0 {
+		maxBytes = MaxDocumentTextBytes
+	}
+	return readPDFText(ctx, body, maxBytes)
+}
+
 // readPDFText isolates the third-party parser, which is known to panic on some
 // malformed files, so a bad document surfaces as an error instead of taking down the
 // request goroutine.
-func readPDFText(body []byte, maxBytes int) (text string, err error) {
+func readPDFText(ctx context.Context, body []byte, maxBytes int) (text string, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			text, err = "", fmt.Errorf("pdf parser failed on malformed input: %v", recovered)
@@ -143,6 +164,13 @@ func readPDFText(body []byte, maxBytes int) (text string, err error) {
 
 	var builder strings.Builder
 	for number := 1; number <= pages; number++ {
+		// Between pages is the only point at which this loop can be interrupted, so it is
+		// where the deadline is checked. Partial text is returned with the reason.
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return builder.String(), fmt.Errorf("pdf extraction stopped after %d of %d page(s): %w", number-1, pages, err)
+			}
+		}
 		page := reader.Page(number)
 		if page.V.IsNull() {
 			continue
@@ -155,7 +183,9 @@ func readPDFText(body []byte, maxBytes int) (text string, err error) {
 		builder.WriteString(pageText)
 		builder.WriteString("\n")
 		if builder.Len() >= maxBytes {
-			break
+			// Hitting the text ceiling is normal for a long filing and has always been a
+			// success with truncated text, so it stays one. Only the deadline is reported.
+			return builder.String(), nil
 		}
 	}
 	return builder.String(), nil
