@@ -141,7 +141,7 @@ Then:
 | `GOOGLE_GENAI_USE_VERTEXAI` | unset | Set to `true` to use Vertex AI backend |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | — | Vertex AI project & region |
 | `GCP_REGION` | `us-central1` | Region recorded in config (informational; Vertex AI uses `GOOGLE_CLOUD_LOCATION`) |
-| `COOKIE_FILE_PATH` | — | Optional JSON cookie export (Cookie-Editor / EditThisCookie format) for the cookie-bridged ladder step. A cookie scoped to `www.example.com` is also registered for `example.com`, so `in.linkedin.com` receives a session exported for `www.linkedin.com`; startup logs what loaded (`Cookie jar: 7 cookies from …`) |
+| `COOKIE_FILE_PATH` | — | Optional JSON session export for the cookie-bridged ladder step and for plain fetches of logged-in-only pages. Both shapes are accepted: a browser extension's array (Cookie-Editor / EditThisCookie) and Playwright's `storage_state.json` (`{"cookies": […]}`), with `expires` as a unix timestamp or an RFC1123 string. A cookie scoped to `www.example.com` is also registered for `example.com`, so `in.linkedin.com` receives a session exported for `www.linkedin.com`. Startup logs what loaded (`Cookie jar: 7 cookies from …`) |
 | `ENABLE_BROWSER_FALLBACK` | `false` | Enable bounded Playwright rendering after HTTP errors, challenges, or low-quality JavaScript shells |
 | `CACHE_MAX_ENTRIES` | `2048` | Max entries in the in-memory TTL cache |
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Per-request research budget |
@@ -424,6 +424,29 @@ The scraper is deliberately conservative, and several of these rules surprise pe
   - **A failure now says which session was missing:** the reason carries
     `(no cookies for in.linkedin.com: set COOKIE_FILE_PATH …)` whenever the cookie step
     was skipped for lack of a session, so an unreachable profile is no longer ambiguous.
+  - **Making a logged-in-only page readable.** The startup line
+    `Cookie jar: no COOKIE_FILE_PATH set …` means no session was supplied, so an authwalled
+    page can only ever contribute its snippet. To supply one:
+    1. Capture a logged-in session, either way:
+       - **Playwright** (no extension needed): `npx playwright open https://www.linkedin.com/login`,
+         log in, then close the window — `--save-storage=linkedin.json` on that command writes
+         the storage state.
+       - **Browser extension**: log in, then Cookie-Editor → *Export* → *JSON* for the domain.
+    2. Save the file **outside the repo** (e.g. `%USERPROFILE%\.wsgo\linkedin.json`) and set
+       `COOKIE_FILE_PATH` to it.
+    3. Restart and check the startup line — it must list the domain and a count
+       (`Cookie jar: 12 cookies from … : linkedin.com (7), www.linkedin.com (5)`). A file that
+       loads nothing logs `produced no usable cookies` with the skip count.
+    Cookies ride the plain HTTP fetch as well as the ladder's browser context, so a valid
+    session often makes a profile readable without a render at all, and `ALLOW_PROFILE_SCRAPING`
+    is not required for that.
+    - Two honest caveats. **Sessions expire** and are invalidated by logout, password change
+      or a security checkpoint, so the file needs re-capturing; an "empty" jar is nearly always
+      an expired one. And **authenticated automation is against LinkedIn's terms** and can get
+      the account restricted — use an account you can afford to lose, keep volume low, and
+      expect a CAPTCHA to end the run's access to that page regardless (nothing here solves a
+      challenge). Registry filings (ZaubaCorp/Tofler), company sites, news and conference bios
+      remain the sources that need no session at all.
   - **Raising `HARD_URLS_PER_RUN` buys attempts, not results.** With the cap at 2 vs 6 in
     an A/B on the same brief, more escalations added prose and two office locations but
     no new people, at +67 % scrape time. Keep it low and spend the budget on the run.

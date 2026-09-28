@@ -10,11 +10,15 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// RawCookie matches the standard JSON export format from browser extensions (Cookie-Editor, EditThisCookie).
+// RawCookie matches the JSON export formats in use: browser extensions (Cookie-Editor,
+// EditThisCookie) and Playwright's storage state. Expires is filled from either a unix
+// timestamp (Playwright writes "expires": 1790000000) or an RFC1123 date string (some
+// extensions); UnmarshalJSON below decides which.
 type RawCookie struct {
 	Name           string  `json:"name"`
 	Value          string  `json:"value"`
@@ -26,6 +30,68 @@ type RawCookie struct {
 	HostOnly       bool    `json:"hostOnly"`
 	Expires        string  `json:"expires,omitempty"`        // RFC1123 date string (some exporters)
 	ExpirationDate float64 `json:"expirationDate,omitempty"` // unix seconds (EditThisCookie)
+}
+
+// UnmarshalJSON accepts the expiry shapes exporters disagree about. Playwright's storage
+// state carries "expires" as a *number*, which a plain string field rejects — and a decoder
+// error fails the whole file, emptying the jar over one field. A number is folded into
+// ExpirationDate; a quoted value stays in Expires; anything else is ignored rather than
+// refused, because an unreadable expiry is not worth losing a session over.
+func (rc *RawCookie) UnmarshalJSON(data []byte) error {
+	type rawCookieAlias RawCookie
+	aux := struct {
+		Expires json.RawMessage `json:"expires"`
+		*rawCookieAlias
+	}{rawCookieAlias: (*rawCookieAlias)(rc)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	rc.Expires = ""
+	trimmed := strings.TrimSpace(string(aux.Expires))
+	switch {
+	case trimmed == "", trimmed == "null":
+		return nil
+	case strings.HasPrefix(trimmed, "\""):
+		return json.Unmarshal(aux.Expires, &rc.Expires)
+	}
+	seconds, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return nil
+	}
+	if rc.ExpirationDate == 0 {
+		rc.ExpirationDate = seconds
+	}
+	return nil
+}
+
+// cookieExportEnvelope is Playwright's storage state: the same cookies as an extension
+// export, wrapped one object deep alongside the origin storage the HTTP client cannot use.
+type cookieExportEnvelope struct {
+	Cookies []RawCookie `json:"cookies"`
+}
+
+// decodeCookieExport accepts both shapes a session is exported in. The first byte decides,
+// and cannot guess wrong: a valid export of either kind starts with '[' (an extension's
+// array) or '{' (Playwright's storage state).
+func decodeCookieExport(data []byte) ([]RawCookie, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("cookie file is empty")
+	}
+	if data[0] == '{' {
+		var envelope cookieExportEnvelope
+		if err := json.Unmarshal(data, &envelope); err != nil {
+			return nil, fmt.Errorf("failed to parse cookie JSON: %w", err)
+		}
+		if envelope.Cookies == nil {
+			return nil, fmt.Errorf(`cookie JSON has no "cookies" array: expected a browser-extension export (an array) or a Playwright storage state ({"cookies": [...]})`)
+		}
+		return envelope.Cookies, nil
+	}
+	var rawCookies []RawCookie
+	if err := json.Unmarshal(data, &rawCookies); err != nil {
+		return nil, fmt.Errorf("failed to parse cookie JSON: %w", err)
+	}
+	return rawCookies, nil
 }
 
 // CookieJarReport summarises what a cookie export actually contributed, so
@@ -83,9 +149,9 @@ func LoadCookieJarFromFileDetailed(filePath string) (*cookiejar.Jar, CookieJarRe
 	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
 	data = bytes.TrimSpace(data)
 
-	var rawCookies []RawCookie
-	if err := json.Unmarshal(data, &rawCookies); err != nil {
-		return jar, report, fmt.Errorf("failed to parse cookie JSON: %w", err)
+	rawCookies, err := decodeCookieExport(data)
+	if err != nil {
+		return jar, report, err
 	}
 
 	now := time.Now()
@@ -115,27 +181,47 @@ func LoadCookieJarFromFileDetailed(filePath string) (*cookiejar.Jar, CookieJarRe
 	}
 
 	// Widening pass: a host-scoped cookie is also registered for its registrable
-	// parent, unless the export already covers that domain itself. Additions are
-	// collected first so the map is not mutated while it is being read.
-	declared := make(map[string]bool, len(cookiesByDomain))
-	for domain := range cookiesByDomain {
-		declared[domain] = true
+	// parent, unless the parent already carries a cookie of the *same name*. The rule is
+	// per cookie name rather than per domain, because a whole-domain skip dropped a
+	// session cookie scoped to www.linkedin.com whenever an unrelated cookie happened to
+	// be scoped to linkedin.com — and the profile host is in.linkedin.com, which only sees
+	// the parent. Domains are visited in sorted order so a name declared by two child
+	// domains widens deterministically.
+	declaredNames := make(map[string]map[string]bool, len(cookiesByDomain))
+	for domain, cookies := range cookiesByDomain {
+		names := make(map[string]bool, len(cookies))
+		for _, cookie := range cookies {
+			names[cookie.Name] = true
+		}
+		declaredNames[domain] = names
 	}
 	widened := make(map[string][]*http.Cookie)
-	for domain, cookies := range cookiesByDomain {
+	childDomains := make([]string, 0, len(cookiesByDomain))
+	for domain := range cookiesByDomain {
+		childDomains = append(childDomains, domain)
+	}
+	sort.Strings(childDomains)
+	for _, domain := range childDomains {
 		parent := registrableParent(domain)
-		if parent == "" || parent == domain || declared[parent] {
+		if parent == "" || parent == domain {
 			continue
 		}
-		// Each cookie is copied with the parent domain: reusing the same value
-		// would carry the child's Domain into a request for the parent, which the
-		// jar rejects as a non-matching domain.
-		for _, cookie := range cookies {
+		for _, cookie := range cookiesByDomain[domain] {
+			if declaredNames[parent][cookie.Name] {
+				continue
+			}
+			// Each cookie is copied with the parent domain: reusing the same value
+			// would carry the child's Domain into a request for the parent, which the
+			// jar rejects as a non-matching domain.
 			clone := *cookie
 			clone.Domain = parent
 			widened[parent] = append(widened[parent], &clone)
+			if declaredNames[parent] == nil {
+				declaredNames[parent] = make(map[string]bool, 2)
+			}
+			declaredNames[parent][cookie.Name] = true
+			report.WidenedToParent++
 		}
-		report.WidenedToParent += len(cookies)
 	}
 	for parent, cookies := range widened {
 		cookiesByDomain[parent] = append(cookiesByDomain[parent], cookies...)

@@ -159,9 +159,13 @@ func main() {
 	}
 	switch {
 	case strings.TrimSpace(cfg.CookieFile) == "":
-		log.Printf("Cookie jar: no COOKIE_FILE_PATH set; the hard-URL ladder's cookie-render step is skipped, so logged-in-only pages (LinkedIn person profiles) stay unreadable")
+		// The message says what to do, not just what is missing: this is the difference
+		// between a person profile being readable and the run quietly coming back with a
+		// snippet. Cookies also ride the plain HTTP fetch, so a session often makes the
+		// profile readable without a render at all.
+		log.Printf("Cookie jar: no COOKIE_FILE_PATH set, so logged-in-only pages (LinkedIn person profiles) cannot be opened. Export a logged-in session as JSON — a browser extension (Cookie-Editor / EditThisCookie) or `npx playwright open --save-storage=linkedin.json` — and set COOKIE_FILE_PATH to it")
 	case cookieReport.Cookies == 0:
-		log.Printf("[WARN] Cookie jar: %s produced no usable cookies (%d skipped); cookie-render will be skipped", cfg.CookieFile, cookieReport.Skipped)
+		log.Printf("[WARN] Cookie jar: %s produced no usable cookies (%d skipped); cookie-render will be skipped. Check that the file is a JSON export (an array, or Playwright's {\"cookies\": [...]}) whose cookies have not expired", cfg.CookieFile, cookieReport.Skipped)
 	default:
 		log.Printf("Cookie jar: %d cookies from %s (%d skipped, %d also registered for the parent domain): %s",
 			cookieReport.Cookies, cfg.CookieFile, cookieReport.Skipped, cookieReport.WidenedToParent,

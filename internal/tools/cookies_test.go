@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -240,5 +241,151 @@ func TestLoadCookieJarReportsWhatItLoaded(t *testing.T) {
 	}
 	if report.Path != path {
 		t.Errorf("Path = %q, want %q", report.Path, path)
+	}
+}
+
+// TestLoadCookieJarAcceptsPlaywrightStorageState covers the shape a LinkedIn session is
+// usually captured in. Playwright writes {"cookies": [...], "origins": [...]} with a numeric
+// "expires", and either difference used to fail the whole file — which emptied the jar and
+// left the ladder reporting "this host simply has no cookies".
+func TestLoadCookieJarAcceptsPlaywrightStorageState(t *testing.T) {
+	state := `{
+	  "cookies": [
+	    {"name":"li_at","value":"session-token","domain":".linkedin.com","path":"/","expires":1893456000,"httpOnly":true,"secure":true,"sameSite":"None"},
+	    {"name":"lang","value":"v=2&lang=en-us","domain":".www.linkedin.com","path":"/","expires":1893456000,"httpOnly":false,"secure":true,"sameSite":"Lax"}
+	  ],
+	  "origins": [{"origin":"https://www.linkedin.com","localStorage":[{"name":"k","value":"v"}]}]
+	}`
+	path := filepath.Join(t.TempDir(), "linkedin-storage.json")
+	if err := os.WriteFile(path, []byte(state), 0o600); err != nil {
+		t.Fatalf("write storage state: %v", err)
+	}
+
+	jar, report, err := LoadCookieJarFromFileDetailed(path)
+	if err != nil {
+		t.Fatalf("LoadCookieJarFromFileDetailed: %v", err)
+	}
+	if report.Cookies == 0 {
+		t.Fatal("expected the storage-state cookies to load")
+	}
+	if report.Skipped != 0 {
+		t.Errorf("expected no skipped cookies, got %d", report.Skipped)
+	}
+
+	// The session must reach a *profile* host, which is a sibling subdomain of the one the
+	// export was scoped to: that widening is what makes an exported session usable here.
+	for _, target := range []string{
+		"https://www.linkedin.com/feed/",
+		"https://in.linkedin.com/in/someone-1234",
+		"https://linkedin.com/",
+	} {
+		parsed, err := url.Parse(target)
+		if err != nil {
+			t.Fatalf("parse %s: %v", target, err)
+		}
+		found := false
+		for _, cookie := range jar.Cookies(parsed) {
+			if cookie.Name == "li_at" && cookie.Value == "session-token" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("session cookie not delivered to %s; got %v", target, jar.Cookies(parsed))
+		}
+	}
+}
+
+// TestLoadCookieJarAcceptsBothExpiryShapes pins the field exporters disagree about: a unix
+// timestamp (Playwright) and an RFC1123 string (some extensions). A number used to fail the
+// whole file, so a valid session was rejected over one field.
+func TestLoadCookieJarAcceptsBothExpiryShapes(t *testing.T) {
+	future := time.Now().AddDate(1, 0, 0)
+	body := `[
+	  {"name":"unix","value":"a","domain":"example.com","path":"/","expires":1893456000},
+	  {"name":"rfc","value":"b","domain":"example.com","path":"/","expires":"` + future.UTC().Format(time.RFC1123) + `"},
+	  {"name":"unreadable","value":"c","domain":"example.com","path":"/","expires":{"weird":true}}
+	]`
+	path := filepath.Join(t.TempDir(), "mixed.json")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write cookie file: %v", err)
+	}
+
+	jar, report, err := LoadCookieJarFromFileDetailed(path)
+	if err != nil {
+		t.Fatalf("LoadCookieJarFromFileDetailed: %v", err)
+	}
+	if report.Cookies != 3 {
+		t.Fatalf("expected all three cookies to load, got %d (skipped %d)", report.Cookies, report.Skipped)
+	}
+	parsed, _ := url.Parse("https://example.com/")
+	names := make(map[string]bool)
+	for _, cookie := range jar.Cookies(parsed) {
+		names[cookie.Name] = true
+	}
+	for _, want := range []string{"unix", "rfc", "unreadable"} {
+		if !names[want] {
+			t.Errorf("expected the %q cookie to be loaded, got %v", want, names)
+		}
+	}
+}
+
+// TestLoadCookieJarRejectsAnUnrecognisedObject keeps the failure legible: an object without a
+// "cookies" array is not a storage state, and saying so beats an empty jar.
+func TestLoadCookieJarRejectsAnUnrecognisedObject(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wrong.json")
+	if err := os.WriteFile(path, []byte(`{"session":"abc"}`), 0o600); err != nil {
+		t.Fatalf("write cookie file: %v", err)
+	}
+	_, _, err := LoadCookieJarFromFileDetailed(path)
+	if err == nil {
+		t.Fatal("expected an error for a JSON object that is not a cookie export")
+	}
+	if !strings.Contains(err.Error(), "cookies") {
+		t.Errorf("expected the error to name the missing cookies array, got %v", err)
+	}
+}
+
+// TestLoadCookieJarWidensASessionCookieEvenWhenTheParentIsPartlyCovered is the case a real
+// LinkedIn export produces: the session cookie is scoped to www.linkedin.com while other
+// cookies are scoped to .linkedin.com. Widening used to skip the whole child domain as soon
+// as *any* cookie declared the parent, so the session never reached in.linkedin.com — the one
+// host that serves person profiles — and the ladder reported "no cookies for this host".
+func TestLoadCookieJarWidensASessionCookieEvenWhenTheParentIsPartlyCovered(t *testing.T) {
+	path := writeCookieFile(t, []RawCookie{
+		{Name: "lang", Value: "v=2&lang=en-us", Domain: ".linkedin.com", Path: "/"},
+		{Name: "li_at", Value: "session", Domain: "www.linkedin.com", Path: "/", HostOnly: true, Secure: true},
+	})
+
+	jar, report, err := LoadCookieJarFromFileDetailed(path)
+	if err != nil {
+		t.Fatalf("LoadCookieJarFromFileDetailed: %v", err)
+	}
+	if report.WidenedToParent != 1 {
+		t.Errorf("expected the session cookie to be widened, got %d", report.WidenedToParent)
+	}
+
+	profile, err := url.Parse("https://in.linkedin.com/in/someone-1234")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	found := false
+	for _, cookie := range jar.Cookies(profile) {
+		if cookie.Name == "li_at" && cookie.Value == "session" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected li_at on the profile host, got %v", jar.Cookies(profile))
+	}
+
+	// No name is ever registered twice for one domain, however many children declare it.
+	counts := make(map[string]int)
+	for _, cookie := range jar.Cookies(profile) {
+		counts[cookie.Name]++
+	}
+	for name, count := range counts {
+		if count != 1 {
+			t.Errorf("cookie %q delivered %d times to one host", name, count)
+		}
 	}
 }

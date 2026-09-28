@@ -586,10 +586,21 @@ HTTP path errors, is blocked, or yields a JavaScript shell:
     the cookie step never fired in practice. Widening stops at the registrable domain
     (`www.example.co.uk` → `example.co.uk`, never `co.uk`).
 
-#### `cookies.go` — browser cookie import
+#### `cookies.go` — browser session import
 
-`LoadCookieJarFromFile` reads the JSON export format of Cookie-Editor /
-EditThisCookie extensions and populates a standard `http.CookieJar`:
+`LoadCookieJarFromFile` populates a standard `http.CookieJar` from either shape a session is
+exported in, decided by the first byte of the file:
+
+- **A bare array** — Cookie-Editor / EditThisCookie.
+- **Playwright's `storage_state.json`** — `{"cookies": […], "origins": […]}`. Only the cookies
+  are imported; `origins`/localStorage has no counterpart in an HTTP client.
+- **`expires` in either shape** — a unix timestamp (Playwright writes a number, EditThisCookie
+  `expirationDate`) or an RFC1123 string. `RawCookie.UnmarshalJSON` folds a number into
+  `ExpirationDate` and ignores an expiry it cannot read, because a decoder error would fail
+  the whole file and empty the jar over one field. An object without a `cookies` array is
+  refused with that wording rather than silently yielding nothing.
+
+Also:
 
 - Skips empty and already-expired cookies (understands both unix
   `expirationDate` and `expires` date strings, with an RFC1123 fallback for
@@ -598,15 +609,18 @@ EditThisCookie extensions and populates a standard `http.CookieJar`:
   cover subdomains, groups them per domain, and installs them under
   `https://<domain>`. Reports how many domains could not be parsed.
 - **Widens a host-scoped cookie to its registrable parent** (a second registration,
-  never a move: `www.linkedin.com` also registers `linkedin.com`), unless the export
-  already covers the parent. This is what makes an exported session reachable where the
-  ladder needs it — profiles are served on `in.linkedin.com`, and an export is usually
-  scoped to the host the user was browsing. Widening stops at the registrable domain, so
-  `www.example.co.uk` widens to `example.co.uk` and never to `co.uk`.
+  never a move: `www.linkedin.com` also registers `linkedin.com`), unless the parent
+  already carries a cookie of the *same name*. The rule is per name, not per domain: a
+  whole-domain skip dropped a session cookie scoped to `www.linkedin.com` whenever an
+  unrelated cookie happened to be scoped to `linkedin.com`, and the profile host is
+  `in.linkedin.com`, which only ever sees the parent. Child domains are visited in sorted
+  order, so a name declared by two children widens deterministically. Widening stops at the
+  registrable domain, so `www.example.co.uk` widens to `example.co.uk` and never to `co.uk`.
 - `LoadCookieJarFromFileDetailed` returns a `CookieJarReport` (count, skipped, widened,
   per-domain counts) that startup logs, so "the session never loaded" and "the site has
   no cookies" are distinguishable — they are indistinguishable from a ladder failure.
-- With no path configured it returns an empty (but valid) jar, and startup says so.
+- With no path configured it returns an empty (but valid) jar, and startup names the export
+  formats and the capture commands instead of only stating the omission.
 
 ### Scraper performance & politeness
 
