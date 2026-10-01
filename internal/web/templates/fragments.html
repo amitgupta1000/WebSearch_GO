@@ -411,6 +411,74 @@
 			</div>
 		</div>
 	</div>
+	{{if .PersonGate}}
+	<details class="border-t border-slate-800/60 pt-3">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Identity check
+			<span class="text-slate-500">({{.PersonGate.Kept}} kept · {{.PersonGate.Dropped}} excluded)</span>
+		</summary>
+		<div class="mt-3 space-y-2 text-xs">
+			<p class="text-slate-400">Sources were held to <span class="text-slate-200">{{.PersonGate.Name}}</span>{{if .PersonGate.Company}} at <span class="text-slate-200">{{.PersonGate.Company}}</span>{{end}} — a source whose headline states a different employer for the name is a different person and is dropped, not mixed in.</p>
+			{{if .PersonGate.Excluded}}
+			<div class="space-y-1.5">
+				{{range .PersonGate.Excluded}}
+				<div class="bg-slate-950 border border-slate-800 rounded-lg p-2">
+					<div class="flex items-start justify-between gap-2">
+						<span class="text-slate-300 break-all">{{.Name}}</span>
+						<a href="{{.Source}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline shrink-0">source</a>
+					</div>
+					<div class="text-slate-500 mt-0.5">{{.Reason}}</div>
+				</div>
+				{{end}}
+			</div>
+			{{else}}
+			<p class="text-slate-500">Nothing was excluded: every collected source named the person and did not contradict the confirmed employer.</p>
+			{{end}}
+		</div>
+	</details>
+	{{end}}
+	{{if or .SearchQueries .Timings .ScrapeReport}}
+	<details class="border-t border-slate-800/60 pt-3">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Research trace
+			<span class="text-slate-500">({{len .SearchQueries}} queries · {{len .ScrapeReport}} fetches)</span>
+		</summary>
+		<div class="mt-3 space-y-3 text-xs">
+			{{if .SearchQueries}}
+			<div>
+				<div class="text-slate-400 font-medium mb-1">Queries issued</div>
+				<div class="space-y-1">{{range .SearchQueries}}<div class="text-slate-300 break-all font-mono">{{.}}</div>{{end}}</div>
+			</div>
+			{{end}}
+			{{if .Timings}}
+			<div>
+				<div class="text-slate-400 font-medium mb-1">Where the time went</div>
+				<div class="space-y-1">{{range .Timings}}<div class="flex justify-between gap-2"><span class="text-slate-300">{{.Phase}}</span><span class="text-slate-500">{{.Seconds}}s{{if .Detail}} &middot; {{.Detail}}{{end}}</span></div>{{end}}</div>
+			</div>
+			{{end}}
+			{{if .ScrapeReport}}
+			<div>
+				<div class="text-slate-400 font-medium mb-1">Fetch outcomes</div>
+				<div class="space-y-1">{{range .ScrapeReport}}<div class="flex items-start justify-between gap-2"><span class="text-slate-300 break-all">{{.URL}}</span><span class="{{if eq .Status "ok"}}text-emerald-400{{else}}text-red-400{{end}} shrink-0 text-right">{{.Status}}{{if .Reason}} &middot; {{.Reason}}{{end}}</span></div>{{end}}</div>
+			</div>
+			{{end}}
+		</div>
+	</details>
+	{{end}}
+	{{if .Sources}}
+	<details class="border-t border-slate-800/60 pt-3">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Sources
+			<span class="text-slate-500">({{len .Sources}})</span>
+		</summary>
+		<div class="flex flex-wrap gap-2 text-xs mt-3">
+			{{range .Sources}}<a href="{{.}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline truncate max-w-xs">{{.}}</a>{{end}}
+		</div>
+	</details>
+	{{end}}
 	{{template "export_files" .Exports}}
 </div>
 {{end}}

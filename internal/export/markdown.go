@@ -314,8 +314,75 @@ func renderPersonMarkdown(profile *models.PersonProfile) string {
 		builder.WriteString("\n")
 	}
 
+	builder.WriteString(renderPersonGateMarkdown(profile.PersonGate))
+	builder.WriteString(renderPersonTraceMarkdown(profile))
 	builder.WriteString(renderSourcesMarkdown(profile.Sources))
 	return strings.TrimRight(builder.String(), "\n") + "\n"
+}
+
+// renderPersonGateMarkdown renders the identity check: what the dossier held its sources to
+// and what it excluded, so a same-named person's absence is an explained fact rather than a
+// silent omission.
+func renderPersonGateMarkdown(gate *models.PersonGate) string {
+	if gate == nil {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString("## Identity check\n\n")
+	fmt.Fprintf(&builder, "Every source was held to **%s**", markdownCell(gate.Name))
+	if gate.Company != "" {
+		fmt.Fprintf(&builder, " at **%s**", markdownCell(gate.Company))
+	}
+	fmt.Fprintf(&builder, " — %d kept", gate.Kept)
+	if gate.NameOnly > 0 {
+		fmt.Fprintf(&builder, ", %d naming the person but stating no employer", gate.NameOnly)
+	}
+	fmt.Fprintf(&builder, ", %d excluded.\n\n", gate.Dropped)
+	if len(gate.Excluded) == 0 {
+		builder.WriteString("Nothing was excluded: every collected source named the person and did not contradict the confirmed employer.\n\n")
+		return builder.String()
+	}
+	builder.WriteString("| Excluded source | Read as | Why it was dropped |\n| :--- | :--- | :--- |\n")
+	for _, row := range gate.Excluded {
+		fmt.Fprintf(&builder, "| %s | %s | %s |\n", markdownCell(row.Name), markdownCell(row.Title), markdownCell(row.Reason))
+	}
+	builder.WriteString("\n")
+	return builder.String()
+}
+
+// renderPersonTraceMarkdown renders the operating results a person run collected — the queries
+// it issued, where the time went, and every fetch attempt with its outcome — the counterpart
+// of the scrape report and timings the company chart carries.
+func renderPersonTraceMarkdown(profile *models.PersonProfile) string {
+	if len(profile.SearchQueries) == 0 && len(profile.Timings) == 0 && len(profile.ScrapeReport) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString("## Research trace\n\n")
+	if len(profile.SearchQueries) > 0 {
+		builder.WriteString("Queries issued, in order:\n\n")
+		for _, query := range profile.SearchQueries {
+			fmt.Fprintf(&builder, "- `%s`\n", query)
+		}
+		builder.WriteString("\n")
+	}
+	if len(profile.Timings) > 0 {
+		builder.WriteString("| Phase | Time | Detail |\n| :--- | :--- | :--- |\n")
+		for _, timing := range profile.Timings {
+			fmt.Fprintf(&builder, "| %s | %ss | %s |\n", markdownCell(timing.Phase), timing.Seconds(), markdownCell(timing.Detail))
+		}
+		builder.WriteString("\n")
+	}
+	if len(profile.ScrapeReport) > 0 {
+		builder.WriteString("| Page fetched | Kind | Outcome | Detail |\n| :--- | :--- | :--- | :--- |\n")
+		for _, entry := range profile.ScrapeReport {
+			fmt.Fprintf(&builder, "| %s | %s | %s | %s |\n",
+				markdownCell(entry.URL), markdownCell(entry.SourceType),
+				markdownCell(entry.Status), markdownCell(entry.Reason))
+		}
+		builder.WriteString("\n")
+	}
+	return builder.String()
 }
 
 // combineNotes joins non-empty notes with a middot, so a cell can carry a freshness

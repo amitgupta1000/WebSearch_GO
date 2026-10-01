@@ -87,6 +87,55 @@ func TestPersonMarkdownCoversTheDossier(t *testing.T) {
 	}
 }
 
+// The identity check and the research trace are the person-mode counterparts of the entity
+// gate, scrape report, and timings the company chart carries: a dossier must show what it
+// held its sources to, what it excluded, and what the run actually did.
+func TestPersonMarkdownCarriesTheIdentityCheckAndTrace(t *testing.T) {
+	profile := sampleProfile()
+	profile.PersonGate = &models.PersonGate{
+		Name:     "Asha Rao",
+		Company:  "KLJ Resources Limited",
+		Kept:     3,
+		NameOnly: 1,
+		Dropped:  2,
+		Excluded: []models.OffEntityRow{
+			{Name: "Jane Rao - CTO - OtherCorp Ltd | LinkedIn", Title: "OtherCorp Ltd", Source: "https://www.linkedin.com/in/jane-rao", Reason: "states employer \"OtherCorp Ltd\" — a different person with the same name"},
+		},
+	}
+	profile.ScrapeReport = []models.ScrapeReportEntry{
+		{URL: "https://www.linkedin.com/in/asha-rao", SourceType: "profile", Status: "ok", Reason: "recovered by the hard-URL ladder", WordCount: 96},
+		{URL: "https://paywall.example/asha", SourceType: "web", Status: "failed", Reason: "blocked by the site"},
+	}
+	profile.Timings = []models.PhaseTiming{
+		{Phase: "primary search", Millis: 1200, Detail: "6 hits"},
+		{Phase: "profile fetches", Millis: 3400, Detail: "1 page(s) read"},
+	}
+	profile.SearchQueries = []string{"\"Asha Rao\" \"KLJ Resources\"", "Asha Rao speaker interview articles career education"}
+
+	markdown := renderPersonMarkdown(profile)
+	for _, expected := range []string{
+		"## Identity check",
+		"Asha Rao", "KLJ Resources Limited",
+		"3 kept", "1 naming the person but stating no employer", "2 excluded",
+		"OtherCorp Ltd", "different person with the same name",
+		"## Research trace",
+		"Asha Rao speaker interview articles career education",
+		"primary search", "profile fetches", "1 page(s) read",
+		"https://www.linkedin.com/in/asha-rao", "recovered by the hard-URL ladder",
+		"blocked by the site",
+	} {
+		if !strings.Contains(markdown, expected) {
+			t.Errorf("person markdown is missing %q", expected)
+		}
+	}
+
+	// A profile without the trace — a hand-built one, or a run from before the gate — must
+	// not grow empty sections.
+	if bare := renderPersonMarkdown(sampleProfile()); strings.Contains(bare, "## Identity check") || strings.Contains(bare, "## Research trace") {
+		t.Errorf("sections rendered without any gate or trace data:\n%s", bare)
+	}
+}
+
 // A pipe or newline inside a value would otherwise break the table it is placed in,
 // which is exactly what scraped content tends to contain.
 func TestMarkdownEscapesTableBreakers(t *testing.T) {

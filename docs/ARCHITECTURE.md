@@ -1099,6 +1099,32 @@ candidate, so the operator confirms a context read off a source instead of recal
 company *and* place were both typed, the step spends no search at all — the same cheap path
 the typed-domain case uses.
 
+**The person identity gate** (`internal/agent/person_gate.go`). Company mode holds a run to an
+entity at five points; person mode used to hold it to nothing, so every snippet the search
+engine loosely matched — including other people with the same name — reached the synthesiser,
+and a dossier could describe a same-named person at a different company in a different
+location. The gate applies what the confirmation step implies: the company and location on the
+card are acceptance rules, not just search terms. `personGate.classify` decides per source:
+
+- names the person (whole-word) — without it, the source is unrelated;
+- the confirmed profile URL — always accepted;
+- the confirmed company or the pinned location present — matched;
+- a **different employer stated in the headline** (`statedHeadlineEmployer`, read only in a
+  role context: "<role> at <X>" or the segment after a recognised role) — excluded as a
+  different person, with the stated employer in the reason;
+- otherwise — *name-only*: kept for a fetched page (a career history legitimately lists past
+  employers in its body), counted and labelled, but a **snippet** that names the person and
+  states no employer is dropped, because a snippet is a free-floating assertion.
+
+A court-case headline ("Jane Doe vs Bharat Enterprises on 3 March") and a past employer in the
+body of a fetched page are deliberately *not* read as a stated employer, so real evidence
+survives. With no company confirmed there is nothing to hold sources to, so a name-alone run
+excludes nothing rather than returning an empty dossier. Every exclusion is listed in the
+dossier's **Identity check** (`models.PersonGate.Excluded`) next to the run's operating
+results — the queries issued, the phase timings, and every fetch attempt with its outcome
+(`ScrapeReport`, `Timings`, `SearchQueries`), the counterpart of the company chart's scrape
+report and timings.
+
 ### Error handling & resilience
 
 - **Aggregator sources** (`internal/agent/sources.go`). LinkedIn person profiles cannot be read
@@ -1489,18 +1515,20 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 | :--- | :--- | :--- | :--- | :--- |
 | 1 | Confirmation step | 2 core searches, candidates parsed from headlines, top match pre-selected | *budget*: 2 queries + **1 aggregator pass only when < 2 candidates**; company **and** place typed ⇒ 0 searches; no pre-selection when nothing names the typed company | 0 candidates ⇒ the step still renders the name-alone card |
 | 2 | Search 1 | `"<name> <company> <location>"` | one query | — |
-| 3 | Fetch targets | confirmed seed first, then hits matching `isProfileSourceURL` (LinkedIn, Wikipedia, "about", GitHub, the five aggregators) | cap `MaxScrapes` 10 | non-matching hits stay snippets |
-| 4 | Profile URL | **session for the host** ⇒ one cookie-authenticated `ScrapeCached`; otherwise ⇒ the ladder | usable = unblocked ∧ > 80 chars; ladder: 2/run, 55 s, needs budget + 20 s | cheap fetch ⇒ ladder ⇒ snippet; a redirect loop with a session ⇒ `session-rejected` |
-| 5 | Other URLs | parallel `ScrapeCachedBatch` | content-hash dedupe; host limits | `Blocked` ⇒ one ladder escalation |
-| 6 | Search 2 | career / interview / conference snippets | one query | skipped |
-| 7 | Search 3 | `<query1> (site:crunchbase.com OR … OR site:hunter.io)` | one query | skipped; these pages usually paywall ⇒ **snippets only** |
-| 7a | ↳ labelling | enters the prompt as **DIRECTORY CLAIMS** (stated title and employer, not verified employment) | — | — |
-| 8 | Synthesis | dossier from snippets + scraped pages + the confirmed-profile block | — | run fails |
-| 9 | Export | md + pdf | — | written on a detached context |
+| 3 | Identity gate (snippets) | a snippet must name the person **and** the confirmed company or location; a headline stating a *different* employer is excluded with that employer named | — | excluded — listed in the dossier's **Identity check** |
+| 4 | Fetch targets | identity gate first (a page that never names the person, or whose headline states a different employer, is never fetched), then confirmed seed and hits matching `isProfileSourceURL` | cap `MaxScrapes` 10 | non-matching hits stay snippets |
+| 5 | Profile URL | **session for the host** ⇒ one cookie-authenticated `ScrapeCached`; otherwise ⇒ the ladder | usable = unblocked ∧ > 80 chars; ladder: 2/run, 55 s, needs budget + 20 s | cheap fetch ⇒ ladder ⇒ snippet; a redirect loop with a session ⇒ `session-rejected` |
+| 6 | Other URLs | parallel `ScrapeCachedBatch`; a fetched body that names the person but states no employer is counted **name-only** | content-hash dedupe; host limits | `Blocked` ⇒ one ladder escalation |
+| 7 | Search 2 | career / interview / conference snippets — gate-filtered like search 1 | one query | skipped |
+| 8 | Search 3 | `<query1> (site:crunchbase.com OR … OR site:hunter.io)` — gate-filtered | one query | skipped; these pages usually paywall ⇒ **snippets only** |
+| 8a | ↳ labelling | enters the prompt as **DIRECTORY CLAIMS** (stated title and employer, not verified employment) | — | — |
+| 9 | Synthesis | dossier from gated snippets + gated scraped pages + the confirmed-profile block; the run attaches `person_gate`, `scrape_report`, `timings`, `search_queries` | — | run fails |
+| 10 | Export | md + pdf, with **Identity check** and **Research trace** sections | — | written on a detached context |
 
-Not present in person mode: the entity gate, the freshness pass, image OCR, and the 55 s scrape
-reserve (its bound is `RESEARCH_TIMEOUT_SECONDS` plus per-request timeouts). Person mode is also
-where the session rules apply, since profile URLs are its bread and butter.
+Not present in person mode: the freshness pass and image OCR, and the 55 s scrape reserve (its
+bound is `RESEARCH_TIMEOUT_SECONDS` plus per-request timeouts). The entity gate's counterpart —
+the person identity gate — now runs at snippets, fetch selection, and the fetched bodies. Person
+mode is also where the session rules apply, since profile URLs are its bread and butter.
 
 ### A3. Inside one fetch — `Scraper.ScrapeURL` (shared)
 

@@ -30,6 +30,16 @@ func (pa *PersonAgent) ResearchPerson(
 	personName := strings.TrimSpace(query.Name)
 	companyName := strings.TrimSpace(query.Company)
 	location := strings.TrimSpace(query.Location)
+	// The identity gate is what stops a same-named person at another employer from reaching
+	// the dossier: the company and location the operator confirmed are acceptance rules, not
+	// just search terms. Everything the run collects — snippets and fetched pages — is held
+	// to them, and every exclusion is listed in the dossier's identity check.
+	gate := newPersonGate(query)
+	timer := newPhaseTimer()
+	var scrapeReport []models.ScrapeReportEntry
+	var searchQueries []string
+	var gateExcluded []models.SearchResult
+	gateKept, gateNameOnly := 0, 0
 	Emit(eventCh, models.AgentEvent{
 		SessionID: sessionID,
 		Type:      models.EventThinking,
@@ -57,8 +67,11 @@ func (pa *PersonAgent) ResearchPerson(
 		Content:   fmt.Sprintf("Searching for professional profile: %s", query1),
 	})
 
+	searchQueries = append(searchQueries, query1)
+	finishPrimarySearch := timer.start("primary search")
 	searchResults, err := pa.engine.SearchCached(ctx, query1, pa.engine.MaxSearchResults())
 	if err != nil {
+		finishPrimarySearch("failed")
 		Emit(eventCh, models.AgentEvent{
 			SessionID: sessionID,
 			Type:      models.EventError,
@@ -66,6 +79,7 @@ func (pa *PersonAgent) ResearchPerson(
 		})
 		return nil, err
 	}
+	finishPrimarySearch(fmt.Sprintf("%d hits", len(searchResults)))
 
 	Emit(eventCh, models.AgentEvent{
 		SessionID: sessionID,
@@ -75,9 +89,16 @@ func (pa *PersonAgent) ResearchPerson(
 		Content:   fmt.Sprintf("Found %d search matches across the web.", len(searchResults)),
 	})
 
+	// Snippets are free-floating assertions, so the gate holds them harder than it holds a
+	// fetched page: a snippet must name the confirmed company or location to enter the
+	// dossier. That is the rule that stops a same-named person's snippet from being
+	// synthesised into this person's resume.
 	var gatheredContext strings.Builder
+	keptPrimary, primaryExcluded := gate.filterSnippets(searchResults)
+	gateExcluded = append(gateExcluded, primaryExcluded...)
+	gateKept += len(keptPrimary)
 	gatheredContext.WriteString("=== PRIMARY SEARCH SNIPPETS ===\n")
-	gatheredContext.WriteString(FormatSearchSnippets(searchResults))
+	gatheredContext.WriteString(FormatSearchSnippets(keptPrimary))
 
 	// The profile the operator confirmed the identity from is evidence about the right
 	// person even when its fetch is walled, so its snippet is always kept — and the page is
@@ -117,6 +138,15 @@ func (pa *PersonAgent) ResearchPerson(
 		if len(fetchTargets) >= pa.engine.MaxScrapes() {
 			break
 		}
+		// The gate decides which pages are worth a fetch at all: a page whose headline
+		// states a different employer for the name is a different person, and a page that
+		// never names the person is noise — neither is spent a scrape on. A page that names
+		// the person and states no employer is still fetched, because a career history
+		// lists past employers in its body, but it is counted as name-only.
+		if verdict := gate.classify(sr.Link, sr.Title, sr.Snippet); !verdict.usable() {
+			gateExcluded = append(gateExcluded, sr)
+			continue
+		}
 		if isProfileSourceURL(sr.Link) || len(fetchTargets) == 0 {
 			fetchTargets = append(fetchTargets, sr)
 		}
@@ -132,6 +162,14 @@ func (pa *PersonAgent) ResearchPerson(
 	// latency-bound, so doing them one at a time only adds the round trips together.
 	parallelTargets := make([]models.SearchResult, 0, len(fetchTargets))
 	fetchURLs := make([]string, 0, len(fetchTargets))
+	finishFetches := timer.start("profile fetches")
+	scrapeReportEntry := func(sr models.SearchResult, status, reason, content string) {
+		entry := models.ScrapeReportEntry{URL: sr.Link, SourceType: personReportSourceType(sr.Link), Status: status, Reason: reason}
+		if content != "" {
+			entry.WordCount = len(strings.Fields(content))
+		}
+		scrapeReport = append(scrapeReport, entry)
+	}
 	for _, sr := range fetchTargets {
 		if isProfessionalProfileURL(sr.Link) {
 			if pa.engine.SessionCookiesFor(sr.Link) {
@@ -147,8 +185,11 @@ func (pa *PersonAgent) ResearchPerson(
 					gatheredScrapes.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, result.Content))
 					sources = append(sources, sr.Link)
 					scrapeCount++
+					gateKept++
+					scrapeReportEntry(sr, "ok", "cookie-authenticated session fetch", result.Content)
 					continue
 				}
+				scrapeReportEntry(sr, "failed", "session fetch returned no usable page", "")
 			}
 			if handler.available() {
 				outcome := handler.handle(ctx, sessionID, sr.Link, "professional profile", 4+scrapeCount, eventCh, tools.HardScrapeOptions{})
@@ -156,6 +197,10 @@ func (pa *PersonAgent) ResearchPerson(
 					gatheredScrapes.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, outcome.Result.Content))
 					sources = append(sources, sr.Link)
 					scrapeCount++
+					gateKept++
+					scrapeReportEntry(sr, "ok", "recovered by the hard-URL ladder", outcome.Result.Content)
+				} else {
+					scrapeReportEntry(sr, "failed", "hard-URL ladder: "+outcome.Status, "")
 				}
 				continue
 			}
@@ -190,6 +235,13 @@ func (pa *PersonAgent) ResearchPerson(
 			}
 		}
 		if !usable {
+			reason := "no usable content"
+			if scrapeErr != nil {
+				reason = scrapeErr.Error()
+			} else if result != nil && result.Blocked {
+				reason = "blocked by the site"
+			}
+			scrapeReportEntry(sr, "failed", reason, "")
 			continue
 		}
 		fingerprint := contentHash(result.Content)
@@ -201,10 +253,20 @@ func (pa *PersonAgent) ResearchPerson(
 		gatheredScrapes.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, result.Content))
 		sources = append(sources, sr.Link)
 		scrapeCount++
+		// The fetched body is judged once more now that it can be read in full: a page that
+		// never states an employer is admitted but counted as name-only, so the dossier's
+		// identity check shows how much of the evidence rests on the name alone.
+		if verdict := gate.classify(sr.Link, sr.Title, result.Content); verdict.Status == personVerdictNameOnly {
+			gateNameOnly++
+		} else {
+			gateKept++
+		}
+		scrapeReportEntry(sr, "ok", "", result.Content)
 		if sr.Link == confirmedSeed {
 			seedFetched = true
 		}
 	}
+	finishFetches(fmt.Sprintf("%d page(s) read", scrapeCount))
 	gatheredContext.WriteString(gatheredScrapes.String())
 	// A confirmed profile that could not be fetched still belongs in the dossier's sources:
 	// its snippet was used as evidence, and the operator pointed at it.
@@ -214,11 +276,16 @@ func (pa *PersonAgent) ResearchPerson(
 
 	// Step 2: Query for conference talks, articles, or career milestones
 	query2 := fmt.Sprintf("%s speaker interview articles career education", query1)
+	searchQueries = append(searchQueries, query2)
+	finishCareerSearch := timer.start("career + directory search")
 	secResults, err := pa.engine.SearchCached(ctx, query2, pa.engine.MaxSearchResults())
 	if err == nil {
+		keptSec, secExcluded := gate.filterSnippets(secResults)
+		gateExcluded = append(gateExcluded, secExcluded...)
+		gateKept += len(keptSec)
 		gatheredContext.WriteString("\n=== ADDITIONAL CAREER SNIPPETS ===\n")
-		gatheredContext.WriteString(FormatSearchSnippets(secResults))
-		for _, r := range secResults {
+		gatheredContext.WriteString(FormatSearchSnippets(keptSec))
+		for _, r := range keptSec {
 			sources = append(sources, r.Link)
 		}
 	}
@@ -236,16 +303,35 @@ func (pa *PersonAgent) ResearchPerson(
 			ToolInput: aggregatorQuery,
 			Content:   "Searching the people-data aggregators for a title and employer...",
 		})
+		searchQueries = append(searchQueries, aggregatorQuery)
 		if aggResults, aggErr := pa.engine.SearchCached(ctx, aggregatorQuery, pa.engine.MaxSearchResults()); aggErr == nil && len(aggResults) > 0 {
+			keptAgg, aggExcluded := gate.filterSnippets(aggResults)
+			gateExcluded = append(gateExcluded, aggExcluded...)
+			gateKept += len(keptAgg)
 			gatheredContext.WriteString("\n=== DIRECTORY CLAIMS (aggregator snippets: a stated title and employer, not verified employment) ===\n")
-			gatheredContext.WriteString(FormatSearchSnippets(aggResults))
-			for _, r := range aggResults {
+			gatheredContext.WriteString(FormatSearchSnippets(keptAgg))
+			for _, r := range keptAgg {
 				sources = append(sources, r.Link)
 			}
 		}
 	}
+	finishCareerSearch("career and directory snippets filtered")
+
+	// The identity check is reported the way the entity gate is in company mode: what was kept,
+	// what was excluded, and why — so a same-named person's absence from the dossier is
+	// visible rather than silent.
+	excludedRows := gate.exclusionsFrom(dedupeResults(gateExcluded))
+	Emit(eventCh, models.AgentEvent{
+		SessionID: sessionID,
+		Type:      models.EventThinking,
+		Step:      7,
+		ToolName:  "person_gate",
+		Content: fmt.Sprintf("Identity check: %d source(s) kept, %d name-only, %d excluded as same-named or unrelated.",
+			gateKept, gateNameOnly, len(excludedRows)),
+	})
 
 	// Step 3: Structured synthesis with Gemini 2.5 Flash Lite
+	finishSynthesis := timer.start("synthesis")
 	Emit(eventCh, models.AgentEvent{
 		SessionID: sessionID,
 		Type:      models.EventThinking,
@@ -291,7 +377,19 @@ Synthesize the provided web search and scraped profiles into a comprehensive Per
 		return nil, fmt.Errorf("person synthesis failed: %w", err)
 	}
 
+	finishSynthesis("dossier synthesised")
 	profile.Sources = sources
+	profile.PersonGate = &models.PersonGate{
+		Name:     gate.name,
+		Company:  gate.company,
+		Kept:     gateKept,
+		NameOnly: gateNameOnly,
+		Dropped:  len(excludedRows),
+		Excluded: excludedRows,
+	}
+	profile.ScrapeReport = scrapeReport
+	profile.Timings = timer.results()
+	profile.SearchQueries = searchQueries
 	profile.LastUpdated = time.Now()
 	if exports := pa.engine.ExportPerson(ctx, &profile); len(exports) > 0 {
 		profile.Exports = exports

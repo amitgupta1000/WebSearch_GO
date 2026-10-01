@@ -22,6 +22,33 @@ type PersonProfile struct {
 	LastUpdated      time.Time         `json:"last_updated"`
 	// Exports lists the output files written for this run (Markdown and PDF).
 	Exports []ExportArtifact `json:"exports,omitempty"`
+	// PersonGate records what the identity check kept and excluded, so a dossier can show why
+	// a same-named person at another employer is not in it. It is the person-mode counterpart
+	// of the company entity gate, attached by the agent and never by the model.
+	PersonGate *PersonGate `json:"person_gate,omitempty"`
+	// ScrapeReport lists every page-fetch attempt with its outcome, like company mode.
+	ScrapeReport []ScrapeReportEntry `json:"scrape_report,omitempty"`
+	// Timings lists where the run's time went, like company mode.
+	Timings []PhaseTiming `json:"timings,omitempty"`
+	// SearchQueries lists the queries the run issued, in order.
+	SearchQueries []string `json:"search_queries,omitempty"`
+}
+
+// PersonGate summarises the identity check a person run applies to everything it collects. A
+// source reaches the dossier only when it names the person; when a company was confirmed, a
+// source that states a *different* employer for that name is excluded, because the same name
+// routinely belongs to several people at several employers.
+type PersonGate struct {
+	Name    string `json:"name"`
+	Company string `json:"company,omitempty"`
+	// Kept counts sources that name the person and the confirmed employer.
+	Kept int `json:"kept"`
+	// NameOnly counts sources that name the person but state no employer, which are kept and
+	// labelled rather than trusted.
+	NameOnly int `json:"name_only,omitempty"`
+	// Dropped counts sources excluded by the gate, listed in Excluded.
+	Dropped  int            `json:"dropped"`
+	Excluded []OffEntityRow `json:"excluded,omitempty"`
 }
 
 // ScorePercent returns the confidence score as a whole percentage (0-100) for display.

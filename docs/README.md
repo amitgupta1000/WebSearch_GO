@@ -154,13 +154,22 @@ Compactly:
 | Stage | Gate | Fallback |
 | :--- | :--- | :--- |
 | Confirmation | 2 searches + 1 aggregator pass only when <2 candidates | name-alone card |
-| Fetch targets | `MaxScrapes` 10, seed first | non-matching hits stay snippets |
+| Snippets | **identity gate**: a snippet must name the person *and* the confirmed company or location | excluded — listed in the dossier's **Identity check** |
+| Fetch targets | identity gate runs first: a page whose headline states a *different* employer, or that never names the person, is never fetched | excluded, with the stated employer in the reason |
 | Profile URL | session ⇒ **one cookie-authenticated fetch**; otherwise the ladder (2/run, 55 s) | ladder ⇒ snippet |
 | Other URLs | content-hash dedupe | `Blocked` ⇒ one ladder escalation |
-| Search 3 | one aggregator `site:` query | snippets only — **DIRECTORY CLAIMS** |
+| Search 3 | one aggregator `site:` query | snippets only — **DIRECTORY CLAIMS**; a directory naming a *different* employer is dropped |
+| Synthesis | the run attaches `person_gate` (kept / name-only / excluded), `scrape_report`, `timings`, `search_queries` | dossier renders **Identity check** and **Research trace** |
 
-Person mode has no entity gate, no freshness pass and no image OCR; company mode is where the
-55 s scrape reserve protects the lookups and synthesis from a slow scrape.
+The identity gate is person mode's counterpart of the company entity gate: the company and
+location confirmed on the card are acceptance rules, not just search terms — that is what keeps
+a same-named person at another employer out of the dossier. A snippet is held harder than a
+fetched page (a snippet that names the person but states no employer is dropped; a fetched page
+that does is kept but counted as *name-only*), because a career history legitimately lists past
+employers in its body while a snippet is a free-floating assertion. A name-alone run has nothing
+to hold sources to and excludes nothing. Person mode still has no freshness pass and no image
+OCR; company mode is where the 55 s scrape reserve protects the lookups and synthesis from a
+slow scrape.
 
 ## Environment variables
 
