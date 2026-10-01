@@ -99,7 +99,7 @@ Then:
 2. **Search** — every query runs through Serper; results are deduplicated across
    queries and cached for 48 h.
 3. **Rank** — BM25 scores every snippet immediately, then Gemini semantically reranks
-   the top eight candidates within an eight-second deadline; if that call times out or
+   the top twelve candidates within an eight-second deadline; if that call times out or
    returns invalid URLs, the BM25 order continues straight to scraping. Candidates
    showing no connection to the target company — no official-domain match and no
    distinctive company-name token in the title, snippet or URL — are dropped, so other
@@ -129,6 +129,38 @@ Then:
 7. **Save** — the finished chart or dossier is written to `OUTPUT_BUCKET` as a Markdown
    document and a PDF, and the console lists both under **Saved files** (see
    [Saved output files](#saved-output-files)).
+
+### Scraping trajectory at a glance
+
+The full decision-by-decision version — every filter, cap and fallback, with the function
+names — is the [scraping-trajectory appendix](docs/ARCHITECTURE.md#appendix-scraping-trajectory-company-vs-person).
+Compactly:
+
+**Company run**
+
+| Stage | Gate that can stop it | What happens when it does |
+| :--- | :--- | :--- |
+| Plan | unanchored query, cap 10, one slot held for the aggregator query | deterministic `fallbackQueryPlan` |
+| Rank | no shared company token (`pruneUnconnected`); source quality < 0.25 (deny-listed hosts) | candidate dropped — **never fetched** |
+| Profile pass | `HARD_URLS_PER_RUN` 2, 55 s per URL, needs budget + 20 s | `skipped` + the public snippet is kept |
+| Batch scrape | `MAX_SCRAPES_PER_RUN` 10; fetches stop 55 s before the deadline | pages already fetched are kept |
+| Page | `Blocked` ⇒ one ladder escalation | else `failed`, snippet retained |
+| Synthesis | — | run fails (no fallback) |
+| QC | 2 follow-ups max, needs ≥60 s | result returned as-is |
+| Freshness | 10 reverse lookups, 18/36-month windows | row excluded unless a lookup rescues it |
+
+**Person run**
+
+| Stage | Gate | Fallback |
+| :--- | :--- | :--- |
+| Confirmation | 2 searches + 1 aggregator pass only when <2 candidates | name-alone card |
+| Fetch targets | `MaxScrapes` 10, seed first | non-matching hits stay snippets |
+| Profile URL | session ⇒ **one cookie-authenticated fetch**; otherwise the ladder (2/run, 55 s) | ladder ⇒ snippet |
+| Other URLs | content-hash dedupe | `Blocked` ⇒ one ladder escalation |
+| Search 3 | one aggregator `site:` query | snippets only — **DIRECTORY CLAIMS** |
+
+Person mode has no entity gate, no freshness pass and no image OCR; company mode is where the
+55 s scrape reserve protects the lookups and synthesis from a slow scrape.
 
 ## Environment variables
 
@@ -440,6 +472,46 @@ The scraper is deliberately conservative, and several of these rules surprise pe
     Cookies ride the plain HTTP fetch as well as the ladder's browser context, so a valid
     session often makes a profile readable without a render at all, and `ALLOW_PROFILE_SCRAPING`
     is not required for that.
+    - **Aggregator domains stand in for a LinkedIn profile.** LinkedIn person profiles cannot be
+  read without a session (and a session stops working almost immediately), so the query
+  builders now search the people-data aggregators for the title-and-employer fact a dossier
+  needs:
+  - **Company mode** adds one anchored query, `"<Company>" (site:crunchbase.com OR
+    site:clearbit.com OR site:apollo.io OR site:hunter.io)`. **ZoomInfo is deliberately absent**
+    from that list: it is on the company deny-list (`lowQualityHosts`), so a query for it would
+    return pages the gate discards before fetching. The list is derived from the deny-list at
+    runtime, so it cannot drift.
+  - **Person mode** searches all five — a directory page is a claim about a *named individual*,
+    which that path already labels as "a claim to check" — as an extra pass that is only spent
+    when the two core searches come back thin, plus one such query during the research run
+    itself.
+  - Those results reach synthesis under **DIRECTORY CLAIMS**, labelled as a stated title and
+    employer rather than verified employment, and mostly contribute snippets: these sites
+    paywall or JS-wall their data, so a snippet is usually all there is. Treat them as leads
+    for the corroboration the pipeline already applies (entity matching, proximity, freshness
+    verdicts).
+    - **A session is a per-run asset, not a durable credential.** Measured on a live LinkedIn
+      export: one profile read returned the real page (949 KB, no authwall), and the next
+      request — the same URL a minute later — came back as a redirect loop. Four rules follow
+      from that measurement, and all four are implemented:
+      1. **The cheap path is tried first.** For a profile URL, a session-bearing run makes one
+         cookie-authenticated HTTP fetch before it considers a render — in person mode too,
+         which previously only ever rendered profiles even though the cheap fetch is what
+         works. With no session, behaviour is unchanged: straight to the ladder, because an
+         unauthenticated authwall fetch buys nothing.
+      2. **A session leads the ladder when one applies.** For an auth-walled shape the
+         cookie-bridged render is the first step and the plain render is dropped, since time
+         cannot clear a sign-in page — that futile step was what triggered the redirect loop
+         in the live test.
+      3. **The cache is scoped to the session.** A logged-out failure is negative-cached for
+         15 minutes; that entry is no longer served to the run for which you have just
+         captured a session, because the same URL genuinely answers differently.
+      4. **A refused session is named as such.** A redirect loop while a session was being
+         sent is reported as `session-rejected` — "re-capture it; this page falls back to its
+         public snippet" — instead of a generic ladder failure, so you do not debug a site
+         that is working. A redirect loop *without* a session stays an ordinary site failure.
+      Treat a capture as good for the handful of profile URLs a run actually needs, capture it
+      fresh (right before the run that needs it), and expect to re-capture rather than persist.
     - Two honest caveats. **Sessions expire** and are invalidated by logout, password change
       or a security checkpoint, so the file needs re-capturing; an "empty" jar is nearly always
       an expired one. And **authenticated automation is against LinkedIn's terms** and can get
@@ -447,6 +519,20 @@ The scraper is deliberately conservative, and several of these rules surprise pe
       expect a CAPTCHA to end the run's access to that page regardless (nothing here solves a
       challenge). Registry filings (ZaubaCorp/Tofler), company sites, news and conference bios
       remain the sources that need no session at all.
+  - **Why `ALLOW_PROFILE_SCRAPING` is off.** Measured without a session,
+    `https://in.linkedin.com/in/…` answers **HTTP 999** — LinkedIn's bot-denial — with 1.5 KB
+    and no profile content. That refusal is no longer retried: it is reported as
+    `the site refused the request (HTTP 999)` after **one** request, while a render can still
+    be attempted for a public page on the same host. Opening the flag would spend a batch slot
+    per profile on that refused request and can consume a ladder escalation a recoverable shape
+    (a public post or company page) could have used, in exchange for nothing. The flag exists
+    for the opposite case: fetching profiles through the batch *without* a session. When a
+    session **is** supplied, both modes read the profile with one cookie-authenticated fetch and
+    the flag is not consulted — a session is explicit consent for that host, and one
+    authenticated GET is less intrusive than the logged-out render the default already performs.
+  - **What it costs, concretely.** With the flag off, a profile URL costs one bounded ladder
+    attempt (~15 s) and otherwise contributes its public snippet. With it on and no session, it
+    costs a batch slot for one refused request — for the same snippet.
   - **Raising `HARD_URLS_PER_RUN` buys attempts, not results.** With the cap at 2 vs 6 in
     an A/B on the same brief, more escalations added prose and two office locations but
     no new people, at +67 % scrape time. Keep it low and spend the budget on the run.

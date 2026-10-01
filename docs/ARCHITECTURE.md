@@ -1101,6 +1101,26 @@ the typed-domain case uses.
 
 ### Error handling & resilience
 
+- **Aggregator sources** (`internal/agent/sources.go`). LinkedIn person profiles cannot be read
+  without a session, so `alternativeProfileSources` names the people-data aggregators that
+  publish the same title-and-employer fact: crunchbase, zoominfo, clearbit, apollo.io, hunter.io.
+  Two roles, kept distinct: for **person** material they are claims about a named individual,
+  which `personDirectoryHosts` already flags; for **company** material some are directories, and
+  `companyAcceptedProfileSources` derives which ones the gate keeps by testing each host against
+  `lowQualityHosts` — ZoomInfo is on that list, so no company query ever targets it. The company
+  plan gains one anchored query (`"<Company>" (site:… OR site:…)`, which also passes
+  `matcher.covers`), person research gains one more search whose snippets are labelled
+  `DIRECTORY CLAIMS`, the confirmation step spends an aggregator query only when its two core
+  passes come back thin, and `isProfileSourceURL` keeps the fetch priority in step with the query
+  builder so a searched domain is not ignored at fetch time.
+
+- **A refused client is reported, not retried.** `isBotDenialStatus` recognizes the non-standard
+  code a host uses to refuse a client (LinkedIn answers 999 to a plain client for a person
+  profile: 1.5 KB, no content, measured), and `fetchHTTPOnce` returns it immediately with the
+  reason `the site refused the request (HTTP 999)` — no retries, no body read. It stays
+  **non-terminal** on purpose, because a render can still win a public page on the same host;
+  `isRetriableStatus` keeps handling 408/429/5xx as transient.
+
 - **Serper:** retries transient failures (network, 429, 5xx) with linear backoff;
   fatal errors surface immediately.
 - **Documents (PDFs):** every ingest is bounded three ways, because a workflow that stalls is
@@ -1342,6 +1362,28 @@ server:
   profiles are never scraped, which is when department-level results stay thin for a company
   whose functional leadership is visible only there. `ALLOW_PROFILE_SCRAPING=true` also puts
   them through the normal scrape path — a policy decision, so check the sites' terms first.
+  - **With a session, the cheap path comes first.** `Engine.SessionCookiesFor` reports whether
+    the jar covers a URL's host; when it does, a profile URL gets one cookie-authenticated
+    `ScrapeCached` attempt before the ladder is considered — in person mode too, which
+    previously sent every profile URL straight to the ladder. The live measurement supports
+    this shape: a cookie-authenticated plain fetch returned a real profile (949 KB, no
+    authwall), while the render sequence reached the sign-in page and then tripped the
+    redirect loop. With no session the rule is unchanged: no unauthenticated authwall fetch,
+    straight to the ladder.
+  - **The ladder leads with the session for auth-walled shapes.** `hardLadderSteps` drops
+    `plain-render` and starts at `cookie-render` when `HardURLShapeOf(...).AuthWalled()` and
+    the jar has cookies. A public shape (a post or company page) keeps `plain-render` first,
+    since it often needs no session at all.
+  - **Cache keys carry a session fingerprint.** `Engine.sessionCacheSuffix` appends a hash of
+    the cookies a URL would be sent (`Scraper.SessionFingerprint`, empty when none apply), so a
+    logged-out authwall failure — negative-cached for 15 minutes — is never served to the run
+    for which a session was just captured. Ordinary pages keep sharing entries.
+  - **A refused session is named.** `tools.IsRedirectLoop` recognizes both spellings
+    (`ERR_TOO_MANY_REDIRECTS` and "stopped after N redirects"), and
+    `Scraper.sessionRejectedError` wraps the failure as `tools.ErrSessionRejected` only when a
+    session was actually sent. The handler reports that as `session-rejected` with "re-capture
+    it", instead of a generic ladder failure that sends the operator looking at the site.
+    Without a session, a redirect loop stays an ordinary site failure.
 - **Ranking is guarded but still heuristic.** `pruneUnconnected` drops candidates with no
   domain or company-name connection, which removed the off-company profiles that used to
   reach the scrape stage — yet in practice the ranker still marks nearly every candidate
@@ -1410,3 +1452,92 @@ the deployment commands.*
 - Implement `cmd/server/main.go` as the HTTP gateway with embedded HTMX templates (`internal/web`), auto-escaped fragment rendering, health endpoint, and graceful shutdown.
 - Add unit tests across tooling (scraper, serper, cookies), caching, LLM JSON cleaning, and template escaping.
 - Containerize with a multi-stage `Dockerfile` ready for GCP Cloud Run deployment.
+
+## Appendix: scraping trajectory (company vs person)
+
+Written against the code at this revision; the function names are the anchors, so if a row
+stops matching the code the code won that argument. Legend for **Bound**: *filter* = dropped,
+never fetched · *budget* = time or count cap · *fallback* = what runs next on failure.
+
+### A1. Company mode — `CompanyAgent.ResearchCompanyRun` → `scrapeRanked`
+
+| # | Stage | What happens | Bound | On failure |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | Plan | Gemini plans ≤10 queries → `enforceEntityQueries` drops unanchored/duplicate → `entityAnchoredQueries` refill | *filter*: a query must name the company, an alias, its domain or its registration id; cap 10; **one slot reserved** for the aggregator query | `fallbackQueryPlan` |
+| 1a | ↳ anchored set | aggregator query first in the refill, then `site:<domain>` ×3, then name-anchored leadership/procurement | ZoomInfo excluded here (deny-list); all five used in person mode | — |
+| 2 | Search | Serper per query | `MaxSearchResults` per query; 48 h cache; URL dedupe | per-query failure tolerated |
+| 3 | Rank | BM25 → top **12** semantically reranked by Gemini, 8 s deadline → `pruneUnconnected` | *filter*: no shared company token with the snippet ⇒ dropped (kept when there is no snippet); quality: aggregator 0.1, `linkedin.` 0.6, external 0.55, leadership 0.7, official 0.9–1.0 | BM25 order continues, marked `semantic skip` |
+| 3a | ↳ relevance floor | `Score += 0.18·(quality−0.5)`; quality < 0.25 ⇒ `Relevant=false` | ***filter at fetch level***: deny-listed hosts are never downloaded | — |
+| 4 | Gate tag | `EntityKey` per candidate (domain 0.95 / registration 0.9 / alias 0.8 / name 0.7) | counts reported | — |
+| 5 | Select | ordered official_leadership → official_report → official_locations → official → leadership → industry_event → external; one page per domain unless official | `MaxScrapes × 2` candidates | — |
+| 6 | Session fetch, then ladder pass (first) | `fetchProfileWithSession` tries one cookie-authenticated fetch when the jar covers the host (company mode included, `ALLOW_PROFILE_SCRAPING` regardless, and the flag is not consulted); otherwise `orderProfileEscalations` by shape priority post 0 / company 1 / other 2 / person 3 / directory 4 | *budget*: `HARD_URLS_PER_RUN` 2; 55 s per URL; needs budget + 20 s | session fetch ⇒ evidence; else recovered by the ladder ⇒ evidence; else `skipped` + public snippet retained (with `ALLOW_PROFILE_SCRAPING=true`, falls through to the batch instead) |
+| 6a | ↳ steps | auth-walled + session ⇒ `cookie-render → extended-settle`; auth-walled, no session ⇒ `plain-render` only; public shape ⇒ `plain-render → [cookie-render] → extended-settle` | *filter*: the futile logged-out render is skipped for auth-walled shapes | exhausts ⇒ `blocked`; a redirect loop **with** a session ⇒ `session-rejected` |
+| 7 | Batch scrape | batches of `MaxScrapes − usable + concurrency − 1` | *budget*: `scrapeCtx` = deadline − 55 s (`validationReserve` 25 + `synthesisReserve` 15 + `gapLookupReserve` 15); host limits | the batch loop stops at the reserve, keeping what it already fetched |
+| 8 | Per page | usable = no error ∧ not `Blocked` ∧ > 80 chars ⇒ evidence (+ image OCR) | dedupe by URL, canonical URL, content hash | `Blocked` ⇒ one ladder escalation (`AlreadyRendered` when the per-run browser already tried); else `failed` + snippet |
+| 9 | Snippet fallback | if evidence is empty, keep search snippets as evidence | capped at `MaxScrapes` | — |
+| 10 | Gap lookups | `fillEntityGaps`: `"<Company>" <area> head director manager` for areas the evidence misses | *budget*: ≤4; needs > 25 s + 15 s; each bounded by headroom; only entity-matching results | nothing added, reported as 0 |
+| 11 | Snippet filter | `filterEntitySnippets` — the company must appear inside the person's ~300-byte mention window | *filter* | dropped snippets counted |
+| 12 | Synthesis | Gemini → `OrgChart` from evidence + filtered snippets + profile candidates + entity `promptLine` + directory claims | — | run fails (no fallback) |
+| 13 | QC review | verdict + optional follow-ups | ≤2 follow-ups (3 iterations total); needs ≥60 s | recorded `unavailable` |
+| 14 | Freshness pass | newest source per row ⇒ verified-recent / dated / stale / undated / conflicting; then ≤10 reverse lookups ranked no-key → conflicting → name-only → stale → undated → dated | windows 18 / 36 months; *budget* 25 s; cache keyed by **session fingerprint** | row excluded (`matched by company name only`) unless a lookup rescues it |
+| 15 | Report + export | entity-gate table, scrape report, md + pdf | — | artifact written on a detached context after the deadline |
+
+
+### A2. Person mode — `PersonAgent.ResearchPerson`
+
+| # | Stage | What happens | Bound | On failure |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | Confirmation step | 2 core searches, candidates parsed from headlines, top match pre-selected | *budget*: 2 queries + **1 aggregator pass only when < 2 candidates**; company **and** place typed ⇒ 0 searches; no pre-selection when nothing names the typed company | 0 candidates ⇒ the step still renders the name-alone card |
+| 2 | Search 1 | `"<name> <company> <location>"` | one query | — |
+| 3 | Fetch targets | confirmed seed first, then hits matching `isProfileSourceURL` (LinkedIn, Wikipedia, "about", GitHub, the five aggregators) | cap `MaxScrapes` 10 | non-matching hits stay snippets |
+| 4 | Profile URL | **session for the host** ⇒ one cookie-authenticated `ScrapeCached`; otherwise ⇒ the ladder | usable = unblocked ∧ > 80 chars; ladder: 2/run, 55 s, needs budget + 20 s | cheap fetch ⇒ ladder ⇒ snippet; a redirect loop with a session ⇒ `session-rejected` |
+| 5 | Other URLs | parallel `ScrapeCachedBatch` | content-hash dedupe; host limits | `Blocked` ⇒ one ladder escalation |
+| 6 | Search 2 | career / interview / conference snippets | one query | skipped |
+| 7 | Search 3 | `<query1> (site:crunchbase.com OR … OR site:hunter.io)` | one query | skipped; these pages usually paywall ⇒ **snippets only** |
+| 7a | ↳ labelling | enters the prompt as **DIRECTORY CLAIMS** (stated title and employer, not verified employment) | — | — |
+| 8 | Synthesis | dossier from snippets + scraped pages + the confirmed-profile block | — | run fails |
+| 9 | Export | md + pdf | — | written on a detached context |
+
+Not present in person mode: the entity gate, the freshness pass, image OCR, and the 55 s scrape
+reserve (its bound is `RESEARCH_TIMEOUT_SECONDS` plus per-request timeouts). Person mode is also
+where the session rules apply, since profile URLs are its bread and butter.
+
+### A3. Inside one fetch — `Scraper.ScrapeURL` (shared)
+
+| Step | What happens | Bound |
+| :--- | :--- | :--- |
+| validate | http/https only; loopback, RFC1918 and metadata addresses refused; blocked-source list | hard |
+| cache | `scrapeCacheKey(ctx,url) + sessionCacheSuffix` — mode `default`/`http`/`browser`, plus the session fingerprint when cookies apply | 7 d hit; negative 15 min; revalidate after 24 h (6 s conditional request) |
+| politeness | per-host rate, burst, in-flight cap | 2/s, 3, 2 |
+| fetch | retries with linear backoff, honouring `Retry-After` | attempts; 5 s cap on the hint |
+| status | 304 ⇒ cached copy; 404/410 ⇒ terminal; **999 (bot-denial) ⇒ one request, no retries, reason `the site refused the request (HTTP 999)`, and the browser fallback is still allowed**; other ⇒ browser fallback | — |
+| non-HTML | skip when `Content-Length` > 40 MiB (**terminal**, no render); extract ≤60 s; PDF ⇒ Gemini (≤8 MiB inline) ⇒ local parser (deadline between pages, partial text kept) | `DOCUMENT_EXTRACT_TIMEOUT_SECONDS` |
+| HTML | extract; 2 MiB body cap; `content_truncated`; ~40 KB text cap | — |
+| block detection | `Blocked` ⇒ per-run browser fallback when the toggle is on, else the blocked result is returned | — |
+| ladder | **not** here: the agent calls `ScrapeHard` through the bounded handler | as A1 row 6 |
+
+### A4. What an anonymous LinkedIn profile fetch actually produces
+
+Measured with no cookies and no session, on `https://in.linkedin.com/in/<profile>`:
+
+```
+raw: status=999 final=…/in/<profile> bytes=1530
+  wall markers: authwall=1, "sign in"=0, "join now"=0
+  profile markers: parmar=0, experience=0
+scraper: error: scraping failed after 3 attempts: scraping returned status code: 999
+```
+
+**999 is LinkedIn's bot-denial**, not a sign-in page a login would clear: 1.5 KB, no profile
+content, served to a plain client whatever its intent. That is why a profile URL is worth
+exactly one bounded ladder attempt (a render can win a *public post or company page*) and
+otherwise its snippet — and why `ALLOW_PROFILE_SCRAPING=false` stays the default: opened up,
+each profile would spend a batch slot on a single refused request and can consume a ladder
+escalation a recoverable shape could have used, in exchange for nothing.
+
+`fetchProfileWithSession` is the flip side of the same measurement: when the operator *does*
+supply a session covering the host, both modes read the profile with one cookie-authenticated
+fetch first, because that is the request that actually returned content (949 KB, no authwall).
+The refusal above is no longer retried — one request, then the reason — which is why the
+package reports `isBotDenialStatus` separately from `isRetriableStatus`.
+
+

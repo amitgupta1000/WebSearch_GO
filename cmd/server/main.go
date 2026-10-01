@@ -170,6 +170,10 @@ func main() {
 		log.Printf("Cookie jar: %d cookies from %s (%d skipped, %d also registered for the parent domain): %s",
 			cookieReport.Cookies, cfg.CookieFile, cookieReport.Skipped, cookieReport.WidenedToParent,
 			strings.Join(cookieReport.Domains, ", "))
+		// A captured session is a per-run asset, not a durable credential: measured on a live
+		// LinkedIn export, one profile read worked and the next request was answered with a
+		// redirect loop. Say so, so nobody configures one and expects it to keep working.
+		log.Printf("Cookie session: treat this as short-lived — a handful of profile fetches, then re-capture; a fetch that reports the session was rejected means exactly that")
 	}
 
 	// 2. Initialize the Gemini LLM client. Fail fast: research cannot run without it,

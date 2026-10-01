@@ -117,26 +117,48 @@ func (pa *PersonAgent) ResearchPerson(
 		if len(fetchTargets) >= pa.engine.MaxScrapes() {
 			break
 		}
-		// Prioritize professional profiles, bio pages, interviews, personal sites, github, wiki
-		if strings.Contains(sr.Link, "linkedin.") || strings.Contains(sr.Link, "wikipedia") || strings.Contains(sr.Link, "about") || strings.Contains(sr.Link, "github") || len(fetchTargets) == 0 {
+		if isProfileSourceURL(sr.Link) || len(fetchTargets) == 0 {
 			fetchTargets = append(fetchTargets, sr)
 		}
 	}
 
-	// Professional-profile walls are the norm in person mode, so those URLs go
-	// straight to the bounded hard-URL handler rather than feeding an auth wall to
-	// the normal scrape path. Everything else is fetched in parallel below.
+	// Professional-profile walls are the norm in person mode, so a profile URL is fetched
+	// through the session first when the operator has supplied one: a cookie-authenticated
+	// plain fetch is the cheapest request there is, and on a live profile it is the one that
+	// actually returned the page. Only when that fails does the URL go to the bounded
+	// hard-URL ladder; with no session at all it goes straight there, exactly as before,
+	// because an unauthenticated fetch of an authwall buys nothing.
+	// Everything that is not a profile is fetched in parallel below: the fetches are
+	// latency-bound, so doing them one at a time only adds the round trips together.
 	parallelTargets := make([]models.SearchResult, 0, len(fetchTargets))
 	fetchURLs := make([]string, 0, len(fetchTargets))
 	for _, sr := range fetchTargets {
-		if strings.Contains(sr.Link, "linkedin.") && handler.available() {
-			outcome := handler.handle(ctx, sessionID, sr.Link, "professional profile", 4+scrapeCount, eventCh, tools.HardScrapeOptions{})
-			if outcome.Status == "recovered" && outcome.Result != nil && len(outcome.Result.Content) > minScrapeContentLen {
-				gatheredScrapes.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, outcome.Result.Content))
-				sources = append(sources, sr.Link)
-				scrapeCount++
+		if isProfessionalProfileURL(sr.Link) {
+			if pa.engine.SessionCookiesFor(sr.Link) {
+				Emit(eventCh, models.AgentEvent{
+					SessionID: sessionID,
+					Type:      models.EventToolCall,
+					Step:      4 + scrapeCount,
+					ToolName:  "web_scraper",
+					ToolInput: sr.Link,
+					Content:   "Fetching the profile with the exported session (no render)...",
+				})
+				if result := fetchProfileWithSession(ctx, pa.engine, sr.Link); result != nil {
+					gatheredScrapes.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, result.Content))
+					sources = append(sources, sr.Link)
+					scrapeCount++
+					continue
+				}
 			}
-			continue
+			if handler.available() {
+				outcome := handler.handle(ctx, sessionID, sr.Link, "professional profile", 4+scrapeCount, eventCh, tools.HardScrapeOptions{})
+				if outcome.Status == "recovered" && outcome.Result != nil && len(outcome.Result.Content) > minScrapeContentLen {
+					gatheredScrapes.WriteString(fmt.Sprintf("\n--- Source: %s (%s) ---\n%s\n", sr.Title, sr.Link, outcome.Result.Content))
+					sources = append(sources, sr.Link)
+					scrapeCount++
+				}
+				continue
+			}
 		}
 		Emit(eventCh, models.AgentEvent{
 			SessionID: sessionID,
@@ -198,6 +220,28 @@ func (pa *PersonAgent) ResearchPerson(
 		gatheredContext.WriteString(FormatSearchSnippets(secResults))
 		for _, r := range secResults {
 			sources = append(sources, r.Link)
+		}
+	}
+
+	// Step 3: the aggregator domains that publish a title and employer for a named person.
+	// This is the replacement for a LinkedIn profile, which cannot be read without a session:
+	// the snippets are labelled as directory claims rather than profile facts, because that is
+	// what they are, and the pages are usually paywalled for anything more.
+	if aggregatorQuery := sourceSiteQuery(query1, alternativeProfileSources); aggregatorQuery != "" {
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID,
+			Type:      models.EventToolCall,
+			Step:      6,
+			ToolName:  "serper_search",
+			ToolInput: aggregatorQuery,
+			Content:   "Searching the people-data aggregators for a title and employer...",
+		})
+		if aggResults, aggErr := pa.engine.SearchCached(ctx, aggregatorQuery, pa.engine.MaxSearchResults()); aggErr == nil && len(aggResults) > 0 {
+			gatheredContext.WriteString("\n=== DIRECTORY CLAIMS (aggregator snippets: a stated title and employer, not verified employment) ===\n")
+			gatheredContext.WriteString(FormatSearchSnippets(aggResults))
+			for _, r := range aggResults {
+				sources = append(sources, r.Link)
+			}
 		}
 	}
 

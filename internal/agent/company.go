@@ -498,7 +498,7 @@ func (ca *CompanyAgent) planQueries(ctx context.Context, brief models.CompanyBri
 		strings.Join(brief.DesiredOutput, ", "), brief.TimeScope, brief.UserNotes)
 	llmCtx, cancel := context.WithTimeout(ctx, companyPlanningTimeout)
 	defer cancel()
-	err := ca.engine.GenerateStructured(llmCtx, `Create a focused company web research query plan. Return JSON with a queries array. Each query needs query, purpose, target_area, and priority from 1 to 5. EVERY query must contain the company name, one of its aliases, or its domain — a query without one of those is discarded before it runs, because an unanchored query returns another company's pages that merely look relevant. Prefer "site:<domain>" queries for the company's own pages. Cover leadership, locations, and user-requested areas. Treat procurement, sourcing, supply chain, and marketing as explicit department targets, and write them against the company ("<company> chief procurement officer", not "chief procurement officer India"). Conference speaker lists may only be searched together with the company name. For department-level executives, use title variants such as CPO, Chief Procurement Officer, CSCO, Chief Supply Chain Officer, VP Sourcing, VP Supply Chain, CMO, Chief Marketing Officer, VP Sales, CRO, VP Engineering, CTO, and CFO. You may use site:linkedin.com/in/ in search queries to find public profile snippets, but do not assume LinkedIn pages can be directly scraped or that snippets prove employment without corroboration.`, request, &plan)
+	err := ca.engine.GenerateStructured(llmCtx, `Create a focused company web research query plan. Return JSON with a queries array. Each query needs query, purpose, target_area, and priority from 1 to 5. EVERY query must contain the company name, one of its aliases, or its domain — a query without one of those is discarded before it runs, because an unanchored query returns another company's pages that merely look relevant. Prefer "site:<domain>" queries for the company's own pages. Cover leadership, locations, and user-requested areas. Treat procurement, sourcing, supply chain, and marketing as explicit department targets, and write them against the company ("<company> chief procurement officer", not "chief procurement officer India"). Conference speaker lists may only be searched together with the company name. For department-level executives, use title variants such as CPO, Chief Procurement Officer, CSCO, Chief Supply Chain Officer, VP Sourcing, VP Supply Chain, CMO, Chief Marketing Officer, VP Sales, CRO, VP Engineering, CTO, and CFO. You may use site:linkedin.com/in/ in search queries to find public profile snippets, but do not assume LinkedIn pages can be directly scraped or that snippets prove employment without corroboration. `+profileSourceHint(), request, &plan)
 	if err != nil || len(plan.Queries) == 0 {
 		return fallbackQueryPlan(brief), 0
 	}
@@ -542,8 +542,28 @@ func enforceEntityQueries(plan models.QueryPlan, brief models.CompanyBrief) (mod
 	}
 
 	// Refill with queries that are safe by construction, which also guarantees a
-	// site:<domain> query when a domain is known.
-	for _, anchor := range entityAnchoredQueries(brief) {
+	// site:<domain> query when a domain is known. One slot is reserved for the aggregator
+	// query: a planner that fills the plan exactly — 10 queries, which is what a live run
+	// produced — would otherwise crowd out the only query aimed at the domains that stand in
+	// for a LinkedIn profile.
+	reserve := 0
+	if companyAggregatorQuery(brief) != "" {
+		reserve = 1
+	}
+	kept = limitQueryPlan(models.QueryPlan{Queries: kept}, maxCompanySearchQueries-reserve).Queries
+	refill := entityAnchoredQueries(brief)
+	if aggregatorQuery := companyAggregatorQuery(brief); aggregatorQuery != "" && !seen[strings.ToLower(aggregatorQuery)] {
+		// Reserve its slot at the front of the refill rather than at the back: with one slot
+		// free, the domains that stand in for a LinkedIn profile are worth more than another
+		// site:<domain> query, which the planner already writes on its own.
+		refill = append([]models.PlannedQuery{{
+			Query:      aggregatorQuery,
+			Purpose:    "read company and people aggregator pages for names and titles",
+			TargetArea: "leadership",
+			Priority:   1,
+		}}, refill...)
+	}
+	for _, anchor := range refill {
 		if len(kept) >= maxCompanySearchQueries {
 			break
 		}
@@ -577,7 +597,26 @@ func entityAnchoredQueries(brief models.CompanyBrief) []models.PlannedQuery {
 			models.PlannedQuery{Query: base + " procurement supply chain sourcing head director", Purpose: "identify procurement and supply chain leads", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
 		)
 	}
+	// The aggregators that publish the same title-and-employer facts a LinkedIn profile would
+	// go last here, because the company's own pages are the better fallback material. When the
+	// plan is full they matter more than the entries above, so enforceEntityQueries gives this
+	// one the reserved slot ahead of them.
+	if aggregatorQuery := companyAggregatorQuery(brief); aggregatorQuery != "" {
+		queries = append(queries, models.PlannedQuery{
+			Query:      aggregatorQuery,
+			Purpose:    "read company and people aggregator pages for names and titles",
+			TargetArea: "leadership",
+			Priority:   1,
+		})
+	}
 	return queries
+}
+
+// companyAggregatorQuery is the one anchored query that targets the people-data aggregators.
+// It is derived, never hand-written, so a host the entity gate filters can never appear in a
+// query whose results would be discarded.
+func companyAggregatorQuery(brief models.CompanyBrief) string {
+	return sourceSiteQuery("\""+strings.TrimSpace(brief.CompanyName)+"\"", companyAcceptedProfileSources())
 }
 
 func fallbackQueryPlan(brief models.CompanyBrief) models.QueryPlan {
@@ -1189,6 +1228,26 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 	// logged-out person profile is an authwall that exhausts the ladder in 15-25 s.
 	for _, item := range orderProfileEscalations(ranked) {
 		if known[normalizeURL(item.URL)] {
+			continue
+		}
+		// A session the operator supplied is tried the cheap way first, and it does not need
+		// ALLOW_PROFILE_SCRAPING: that flag gates the batch path, while a session is explicit
+		// consent for this host and one authenticated GET is less intrusive than the render
+		// the default already performs for every profile candidate.
+		if session := fetchProfileWithSession(scrapeCtx, ca.engine, item.URL); session != nil {
+			entry := models.ScrapeReportEntry{
+				URL: item.URL, SourceType: item.SourceType, Status: "recovered",
+				Reason:       "professional profile read with the exported session (no render)",
+				WordCount:    session.WordCount,
+				QualityScore: session.QualityScore,
+				ImagesFound:  len(session.Images),
+				Extractor:    session.Extractor,
+			}
+			evidence = append(evidence, ca.evidenceWithOCR(scrapeCtx, item, session, &entry))
+			sources = append(sources, item.URL)
+			known[normalizeURL(item.URL)] = true
+			usableScrapes++
+			report = append(report, entry)
 			continue
 		}
 		if handler.available() {

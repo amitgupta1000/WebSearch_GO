@@ -3,6 +3,8 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +14,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -92,7 +95,64 @@ var (
 	// ErrHardLadderExhausted reports that every ladder step ran without
 	// producing readable content (still blocked, or only a thin shell).
 	ErrHardLadderExhausted = errors.New("hard URL ladder exhausted")
+	// ErrSessionRejected reports that the site answered with a redirect loop while a session
+	// was being sent, which is how a flagged or expired export behaves rather than how a
+	// broken site behaves. It exists so an operator sees "re-capture the session" instead of
+	// debugging a site that is working fine.
+	ErrSessionRejected = errors.New("the exported session appears rejected or flagged")
 )
+
+// IsRedirectLoop reports whether an error is the redirect-storm signature. Both clients
+// produce it: Go's http.Client says "stopped after 10 redirects", and Chromium says
+// "net::ERR_TOO_MANY_REDIRECTS".
+func IsRedirectLoop(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Chromium reports net::ERR_TOO_MANY_REDIRECTS (underscores), Go says "stopped after N
+	// redirects" (spaces), so both spellings have to be matched.
+	lowered := strings.ToLower(err.Error())
+	if strings.Contains(lowered, "too many redirects") || strings.Contains(lowered, "too_many_redirects") {
+		return true
+	}
+	return strings.Contains(lowered, "stopped after") && strings.Contains(lowered, "redirect")
+}
+
+// sessionRejectedError annotates a redirect loop that happened while a session was in play.
+// It returns the original error unchanged when no session was sent for that host, because a
+// loop without a session is a site problem, not a credential problem.
+func (s *Scraper) sessionRejectedError(targetURL string, err error) error {
+	if err == nil || !IsRedirectLoop(err) || !s.HasSessionCookies(targetURL) {
+		return err
+	}
+	return fmt.Errorf("%w (re-capture it before the next run): %v", ErrSessionRejected, err)
+}
+
+// HasSessionCookies reports whether the jar holds any cookie for the target's host. It is how
+// a caller decides whether a page is worth fetching the cheap way — a logged-in-only page
+// answers an unauthenticated fetch with the same wall a browser would, so there is no point
+// paying for that request unless a session exists.
+func (s *Scraper) HasSessionCookies(targetURL string) bool {
+	return len(s.jarCookies(targetURL)) > 0
+}
+
+// SessionFingerprint identifies the session a URL would be fetched with: a short hash of the
+// cookies the jar would send, or "" when there are none. Cache keys carry it, because a page
+// that failed unauthenticated must not be served as a cached failure to a run that now holds
+// a session — the same URL genuinely answers differently.
+func (s *Scraper) SessionFingerprint(targetURL string) string {
+	cookies := s.jarCookies(targetURL)
+	if len(cookies) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(cookies))
+	for _, cookie := range cookies {
+		parts = append(parts, cookie.Name+"="+cookie.Value)
+	}
+	sort.Strings(parts)
+	sum := sha256.Sum256([]byte(strings.Join(parts, "; ")))
+	return hex.EncodeToString(sum[:8])
+}
 
 // Scraper fetches and extracts clean text from webpages.
 type Scraper struct {
@@ -391,10 +451,10 @@ func (s *Scraper) ScrapeHard(ctx context.Context, targetURL string, opts HardScr
 	names := strings.Join(attempted, " → ")
 	hint := noCookieHint(targetURL, cookies)
 	if lastBlocked != nil {
-		return nil, fmt.Errorf("%w (%s): %s%s", ErrHardLadderExhausted, names, lastBlocked.BlockReason, hint)
+		return nil, s.sessionRejectedError(targetURL, fmt.Errorf("%w (%s): %s%s", ErrHardLadderExhausted, names, lastBlocked.BlockReason, hint))
 	}
 	if lastErr != nil {
-		return nil, fmt.Errorf("%w (%s): %v%s", ErrHardLadderExhausted, names, lastErr, hint)
+		return nil, s.sessionRejectedError(targetURL, fmt.Errorf("%w (%s): %v%s", ErrHardLadderExhausted, names, lastErr, hint))
 	}
 	return nil, fmt.Errorf("%w (%s)%s", ErrHardLadderExhausted, names, hint)
 }
@@ -407,15 +467,33 @@ type ladderStep struct {
 
 // hardLadderSteps returns the steps that apply to this URL, in order. It is the
 // single place the ladder's policy lives, so tests can pin it without a browser.
+//
+// The order follows what can actually clear the page. An auth-walled shape needs the session
+// and nothing else, so with a session the cookie-bridged render leads and the plain render is
+// dropped: measured on a live profile, the logged-out render spent its full budget reaching
+// the sign-in page and was the step that triggered LinkedIn's redirect loop. Without a
+// session there is nothing to bridge, so the plain render is all there is.
 func hardLadderSteps(targetURL string, cookies []*http.Cookie, alreadyRendered bool) []ladderStep {
 	steps := make([]ladderStep, 0, 3)
+	authWalled := HardURLShapeOf(targetURL).AuthWalled()
+	hasCookies := len(cookies) > 0
+
+	if hasCookies && authWalled {
+		steps = append(steps, ladderStep{name: "cookie-render", opts: renderOptions{cookies: cookies, timeout: hardRenderTimeout}})
+		steps = append(steps, ladderStep{
+			name: "extended-settle",
+			opts: renderOptions{cookies: cookies, networkIdle: extendedNetworkIdle, settle: extendedSettle, timeout: extendedRenderTimeout},
+		})
+		return steps
+	}
+
 	if !alreadyRendered {
 		steps = append(steps, ladderStep{name: "plain-render", opts: renderOptions{timeout: hardRenderTimeout}})
 	}
-	if len(cookies) > 0 {
+	if hasCookies {
 		steps = append(steps, ladderStep{name: "cookie-render", opts: renderOptions{cookies: cookies, timeout: hardRenderTimeout}})
 	}
-	if len(cookies) == 0 && HardURLShapeOf(targetURL).AuthWalled() {
+	if !hasCookies && authWalled {
 		// Logged out, an auth-walled shape does not clear with time: every
 		// observed attempt spent the full extended settle and reached the same
 		// sign-in page. Skipping the step keeps that budget for the synthesis
@@ -521,7 +599,9 @@ func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.Scra
 		if errors.As(err, &terminal) {
 			return nil, terminal
 		}
-		return s.tryBrowser(ctx, targetURL, nil, "HTTP request failed", err)
+		// A redirect storm is different: a session in play makes it the signature of a
+		// rejected export, and it is named as such so nobody debugs the site instead.
+		return s.tryBrowser(ctx, targetURL, nil, "HTTP request failed", s.sessionRejectedError(targetURL, err))
 	}
 	if response.NotModified {
 		// The caller's cached copy is still current, so there is no body to
@@ -805,6 +885,18 @@ func isRetriableStatus(statusCode int) bool {
 		statusCode >= 500
 }
 
+// botDenialStatus is LinkedIn's non-standard "we refuse this client" code. It is not a
+// transient failure and not a login wall: measured with no session, a person profile answers
+// 999 with 1.5 KB and no content, so retrying it is both impolite and pointless.
+const botDenialStatus = 999
+
+// isBotDenialStatus reports whether a status is a deliberate refusal of the client rather than
+// a server problem. Checking it before isRetriableStatus is what stops a refusal from being
+// retried three times.
+func isBotDenialStatus(statusCode int) bool {
+	return statusCode == botDenialStatus
+}
+
 // sleepWithContext waits for d, returning early if ctx is cancelled.
 func sleepWithContext(ctx context.Context, d time.Duration) error {
 	timer := time.NewTimer(d)
@@ -855,6 +947,14 @@ func (s *Scraper) fetchHTTPOnce(ctx context.Context, targetURL string) (*fetchRe
 	if resp.StatusCode == http.StatusNotModified {
 		response.NotModified = true
 		return response, nil
+	}
+
+	// A refusal is returned at once: the retry loop exists for transient failures, and a
+	// deliberate bot-denial is not one. The error is not terminal for the caller, because a
+	// render *can* win a public page on a host that refuses plain clients — it only loses the
+	// retries. The body is never read, since a refusal carries nothing worth keeping.
+	if isBotDenialStatus(resp.StatusCode) {
+		return nil, fmt.Errorf("the site refused the request (HTTP %d)", resp.StatusCode)
 	}
 
 	// A document far larger than any run could use is not downloaded at all. The check uses

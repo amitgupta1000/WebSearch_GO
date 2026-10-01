@@ -158,7 +158,9 @@ func TestResolvePersonCandidatesRanksAndCaps(t *testing.T) {
 
 // TestResolvePersonCandidatesAsksForContextWhenNoneWasTyped keeps the lookup useful on a
 // bare name: with nothing to disambiguate, the follow-up query has to ask for the pages that
-// state a role and employer, because a bare-name hit states neither.
+// state a role and employer, because a bare-name hit states neither. It also covers the
+// aggregator pass, which is spent because a stub searcher returns nothing and the answer is
+// therefore thin.
 func TestResolvePersonCandidatesAsksForContextWhenNoneWasTyped(t *testing.T) {
 	searcher := &datedSearcher{}
 	agent := NewPersonAgent(NewEngine(&mockLLM{}, searcher, &failingScraper{}, cache.NewMemoryCache(50), 10, 5, 20))
@@ -166,11 +168,14 @@ func TestResolvePersonCandidatesAsksForContextWhenNoneWasTyped(t *testing.T) {
 	if _, err := agent.ResolvePersonCandidates(context.Background(), "Sanjay Gupta", "", ""); err != nil {
 		t.Fatalf("ResolvePersonCandidates: %v", err)
 	}
-	if len(searcher.queries) != personResolveQueryLimit {
-		t.Fatalf("expected %d queries, got %v", personResolveQueryLimit, searcher.queries)
+	if len(searcher.queries) != personResolveQueryLimit+1 {
+		t.Fatalf("expected the two core passes plus the aggregator pass, got %v", searcher.queries)
 	}
 	if !strings.Contains(searcher.queries[1], "linkedin profile") {
 		t.Errorf("expected the second query to ask for profiles, got %v", searcher.queries)
+	}
+	if aggregator := searcher.queries[personResolveQueryLimit]; !strings.Contains(aggregator, "site:crunchbase.com") {
+		t.Errorf("expected the extra pass to target the aggregators, got %q", aggregator)
 	}
 
 	// With a company typed, the tight query leads and the wider follow-up is the bare name.

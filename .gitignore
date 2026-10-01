@@ -6,6 +6,10 @@ bin/
 # Secrets & local environment
 .env
 cookies*.json
+# A live session export must never be committable, whatever it is named.
+cookie*
+*_cookies.json
+storage_state*.json
 
 # Go tooling
 coverage.out

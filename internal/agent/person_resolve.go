@@ -22,7 +22,8 @@ const (
 	// personResolveMaxCandidates bounds how many people are offered. More than a handful is
 	// not a choice, it is a list.
 	personResolveMaxCandidates = 4
-	// personResolveQueryLimit bounds the searches this step may spend.
+	// personResolveQueryLimit bounds the searches this step may spend for the two core passes.
+	// The aggregator pass is spent on top of it, and only when the core passes came back thin.
 	personResolveQueryLimit = 2
 	// personCandidateScoreFloor drops hits that carry a name and nothing else: a bare name
 	// in a title is not a candidate identity, it is a coincidence.
@@ -84,9 +85,6 @@ func (pa *PersonAgent) ResolvePersonCandidates(ctx context.Context, name, compan
 	} else {
 		queries = append(queries, trimmedName)
 	}
-	if len(queries) > personResolveQueryLimit {
-		queries = queries[:personResolveQueryLimit]
-	}
 
 	candidates := make([]models.PersonCandidate, 0, personResolveMaxCandidates*2)
 	seen := make(map[string]bool, personResolveMaxCandidates*2)
@@ -106,6 +104,30 @@ func (pa *PersonAgent) ResolvePersonCandidates(ctx context.Context, name, compan
 			}
 			seen[key] = true
 			candidates = append(candidates, candidate)
+		}
+	}
+
+	// The aggregators are the stand-in for a LinkedIn profile, which is unwinnable without a
+	// session: a directory page still states a title and an employer for a named person, which
+	// is exactly what this step pins. The query is spent only when the first passes came back
+	// thin, so the step stays at two searches for the common case.
+	if len(candidates) < 2 {
+		aggregatorQuery := sourceSiteQuery(trimmedName, alternativeProfileSources)
+		if aggregatorQuery != "" {
+			if results, err := pa.engine.SearchCached(ctx, aggregatorQuery, pa.engine.MaxSearchResults()); err == nil {
+				for _, result := range results {
+					candidate, ok := parsePersonCandidate(result, tokens, company, location)
+					if !ok || candidate.Score < personCandidateScoreFloor {
+						continue
+					}
+					key := strings.ToLower(candidate.Name + "|" + candidate.Company)
+					if seen[key] {
+						continue
+					}
+					seen[key] = true
+					candidates = append(candidates, candidate)
+				}
+			}
 		}
 	}
 

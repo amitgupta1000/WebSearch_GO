@@ -270,6 +270,21 @@ func (e *Engine) HardURLsAvailable() bool {
 	return ok
 }
 
+// SessionCookiesFor reports whether the run holds a session for the target's host. It is what
+// lets a caller prefer the cheap, cookie-authenticated fetch for a logged-in-only page
+// instead of paying for a render — and what keeps a logged-out run on exactly the previous
+// path.
+func (e *Engine) SessionCookiesFor(targetURL string) bool {
+	if e == nil {
+		return false
+	}
+	session, ok := e.scraper.(sessionScraper)
+	if !ok {
+		return false
+	}
+	return session.HasSessionCookies(targetURL)
+}
+
 // HardURLsPerRun returns how many URLs one run may escalate.
 func (e *Engine) HardURLsPerRun() int {
 	if e == nil || e.hardURLsPerRun <= 0 {
@@ -421,6 +436,35 @@ func (e *Engine) SearchFresh(ctx context.Context, query string, maxResults int) 
 	return results, nil
 }
 
+// sessionScraper is the slice of the scraper the engine needs to reason about the exported
+// session: whether one applies to a URL, and which one (for cache scoping).
+type sessionScraper interface {
+	HasSessionCookies(targetURL string) bool
+	SessionFingerprint(targetURL string) string
+}
+
+// sessionCacheSuffix scopes a cache key to the session in play, or returns "" when no cookies
+// apply to the host.
+//
+// Without it, one logged-out fetch of a logged-in-only page (an authwall failure, negative-
+// cached for 15 minutes) would be handed to the next run — the very run for which the
+// operator has just captured a session. Ordinary pages keep sharing cache entries exactly as
+// before, because the suffix is empty for a host the jar has nothing for.
+func (e *Engine) sessionCacheSuffix(targetURL string) string {
+	if e == nil {
+		return ""
+	}
+	withSession, ok := e.scraper.(sessionScraper)
+	if !ok {
+		return ""
+	}
+	fingerprint := withSession.SessionFingerprint(targetURL)
+	if fingerprint == "" {
+		return ""
+	}
+	return "|session=" + fingerprint
+}
+
 // scrapeCacheKey scopes a cached scrape to the render mode in effect, so a thin
 // HTTP-only result never masks a browser-rendered re-run of the same URL, and a
 // negative entry from a blocked fetch does not suppress the rendered attempt.
@@ -511,7 +555,7 @@ type cachedScrapeEntry struct {
 // question does not pay to rediscover the same dead end. Cancellations are never
 // cached.
 func (e *Engine) ScrapeCached(ctx context.Context, targetURL string) (*models.ScrapeResult, error) {
-	cacheKey := scrapeCacheKey(ctx, targetURL)
+	cacheKey := scrapeCacheKey(ctx, targetURL) + e.sessionCacheSuffix(targetURL)
 	var entry cachedScrapeEntry
 	if cache.GetJSON(ctx, e.cache, cacheKey, &entry) {
 		switch entry.Kind {
@@ -653,7 +697,7 @@ func hardScrapeCacheKey(targetURL string) string {
 // the entry already holds the escalated copy, and re-asking a challenged page
 // whether it changed would only repeat the escalation.
 func (e *Engine) ScrapeHardCached(ctx context.Context, targetURL string, opts tools.HardScrapeOptions) (*models.ScrapeResult, error) {
-	cacheKey := hardScrapeCacheKey(targetURL)
+	cacheKey := hardScrapeCacheKey(targetURL) + e.sessionCacheSuffix(targetURL)
 	var entry cachedScrapeEntry
 	if cache.GetJSON(ctx, e.cache, cacheKey, &entry) {
 		switch entry.Kind {

@@ -68,15 +68,23 @@ func TestHardLadderSteps(t *testing.T) {
 		rendered  bool
 		wantSteps string
 	}{
-		{"logged-in profile runs every step", person, session, false, "plain-render → cookie-render → extended-settle"},
+		// A session is the only thing that clears an authwall, so it leads — and the
+		// logged-out render that cannot help is dropped rather than paid for. Measured live:
+		// that render reached the sign-in page and was the step that triggered the redirect
+		// loop on a real profile.
+		{"logged-in profile goes straight to the session", person, session, false, "cookie-render → extended-settle"},
+		{"logged-in directory too", directory, session, false, "cookie-render → extended-settle"},
 		{"logged-out profile tries one step only", person, nil, false, "plain-render"},
 		{"logged-out directory tries one step only", directory, nil, false, "plain-render"},
 		{"logged-out post still gets the extended settle", post, nil, false, "plain-render → extended-settle"},
 		{"logged-out company page too", company, nil, false, "plain-render → extended-settle"},
-		{"logged-in post runs every step", post, session, false, "plain-render → cookie-render → extended-settle"},
+		// A public shape keeps the cheap step first: it often needs no session at all, and
+		// the session is there if the page turns out to be blocked.
+		{"logged-in post tries the plain render first", post, session, false, "plain-render → cookie-render → extended-settle"},
 		{"non-LinkedIn URL is unaffected", other, nil, false, "plain-render → extended-settle"},
 		{"already rendered blocked page skips the plain render", other, nil, true, "extended-settle"},
 		{"already rendered profile with no session has nothing left", person, nil, true, ""},
+		{"already rendered profile still uses the session", person, session, true, "cookie-render → extended-settle"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

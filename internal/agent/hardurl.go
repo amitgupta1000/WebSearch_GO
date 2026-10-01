@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -49,6 +50,26 @@ type hardURLHandler struct {
 
 func newHardURLHandler(engine *Engine) *hardURLHandler {
 	return &hardURLHandler{engine: engine}
+}
+
+// isProfessionalProfileURL reports whether a URL is a professional-network page: the shape
+// whose content sits behind an authwall, so the exported session and the ladder matter for it
+// and not for ordinary pages.
+func isProfessionalProfileURL(targetURL string) bool {
+	return strings.Contains(strings.ToLower(targetURL), "linkedin.")
+}
+
+// isProfileSourceURL reports whether a search hit is worth fetching for a person dossier: a
+// professional profile, a biography, a personal site — or an aggregator page that states a
+// title and an employer. LinkedIn is included even though it is usually unwinnable without a
+// session, because a public post or company page does render and its snippet is nearly free.
+func isProfileSourceURL(targetURL string) bool {
+	lowered := strings.ToLower(targetURL)
+	if strings.Contains(lowered, "linkedin.") || strings.Contains(lowered, "wikipedia") ||
+		strings.Contains(lowered, "about") || strings.Contains(lowered, "github") {
+		return true
+	}
+	return matchesAlternativeProfileSource(lowered)
 }
 
 // perRunLimit is how many URLs this run may escalate: the configured value, or the
@@ -126,6 +147,12 @@ func (h *hardURLHandler) handle(ctx context.Context, sessionID, targetURL, label
 	case err == nil:
 		outcome.Status = "recovered"
 		outcome.Reason = "hard-URL ladder recovered the page (" + result.FallbackReason + ")"
+	case errors.Is(err, tools.ErrSessionRejected):
+		// A redirect loop while a session was in play is the exported session being refused
+		// or flagged, not a site problem: say so, because every other reading sends the
+		// operator looking in the wrong place. The run continues on snippet evidence.
+		outcome.Status = "session-rejected"
+		outcome.Reason = "the exported session was rejected (redirect loop) — re-capture it; this page falls back to its public snippet"
 	case errors.Is(err, tools.ErrHardLadderUnavailable):
 		outcome.Status = "unavailable"
 		outcome.Reason = err.Error()
