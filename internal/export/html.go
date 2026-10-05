@@ -93,6 +93,16 @@ var personHTMLTemplate = documentTemplate("person", `
 	<h2>Sources</h2>
 	<ol>{{range .Profile.Sources}}<li class="src">{{.}}</li>{{end}}</ol>
 </section>{{end}}
+{{if .Profile.SameNamed}}<section>
+	<h2>Same-named people</h2>
+	<p class="dim">The dossier above is the confirmed identity's. A person search answers with several people who share the name; these are the most relevant snippets for the others, grouped by the employer each source states.</p>
+	{{range .Profile.SameNamed}}
+	<div class="dept">
+		<h3>{{if .Employer}}{{.Employer}}{{else}}No employer stated (cannot be attributed){{end}}</h3>
+		<ul>{{range .Snippets}}<li>{{.Title}}{{if .Snippet}} &mdash; {{.Snippet}}{{end}} <span class="src">({{.Link}})</span></li>{{end}}</ul>
+	</div>
+	{{end}}
+</section>{{end}}
 <footer>{{.Profile.FullName}} &middot; generated {{.GeneratedAt}} by WebSearch_GO</footer>
 `)
 

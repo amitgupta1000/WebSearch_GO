@@ -154,22 +154,32 @@ Compactly:
 | Stage | Gate | Fallback |
 | :--- | :--- | :--- |
 | Confirmation | 2 searches + 1 aggregator pass only when <2 candidates | name-alone card |
+| Plan | 5 anchored searches — profile, role, appointments, career/education, aggregator `site:` — 3 when no company was confirmed, capped at 6 | a failed search is skipped; the run fails only when every one does |
 | Snippets | **identity gate**: a snippet must name the person *and* the confirmed company or location | excluded — listed in the dossier's **Identity check** |
-| Fetch targets | identity gate runs first: a page whose headline states a *different* employer, or that never names the person, is never fetched | excluded, with the stated employer in the reason |
+| Fetch targets | identity gate first: profile URLs from *every* planned search, then any gate-matched page, up to `MaxScrapes` 10 | excluded, with the stated employer in the reason |
 | Profile URL | session ⇒ **one cookie-authenticated fetch**; otherwise the ladder (2/run, 55 s) | ladder ⇒ snippet |
 | Other URLs | content-hash dedupe | `Blocked` ⇒ one ladder escalation |
-| Search 3 | one aggregator `site:` query | snippets only — **DIRECTORY CLAIMS**; a directory naming a *different* employer is dropped |
-| Synthesis | the run attaches `person_gate` (kept / name-only / excluded), `scrape_report`, `timings`, `search_queries` | dossier renders **Identity check** and **Research trace** |
+| Directory snippets | the aggregator `site:` query is snippets-only, never fetched | a directory naming a *different* employer is dropped |
+| Synthesis | one-person instruction in the prompt; every experience row must cite the `source` URL that supports it; empty over invented | — |
+| **Dossier QC** | a synthesised row whose employer is not the confirmed one survives only when a reverse lookup (`"Name" "That employer"`) ties them; the headline employer is corrected to the confirmed one; identical repeated rows collapse to one | row dropped / corrected — listed in the **Identity check**; lookups capped by `VALIDATION_LOOKUPS_PER_RUN`, gated by `VALIDATE_EVIDENCE` |
+| **Same-named people** | the excluded evidence is regrouped multilaterally — one group per employer a same-named person's source states, plus the unattributed name-only material — and the most relevant snippets per group are shown in the dossier | rendered in console, md and pdf; each employer group in the console carries a **Research this person instead** action |
 
 The identity gate is person mode's counterpart of the company entity gate: the company and
 location confirmed on the card are acceptance rules, not just search terms — that is what keeps
-a same-named person at another employer out of the dossier. A snippet is held harder than a
-fetched page (a snippet that names the person but states no employer is dropped; a fetched page
-that does is kept but counted as *name-only*), because a career history legitimately lists past
-employers in its body while a snippet is a free-floating assertion. A name-alone run has nothing
-to hold sources to and excludes nothing. Person mode still has no freshness pass and no image
-OCR; company mode is where the 55 s scrape reserve protects the lookups and synthesis from a
-slow scrape.
+a same-named person at another employer out of the dossier. The plan replaced three hardcoded
+searches with five anchored ones (six cap), because the old budget bought one broad question
+and two afterthoughts. A snippet is held harder than a fetched page (a snippet that names the
+person but states no employer is dropped; a fetched page that does is kept but counted as
+*name-only*), because a career history legitimately lists past employers in its body while a
+snippet is a free-floating assertion. Dossier QC is the post-synthesis half of the same rule:
+the model's rows are held to the confirmed employer, with a bounded reverse lookup rescuing
+genuine past employers. The **Same-named people** section is the multilateral half of the same
+learning: a person search answers with several people who share the name, so the evidence the
+gate excluded is regrouped by the employer each source states — one group per other person,
+plus the unattributed material — and shown with its most relevant snippets instead of being
+discarded. A name-alone run has nothing to hold sources or rows to and excludes
+nothing. Person mode still has no freshness pass and no image OCR; company mode is where the
+55 s scrape reserve protects the lookups and synthesis from a slow scrape.
 
 ## Environment variables
 

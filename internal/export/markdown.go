@@ -282,6 +282,9 @@ func renderPersonMarkdown(profile *models.PersonProfile) string {
 			if details != "" {
 				fmt.Fprintf(&builder, "%s\n\n", details)
 			}
+			if source := trimmed(experience.Source); source != "" {
+				fmt.Fprintf(&builder, "[source](%s)\n\n", source)
+			}
 			for _, highlight := range experience.Highlights {
 				if highlight = trimmed(highlight); highlight != "" {
 					fmt.Fprintf(&builder, "- %s\n", highlight)
@@ -315,9 +318,36 @@ func renderPersonMarkdown(profile *models.PersonProfile) string {
 	}
 
 	builder.WriteString(renderPersonGateMarkdown(profile.PersonGate))
+	builder.WriteString(renderSameNamedMarkdown(profile.SameNamed))
 	builder.WriteString(renderPersonTraceMarkdown(profile))
 	builder.WriteString(renderSourcesMarkdown(profile.Sources))
 	return strings.TrimRight(builder.String(), "\n") + "\n"
+}
+
+// renderSameNamedMarkdown renders the multilateral view: the evidence for the other people who
+// share the confirmed name, grouped by the employer each source states, plus the material that
+// names the person but states no employer. The dossier stays about the confirmed identity;
+// this section exists so the operator can judge the confirmation instead of trusting it.
+func renderSameNamedMarkdown(groups []models.PersonEvidenceGroup) string {
+	if len(groups) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString("## Same-named people\n\n")
+	builder.WriteString("The dossier above is the confirmed identity's. A person search answers with several people who share the name; these are the most relevant snippets for the others, grouped by the employer each source states.\n\n")
+	for _, group := range groups {
+		if group.Employer == "" {
+			builder.WriteString("### No employer stated (cannot be attributed)\n\n")
+		} else {
+			fmt.Fprintf(&builder, "### %s\n\n", markdownCell(group.Employer))
+		}
+		for _, snippet := range group.Snippets {
+			fmt.Fprintf(&builder, "- **%s** — %s ([source](%s))\n",
+				markdownCell(snippet.Title), markdownCell(snippet.Snippet), snippet.Link)
+		}
+		builder.WriteString("\n")
+	}
+	return builder.String()
 }
 
 // renderPersonGateMarkdown renders the identity check: what the dossier held its sources to

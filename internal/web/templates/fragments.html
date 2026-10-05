@@ -391,7 +391,7 @@
 				{{range .Experiences}}
 				<div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
 					<div class="text-sm font-medium text-white">{{.Role}}</div>
-					<div class="text-xs text-indigo-400">{{.Company}}{{if .Period}} ({{.Period}}){{end}}</div>
+					<div class="text-xs text-indigo-400">{{.Company}}{{if .Period}} ({{.Period}}){{end}}{{if .Source}} &middot; <a href="{{.Source}}" target="_blank" rel="noreferrer" class="hover:underline">source</a>{{end}}</div>
 				</div>
 				{{end}}
 			</div>
@@ -434,6 +434,43 @@
 			</div>
 			{{else}}
 			<p class="text-slate-500">Nothing was excluded: every collected source named the person and did not contradict the confirmed employer.</p>
+			{{end}}
+		</div>
+	</details>
+	{{end}}
+	{{if .SameNamed}}
+	<details class="border-t border-slate-800/60 pt-3">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Same-named people
+			<span class="text-slate-500">({{len .SameNamed}} identities)</span>
+		</summary>
+		<div class="mt-3 space-y-3 text-xs">
+			<p class="text-slate-400">The dossier above is the confirmed identity's. A person search answers with several people who share the name &mdash; these are the most relevant snippets for the others, grouped by the employer each source states.</p>
+			{{range .SameNamed}}
+			<div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1.5">
+				<div class="flex items-center justify-between gap-2">
+					<span class="font-medium text-slate-200">{{if .Employer}}{{.Employer}}{{else}}No employer stated (cannot be attributed){{end}}</span>
+					<span class="text-slate-500">{{len .Snippets}} snippet(s)</span>
+				</div>
+				<div class="space-y-1">
+					{{range .Snippets}}
+					<div class="text-slate-400">
+						<span class="text-slate-300">{{.Title}}</span>{{if .Snippet}} &mdash; {{.Snippet}}{{end}}
+						<a href="{{.Link}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline">source</a>
+					</div>
+					{{end}}
+				</div>
+				{{if and .Employer $.PersonGate $.PersonGate.Name}}
+				<form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="print:hidden">
+					<input type="hidden" name="mode" value="person">
+					<input type="hidden" name="person_source" value="typed">
+					<input type="hidden" name="query" value="{{$.PersonGate.Name}}">
+					<input type="hidden" name="company_name" value="{{.Employer}}">
+					<button type="submit" class="mt-1 text-indigo-400 hover:text-indigo-300 bg-slate-950 border border-slate-800 hover:border-indigo-600 rounded-lg px-2 py-1">Research this person instead</button>
+				</form>
+				{{end}}
+			</div>
 			{{end}}
 		</div>
 	</details>

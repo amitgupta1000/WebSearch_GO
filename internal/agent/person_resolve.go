@@ -204,7 +204,7 @@ func parsePersonCandidate(result models.SearchResult, tokens []string, company, 
 	}
 
 	haystack := strings.ToLower(title + " " + result.Snippet)
-	if trimmed := strings.ToLower(strings.TrimSpace(company)); trimmed != "" && strings.Contains(haystack, trimmed) {
+	if mentionsCompany(haystack, company) {
 		candidate.MatchesCompany = true
 	}
 	if trimmed := strings.ToLower(strings.TrimSpace(location)); trimmed != "" && strings.Contains(haystack, trimmed) {

@@ -32,6 +32,12 @@ type PersonProfile struct {
 	Timings []PhaseTiming `json:"timings,omitempty"`
 	// SearchQueries lists the queries the run issued, in order.
 	SearchQueries []string `json:"search_queries,omitempty"`
+	// SameNamed is the multilateral view: the most relevant snippets for the other people who
+	// share the confirmed name, grouped by the employer each source states, plus the material
+	// that names the person but states no employer. Attached by the agent, never by the
+	// model, because a person search answers with several people and the operator should see
+	// all of them.
+	SameNamed []PersonEvidenceGroup `json:"same_named,omitempty"`
 }
 
 // PersonGate summarises the identity check a person run applies to everything it collects. A
@@ -49,6 +55,20 @@ type PersonGate struct {
 	// Dropped counts sources excluded by the gate, listed in Excluded.
 	Dropped  int            `json:"dropped"`
 	Excluded []OffEntityRow `json:"excluded,omitempty"`
+}
+
+// PersonEvidenceGroup collects the evidence for one identity other than the confirmed one —
+// the same-named people a person search inevitably surfaces. A person query is answered by
+// the search engine with several people who share the name; the dossier is about the
+// confirmed one, and this is where the rest of the evidence is presented instead of being
+// discarded, so the operator can judge the confirmation or spot the person they actually
+// meant.
+type PersonEvidenceGroup struct {
+	// Employer keys the group: the employer a same-named person's source states. Empty means
+	// the evidence names the person but states no employer, so it cannot be attributed.
+	Employer string `json:"employer"`
+	// Snippets are the most relevant hits for this identity, most-specific first.
+	Snippets []SearchResult `json:"snippets"`
 }
 
 // ScorePercent returns the confidence score as a whole percentage (0-100) for display.
@@ -104,13 +124,16 @@ type PersonQuery struct {
 	SeedSnippet string
 }
 
-// Experience details a past or current professional role.
+// Experience details a past or current professional role. Source is the URL from the collected
+// evidence that supports the row: the synthesis prompt requires it, and dossier QC uses it to
+// show what a dropped row was based on.
 type Experience struct {
 	Role       string   `json:"role"`
 	Company    string   `json:"company"`
 	Location   string   `json:"location,omitempty"`
 	Period     string   `json:"period,omitempty"`
 	Highlights []string `json:"highlights,omitempty"`
+	Source     string   `json:"source,omitempty"`
 }
 
 // Education details an academic degree or qualification.

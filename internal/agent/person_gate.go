@@ -64,6 +64,29 @@ func (v personVerdict) usable() bool {
 	return v.Status == personVerdictConfirmed || v.Status == personVerdictMatched || v.Status == personVerdictNameOnly
 }
 
+// mentionsCompany reports whether the company appears in the haystack. It is token-based
+// rather than a substring test because sources punctuate and abbreviate legal names
+// differently from how the operator typed them — "Sanjay Chemicals (India) Pvt. Ltd." must
+// match a pinned "Sanjay Chemicals (India) Pvt Ltd", and an exact substring test rejects the
+// right person's own evidence over a period. Sources also drop the qualifier a legal name
+// carries — the same company is published as "Sanjay Chemicals Pvt" — so the name core (the
+// leading tokens) matches too. Requiring the core whole keeps a namesake from matching:
+// "Sanjay Enterprises" lacks "chemicals", and "… (India) …" alone matches nothing.
+func mentionsCompany(haystack, company string) bool {
+	tokens := nameTokens(company)
+	if len(tokens) == 0 {
+		return false
+	}
+	if containsAllTokens(haystack, tokens) {
+		return true
+	}
+	core := tokens
+	if len(core) > 2 {
+		core = core[:2]
+	}
+	return containsAllTokens(haystack, core)
+}
+
 // classify decides whether one source is about the confirmed person.
 func (g *personGate) classify(targetURL, title, text string) personVerdict {
 	haystack := strings.ToLower(title + " " + text)
@@ -73,13 +96,13 @@ func (g *personGate) classify(targetURL, title, text string) personVerdict {
 	if !containsAllTokens(haystack, g.tokens) {
 		return personVerdict{Status: personVerdictUnrelated}
 	}
-	if g.company != "" && strings.Contains(haystack, strings.ToLower(g.company)) {
+	if g.company != "" && mentionsCompany(haystack, g.company) {
 		return personVerdict{Status: personVerdictMatched}
 	}
 	// The headline is where a source states who this person works for. A different employer
 	// stated there is the contradiction; an employer in the body is a career history, which is
 	// legitimate for the right person.
-	if stated := statedHeadlineEmployer(title, g.tokens); stated != "" && g.company != "" && !strings.Contains(strings.ToLower(stated), strings.ToLower(g.company)) {
+	if stated := statedHeadlineEmployer(title, g.tokens); stated != "" && g.company != "" && !mentionsCompany(stated, g.company) {
 		return personVerdict{Status: personVerdictConflicting, Employer: stated}
 	}
 	if g.location != "" && strings.Contains(haystack, strings.ToLower(g.location)) {
@@ -189,6 +212,74 @@ func dedupeResults(results []models.SearchResult) []models.SearchResult {
 		kept = append(kept, result)
 	}
 	return kept
+}
+
+// Grouping caps: the multilateral view shows the most relevant snippets per identity and the
+// strongest identities first, so the section stays readable on a name with dozens of matches.
+const (
+	personGroupCap        = 8
+	personGroupSnippetCap = 4
+)
+
+// sameNamedGroups turns the sources the identity gate excluded into the multilateral view: one
+// group per employer a same-named person's source states — each is another person with the
+// same name — plus one group for material that names the person but states no employer and
+// therefore cannot be attributed. Sources that never name the person stay out: they are
+// nobody's evidence.
+func (g *personGate) sameNamedGroups(excluded []models.SearchResult) []models.PersonEvidenceGroup {
+	type accumulator struct {
+		snippets []models.SearchResult
+	}
+	groups := make(map[string]*accumulator)
+	order := make([]string, 0, 4)
+	for _, result := range excluded {
+		verdict := g.classify(result.Link, result.Title, result.Snippet)
+		var key string
+		switch verdict.Status {
+		case personVerdictConflicting:
+			key = verdict.Employer
+		case personVerdictNameOnly:
+			key = ""
+		default:
+			continue
+		}
+		acc, ok := groups[key]
+		if !ok {
+			if len(order) >= personGroupCap {
+				continue
+			}
+			acc = &accumulator{}
+			groups[key] = acc
+			order = append(order, key)
+		}
+		if len(acc.snippets) >= personGroupSnippetCap {
+			continue
+		}
+		acc.snippets = append(acc.snippets, result)
+	}
+	// The identity with the most evidence leads; the unattributed material closes the list,
+	// because it cannot be claimed by anyone.
+	sort.SliceStable(order, func(i, j int) bool {
+		emptyI, emptyJ := order[i] == "", order[j] == ""
+		if emptyI != emptyJ {
+			return emptyJ
+		}
+		if len(groups[order[i]].snippets) != len(groups[order[j]].snippets) {
+			return len(groups[order[i]].snippets) > len(groups[order[j]].snippets)
+		}
+		return order[i] < order[j]
+	})
+	out := make([]models.PersonEvidenceGroup, 0, len(order))
+	for _, key := range order {
+		snippets := groups[key].snippets
+		// This identity's own headline — the one carrying its full name — leads its group.
+		sort.SliceStable(snippets, func(i, j int) bool {
+			return containsAllTokens(strings.ToLower(snippets[i].Title), g.tokens) &&
+				!containsAllTokens(strings.ToLower(snippets[j].Title), g.tokens)
+		})
+		out = append(out, models.PersonEvidenceGroup{Employer: key, Snippets: snippets})
+	}
+	return out
 }
 
 // personReportSourceType labels a scrape-report row the way the dossier's source list does.

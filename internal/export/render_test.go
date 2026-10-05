@@ -111,6 +111,14 @@ func TestPersonMarkdownCarriesTheIdentityCheckAndTrace(t *testing.T) {
 		{Phase: "profile fetches", Millis: 3400, Detail: "1 page(s) read"},
 	}
 	profile.SearchQueries = []string{"\"Asha Rao\" \"KLJ Resources\"", "Asha Rao speaker interview articles career education"}
+	profile.SameNamed = []models.PersonEvidenceGroup{
+		{Employer: "OtherCorp Ltd", Snippets: []models.SearchResult{
+			{Title: "Asha Rao - CTO - OtherCorp Ltd | LinkedIn", Link: "https://x/other", Snippet: "Asha Rao — CTO at OtherCorp Ltd, Bengaluru."},
+		}},
+		{Employer: "", Snippets: []models.SearchResult{
+			{Title: "Asha Rao will keynote the supply chain summit", Link: "https://x/keynote", Snippet: "Asha Rao joins the speaker lineup."},
+		}},
+	}
 
 	markdown := renderPersonMarkdown(profile)
 	for _, expected := range []string{
@@ -118,6 +126,11 @@ func TestPersonMarkdownCarriesTheIdentityCheckAndTrace(t *testing.T) {
 		"Asha Rao", "KLJ Resources Limited",
 		"3 kept", "1 naming the person but stating no employer", "2 excluded",
 		"OtherCorp Ltd", "different person with the same name",
+		"## Same-named people",
+		"### OtherCorp Ltd",
+		"Asha Rao — CTO at OtherCorp Ltd, Bengaluru.",
+		"### No employer stated (cannot be attributed)",
+		"Asha Rao will keynote the supply chain summit",
 		"## Research trace",
 		"Asha Rao speaker interview articles career education",
 		"primary search", "profile fetches", "1 page(s) read",
@@ -126,6 +139,14 @@ func TestPersonMarkdownCarriesTheIdentityCheckAndTrace(t *testing.T) {
 	} {
 		if !strings.Contains(markdown, expected) {
 			t.Errorf("person markdown is missing %q", expected)
+		}
+	}
+
+	// The PDF document carries the same multilateral view.
+	document := renderPersonHTML(profile)
+	for _, expected := range []string{"Same-named people", "OtherCorp Ltd", "Asha Rao — CTO at OtherCorp Ltd, Bengaluru."} {
+		if !strings.Contains(document, expected) {
+			t.Errorf("person HTML is missing %q", expected)
 		}
 	}
 
