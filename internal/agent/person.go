@@ -74,12 +74,26 @@ func (pa *PersonAgent) ResearchPerson(
 	}
 
 	// planResults carries every query's gate-passing snippets in plan order, so the fetch
-	// phase can pick pages from all of the searches rather than the first one's.
+	// phase can pick pages from all of the searches rather than the first one's. searchTrace
+	// records what each search returned — kept and excluded, before cross-query dedupe —
+	// behind the Search results tab and the searches.json artifact.
 	type planSearch struct {
 		entry   personPlanEntry
 		results []models.SearchResult
 	}
 	planResults := make([]planSearch, 0, len(plan))
+	searchTrace := &models.SearchTrace{Queries: make([]models.QueryTrace, 0, len(plan)+1)}
+	if confirmedSeed != "" {
+		searchTrace.Queries = append(searchTrace.Queries, models.QueryTrace{
+			Query:   confirmedSeed,
+			Purpose: "confirmed profile (chosen by the operator)",
+			Kept: []models.SearchResult{{
+				Title:   firstNonEmpty(query.SeedTitle, "Confirmed profile"),
+				Link:    confirmedSeed,
+				Snippet: query.SeedSnippet,
+			}},
+		})
+	}
 	seenSnippet := make(map[string]bool, 32)
 	successfulSearches := 0
 	for _, entry := range plan {
@@ -105,6 +119,12 @@ func (pa *PersonAgent) ResearchPerson(
 		// from being synthesised into this person's resume.
 		kept, excluded := gate.filterSnippets(results)
 		gateExcluded = append(gateExcluded, excluded...)
+		searchTrace.Queries = append(searchTrace.Queries, models.QueryTrace{
+			Query:    entry.query,
+			Purpose:  entry.section,
+			Kept:     kept,
+			Excluded: excluded,
+		})
 		fresh := make([]models.SearchResult, 0, len(kept))
 		for _, result := range kept {
 			key := strings.ToLower(result.Link)
@@ -441,14 +461,15 @@ Rules:
 		Type:      models.EventThinking,
 		Step:      8,
 		ToolName:  "person_qc",
-		Content: fmt.Sprintf("Dossier QC: %d experience row(s) kept, %d dropped, %d reverse lookup(s) spent.",
-			len(profile.Experiences), len(qcExcluded), qcLookups),
+		Content: fmt.Sprintf("Dossier QC: %d experience row(s) kept, %d dropped, %d reverse lookup(s) spent, %d overlapping timeline(s) flagged.",
+			len(profile.Experiences), len(qcExcluded), qcLookups, countFlaggedRows(profile.Experiences)),
 	})
 
 	// The multilateral view: a person search answers with several people who share the name,
 	// so the dossier also presents the other identities' most relevant snippets — grouped by
 	// the employer each source states — instead of discarding them.
 	profile.SameNamed = gate.sameNamedGroups(dedupeResults(gateExcluded))
+	profile.SearchTrace = searchTrace
 
 	profile.Sources = sources
 	profile.PersonGate = &models.PersonGate{

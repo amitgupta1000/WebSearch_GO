@@ -340,6 +340,9 @@ type CompanyResearchContext struct {
 	Validation *ValidationReport
 	// EntityGate is the record of what the entity gate filtered out.
 	EntityGate *EntityGate
+	// SearchTrace is the raw search evidence: every planned query with its kept and
+	// excluded hits, per query. Attached by the agent.
+	SearchTrace *SearchTrace
 	// Timings is the per-phase breakdown of the run, in completion order.
 	Timings []PhaseTiming
 }

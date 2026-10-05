@@ -25,6 +25,10 @@ type OrgChart struct {
 	Timings []PhaseTiming `json:"timings,omitempty"`
 	// Exports lists the output files written for this run (Markdown and PDF).
 	Exports []ExportArtifact `json:"exports,omitempty"`
+	// SearchTrace is the raw search evidence the run collected — every planned query with
+	// its kept and excluded hits — behind the Search results tab and the searches.json
+	// artifact. Attached by the agent.
+	SearchTrace *SearchTrace `json:"search_trace,omitempty"`
 	// Validation is the freshness pass over the roster: per-row dates and
 	// verdicts, plus what the bounded reverse lookups changed. Attached by the
 	// agent like ScrapeReport and Timings.

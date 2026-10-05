@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
@@ -31,6 +33,8 @@ func (pa *PersonAgent) qcPersonProfile(
 	// the dossier lists that fact once.
 	profile.Experiences = dedupeExperienceRows(profile.Experiences)
 	if gate == nil || gate.company == "" {
+		// Timeline consistency does not need a confirmed employer: it is row-against-row.
+		flagOverlappingTimelines(profile.Experiences)
 		return nil, 0
 	}
 	pinnedTokens := nameTokens(gate.company)
@@ -71,6 +75,11 @@ func (pa *PersonAgent) qcPersonProfile(
 	}
 	profile.Experiences = kept
 
+	// Timeline consistency: two roles at different employers claiming the same years is either
+	// genuine concurrency or the blend QC exists to catch — flagged, never dropped, because
+	// only the operator and the cited sources can tell those apart.
+	flagOverlappingTimelines(profile.Experiences)
+
 	// The dossier's headline employer is the operator's confirmed one: a synthesised value
 	// that names someone else's company is corrected, not argued with.
 	switch current := strings.TrimSpace(profile.CurrentCompany); {
@@ -102,6 +111,148 @@ func dedupeExperienceRows(rows []models.Experience) []models.Experience {
 		kept = append(kept, row)
 	}
 	return kept
+}
+
+// timelineOverlapYears is how much two roles at different employers may share before QC flags
+// them: one shared year is a normal handover ("2015-2019" then "2019-present"), two or more is
+// either genuine concurrency or a blended row from a same-named person. The flag says which,
+// because only the operator and the cited sources can tell those apart.
+const timelineOverlapYears = 2
+
+// parsePeriodYears reads a synthesised period string into a year range. Model-written periods
+// are free text — "2019-present", "Jan 2015 – Dec 2019", "2010-2018", "Present" — so the
+// parser takes every four-digit year it finds, treats an open-ended phrase as running to the
+// current year, and swaps a reversed range. ok is false when no year can be read, in which
+// case the row cannot take part in the overlap check.
+func parsePeriodYears(period string) (start, end int, ok bool) {
+	text := strings.ToLower(period)
+	if strings.TrimSpace(text) == "" {
+		return 0, 0, false
+	}
+	// Whole-word tests, not substring: "unknown" contains "now", and a row whose period is
+	// "Unknown" is not open-ended.
+	openEnded := containsWholeWord(text, "present") || containsWholeWord(text, "current") ||
+		containsWholeWord(text, "now") || containsWholeWord(text, "onwards") ||
+		containsWholeWord(text, "since") || strings.Contains(text, "till date") ||
+		strings.Contains(text, "to date")
+	var years []int
+	for _, token := range strings.FieldsFunc(text, func(r rune) bool {
+		return r < '0' || r > '9'
+	}) {
+		if len(token) != 4 {
+			continue
+		}
+		value, err := strconv.Atoi(token)
+		if err != nil || value < 1900 || value > time.Now().Year()+1 {
+			continue
+		}
+		years = append(years, value)
+	}
+	if len(years) == 0 {
+		// An open-ended period with no year ("Present", "till date") still claims to be
+		// current: it overlaps anything that includes the current year, which is all the
+		// overlap check can honestly say about it.
+		if openEnded {
+			return time.Now().Year(), time.Now().Year(), true
+		}
+		return 0, 0, false
+	}
+	start, end = years[0], years[len(years)-1]
+	if start > end {
+		start, end = end, start
+	}
+	if openEnded {
+		end = time.Now().Year()
+		if start > end {
+			start = end
+		}
+	}
+	return start, end, true
+}
+
+// flagOverlappingTimelines marks every kept row whose timeline overlaps another row at a
+// *different* employer by more than a handover year. Two roles at one employer overlap all the
+// time — a board seat alongside an executive one — so they are left alone; the blend QC exists
+// to catch is two careers merged into one dossier, and that is what the flag names. It never
+// drops a row: concurrency is legitimate, and the flag is what turns the ambiguity into
+// something the operator can resolve against the cited sources.
+func flagOverlappingTimelines(rows []models.Experience) int {
+	type span struct{ start, end int }
+	spans := make([]span, len(rows))
+	for index, row := range rows {
+		start, end, ok := parsePeriodYears(row.Period)
+		if !ok {
+			spans[index] = span{0, 0}
+			continue
+		}
+		spans[index] = span{start, end}
+	}
+	sharesEmployer := func(a, b models.Experience) bool {
+		aTokens := nameTokens(a.Company)
+		if len(aTokens) == 0 || len(nameTokens(b.Company)) == 0 {
+			return false
+		}
+		for _, token := range nameTokens(b.Company) {
+			for _, pin := range aTokens {
+				if token == pin {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	pairs := 0
+	for i := 0; i < len(rows); i++ {
+		if spans[i].start == 0 {
+			continue
+		}
+		for j := i + 1; j < len(rows); j++ {
+			if spans[j].start == 0 || sharesEmployer(rows[i], rows[j]) {
+				continue
+			}
+			overlapEnd := spans[i].end
+			if spans[j].end < overlapEnd {
+				overlapEnd = spans[j].end
+			}
+			overlapStart := spans[i].start
+			if spans[j].start > overlapStart {
+				overlapStart = spans[j].start
+			}
+			overlap := overlapEnd - overlapStart + 1
+			if overlap < timelineOverlapYears {
+				continue
+			}
+			flag := func(other models.Experience) string {
+				return fmt.Sprintf("timeline overlaps %q at %q (%s) by %d year(s) — concurrent roles or a blended row; verify against the cited sources",
+					firstNonEmpty(strings.TrimSpace(other.Role), "another role"),
+					firstNonEmpty(strings.TrimSpace(other.Company), "an unnamed employer"),
+					other.Period, overlap)
+			}
+			if rows[i].Flag != "" {
+				rows[i].Flag += "; " + flag(rows[j])
+			} else {
+				rows[i].Flag = flag(rows[j])
+			}
+			if rows[j].Flag != "" {
+				rows[j].Flag += "; " + flag(rows[i])
+			} else {
+				rows[j].Flag = flag(rows[i])
+			}
+			pairs++
+		}
+	}
+	return pairs
+}
+
+// countFlaggedRows reports how many surviving rows carry a QC flag, for the run's event log.
+func countFlaggedRows(rows []models.Experience) int {
+	flagged := 0
+	for _, row := range rows {
+		if strings.TrimSpace(row.Flag) != "" {
+			flagged++
+		}
+	}
+	return flagged
 }
 
 // rescueExperienceRow spends one reverse search tying the name to the row's employer in a

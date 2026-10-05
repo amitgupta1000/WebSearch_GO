@@ -32,6 +32,10 @@ type PersonProfile struct {
 	Timings []PhaseTiming `json:"timings,omitempty"`
 	// SearchQueries lists the queries the run issued, in order.
 	SearchQueries []string `json:"search_queries,omitempty"`
+	// SearchTrace is the raw search evidence the run collected — every planned query with
+	// its kept and excluded hits — behind the Search results tab and the searches.json
+	// artifact. Attached by the agent.
+	SearchTrace *SearchTrace `json:"search_trace,omitempty"`
 	// SameNamed is the multilateral view: the most relevant snippets for the other people who
 	// share the confirmed name, grouped by the employer each source states, plus the material
 	// that names the person but states no employer. Attached by the agent, never by the
@@ -126,7 +130,9 @@ type PersonQuery struct {
 
 // Experience details a past or current professional role. Source is the URL from the collected
 // evidence that supports the row: the synthesis prompt requires it, and dossier QC uses it to
-// show what a dropped row was based on.
+// show what a dropped row was based on. Flag carries a QC warning — e.g. a timeline that
+// overlaps another row at a different employer, which is either genuine concurrency or a
+// blended row from a same-named person — set by QC, never by the model.
 type Experience struct {
 	Role       string   `json:"role"`
 	Company    string   `json:"company"`
@@ -134,6 +140,7 @@ type Experience struct {
 	Period     string   `json:"period,omitempty"`
 	Highlights []string `json:"highlights,omitempty"`
 	Source     string   `json:"source,omitempty"`
+	Flag       string   `json:"flag,omitempty"`
 }
 
 // Education details an academic degree or qualification.

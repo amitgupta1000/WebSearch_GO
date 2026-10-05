@@ -268,6 +268,30 @@
 		{{if .UnverifiedSourceCount}}<p class="text-xs text-slate-500 mt-3">{{.UnverifiedSourceCount}} collected source(s) could not be used as evidence: policy-skipped profiles, blocked pages, or empty scrapes.</p>{{end}}
 	</div>
 	<div id="drilldown-loading" class="hidden text-xs text-indigo-400" role="status" aria-live="polite">Loading dossier...</div>
+	{{if .SearchTrace}}
+	<details class="border-t border-slate-800/60 pt-3">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Search results
+			<span class="text-slate-500">({{len .SearchTrace.Queries}} queries · {{.SearchTrace.KeptCount}} kept · {{.SearchTrace.ExcludedCount}} excluded)</span>
+		</summary>
+		<div class="mt-3 space-y-2 text-xs">
+			{{range .SearchTrace.Queries}}
+			<div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1">
+				<div class="flex items-start justify-between gap-2">
+					<span class="text-slate-300 break-all font-mono">{{.Query}}</span>
+					<span class="text-slate-500 shrink-0">{{len .Kept}} kept · {{len .Excluded}} excluded</span>
+				</div>
+				{{if .Purpose}}<div class="text-slate-500">{{.Purpose}}</div>{{end}}
+				<div class="space-y-0.5">
+					{{range .Kept}}<div class="text-slate-400"><span class="text-slate-300">{{.Title}}</span>{{if .Snippet}} &mdash; {{.Snippet}}{{end}} <a href="{{.Link}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline">source</a></div>{{end}}
+				</div>
+			</div>
+			{{end}}
+			{{range .Exports}}{{if and (eq .Format "json") .URL}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="inline-block text-indigo-400 hover:underline bg-slate-950 border border-slate-800 hover:border-indigo-600 rounded-lg px-2 py-1">Download full search results (JSON)</a>{{end}}{{end}}
+		</div>
+	</details>
+	{{end}}
 	{{if .Sources}}
 	<details class="group border-t border-slate-800/60 pt-3">
 		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
@@ -392,6 +416,7 @@
 				<div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
 					<div class="text-sm font-medium text-white">{{.Role}}</div>
 					<div class="text-xs text-indigo-400">{{.Company}}{{if .Period}} ({{.Period}}){{end}}{{if .Source}} &middot; <a href="{{.Source}}" target="_blank" rel="noreferrer" class="hover:underline">source</a>{{end}}</div>
+					{{if .Flag}}<div class="text-xs text-amber-400 mt-1">&#9888; {{.Flag}}</div>{{end}}
 				</div>
 				{{end}}
 			</div>
@@ -501,6 +526,30 @@
 				<div class="space-y-1">{{range .ScrapeReport}}<div class="flex items-start justify-between gap-2"><span class="text-slate-300 break-all">{{.URL}}</span><span class="{{if eq .Status "ok"}}text-emerald-400{{else}}text-red-400{{end}} shrink-0 text-right">{{.Status}}{{if .Reason}} &middot; {{.Reason}}{{end}}</span></div>{{end}}</div>
 			</div>
 			{{end}}
+		</div>
+	</details>
+	{{end}}
+	{{if .SearchTrace}}
+	<details class="border-t border-slate-800/60 pt-3">
+		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
+			Search results
+			<span class="text-slate-500">({{len .SearchTrace.Queries}} queries · {{.SearchTrace.KeptCount}} kept · {{.SearchTrace.ExcludedCount}} excluded)</span>
+		</summary>
+		<div class="mt-3 space-y-2 text-xs">
+			{{range .SearchTrace.Queries}}
+			<div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1">
+				<div class="flex items-start justify-between gap-2">
+					<span class="text-slate-300 break-all font-mono">{{.Query}}</span>
+					<span class="text-slate-500 shrink-0">{{len .Kept}} kept · {{len .Excluded}} excluded</span>
+				</div>
+				{{if .Purpose}}<div class="text-slate-500">{{.Purpose}}</div>{{end}}
+				<div class="space-y-0.5">
+					{{range .Kept}}<div class="text-slate-400"><span class="text-slate-300">{{.Title}}</span>{{if .Snippet}} &mdash; {{.Snippet}}{{end}} <a href="{{.Link}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline">source</a></div>{{end}}
+				</div>
+			</div>
+			{{end}}
+			{{range .Exports}}{{if and (eq .Format "json") .URL}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="inline-block text-indigo-400 hover:underline bg-slate-950 border border-slate-800 hover:border-indigo-600 rounded-lg px-2 py-1">Download full search results (JSON)</a>{{end}}{{end}}
 		</div>
 	</details>
 	{{end}}

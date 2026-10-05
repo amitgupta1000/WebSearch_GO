@@ -285,6 +285,9 @@ func renderPersonMarkdown(profile *models.PersonProfile) string {
 			if source := trimmed(experience.Source); source != "" {
 				fmt.Fprintf(&builder, "[source](%s)\n\n", source)
 			}
+			if flag := trimmed(experience.Flag); flag != "" {
+				fmt.Fprintf(&builder, "> ⚠ %s\n\n", flag)
+			}
 			for _, highlight := range experience.Highlights {
 				if highlight = trimmed(highlight); highlight != "" {
 					fmt.Fprintf(&builder, "- %s\n", highlight)

@@ -1136,6 +1136,18 @@ own headline leads it. The section is rendered in the console, the Markdown and 
 the console each employer group carries a **Research this person instead** action that re-runs
 the research with that employer prefilled.
 
+**Overlapping timelines** (`Experience.Flag`). Two "possible posts" whose periods overlap are
+the last blend signature QC can catch from the dossier alone: a Managing Director row at the
+confirmed employer and a CTO row at another employer both claiming 2019-2021 is either genuine
+concurrency or the same-named person's role. `flagOverlappingTimelines` reads every kept row's
+period (`parsePeriodYears` handles "2019-present", "Jan 2015 – Dec 2019", "Present" with no
+year, reversed ranges), pairs up rows at *different* employers whose ranges share **more than
+one year** — a single shared year is a normal handover — and sets a flag on both rows naming
+the other post and its period. Rows at the same employer are never flagged (a board seat
+alongside an executive one overlaps legitimately), nothing is dropped, and the flag renders on
+the row in the console, the Markdown and the PDF, so the resolution is the operator's: check
+the two cited sources.
+
 ### Error handling & resilience
 
 - **Aggregator sources** (`internal/agent/sources.go`). LinkedIn person profiles cannot be read
@@ -1517,7 +1529,7 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 | 12 | Synthesis | Gemini → `OrgChart` from evidence + filtered snippets + profile candidates + entity `promptLine` + directory claims | — | run fails (no fallback) |
 | 13 | QC review | verdict + optional follow-ups | ≤2 follow-ups (3 iterations total); needs ≥60 s | recorded `unavailable` |
 | 14 | Freshness pass | newest source per row ⇒ verified-recent / dated / stale / undated / conflicting; then ≤10 reverse lookups ranked no-key → conflicting → name-only → stale → undated → dated | windows 18 / 36 months; *budget* 25 s; cache keyed by **session fingerprint** | row excluded (`matched by company name only`) unless a lookup rescues it |
-| 15 | Report + export | entity-gate table, scrape report, md + pdf | — | artifact written on a detached context after the deadline |
+| 15 | Report + export | entity-gate table, scrape report, md + pdf, plus `-searches.json` — every planned query with its kept and excluded hits, linked from the **Search results** tab | — | artifact written on a detached context after the deadline |
 
 
 ### A2. Person mode — `PersonAgent.ResearchPerson`
@@ -1532,9 +1544,9 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 | 6 | Other URLs | parallel `ScrapeCachedBatch`; a fetched body that names the person but states no employer is counted **name-only** | content-hash dedupe; host limits | `Blocked` ⇒ one ladder escalation |
 | 7 | Identity check event | kept / name-only / excluded reported before synthesis | — | — |
 | 8 | Synthesis | dossier from gated snippets + gated scraped pages + the confirmed-profile block; the prompt carries the one-person rule and requires a per-row `source` URL | — | run fails |
-| 9 | **Dossier QC** | every synthesised experience row held to the confirmed employer; a non-matching row survives only when a bounded reverse lookup (`"Name" "That employer"`) ties them; the headline employer is corrected to the confirmed one; identical repeated rows collapse to one | lookups ≤ `VALIDATION_LOOKUPS_PER_RUN`, gated by `VALIDATE_EVIDENCE`, ≥ 15 s of run budget each | dropped / corrected rows are listed in the **Identity check** |
+| 9 | **Dossier QC** | every synthesised experience row held to the confirmed employer; a non-matching row survives only when a bounded reverse lookup (`"Name" "That employer"`) ties them; the headline employer is corrected to the confirmed one; identical repeated rows collapse to one; two rows at different employers overlapping by more than a handover year are **both flagged** on the row (concurrent roles or a blended row) | lookups ≤ `VALIDATION_LOOKUPS_PER_RUN`, gated by `VALIDATE_EVIDENCE`, ≥ 15 s of run budget each; overlap threshold 2 shared years | dropped / corrected rows are listed in the **Identity check**; flags render on the rows |
 | 10 | **Same-named people** | the excluded evidence is regrouped multilaterally — one group per employer a same-named person's source states, plus unattributed name-only material — ordered strongest-first, most relevant snippets per group | caps: 8 groups × 4 snippets (`person_gate.go`) | rendered in the dossier (console, md, pdf); the console offers a re-run per employer |
-| 11 | Export | md + pdf, with **Identity check**, **Same-named people** and **Research trace** sections; experience rows carry their source | — | written on a detached context |
+| 11 | Export | md + pdf, with **Identity check**, **Same-named people** and **Research trace** sections; experience rows carry their source; plus `-searches.json` — every planned query with its kept and excluded hits, linked from the **Search results** tab | — | written on a detached context |
 
 Not present in person mode: the freshness pass and image OCR, and the 55 s scrape reserve (its
 bound is `RESEARCH_TIMEOUT_SECONDS` plus per-request timeouts). The entity gate's counterpart —

@@ -71,6 +71,8 @@ var personHTMLTemplate = documentTemplate("person", `
 	<div class="dept">
 		<h3>{{.Role}}{{if .Company}} &mdash; {{.Company}}{{end}}</h3>
 		{{if or .Period .Location}}<p class="dim">{{.Period}}{{if and .Period .Location}} &middot; {{end}}{{.Location}}</p>{{end}}
+		{{if .Source}}<p class="src">source: {{.Source}}</p>{{end}}
+		{{if .Flag}}<p class="dim">&#9888; {{.Flag}}</p>{{end}}
 		{{if .Highlights}}<ul>{{range .Highlights}}<li>{{.}}</li>{{end}}</ul>{{end}}
 	</div>
 	{{end}}

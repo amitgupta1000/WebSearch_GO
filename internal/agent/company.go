@@ -193,10 +193,15 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		}
 
 		finishSearch := timer.start("search")
-		results, searchErr := ca.searchPlan(ctx, sessionID, plan, eventCh)
+		results, searchTrace, searchErr := ca.searchPlan(ctx, sessionID, plan, eventCh, matcher)
 		finishSearch(fmt.Sprintf("%d queries -> %d results", len(plan.Queries), len(results)))
 		if searchErr != nil {
 			return nil, state, searchErr
+		}
+		// The primary search's trace is the one the dossier publishes: QC follow-ups spend
+		// their own queries, which the validation report already accounts for.
+		if state.SearchTrace == nil {
+			state.SearchTrace = searchTrace
 		}
 		state.SearchResults = appendUniqueSearchResults(state.SearchResults, results)
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 7, Content: fmt.Sprintf("Evaluating relevance of %d search results...", len(state.SearchResults))})
@@ -245,6 +250,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 			return nil, state, err
 		}
 		chart.ScrapeReport = state.ScrapeReport
+		chart.SearchTrace = state.SearchTrace
 		finishReview := timer.start("review (QC)")
 		review := ca.reviewChart(ctx, brief, chart, state.Evidence, sessionID, eventCh)
 		finishReview(review.Verdict)
@@ -659,9 +665,10 @@ func limitQueryPlan(plan models.QueryPlan, limit int) models.QueryPlan {
 	return models.QueryPlan{Queries: queries}
 }
 
-func (ca *CompanyAgent) searchPlan(ctx context.Context, sessionID string, plan models.QueryPlan, eventCh chan<- models.AgentEvent) ([]models.SearchResult, error) {
+func (ca *CompanyAgent) searchPlan(ctx context.Context, sessionID string, plan models.QueryPlan, eventCh chan<- models.AgentEvent, matcher *entityMatcher) ([]models.SearchResult, *models.SearchTrace, error) {
 	var all []models.SearchResult
 	seen := make(map[string]bool)
+	trace := &models.SearchTrace{Queries: make([]models.QueryTrace, 0, len(plan.Queries))}
 	var lastErr error
 	for index, planned := range plan.Queries {
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolCall, Step: 3 + index, ToolName: "serper_search", ToolInput: planned.Query, Content: planned.Purpose})
@@ -670,22 +677,34 @@ func (ca *CompanyAgent) searchPlan(ctx context.Context, sessionID string, plan m
 			lastErr = err
 			continue
 		}
+		usable := make([]models.SearchResult, 0, len(results))
 		for _, result := range results {
 			if isBlockedSourceURL(result.Link) {
 				continue
 			}
+			usable = append(usable, result)
 			key := strings.ToLower(strings.TrimSpace(result.Link))
 			if key != "" && !seen[key] {
 				seen[key] = true
 				all = append(all, result)
 			}
 		}
+		// The trace records what this query returned and what the entity gate made of it,
+		// per query — the raw material behind the Search results tab and the searches.json
+		// artifact, so a run's findings can be audited or reused outside the UI.
+		kept, excluded := splitEntitySnippets(usable, matcher)
+		trace.Queries = append(trace.Queries, models.QueryTrace{
+			Query:    planned.Query,
+			Purpose:  planned.Purpose,
+			Kept:     kept,
+			Excluded: excluded,
+		})
 	}
 	if len(all) == 0 && lastErr != nil {
-		return nil, fmt.Errorf("company search failed: %w", lastErr)
+		return nil, trace, fmt.Errorf("company search failed: %w", lastErr)
 	}
 	Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolResult, Step: 7, ToolName: "serper_search", Content: fmt.Sprintf("Collected %d unique search results.", len(all))})
-	return all, nil
+	return all, trace, nil
 }
 
 func (ca *CompanyAgent) rankResults(ctx context.Context, brief models.CompanyBrief, results []models.SearchResult) []models.RankedResult {

@@ -2,6 +2,7 @@ package export
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -15,7 +16,7 @@ func (e *Exporter) ExportCompany(ctx context.Context, chart *models.OrgChart) []
 	if !e.Enabled() || chart == nil {
 		return nil
 	}
-	return e.exportRun(ctx, "company", chart.CompanyName, renderCompanyMarkdown(chart), renderCompanyHTML(chart))
+	return e.exportRun(ctx, "company", chart.CompanyName, renderCompanyMarkdown(chart), renderCompanyHTML(chart), chart.SearchTrace)
 }
 
 // ExportPerson renders and stores a finished person run's artifacts.
@@ -23,20 +24,31 @@ func (e *Exporter) ExportPerson(ctx context.Context, profile *models.PersonProfi
 	if !e.Enabled() || profile == nil {
 		return nil
 	}
-	return e.exportRun(ctx, "person", profile.FullName, renderPersonMarkdown(profile), renderPersonHTML(profile))
+	return e.exportRun(ctx, "person", profile.FullName, renderPersonMarkdown(profile), renderPersonHTML(profile), profile.SearchTrace)
 }
 
 // exportRun writes every enabled format, reporting one artifact per attempt: a
-// failed PDF must not hide the Markdown that was stored successfully.
-func (e *Exporter) exportRun(ctx context.Context, scope, subject, markdown, html string) []models.ExportArtifact {
+// failed PDF must not hide the Markdown that was stored successfully. The search
+// trace — every query with its kept and excluded hits — is stored alongside them
+// whenever the run recorded one, because the rendered artifacts quote the findings
+// while the trace carries the findings themselves.
+func (e *Exporter) exportRun(ctx context.Context, scope, subject, markdown, html string, searches *models.SearchTrace) []models.ExportArtifact {
 	base := fmt.Sprintf("%s%s/%s-%s", e.prefix, scope, e.now().UTC().Format("20060102-150405"), slugify(subject))
 
-	artifacts := make([]models.ExportArtifact, 0, 2)
+	artifacts := make([]models.ExportArtifact, 0, 3)
 	if e.formats[FormatMarkdown] {
 		artifacts = append(artifacts, e.write(ctx, FormatMarkdown, base+".md", markdownContentType, []byte(markdown)))
 	}
 	if e.formats[FormatPDF] {
 		artifacts = append(artifacts, e.writePDF(ctx, base+".pdf", html))
+	}
+	if searches != nil && len(searches.Queries) > 0 {
+		data, err := json.MarshalIndent(searches, "", "  ")
+		if err != nil {
+			log.Printf("[WARN] encoding the %s search trace failed: %v", scope, err)
+		} else {
+			artifacts = append(artifacts, e.write(ctx, FormatJSON, base+"-searches.json", searchesContentType, data))
+		}
 	}
 	return artifacts
 }
@@ -82,8 +94,8 @@ func (e *Exporter) write(ctx context.Context, role, objectName, contentType stri
 
 // formatForRole maps an artifact role onto the format label used by the UI.
 func formatForRole(role string) string {
-	if role == FormatPDF {
-		return FormatPDF
+	if role == FormatPDF || role == FormatJSON {
+		return role
 	}
 	return FormatMarkdown
 }

@@ -385,20 +385,32 @@ func (m *entityMatcher) describe() []string {
 // planned query reached it. A name and a title in a snippet is all it takes — which is
 // how a global wealth-management roundup became a marketing hire, and how a 2016
 // summit page produced five procurement vice presidents.
-func filterEntitySnippets(results []models.SearchResult, matcher *entityMatcher) ([]models.SearchResult, int) {
+// splitEntitySnippets splits results into the ones the entity matcher admits and the ones it
+// excludes, keeping both halves: filterEntitySnippets only needs the kept side, but the run's
+// search trace shows the excluded side too — that is what makes a short roster auditable.
+func splitEntitySnippets(results []models.SearchResult, matcher *entityMatcher) (kept, excluded []models.SearchResult) {
 	if matcher == nil {
-		return results, 0
+		return results, nil
 	}
-	kept := make([]models.SearchResult, 0, len(results))
-	dropped := 0
+	kept = make([]models.SearchResult, 0, len(results))
+	excluded = make([]models.SearchResult, 0)
 	for _, result := range results {
 		if matcher.match(result.Link, result.Title, result.Snippet).Matched {
 			kept = append(kept, result)
 			continue
 		}
-		dropped++
+		excluded = append(excluded, result)
 	}
-	return kept, dropped
+	return kept, excluded
+}
+
+// filterEntitySnippets results: only snippets that name the company reach the synthesiser.
+func filterEntitySnippets(results []models.SearchResult, matcher *entityMatcher) ([]models.SearchResult, int) {
+	if matcher == nil {
+		return results, 0
+	}
+	kept, _ := splitEntitySnippets(results, matcher)
+	return kept, len(results) - len(kept)
 }
 
 // snippetNamesEntity reports whether one snippet is tied to the company. It is used

@@ -161,7 +161,7 @@ Compactly:
 | Other URLs | content-hash dedupe | `Blocked` ⇒ one ladder escalation |
 | Directory snippets | the aggregator `site:` query is snippets-only, never fetched | a directory naming a *different* employer is dropped |
 | Synthesis | one-person instruction in the prompt; every experience row must cite the `source` URL that supports it; empty over invented | — |
-| **Dossier QC** | a synthesised row whose employer is not the confirmed one survives only when a reverse lookup (`"Name" "That employer"`) ties them; the headline employer is corrected to the confirmed one; identical repeated rows collapse to one | row dropped / corrected — listed in the **Identity check**; lookups capped by `VALIDATION_LOOKUPS_PER_RUN`, gated by `VALIDATE_EVIDENCE` |
+| **Dossier QC** | a synthesised row whose employer is not the confirmed one survives only when a reverse lookup (`"Name" "That employer"`) ties them; the headline employer is corrected to the confirmed one; identical repeated rows collapse to one; two rows at different employers whose timelines overlap by more than a handover year are both **flagged** (concurrent roles or a blended row — never dropped) | dropped / corrected rows listed in the **Identity check**; overlap flags rendered on the rows; lookups capped by `VALIDATION_LOOKUPS_PER_RUN`, gated by `VALIDATE_EVIDENCE` |
 | **Same-named people** | the excluded evidence is regrouped multilaterally — one group per employer a same-named person's source states, plus the unattributed name-only material — and the most relevant snippets per group are shown in the dossier | rendered in console, md and pdf; each employer group in the console carries a **Research this person instead** action |
 
 The identity gate is person mode's counterpart of the company entity gate: the company and
@@ -308,6 +308,11 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
 - **Markdown** is rendered from the research models — org chart, departments and members,
   locations, sources, and the run's phase timings. Person runs produce the dossier equivalent
   under `person/`.
+- **Search results** (`<run>-searches.json`) accompany every run: every query it issued, with
+  each hit split into what the identity/entity gate kept and what it excluded. The console's
+  **Search results** panel previews it per query and links the download; the file is written
+  regardless of the configured output formats, because the rendered artifacts quote the
+  findings while this one carries the findings themselves.
 - **PDF** is printed from the same content by the Chromium the scraper already runs, so no
   PDF library is involved. The document is self-contained (inline styling, no remote assets).
 - **Names are `<timestamp>-<subject>.md`**, which sorts chronologically and keeps an

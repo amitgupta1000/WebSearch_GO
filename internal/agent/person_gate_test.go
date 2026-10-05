@@ -205,6 +205,23 @@ func TestPersonResearchDropsTheSameNamedPersonAtAnotherEmployer(t *testing.T) {
 		t.Errorf("expected the unattributed group with both name-only snippets, got %+v", profile.SameNamed[1])
 	}
 
+	// The search trace is the data behind the Search results tab: every planned query with
+	// its kept and excluded hits, recorded per query before cross-query dedupe.
+	if profile.SearchTrace == nil || len(profile.SearchTrace.Queries) != 5 {
+		t.Fatalf("expected the five planned searches traced, got %+v", profile.SearchTrace)
+	}
+	first := profile.SearchTrace.Queries[0]
+	if len(first.Kept) != 1 || first.Kept[0].Link != target {
+		t.Errorf("expected the matched profile as the first query's kept hit, got %+v", first.Kept)
+	}
+	if len(first.Excluded) != 3 {
+		t.Errorf("expected the other-person and name-only hits excluded on the first query, got %+v", first.Excluded)
+	}
+	if profile.SearchTrace.KeptCount() == 0 || profile.SearchTrace.ExcludedCount() == 0 {
+		t.Errorf("expected the trace counters to be populated, got kept=%d excluded=%d",
+			profile.SearchTrace.KeptCount(), profile.SearchTrace.ExcludedCount())
+	}
+
 	// The operating results the report also asked for: queries, timings, and every fetch.
 	if len(profile.SearchQueries) != 5 {
 		t.Errorf("expected the five planned searches recorded, got %v", profile.SearchQueries)

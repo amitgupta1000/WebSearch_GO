@@ -44,6 +44,48 @@ type SearchResult struct {
 	Date     string `json:"date,omitempty"`
 }
 
+// SearchTrace captures the raw search evidence a run collected: every query issued, and the
+// hits it returned split into what the identity/entity gates kept and what they excluded. It
+// is attached by the agent, never by the model, and it is the data behind the dossier's
+// Search results tab and the run's -searches.json artifact — the same material the cache
+// persists, made downloadable per run.
+type SearchTrace struct {
+	Queries []QueryTrace `json:"queries"`
+}
+
+// QueryTrace is one search's collected evidence: the query, what it was for, and its hits
+// before any cross-query deduplication, so the download shows what each search returned.
+type QueryTrace struct {
+	Query    string         `json:"query"`
+	Purpose  string         `json:"purpose,omitempty"`
+	Kept     []SearchResult `json:"kept,omitempty"`
+	Excluded []SearchResult `json:"excluded,omitempty"`
+}
+
+// KeptCount sums the hits the gates admitted across every query in the trace.
+func (t *SearchTrace) KeptCount() int {
+	if t == nil {
+		return 0
+	}
+	kept := 0
+	for _, query := range t.Queries {
+		kept += len(query.Kept)
+	}
+	return kept
+}
+
+// ExcludedCount sums the hits the gates excluded across every query in the trace.
+func (t *SearchTrace) ExcludedCount() int {
+	if t == nil {
+		return 0
+	}
+	excluded := 0
+	for _, query := range t.Queries {
+		excluded += len(query.Excluded)
+	}
+	return excluded
+}
+
 // ScrapeResult represents the extracted text content of a webpage.
 type ScrapeResult struct {
 	URL               string    `json:"url"`
