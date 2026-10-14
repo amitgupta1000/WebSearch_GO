@@ -3,7 +3,7 @@
 This document explains how the project works end-to-end and the role played by every
 module and file: the request lifecycle, the design decisions that hold it together, the
 tests that pin that behaviour, and the known limitations. It is the companion to
-[`README.md`](../README.md), which covers prerequisites, quickstart, configuration,
+[`README.md`](README.md), which covers prerequisites, quickstart, configuration,
 endpoints and deployment.
 
 > **In one sentence:** WebSearch_GO is a self-contained Go web server that runs
@@ -625,7 +625,7 @@ Also:
 ### Scraper performance & politeness
 
 *A deep, standalone walkthrough of the fetch path — policy, hardening, the rendering
-ladder and extraction — lives in [SCRAPER_WALKTHROUGH.md](../SCRAPER_WALKTHROUGH.md).*
+ladder and extraction — lives in [SCRAPER_WALKTHROUGH.md](SCRAPER_WALKTHROUGH.md).*
 
 Four mechanisms keep the scrape phase fast without hammering anyone:
 
@@ -861,10 +861,12 @@ WebSearch_GO/
 ├── Dockerfile                   # Multi-stage: golang:1.24-alpine → distroless nonroot (HTTP-only)
 ├── Dockerfile.browser           # Playwright base image variant, for browser rendering
 ├── go.mod / go.sum              # Module: goquery + genai + playwright-go + golang.org/x/net + ledongthuc/pdf
-├── README.md                    # Usage: prerequisites, env vars, endpoints, Docker, policies
-├── docs/ARCHITECTURE.md         # This document: architecture, module deep dive, testing, known issues
+├── docs/
+│   ├── README.md                # Usage: prerequisites, env vars, endpoints, Docker, policies
+│   ├── ARCHITECTURE.md          # Architecture, module deep dive, testing, known issues
+│   ├── SCRAPER_WALKTHROUGH.md   # End-to-end scraper behavior and limits
+│   └── GO_FOR_PYTHON_READERS.md # Go concepts explained for Python readers
 ├── react_engine.py              # Standalone Python replica of the ReAct engine (CLI)
-├── generate_project_guide_deck.py  # python-pptx generator for the architecture deck (run on demand)
 └── websearch.exe                # Build artifact of cmd/server (gitignored via *.exe)
 ```
 
@@ -1233,7 +1235,7 @@ the two cited sources.
 
 All configuration comes from environment variables, loaded once by `internal/config/config.go`.
 The canonical table of variables, defaults and meanings lives in
-[the README's environment-variable table](../README.md#environment-variables); what follows is how
+[the README's environment-variable table](README.md#environment-variables); what follows is how
 those values are loaded and validated.
 
 - `config.Load()` is the only reader of the environment, so a deployment's configuration is
@@ -1383,9 +1385,8 @@ server:
 | File | Role |
 | :--- | :--- |
 | `react_engine.py` | A standalone **Python replica** of the Go ReAct engine (its docstring maps each function to the corresponding Go file). It is a CLI learning/demo companion — `python react_engine.py --task "..."` or `--demo` for a fully offline scripted run. Not part of the Go build. |
-| `generate_project_guide_deck.py` | A `python-pptx` script that presents this project's architecture. Its content is embedded as literals, so it does not read the Markdown docs at runtime; the `.pptx` it produces is generated on demand rather than checked in. Documentation tooling, not runtime code. |
 | `websearch.exe` | *Absent until built.* `go build ./cmd/server` produces it at the repository root, and `.gitignore` excludes it through `*.exe`. |
-| `README.md` | Usage: prerequisites, quickstart, environment variables, endpoints, Docker commands, plus the security-header and fetching-policy summaries. |
+| `docs/README.md` | Usage: prerequisites, quickstart, environment variables, endpoints, Docker commands, plus the security-header and fetching-policy summaries. |
 | `docs/ARCHITECTURE.md` | This document — architecture, the module deep dive, testing, and the known-issues list. |
 | `.gitignore`, `.vscode/`, `.github/`, `scripts/` | Repo hygiene, editor task, CI pipeline, dev watcher. |
 
@@ -1395,8 +1396,8 @@ server:
 
 **Verified:**
 
-- `go build ./...`, `go vet ./...` and `go test ./...` all pass across the nine
-  packages, and `gofmt -l` reports no formatting issues (CI enforces the same gates).
+- `go build ./...`, `go vet ./...` and `go test ./...` pass across all Go packages, and
+  `gofmt -l` reports no formatting issues (CI enforces the same gates).
 - Code quality highlights worth keeping: interface-driven agent tools (mockable),
   deterministic fallbacks for every intermediate LLM call, bounded memory everywhere
   (cache, session hub, event channels, scrape sizes), and disciplined HTTP hardening
@@ -1474,7 +1475,7 @@ server:
 
 ---
 
-*See [`README.md`](../README.md) for prerequisites, the canonical configuration table, and
+*See [`README.md`](README.md) for prerequisites, the canonical configuration table, and
 the deployment commands.*
 ## Design history & roadmap
 
@@ -1591,5 +1592,3 @@ supply a session covering the host, both modes read the profile with one cookie-
 fetch first, because that is the request that actually returned content (949 KB, no authwall).
 The refusal above is no longer retried — one request, then the reason — which is why the
 package reports `isBotDenialStatus` separately from `isRetriableStatus`.
-
-

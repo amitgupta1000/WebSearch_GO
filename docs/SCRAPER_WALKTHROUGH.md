@@ -137,7 +137,8 @@ ScrapeURL(ctx, targetURL)
    │      ├─ transport error ────────────────► tryBrowser("HTTP request failed", err)
    │      ├─ status ≠ 200 ───────────────────► tryBrowser("HTTP status NNN", err)
    │      └─ status 200:
-   │            ├─ Content-Type not HTML ──── hard error (no fallback)
+   │            ├─ PDF ───────────────────── document extractor (Gemini → local parser)
+   │            ├─ other non-HTML ─────────── hard error (no fallback)
    │            └─ extractHTML(...)
    │                 ├─ challenge detected → blocked result
    │                 │      └─► tryBrowser("HTTP response was marked as blocked")
@@ -148,8 +149,8 @@ ScrapeURL(ctx, targetURL)
 ```
 
 The key property: **the browser fallback is available at every failure point of the HTTP
-path**, but it is *bounded* — a non-HTML response and a closed scraper fail hard, and a failed
-render never destroys a usable HTTP result (§7).
+path**, but it is *bounded* — unsupported non-HTML responses and a closed scraper fail hard,
+while PDFs use the document extractor; a failed render never destroys a usable HTTP result (§7).
 
 Happy path, step by step:
 
@@ -552,7 +553,8 @@ default suite needs no network and no browser:
 | `TestScrapeURLExtractsContentWithoutDuplicates` | Leaf-block dedup (no nested re-emission) |
 | `TestScrapeURLExtractsMetadataAndRemovesBoilerplate` | Title/headings/JSON-LD kept, boilerplate gone |
 | `TestScrapeURLClassifiesPressAndHoldChallenge` / `TestScrapeURLIgnoresChallengeKeywordsInScript` / `TestDetectBlockPageIgnoresSubstantivePages` | Challenge detection: visible text only, script source ignored, substantive pages never misclassified |
-| `TestScrapeURLRejectsNonHTMLContent` | PDFs/JSON fail with `unsupported content type` |
+| `TestScrapeURLRejectsNonHTMLContent` | Unsupported non-PDF non-HTML responses fail with `unsupported content type` |
+| `TestScrapeURLPDFUsesDocumentExtractor` | PDF responses use the injected document extractor |
 | `TestScrapeURLUsesBrowserForJavaScriptShell` | Thin page → render → real content |
 | `TestScrapeURLKeepsHTTPResultWhenBrowserFails` | Graceful degradation (`FallbackStatus: failed`) |
 | `TestScrapeURLDoesNotBypassRenderedChallenge` | Rendered challenge stays `blocked` |
@@ -594,7 +596,8 @@ Everything else: `go test ./...`.
 - **Hostname-only private-IP check** — a public hostname resolving to a private address is not
   caught (`isPrivateHost` comment, scraper.go:243). Accepted because DNS resolution would be
   duplicated by the dialer; `allowPrivate` deployments are trusted anyway.
-- **Non-HTML is a hard error** — officer lists published as PDFs fail rather than degrade.
+- **Unsupported non-HTML is a hard error** — PDFs are supported through the document
+  extractor, while other binary formats fail rather than degrading to browser rendering.
 - **Challenges are reported, never bypassed** — the hard-URL ladder may render a challenge
   up to three times, but nothing is ever clicked, held, or solved; a surviving interstitial
   keeps the URL blocked.

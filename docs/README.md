@@ -15,7 +15,7 @@ The HTTP layer serves an HTMX UI from templates embedded in the binary
 LLM synthesis, with TTL caching and bounded memory.
 
 > **Documentation:** this file is the user-facing guide (setup, configuration,
-> endpoints, policies). **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** is the
+> endpoints, policies). **[ARCHITECTURE.md](ARCHITECTURE.md)** is the
 > internals companion — request lifecycle, module-by-module deep dive, testing, and
 > known limitations — and **[SCRAPER_WALKTHROUGH.md](SCRAPER_WALKTHROUGH.md)** walks the
 > fetch path (policy, rendering ladder, extraction) end to end.
@@ -43,7 +43,7 @@ Tests that need external resources are skipped unless their gate is set, so the 
 suite runs offline: `PLAYWRIGHT_INTEGRATION=1` enables the real-Chromium tests
 (interstitial cookie reuse, and parsing a real generated PDF) and
 `GEMINI_INTEGRATION=1` enables the live inline-PDF check. See
-[docs/ARCHITECTURE.md § Testing](docs/ARCHITECTURE.md#testing).
+[ARCHITECTURE.md § Testing](ARCHITECTURE.md#testing).
 
 For Windows development, run the auto-reloading server instead:
 
@@ -133,7 +133,7 @@ Then:
 ### Scraping trajectory at a glance
 
 The full decision-by-decision version — every filter, cap and fallback, with the function
-names — is the [scraping-trajectory appendix](docs/ARCHITECTURE.md#appendix-scraping-trajectory-company-vs-person).
+names — is the [scraping-trajectory appendix](ARCHITECTURE.md#appendix-scraping-trajectory-company-vs-person).
 Compactly:
 
 **Company run**
@@ -366,9 +366,9 @@ procurement brief; none of them is about CJ Shah.
 **Confirm the entity first, every time.** A company run now goes through a confirmation
 step: submit the form (or press Enter) and the console shows candidate identities — domain,
 evidence, and a registration number (a CIN read out of a registry page, shown with the page
-it came from). The top match is pre-selected and focused, so confirming is one click;
-person-mode research goes straight to the agent, because a person has no entity to
-disambiguate.
+it came from). The top match is pre-selected and focused, so confirming is one click.
+Person-mode research has a separate confirmation step that resolves people who share a name
+and pins the selected employer and location before the dossier run starts.
 
 - **Two names, one company.** Each card offers the other candidates as *also part of this
   company*: tick one and its domain joins the identity's domains and its name joins its
@@ -606,7 +606,7 @@ The scraper is deliberately conservative, and several of these rules surprise pe
 | Method | Path | Description |
 | :--- | :--- | :--- |
 | `GET` | `/` | Research console (HTMX UI) |
-| `POST` | `/api/research` | Start research: `mode` (`company`/`person`), `query`, `company_name`, `location`, optional company-brief scope fields, and optional `use_browser` (`1`/`0`) to render this run's pages in a real browser. Returns the live workflow console, or the final result fragment with `?sync=1` (used by the CLI and the org-chart drill-down). Full field list: [HTTP API reference](docs/ARCHITECTURE.md#http-api-reference). |
+| `POST` | `/api/research` | Start research: `mode` (`company`/`person`), `query`, `company_name`, `location`, optional company-brief scope fields, and optional `use_browser` (`1`/`0`) to render this run's pages in a real browser. Returns the live workflow console, or the final result fragment with `?sync=1` (used by the CLI and the org-chart drill-down). Full field list: [HTTP API reference](ARCHITECTURE.md#http-api-reference). |
 | `POST` | `/api/rerun` | Form fields: `session_id`, optional `use_browser`. Re-runs a completed company session's retained brief in a new session, which is how a thin result is escalated with browser rendering. |
 | `POST` | `/api/question` | Form fields: `session_id`, `question`. Answers a question from retained evidence or runs a fresh focused search when needed. |
 | `GET` | `/api/events` | Server-Sent Events (SSE) stream for live step logs & final synthesis. |
@@ -651,4 +651,4 @@ The default runtime image is distroless (`nonroot`); templates are embedded, so 
 image contains only the static binary. Use `Dockerfile.browser` (based on the
 matching Playwright image) together with `ENABLE_BROWSER_FALLBACK=true` or the
 per-run toggle when you need rendering in a container. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system design.
+[ARCHITECTURE.md](ARCHITECTURE.md) for the system design.

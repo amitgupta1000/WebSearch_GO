@@ -179,9 +179,10 @@ func (g *personGate) exclusionsFrom(excluded []models.SearchResult) []models.Off
 	for _, result := range excluded {
 		verdict := g.classify(result.Link, result.Title, result.Snippet)
 		reason := "does not name " + g.name
-		if verdict.Status == personVerdictConflicting {
+		switch verdict.Status {
+		case personVerdictConflicting:
 			reason = fmt.Sprintf("states employer %q — a different person with the same name", verdict.Employer)
-		} else if verdict.Status == personVerdictNameOnly {
+		case personVerdictNameOnly:
 			reason = "names the person but states no employer; unconfirmed for this dossier"
 		}
 		rows = append(rows, models.OffEntityRow{
