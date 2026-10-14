@@ -261,6 +261,10 @@ type ScrapeReportEntry struct {
 	HandlerStatus    string `json:"handler_status,omitempty"`
 	HandlerTactics   string `json:"handler_tactics,omitempty"`
 	ContentTruncated bool   `json:"content_truncated,omitempty"`
+	// TriageDecision records the bounded pre-scrape document relevance decision.
+	// It is set only for document candidates that went through the triage gate.
+	TriageDecision   string  `json:"triage_decision,omitempty"`
+	TriageConfidence float64 `json:"triage_confidence,omitempty"`
 }
 
 // QualityReview records a meta-agent evaluation of a completed research pass.

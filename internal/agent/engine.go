@@ -25,6 +25,12 @@ type PageFetcher interface {
 	ScrapeURL(ctx context.Context, targetURL string) (*models.ScrapeResult, error)
 }
 
+// DocumentPreviewFetcher fetches bounded preview bytes for pre-scrape triage.
+// *tools.Scraper satisfies this interface.
+type DocumentPreviewFetcher interface {
+	FetchDocumentPreview(ctx context.Context, targetURL string, maxBytes int) ([]byte, string, error)
+}
+
 // HardURLScraper escalates URLs the normal path could not read through the
 // bounded hard-URL ladder. *tools.Scraper satisfies this interface; test
 // doubles that omit it simply disable the escalation path.
@@ -637,6 +643,17 @@ func (e *Engine) storeScrapeFailure(ctx context.Context, cacheKey string, cause 
 		Error:    cause.Error(),
 		StoredAt: time.Now(),
 	}, negativeScrapeTTL)
+}
+
+// FetchDocumentPreview retrieves a bounded slice of a document's raw payload for triage.
+func (e *Engine) FetchDocumentPreview(ctx context.Context, targetURL string, maxBytes int) ([]byte, string, error) {
+	if e == nil || e.scraper == nil {
+		return nil, "", fmt.Errorf("no scraper configured")
+	}
+	if fetcher, ok := e.scraper.(DocumentPreviewFetcher); ok {
+		return fetcher.FetchDocumentPreview(ctx, targetURL, maxBytes)
+	}
+	return nil, "", fmt.Errorf("document preview fetching not supported by scraper")
 }
 
 // exportTimeout bounds an export. Exports run on a detached context, so a run that

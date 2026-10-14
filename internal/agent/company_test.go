@@ -10,6 +10,7 @@ import (
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/testutil"
 )
 
 type qcMockLLM struct {
@@ -61,6 +62,21 @@ func (blockingRankingLLM) GenerateStructured(ctx context.Context, _ string, _ st
 	return ctx.Err()
 }
 
+type documentTriageMockLLM struct {
+	decision string
+}
+
+func (m documentTriageMockLLM) GenerateStructured(_ context.Context, _ string, _ string, target any) error {
+	value := target.(*documentTriageDecision)
+	value.Decision = m.decision
+	value.Confidence = 0.95
+	value.EntityMatch = true
+	value.TopicMatch = true
+	value.DateMatch = true
+	value.Reason = "test decision"
+	return nil
+}
+
 func TestFallbackQueryPlanUsesCompanyScope(t *testing.T) {
 	brief := models.CompanyBrief{
 		CompanyName: "Acme",
@@ -71,6 +87,7 @@ func TestFallbackQueryPlanUsesCompanyScope(t *testing.T) {
 			AreasOfInterest: []string{"subsidiaries"},
 		},
 	}
+
 	plan := fallbackQueryPlan(brief)
 
 	// Every query must be anchored on the company: the entity gate drops the ones
@@ -684,4 +701,84 @@ func mustDeadline(t *testing.T, within time.Duration) context.Context {
 	ctx, cancel := context.WithTimeout(context.Background(), within)
 	t.Cleanup(cancel)
 	return ctx
+}
+
+func TestTriageDocumentCandidatesSkipsIrrelevantPDF(t *testing.T) {
+	engine := NewEngine(documentTriageMockLLM{decision: "not_relevant"}, &mockSearcher{}, &mockScraper{}, cache.NewMemoryCache(10), 2, 3, 10)
+	agent := NewCompanyAgent(engine)
+	brief := models.CompanyBrief{CompanyName: "Acme"}
+	candidates := []models.RankedResult{{
+		URL:        "https://example.test/other-company-report.pdf",
+		SourceType: "report",
+	}}
+	results := []models.SearchResult{{
+		Link:    candidates[0].URL,
+		Title:   "Other Company Annual Report",
+		Snippet: "A report for another company",
+	}}
+
+	kept, report := agent.triageDocumentCandidates(context.Background(), brief, candidates, results)
+	if len(kept) != 0 {
+		t.Fatalf("expected irrelevant PDF to be removed, kept %d candidates", len(kept))
+	}
+	if len(report) != 1 || report[0].TriageDecision != "not_relevant" || report[0].Status != "skipped" {
+		t.Fatalf("unexpected triage report: %+v", report)
+	}
+}
+
+type mockPreviewScraper struct {
+	mockScraper
+	previewBytes []byte
+}
+
+func (m *mockPreviewScraper) FetchDocumentPreview(ctx context.Context, targetURL string, maxBytes int) ([]byte, string, error) {
+	return m.previewBytes, "application/pdf", nil
+}
+
+type sequenceTriageMockLLM struct {
+	decisions []string
+	call      int
+}
+
+func (m *sequenceTriageMockLLM) GenerateStructured(_ context.Context, _ string, _ string, target any) error {
+	value := target.(*documentTriageDecision)
+	idx := m.call
+	if idx >= len(m.decisions) {
+		idx = len(m.decisions) - 1
+	}
+	m.call++
+	value.Decision = m.decisions[idx]
+	value.Confidence = 0.95
+	value.EntityMatch = true
+	value.TopicMatch = true
+	value.DateMatch = true
+	value.Reason = "sequence decision"
+	return nil
+}
+
+func TestTriageDocumentCandidatesPromotesOnPreview(t *testing.T) {
+	llm := &sequenceTriageMockLLM{decisions: []string{"uncertain", "relevant"}}
+	scraper := &mockPreviewScraper{
+		previewBytes: testutil.MinimalPDF("Acme Corporation Official Annual Report 2025"),
+	}
+	engine := NewEngine(llm, &mockSearcher{}, scraper, cache.NewMemoryCache(10), 2, 3, 10)
+	agent := NewCompanyAgent(engine)
+	brief := models.CompanyBrief{CompanyName: "Acme"}
+	candidates := []models.RankedResult{{
+		URL:        "https://example.test/vague-filing.pdf",
+		SourceType: "report",
+	}}
+	results := []models.SearchResult{{
+		Link:    candidates[0].URL,
+		Title:   "Filing Document",
+		Snippet: "Vague document description",
+	}}
+
+	kept, report := agent.triageDocumentCandidates(context.Background(), brief, candidates, results)
+	if len(kept) != 1 {
+		t.Fatalf("expected candidate to be promoted after preview, got %d kept candidates", len(kept))
+	}
+	if len(report) != 0 {
+		t.Fatalf("expected no skipped report entries for promoted candidate, got %d", len(report))
+	}
 }

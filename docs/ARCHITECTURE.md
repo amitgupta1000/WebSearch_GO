@@ -382,7 +382,13 @@ so the result can answer post-run questions:
    relevant, so without this every result the search engine returned — including
    other companies' profiles — reached the scrape stage. The unfiltered list is
    returned when filtering would empty it, so an unusual name cannot starve a run.
-4. **Scrape (`scrapeRanked`)** — fetches candidates in bounded parallel batches
+4. **Triage and scrape (`scrapeRankedWithBrief`)** — PDF-looking candidates first pass
+   through a two-stage conservative Gemini document-triage gate: fast metadata triage from
+   search signals, followed by a bounded preview fetch (512 KiB / 3 pages) for uncertain
+   candidates. Only a `relevant` result with confidence ≥ 0.80 and matching entity/topic
+   signals is allowed to reach full scraping; failed, not relevant or persistently uncertain
+   triage is fail-closed and recorded in `ScrapeReportEntry`. Non-document candidates retain
+   the normal path. Approved candidates are then fetched in bounded parallel batches
    (`SCRAPE_CONCURRENCY`) through `Engine.ScrapeCachedBatch`, validating each URL with
    `url.ParseRequestURI` (absolute URL with scheme+host required), and keeps at most
    `MaxScrapes` pages. Pages whose extracted text is ≤ 80 bytes are discarded as noise,
@@ -1178,12 +1184,13 @@ the two cited sources.
   worse than one that reports a failure. `documentSkipBytes` (40 MiB) refuses an oversized
   document from its declared `Content-Length` before the transfer — as a `terminalFetchError`
   that `ScrapeURL` reports rather than handing to `tryBrowser`, since a render cannot turn a
-  large filing into HTML. `WithDocumentTimeout` (env `DOCUMENT_EXTRACT_TIMEOUT_SECONDS`,
+  large filing into HTML. `maxDocumentDownloadBytes` (8 MiB) caps the body download before extraction,
+  aligned with Gemini's inline limit (contrasting with HTML's 2 MiB `maxBodyBytes`). `WithDocumentTimeout` (env `DOCUMENT_EXTRACT_TIMEOUT_SECONDS`,
   default 60 s) bounds `scrapeDocument`'s extraction: the extractor is called on its own
   context, so a model call or a parser walk that does not return is abandoned with
   "context deadline exceeded" in the scrape report and the run continues. And
   `ExtractPDFTextPartial` checks the deadline between pages (the parser library offers no
-  cancellation) and returns what it read, which `documentTextExtractor` keeps while logging
+  cancellation) and returns what it read with page markers (`--- [Page N] ---`), which `documentTextExtractor` keeps while logging
   the shortfall; `ExtractPDFTextContext` stays all-or-nothing for callers that cannot use
   partial text. The model side adds `documentRequestTimeout` (60 s) per extraction request.
 - **Gemini:** one stricter retry when JSON parsing fails, plus up to 3 attempts for

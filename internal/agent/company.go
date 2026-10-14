@@ -218,7 +218,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		finishRank(fmt.Sprintf("%d candidates (%d named the company)", len(state.RankedResults), gate.CandidatesTagged))
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolResult, Step: 7, ToolName: "relevance_ranker", Content: fmt.Sprintf("Selected %d relevant candidates.", len(state.RankedResults))})
 		finishScrape := timer.start("scrape")
-		newEvidence, _, scrapeReport := ca.scrapeRanked(ctx, sessionID, state.RankedResults, state.SearchResults, state.Evidence, eventCh, matcher)
+		newEvidence, _, scrapeReport := ca.scrapeRankedWithBrief(ctx, sessionID, brief, state.RankedResults, state.SearchResults, state.Evidence, eventCh, matcher)
 		finishScrape(fmt.Sprintf("%d attempts -> %d pages kept", len(scrapeReport), len(newEvidence)))
 		state.Evidence = appendUniqueEvidence(state.Evidence, newEvidence)
 		state.ScrapeReport = appendUniqueScrapeReports(state.ScrapeReport, scrapeReport)
@@ -1216,6 +1216,10 @@ func orderProfileEscalations(ranked []models.RankedResult) []models.RankedResult
 }
 
 func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, ranked []models.RankedResult, searchResults []models.SearchResult, existing []models.Evidence, eventCh chan<- models.AgentEvent, matcher *entityMatcher) ([]models.Evidence, []string, []models.ScrapeReportEntry) {
+	return ca.scrapeRankedWithBrief(ctx, sessionID, models.CompanyBrief{}, ranked, searchResults, existing, eventCh, matcher)
+}
+
+func (ca *CompanyAgent) scrapeRankedWithBrief(ctx context.Context, sessionID string, brief models.CompanyBrief, ranked []models.RankedResult, searchResults []models.SearchResult, existing []models.Evidence, eventCh chan<- models.AgentEvent, matcher *entityMatcher) ([]models.Evidence, []string, []models.ScrapeReportEntry) {
 	evidence := make([]models.Evidence, 0, ca.engine.MaxScrapes())
 	sources := make([]string, 0, ca.engine.MaxScrapes())
 	report := make([]models.ScrapeReportEntry, 0, ca.engine.MaxScrapes()*2)
@@ -1315,6 +1319,17 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 	}
 	attemptLimit := ca.engine.MaxScrapes() * 2
 	candidates := selectScrapeCandidates(ranked, attemptLimit, ca.engine.ProfileScrapingEnabled())
+	if brief.CompanyName != "" {
+		unseen := candidates[:0]
+		for _, candidate := range candidates {
+			if !known[normalizeURL(candidate.URL)] {
+				unseen = append(unseen, candidate)
+			}
+		}
+		var triageReport []models.ScrapeReportEntry
+		candidates, triageReport = ca.triageDocumentCandidates(scrapeCtx, brief, unseen, searchResults)
+		report = append(report, triageReport...)
+	}
 
 	// Candidates are fetched in small parallel batches rather than one at a time.
 	// Each fetch is dominated by network latency, so four concurrent fetches turn
@@ -1337,6 +1352,7 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 			if scrapeCtx.Err() != nil {
 				break
 			}
+
 			batchSize := ca.engine.MaxScrapes() - usableScrapes + ca.engine.ScrapeConcurrency() - 1
 			if batchSize < 1 {
 				batchSize = 1
@@ -1455,6 +1471,176 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 		report = append(report, entry)
 	}
 	return evidence, sources, report
+}
+
+type documentTriageDecision struct {
+	Decision     string   `json:"decision"`
+	Confidence   float64  `json:"confidence"`
+	EntityMatch  bool     `json:"entity_match"`
+	TopicMatch   bool     `json:"topic_match"`
+	DateMatch    bool     `json:"date_match"`
+	MatchedTerms []string `json:"matched_terms"`
+	Reason       string   `json:"reason"`
+}
+
+const maxDocumentPreviewTriages = 3
+
+// triageDocumentCandidates applies a 2-stage conservative relevance gate to PDF-looking
+// candidates before the scraper downloads them:
+// 1. Fast metadata triage from search title, snippet, and URL.
+// 2. Bounded preview triage (fetching initial bytes and extracting the first pages) for
+//    uncertain/borderline candidates.
+func (ca *CompanyAgent) triageDocumentCandidates(ctx context.Context, brief models.CompanyBrief, candidates []models.RankedResult, searchResults []models.SearchResult) ([]models.RankedResult, []models.ScrapeReportEntry) {
+	byURL := make(map[string]models.SearchResult, len(searchResults))
+	for _, result := range searchResults {
+		byURL[normalizeURL(result.Link)] = result
+	}
+	kept := make([]models.RankedResult, 0, len(candidates))
+	report := make([]models.ScrapeReportEntry, 0)
+	previewsAttempted := 0
+
+	for _, candidate := range candidates {
+		result, ok := byURL[normalizeURL(candidate.URL)]
+		if !ok || !looksLikePDF(candidate.URL, result.Title, candidate.SourceType) {
+			kept = append(kept, candidate)
+			continue
+		}
+
+		decision := documentTriageDecision{}
+		prompt := fmt.Sprintf(`Classify whether this document is worth downloading for the research request.
+Return "relevant" only when the supplied metadata supports the requested entity and scope.
+Return "not_relevant" for a clear mismatch. Return "uncertain" when metadata is insufficient.
+Do not infer facts that are not present. Confidence must be between 0 and 1.
+
+Research request:
+company: %q
+industry: %q
+topic: %q
+time_scope: %q
+country: %q
+city: %q
+notes: %q
+
+Search result:
+title: %q
+url: %q
+snippet: %q
+source_type: %q`,
+			brief.CompanyName, brief.Industry, strings.Join(brief.AreasOfInterest, ", "),
+			brief.TimeScope, brief.Country, brief.City, brief.UserNotes,
+			result.Title, result.Link, result.Snippet, candidate.SourceType)
+		triageCtx, cancel := context.WithTimeout(ctx, companySemanticTimeout)
+		err := ca.engine.llmClient.GenerateStructured(triageCtx,
+			"You are a conservative document relevance classifier. Use only the supplied metadata.",
+			prompt, &decision)
+		cancel()
+
+		decision.Decision = strings.ToLower(strings.TrimSpace(decision.Decision))
+		entry := models.ScrapeReportEntry{
+			URL: candidate.URL, SourceType: candidate.SourceType,
+			TriageDecision: decision.Decision, TriageConfidence: decision.Confidence,
+		}
+		topicRequired := strings.TrimSpace(brief.Industry) != "" || len(brief.AreasOfInterest) > 0
+		dateRequired := strings.TrimSpace(brief.TimeScope) != ""
+
+		if err != nil {
+			entry.Status = "skipped"
+			entry.Reason = "document triage failed: " + err.Error()
+			report = append(report, entry)
+			continue
+		}
+
+		if decision.Decision == "relevant" && decision.Confidence >= 0.80 && decision.EntityMatch &&
+			(!topicRequired || decision.TopicMatch) && (!dateRequired || decision.DateMatch) {
+			kept = append(kept, candidate)
+			continue
+		}
+
+		if decision.Decision == "not_relevant" {
+			entry.Status = "skipped"
+			entry.Reason = "document triage: " + decision.Reason
+			report = append(report, entry)
+			continue
+		}
+
+		// For uncertain / borderline metadata decisions, attempt a bounded preview triage if budget permits.
+		if previewsAttempted < maxDocumentPreviewTriages && ctx.Err() == nil {
+			previewsAttempted++
+			previewCtx, cancelPreview := context.WithTimeout(ctx, 10*time.Second)
+			previewBytes, _, previewErr := ca.engine.FetchDocumentPreview(previewCtx, candidate.URL, 512<<10)
+			cancelPreview()
+
+			if previewErr == nil && len(previewBytes) > 0 {
+				previewExtractCtx, cancelExtract := context.WithTimeout(ctx, 5*time.Second)
+				previewText, extractErr := tools.ExtractPDFPreviewText(previewExtractCtx, previewBytes, 3, 3000)
+				cancelExtract()
+
+				if extractErr == nil && strings.TrimSpace(previewText) != "" {
+					previewDecision := documentTriageDecision{}
+					previewPrompt := fmt.Sprintf(`Classify whether this document is relevant to the research request based on its initial page text.
+Return "relevant" only when the preview confirms the requested company and scope.
+Return "not_relevant" if the preview reveals this document is for a different entity or unrelated topic.
+Return "uncertain" if the preview is still insufficient. Confidence must be between 0 and 1.
+
+Research request:
+company: %q
+industry: %q
+topic: %q
+time_scope: %q
+country: %q
+city: %q
+notes: %q
+
+Search result:
+title: %q
+url: %q
+
+Document preview (first pages text):
+%s`,
+						brief.CompanyName, brief.Industry, strings.Join(brief.AreasOfInterest, ", "),
+						brief.TimeScope, brief.Country, brief.City, brief.UserNotes,
+						result.Title, result.Link, previewText)
+
+					previewLlmCtx, cancelPreviewLlm := context.WithTimeout(ctx, companySemanticTimeout)
+					previewLlmErr := ca.engine.llmClient.GenerateStructured(previewLlmCtx,
+						"You are a conservative document relevance classifier inspecting initial document text.",
+						previewPrompt, &previewDecision)
+					cancelPreviewLlm()
+
+					if previewLlmErr == nil {
+						previewDecision.Decision = strings.ToLower(strings.TrimSpace(previewDecision.Decision))
+						entry.TriageDecision = previewDecision.Decision
+						entry.TriageConfidence = previewDecision.Confidence
+
+						if previewDecision.Decision == "relevant" && previewDecision.Confidence >= 0.80 && previewDecision.EntityMatch &&
+							(!topicRequired || previewDecision.TopicMatch) && (!dateRequired || previewDecision.DateMatch) {
+							kept = append(kept, candidate)
+							continue
+						}
+						entry.Status = "skipped"
+						if previewDecision.Decision == "not_relevant" {
+							entry.Reason = "document preview: " + previewDecision.Reason
+						} else {
+							entry.Reason = "document preview uncertain: " + previewDecision.Reason
+						}
+						report = append(report, entry)
+						continue
+					}
+				}
+			}
+		}
+
+		entry.Status = "skipped"
+		entry.Reason = "document triage uncertain: " + decision.Reason
+		report = append(report, entry)
+	}
+	return kept, report
+}
+
+func looksLikePDF(targetURL, title, sourceType string) bool {
+	value := strings.ToLower(targetURL + " " + title + " " + sourceType)
+	return strings.Contains(value, ".pdf") || strings.Contains(value, "pdf") ||
+		strings.Contains(value, "annual report") || strings.Contains(value, "filing")
 }
 
 // evidenceWithOCR converts a successful scrape into evidence, running bounded

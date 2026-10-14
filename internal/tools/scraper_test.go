@@ -1,12 +1,14 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -630,6 +632,56 @@ func TestBrowserFallbackOverrideReporting(t *testing.T) {
 	}
 	if enabled, ok := BrowserFallbackOverride(WithBrowserFallback(context.Background(), false)); !ok || enabled {
 		t.Error("expected an opt-out override to be reported")
+	}
+}
+
+func TestFetchDocumentPreview(t *testing.T) {
+	pdfPayload := []byte("%PDF-1.4 sample pdf content for preview testing")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = w.Write(pdfPayload)
+	}))
+	defer srv.Close()
+
+	s := NewScraper(nil, time.Second, WithPrivateHostAccess())
+	bytes, cType, err := s.FetchDocumentPreview(context.Background(), srv.URL, 1024)
+	if err != nil {
+		t.Fatalf("FetchDocumentPreview failed: %v", err)
+	}
+	if !strings.Contains(cType, "pdf") {
+		t.Errorf("expected pdf Content-Type, got %q", cType)
+	}
+	if string(bytes) != string(pdfPayload) {
+		t.Errorf("got %q, want %q", string(bytes), string(pdfPayload))
+	}
+}
+
+func TestScraperAllowsLargerPDFDownload(t *testing.T) {
+	// A 3 MiB PDF payload (larger than HTML's 2 MiB cap, but within document's 8 MiB cap)
+	size3MiB := 3 << 20
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Length", strconv.Itoa(size3MiB))
+		_, _ = w.Write(bytes.Repeat([]byte("a"), size3MiB))
+	}))
+	defer srv.Close()
+
+	var receivedLen int
+	extractor := func(_ context.Context, _ string, body []byte) (string, string, error) {
+		receivedLen = len(body)
+		return "valid text from 3MB PDF", ExtractorPDFLocal, nil
+	}
+
+	s := NewScraper(nil, time.Second, WithPrivateHostAccess(), WithDocumentTextExtractor(extractor))
+	res, err := s.ScrapeURL(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("ScrapeURL failed on 3MB PDF: %v", err)
+	}
+	if receivedLen != size3MiB {
+		t.Errorf("received body len = %d, want %d", receivedLen, size3MiB)
+	}
+	if res.ContentTruncated {
+		t.Errorf("expected 3MB PDF not to be truncated (under 8MB cap)")
 	}
 }
 

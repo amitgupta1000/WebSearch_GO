@@ -218,6 +218,36 @@ func TestScrapeURLSkipsOversizedDocumentsBeforeDownloading(t *testing.T) {
 	}
 }
 
+func TestExtractPDFPreviewText(t *testing.T) {
+	body := testutil.MinimalPDF(samplePDFLine)
+	text, err := ExtractPDFPreviewText(context.Background(), body, 2, 100)
+	if err != nil {
+		t.Fatalf("ExtractPDFPreviewText: %v", err)
+	}
+	if !strings.Contains(text, samplePDFLine) {
+		t.Fatalf("expected preview text to contain sample line, got %q", text)
+	}
+
+	// Rejects non-PDF
+	if _, err := ExtractPDFPreviewText(context.Background(), []byte("not a pdf"), 2, 100); err == nil {
+		t.Fatal("expected error on non-pdf body")
+	}
+}
+
+func TestExtractPDFMultiPageMarkers(t *testing.T) {
+	body := testutil.MinimalMultiPagePDF("Page One Content", "Page Two Content")
+	text, err := ExtractPDFText(body, 0)
+	if err != nil {
+		t.Fatalf("ExtractPDFText: %v", err)
+	}
+	if !strings.Contains(text, "--- [Page 1] ---") || !strings.Contains(text, "Page One Content") {
+		t.Errorf("expected page 1 marker and content, got %q", text)
+	}
+	if !strings.Contains(text, "--- [Page 2] ---") || !strings.Contains(text, "Page Two Content") {
+		t.Errorf("expected page 2 marker and content, got %q", text)
+	}
+}
+
 // TestDocumentExtractionRespectsItsBudget is the end-to-end guardrail for the stall: an
 // extraction that never returns on its own must fail within the document budget, so the run
 // continues with a reported failure instead of waiting.

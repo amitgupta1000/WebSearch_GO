@@ -105,7 +105,13 @@ Then:
    distinctive company-name token in the title, snippet or URL — are dropped, so other
    companies' profiles and off-domain pages no longer consume scrape budget. The filter
    never empties the candidate list.
-4. **Scrape** — ranked pages are fetched, cleaned and cached for 7 days. Pages are fetched
+4. **Triage document candidates** — PDF-looking candidates receive a two-stage conservative
+   Gemini classification before full download: fast metadata triage from search title, snippet
+   and URL, followed by a bounded preview fetch (initial 512 KiB / first 3 pages) for
+   uncertain candidates. Only `relevant` decisions with confidence ≥ 0.80 and matching entity/topic
+   signals proceed; `not_relevant`, persistently `uncertain`, malformed, and failed classifications
+   are skipped and recorded in the scrape report. Non-document pages keep the normal path.
+5. **Scrape** — ranked pages are fetched, cleaned and cached for 7 days. Pages are fetched
    several at a time (`SCRAPE_CONCURRENCY`), but politely per host: at most
    `SCRAPE_HOST_CONCURRENCY` in flight and `SCRAPE_HOST_RATE_PER_SEC` per second, with a
    server's `Retry-After` hint honoured on a `429`/`503`. Identical content is collected
@@ -577,8 +583,8 @@ The scraper is deliberately conservative, and several of these rules surprise pe
   keeps — a filing whose first pages carry the roster is worth more than nothing, and the
   shortfall is logged rather than presented as the whole document. On the model side each
   verbatim-extraction request also carries its own 60 s deadline.
-- **Bodies are capped at 2 MiB and extracted text at ~40 KB.** A body that hits the
-  cap is parsed from an incomplete document and flagged as `content_truncated`.
+- **HTML bodies are capped at 2 MiB, PDF documents at 8 MiB, and extracted text at ~40 KB.** A body that hits the
+  cap is parsed from an incomplete document and flagged as `content_truncated`. Multi-page PDF extractions include page markers (`--- [Page N] ---`) so evidence can cite specific pages.
 - **Legacy encodings are decoded.** The `Content-Type` charset (or a `<meta>`
   declaration) is honoured, so ISO-8859-1 and windows-1252 pages are not mangled.
 - **Transient failures are retried** up to three times with linear backoff, and

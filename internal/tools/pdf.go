@@ -142,10 +142,33 @@ func ExtractPDFTextPartial(ctx context.Context, body []byte, maxBytes int) (stri
 	return readPDFText(ctx, body, maxBytes)
 }
 
+// ExtractPDFPreviewText extracts text from the initial pages (up to maxPages, default 3)
+// and up to maxBytes text from a PDF byte slice. It is intended for cheap relevance triage.
+func ExtractPDFPreviewText(ctx context.Context, body []byte, maxPages, maxBytes int) (string, error) {
+	if len(body) == 0 {
+		return "", fmt.Errorf("pdf body is empty")
+	}
+	if !isPDFBody(body) {
+		return "", fmt.Errorf("body does not carry a pdf header")
+	}
+	if maxPages <= 0 {
+		maxPages = 3
+	}
+	if maxBytes <= 0 {
+		maxBytes = 4000
+	}
+	return readPDFPages(ctx, body, maxPages, maxBytes)
+}
+
 // readPDFText isolates the third-party parser, which is known to panic on some
 // malformed files, so a bad document surfaces as an error instead of taking down the
 // request goroutine.
 func readPDFText(ctx context.Context, body []byte, maxBytes int) (text string, err error) {
+	return readPDFPages(ctx, body, maxPDFPages, maxBytes)
+}
+
+// readPDFPages walks up to maxPages and maxBytes of a PDF.
+func readPDFPages(ctx context.Context, body []byte, maxPages, maxBytes int) (text string, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			text, err = "", fmt.Errorf("pdf parser failed on malformed input: %v", recovered)
@@ -158,8 +181,8 @@ func readPDFText(ctx context.Context, body []byte, maxBytes int) (text string, e
 	}
 
 	pages := reader.NumPage()
-	if pages > maxPDFPages {
-		pages = maxPDFPages
+	if pages > maxPages {
+		pages = maxPages
 	}
 
 	var builder strings.Builder
@@ -180,8 +203,13 @@ func readPDFText(ctx context.Context, body []byte, maxBytes int) (text string, e
 			// One unreadable page must not discard the readable ones.
 			continue
 		}
-		builder.WriteString(pageText)
-		builder.WriteString("\n")
+		if strings.TrimSpace(pageText) != "" {
+			if pages > 1 {
+				builder.WriteString(fmt.Sprintf("\n--- [Page %d] ---\n", number))
+			}
+			builder.WriteString(pageText)
+			builder.WriteString("\n")
+		}
 		if builder.Len() >= maxBytes {
 			// Hitting the text ceiling is normal for a long filing and has always been a
 			// success with truncated text, so it stays one. Only the deadline is reported.

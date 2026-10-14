@@ -42,6 +42,9 @@ const (
 	// maxBodyBytes caps the downloaded HTML size before parsing to avoid
 	// memory blowups on huge or hostile pages.
 	maxBodyBytes = 2 << 20 // 2 MiB
+	// maxDocumentDownloadBytes caps downloaded non-HTML documents (PDFs) before extraction,
+	// aligned with the LLM's 8 MiB inline document limit.
+	maxDocumentDownloadBytes = 8 << 20 // 8 MiB
 	// maxContentBytes caps extracted text sent to the LLM (~40KB per page).
 	maxContentBytes = 40000
 	// minTextRunes filters tiny fragments and navigation noise.
@@ -648,6 +651,50 @@ func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.Scra
 	return result, nil
 }
 
+// FetchDocumentPreview retrieves up to maxBytes of a document (e.g. PDF) for cheap relevance triage.
+// It respects the scraper's target validation, host concurrency, and politeness limits.
+func (s *Scraper) FetchDocumentPreview(ctx context.Context, targetURL string, maxBytes int) ([]byte, string, error) {
+	if s.isClosed() {
+		return nil, "", fmt.Errorf("scraper is closed")
+	}
+	if err := s.validateTarget(targetURL); err != nil {
+		return nil, "", err
+	}
+	if maxBytes <= 0 {
+		maxBytes = 512 << 10 // 512 KiB default
+	}
+
+	release, err := s.hosts.acquire(ctx, hostOf(targetURL))
+	if err != nil {
+		return nil, "", err
+	}
+	defer release()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to construct request: %w", err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/pdf,application/x-pdf,*/*;q=0.8")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("document preview request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("document preview returned HTTP status %d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxBytes)))
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read document preview body: %w", err)
+	}
+	return body, contentType, nil
+}
+
 // isHopelessStatus reports statuses that a browser render cannot improve on: the
 // page is absent or explicitly gone, so rendering it would only cost seconds.
 func isHopelessStatus(status int) bool {
@@ -964,14 +1011,19 @@ func (s *Scraper) fetchHTTPOnce(ctx context.Context, targetURL string) (*fetchRe
 		return nil, &terminalFetchError{fmt.Errorf("document is %d bytes, above the %d byte download limit", resp.ContentLength, documentSkipBytes)}
 	}
 
-	// Read one byte past the cap so a truncated document can be reported.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
-	if err != nil {
-		return nil, &retriableError{fmt.Errorf("failed to read HTML document: %w", err)}
+	maxBytes := maxBodyBytes
+	if response.ContentType != "" && !isHTMLContentType(response.ContentType) {
+		maxBytes = maxDocumentDownloadBytes
 	}
-	response.Truncated = len(body) > maxBodyBytes
+
+	// Read one byte past the cap so a truncated document can be reported.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxBytes+1)))
+	if err != nil {
+		return nil, &retriableError{fmt.Errorf("failed to read document response: %w", err)}
+	}
+	response.Truncated = len(body) > maxBytes
 	if response.Truncated {
-		body = body[:maxBodyBytes]
+		body = body[:maxBytes]
 	}
 	response.Body = body
 	return response, nil

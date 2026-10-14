@@ -213,9 +213,9 @@ if parsed.Scheme != "http" && parsed.Scheme != "https" {
 
 - `http.NewRequestWithContext` — every fetch honours the run's research deadline.
 - Browser-like headers (see §3) — many sites serve interstitials to empty UAs.
-- `io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))` — reads **one byte past the cap** so
-  the scraper can tell "exactly 2 MiB" apart from "truncated", setting `ContentTruncated`
-  honestly. A truncated body is still parsed (half a page usually beats no page).
+- `io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))` — reads **one byte past the cap** (`maxBodyBytes` = 2 MiB for HTML, `maxDocumentDownloadBytes` = 8 MiB for PDFs) so
+  the scraper can tell "exactly the cap" apart from "truncated", setting `ContentTruncated`
+  honestly. A truncated body is still parsed (half a page usually beats no page). Documents above `documentSkipBytes` (40 MiB) are rejected before downloading.
 
 ### Redirects and cookies
 

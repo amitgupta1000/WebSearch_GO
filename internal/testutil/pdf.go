@@ -5,20 +5,44 @@ package testutil
 import (
 	"bytes"
 	"fmt"
+	"strings"
 )
 
 // MinimalPDF builds a small but structurally valid PDF containing one line of text.
 // Cross-reference offsets are computed, so parsers that trust the xref table can read
 // it. The text must not contain unbalanced parentheses.
 func MinimalPDF(text string) []byte {
-	content := fmt.Sprintf("BT /F1 18 Tf 72 700 Td (%s) Tj ET", text)
-	objects := []string{
-		"<< /Type /Catalog /Pages 2 0 R >>",
-		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
-		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+	return MinimalMultiPagePDF(text)
+}
+
+// MinimalMultiPagePDF builds a small but structurally valid PDF containing the given pages.
+func MinimalMultiPagePDF(pages ...string) []byte {
+	if len(pages) == 0 {
+		pages = []string{""}
 	}
+
+	numPages := len(pages)
+	kids := make([]string, numPages)
+	for i := 0; i < numPages; i++ {
+		kids[i] = fmt.Sprintf("%d 0 R", 3+i)
+	}
+
+	fontObjID := 3 + 2*numPages
+	objects := make([]string, 0, 3+2*numPages)
+	objects = append(objects, "<< /Type /Catalog /Pages 2 0 R >>")
+	objects = append(objects, fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), numPages))
+
+	for i := 0; i < numPages; i++ {
+		contentObjID := 3 + numPages + i
+		objects = append(objects, fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 %d 0 R >> >> /Contents %d 0 R >>", fontObjID, contentObjID))
+	}
+
+	for _, text := range pages {
+		content := fmt.Sprintf("BT /F1 18 Tf 72 700 Td (%s) Tj ET", text)
+		objects = append(objects, fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content))
+	}
+
+	objects = append(objects, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
 
 	var buf bytes.Buffer
 	buf.WriteString("%PDF-1.4\n")
