@@ -1508,9 +1508,18 @@ func (ca *CompanyAgent) triageDocumentCandidates(ctx context.Context, brief mode
 
 		decision := documentTriageDecision{}
 		prompt := fmt.Sprintf(`Classify whether this document is worth downloading for the research request.
-Return "relevant" only when the supplied metadata supports the requested entity and scope.
-Return "not_relevant" for a clear mismatch. Return "uncertain" when metadata is insufficient.
-Do not infer facts that are not present. Confidence must be between 0 and 1.
+Return JSON with the exact fields:
+- "decision": "relevant" | "not_relevant" | "uncertain"
+- "confidence": number between 0.0 and 1.0
+- "entity_match": boolean (true if metadata matches the target company)
+- "topic_match": boolean (true if metadata matches the industry/topics)
+- "date_match": boolean (true if metadata matches the time scope)
+- "matched_terms": array of string keywords found
+- "reason": short explanation string
+
+Use "relevant" only when the supplied metadata supports the requested entity and scope.
+Use "not_relevant" for a clear mismatch. Use "uncertain" when metadata is insufficient.
+Do not infer facts that are not present.
 
 Research request:
 company: %q
@@ -1578,9 +1587,18 @@ source_type: %q`,
 				if extractErr == nil && strings.TrimSpace(previewText) != "" {
 					previewDecision := documentTriageDecision{}
 					previewPrompt := fmt.Sprintf(`Classify whether this document is relevant to the research request based on its initial page text.
-Return "relevant" only when the preview confirms the requested company and scope.
-Return "not_relevant" if the preview reveals this document is for a different entity or unrelated topic.
-Return "uncertain" if the preview is still insufficient. Confidence must be between 0 and 1.
+Return JSON with the exact fields:
+- "decision": "relevant" | "not_relevant" | "uncertain"
+- "confidence": number between 0.0 and 1.0
+- "entity_match": boolean (true if preview confirms the target company)
+- "topic_match": boolean (true if preview confirms the industry/topics)
+- "date_match": boolean (true if preview confirms the time scope)
+- "matched_terms": array of string keywords found
+- "reason": short explanation string
+
+Use "relevant" only when the preview confirms the requested company and scope.
+Use "not_relevant" if the preview reveals this document is for a different entity or unrelated topic.
+Use "uncertain" if the preview is still insufficient.
 
 Research request:
 company: %q
