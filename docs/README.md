@@ -216,7 +216,7 @@ nothing. Person mode still has no freshness pass and no image OCR; company mode 
 | `VALIDATION_LOOKUPS_PER_RUN` | `10` | Cap on reverse lookups — `"Name" "Company"`, snippet-only, never fetched. The policy is deliberately aggressive: anything not already current *and* tied to the company by a domain, alias or registration id gets one, because a lookup is what rescues a person no collected source could tie to the company. `0` disables them but keeps the labels |
 | `VALIDATION_STALE_AFTER_MONTHS` | `36` | Age at which a row's newest source is reported as `stale` |
 | `VALIDATION_RECENT_WITHIN_MONTHS` | `18` | Age inside which a dated source from the company's own domain, or from two independent domains, counts as `verified-recent` |
-| `CACHE_BACKEND` | `memory` | Where cached searches and scraped pages live: `memory`, `redis` or `gcs` |
+| `CACHE_BACKEND` | `redis` | Where cached searches and scraped pages live: `redis`, `gcs` or `memory` |
 | `REDIS_URL` | — | Redis connection URL (`redis://` / `rediss://`). Takes precedence over the split settings below |
 | `REDIS_HOST` | — | Redis host; with `REDIS_PORT` / `REDIS_PASSWORD` it is assembled into a connection URL when `REDIS_URL` is unset |
 | `REDIS_PORT` | `6379` | Redis port |
@@ -344,9 +344,9 @@ same page.
 
 | Backend | Survives restarts | Shared between instances | Notes |
 | :--- | :--- | :--- | :--- |
-| `memory` (default) | no | no | Bounded FIFO cache (2048 entries by default); zero setup |
-| `redis` | yes | yes | Native per-key TTL. Connect with `REDIS_URL`, or with `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` — the URL is assembled for you and the password is URL-escaped |
+| `redis` (default) | yes | yes | Native per-key TTL. Connect with `REDIS_URL`, or with `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` — the URL is assembled for you and the password is URL-escaped |
 | `gcs` | yes | yes | One object per entry with its expiry embedded; credentials from `GOOGLE_APPLICATION_CREDENTIALS` or an ambient identity. Set `GCS_CACHE_BUCKET`, and pair it with a bucket lifecycle rule to reclaim expired objects |
+| `memory` | no | no | Bounded FIFO fallback (2048 entries by default); useful for local development |
 
 A shared backend is what makes the cache real: a restarted container, or a second Cloud Run
 instance, reuses the searches and pages the first one already paid for. If the configured backend

@@ -24,7 +24,7 @@ type Config struct {
 	AllowProfileScraping bool
 	CacheMaxEntries      int
 	// CacheBackend selects where cached searches and scraped pages live:
-	// "memory" (process-local, the default), "redis", or "gcs".
+	// "redis" (shared, the default), "gcs", or "memory" (process-local).
 	CacheBackend string
 	// RedisURL is a redis:// or rediss:// connection URL, used when
 	// CacheBackend is "redis". When it is unset, the URL is assembled from
@@ -109,7 +109,7 @@ type Config struct {
 }
 
 const (
-	defaultCacheBackend   = "memory"
+	defaultCacheBackend   = "redis"
 	defaultRedisKeyPrefix = "websearch-go:"
 	defaultRedisPort      = 6379
 	// defaultGCSCacheBucket and defaultOutputBucket are the project's bucket: the

@@ -119,7 +119,7 @@ flowchart TD
 | **Scraper Tool** | `internal/tools/scraper.go` | Enforces the fetch policy (http/https only; loopback, private and link-local hosts refused), fetches webpage bodies with content-type and size guards, decodes the declared charset, retries transient failures, detects bot-challenge interstitials, strips HTML boilerplate (scripts, styles, ads), deduplicates nested content blocks, and extracts rune-safe truncated text for LLM ingestion. |
 | **Browser Renderer** | `internal/tools/scraper_browser.go` | Optional bounded Playwright fallback for HTTP errors, bot challenges and JavaScript shells: launches the full Chromium build, keeps one shared browser context so interstitial clearance cookies survive across renders, waits for network idle, and caps concurrency with a semaphore. Enabled per process or per run; challenges are reported, never solved. |
 | **PDF Extraction** | `internal/tools/pdf.go`, `internal/llm/gemini.go` | Reads PDFs instead of rejecting them — officer lists and filings are often published only as PDFs. The scraper hands a PDF body to an injected `DocumentTextExtractor`: Gemini reads it inline (handling compressed streams, subsetted fonts and scans), with a local `ledongthuc/pdf` parser as the fallback. That parser is panic-guarded, capped at 200 pages, and its output must clear a 60 % printable-ratio gate before it becomes evidence; provenance is recorded as `pdf-gemini` / `pdf-local`. |
-| **Cache Store** | `internal/cache/` | A context-aware `Store` surface with three backends — in-process memory (default), Redis, and Cloud Storage through the JSON API + Application Default Credentials. Search results (48 h), scraped pages (7 days) and negative scrape results (15 min) all flow through it, so a shared backend makes them survive a restart; cached pages are revalidated with conditional requests. |
+| **Cache Store** | `internal/cache/` | A context-aware `Store` surface with three backends — Redis (default), Cloud Storage through the JSON API + Application Default Credentials, and in-process memory. Search results (48 h), scraped pages (7 days) and negative scrape results (15 min) all flow through it, so the shared default survives restarts; cached pages are revalidated with conditional requests. |
 | **Phase Timings** | `internal/agent/timing.go` | A per-phase stopwatch over plan/search/rank/scrape/synthesize/review. The result is attached to the chart, emitted as a `timing` event, and shown in the console, so "the scraper is slow" becomes a measured claim. |
 | **Output Exporter** | `internal/export/` | Turns a finished run into durable files: a Markdown document rendered from the research models, and a PDF printed from a self-contained HTML document by the Chromium the scraper already runs (no PDF library). Both are written to Cloud Storage or a local directory, one artifact per attempt, so a failed PDF never hides the Markdown. |
 | **Cloud Storage Client** | `internal/gcs/` | A thin JSON API client (upload, download, delete) shared by the cache backend and the output exporter. It uses Application Default Credentials, avoiding the gRPC/protobuf dependency tree the official library would add. |
@@ -889,7 +889,7 @@ WebSearch_GO/
 | Failed scrape (negative) | same shape as above | 15 min | Stops a follow-up question re-fetching a known dead end (403, empty page, unreadable document). Cancellations are never cached |
 | Hard-URL escalation | `scrape:<sha256(url, mode=hard)>` | 7 d / 15 min | A recovered page is reused by QC follow-up iterations, and a ladder that ended still blocked is not repeated within the same run |
 
-All four share one `cache.Store`. The backend is chosen by `CACHE_BACKEND`: `memory`
+All four share one `cache.Store`. The backend is chosen by `CACHE_BACKEND`: `redis`
 (process-local, the default), `redis`, or `gcs` — the two shared backends are what make the
 cache survive a restart and serve every instance of the server. A shared backend that
 cannot be reached at startup falls back to the in-memory cache with a warning, so a cache
@@ -1463,7 +1463,7 @@ server:
 
 **Possible future improvements** (none blocking):
 
-- The cache runs in-process by default; `CACHE_BACKEND` selects Redis or Cloud Storage to
+- The cache uses Redis by default; `CACHE_BACKEND` selects Redis, Cloud Storage, or in-process memory to
   share it. A remote backend costs one lookup round trip per read, which is why `memory`
   stays the default, and a GCS bucket needs a lifecycle rule to reclaim objects that have
   expired logically but still occupy space.

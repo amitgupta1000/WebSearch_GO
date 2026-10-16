@@ -8,8 +8,8 @@ import (
 func TestScrapeAndCacheDefaults(t *testing.T) {
 	cfg := Load()
 
-	if got := cfg.CacheBackendName(); got != "memory" {
-		t.Errorf("CacheBackendName() = %q, want %q", got, "memory")
+	if got := cfg.CacheBackendName(); got != "redis" {
+		t.Errorf("CacheBackendName() = %q, want %q", got, "redis")
 	}
 	if cfg.ScrapeConcurrency != defaultScrapeConcurrency {
 		t.Errorf("ScrapeConcurrency = %d, want %d", cfg.ScrapeConcurrency, defaultScrapeConcurrency)
@@ -146,8 +146,8 @@ func TestHardURLLimitDefaultsAndOverrides(t *testing.T) {
 
 func TestBlankCacheBackendFallsBackToMemory(t *testing.T) {
 	t.Setenv("CACHE_BACKEND", "   ")
-	if got := Load().CacheBackendName(); got != "memory" {
-		t.Errorf("CacheBackendName() = %q, want %q", got, "memory")
+	if got := Load().CacheBackendName(); got != "redis" {
+		t.Errorf("CacheBackendName() = %q, want %q", got, "redis")
 	}
 }
 
