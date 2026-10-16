@@ -782,3 +782,82 @@ func TestTriageDocumentCandidatesPromotesOnPreview(t *testing.T) {
 		t.Fatalf("expected no skipped report entries for promoted candidate, got %d", len(report))
 	}
 }
+
+func TestRemoveVacancyPlaceholdersKeepsNamedEmployees(t *testing.T) {
+	chart := &models.OrgChart{
+		Leadership: []models.Employee{
+			{Name: "Manager, Logistics and Purchasing", Title: "Manager, Logistics and Purchasing"},
+			{Name: "Jane Doe", Title: "Director of Logistics"},
+		},
+		Departments: []models.Department{{
+			Name: "Purchasing",
+			Head: "Open Position",
+			Members: []models.Employee{
+				{Name: "Procurement Manager", Title: "Procurement Manager"},
+				{Name: "John Smith", Title: "Head of Purchasing"},
+			},
+		}},
+	}
+
+	removeVacancyPlaceholders(chart)
+
+	if len(chart.Leadership) != 1 || chart.Leadership[0].Name != "Jane Doe" {
+		t.Fatalf("expected only the named leader to remain, got %+v", chart.Leadership)
+	}
+	if chart.Departments[0].Head != "" || len(chart.Departments[0].Members) != 1 ||
+		chart.Departments[0].Members[0].Name != "John Smith" {
+		t.Fatalf("expected vacancy department entries removed, got %+v", chart.Departments[0])
+	}
+}
+
+func TestSelectLatestDocumentFamilies(t *testing.T) {
+	candidates := []models.RankedResult{
+		{URL: "https://example.test/annual-report-2024-25.pdf", SourceType: "report"},
+		{URL: "https://example.test/annual-report-2025-26.pdf", SourceType: "report"},
+		{URL: "https://example.test/sustainability-report-2025-26.pdf", SourceType: "report"},
+	}
+	results := map[string]models.SearchResult{
+		normalizeURL(candidates[0].URL): {Link: candidates[0].URL, Title: "Acme Annual Report 2024-25"},
+		normalizeURL(candidates[1].URL): {Link: candidates[1].URL, Title: "Acme Annual Report 2025-26"},
+		normalizeURL(candidates[2].URL): {Link: candidates[2].URL, Title: "Acme Sustainability Report 2025-26"},
+	}
+
+	kept, report := selectLatestDocumentFamilies(candidates, results, "")
+	if len(kept) != 2 || kept[0].URL != candidates[1].URL {
+		t.Fatalf("expected latest annual report and distinct sustainability report, got %+v", kept)
+	}
+	if len(report) != 1 || report[0].URL != candidates[0].URL {
+		t.Fatalf("expected older annual report to be reported as skipped, got %+v", report)
+	}
+}
+
+func TestDedupeChartEmployeesPrefersLeadership(t *testing.T) {
+	chart := &models.OrgChart{
+		Leadership: []models.Employee{
+			{Name: "Jane Doe", Title: "Chief Executive Officer", Bio: "Executive biography"},
+			{Name: "Jane Doe", Title: "Director"},
+		},
+		Departments: []models.Department{
+			{Name: "Operations", Members: []models.Employee{
+				{Name: "Jane Doe", Title: "Operations Director"},
+				{Name: "John Smith", Title: "Head of Operations"},
+			}},
+			{Name: "Procurement", Members: []models.Employee{
+				{Name: "John Smith", Title: "Procurement Lead"},
+			}},
+		},
+	}
+
+	dedupeChartEmployees(chart)
+
+	if len(chart.Leadership) != 1 || chart.Leadership[0].Name != "Jane Doe" ||
+		chart.Leadership[0].Title != "Chief Executive Officer" {
+		t.Fatalf("expected one canonical leadership row, got %+v", chart.Leadership)
+	}
+	if len(chart.Departments[0].Members) != 1 || chart.Departments[0].Members[0].Name != "John Smith" {
+		t.Fatalf("expected Jane duplicate removed from department, got %+v", chart.Departments[0].Members)
+	}
+	if len(chart.Departments[1].Members) != 0 {
+		t.Fatalf("expected John duplicate removed from second department, got %+v", chart.Departments[1].Members)
+	}
+}

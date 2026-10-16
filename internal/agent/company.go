@@ -275,7 +275,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 
 func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.CompanyBrief, evidence []models.Evidence, results []models.SearchResult, sessionID string, eventCh chan<- models.AgentEvent) (*models.OrgChart, error) {
 	Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 8, Content: "Synthesizing the organization chart from selected evidence..."})
-	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string. Image metadata is supporting evidence; do not invent visual facts from image URLs. Include supported department leaders even when their exact title is not in the search query: consider functional variants such as Chief, C-level, President, Executive Vice President, Senior Vice President, Vice President, VP, Head, Director, and General Manager. Treat procurement, purchasing, strategic sourcing, supply chain, logistics, operations, marketing, brand, communications, growth, and digital marketing as relevant department functions. Conference speaker evidence may identify a person's company, function, and industry relevance, but conference participation alone does not prove that the person is a current executive; label or place such people conservatively unless current employment is corroborated. Profile candidates are snippets from professional networks: when one pairs a person's name with a functional title and the target company (or one of the aliases the request lists), treat it as evidence of that person's function, list them in the matching department, and record which entity they belong to in their title. Promote a profile candidate into leadership only for board or C-level titles. Prefer listing a named profile candidate in a department over leaving that department empty, but only when the company is named in the same snippet. Every object in the departments array must use the shape {"name": "<function>", "head": "<optional person>", "description": "<optional summary>", "members": [{"name": "<person>", "title": "<their title>", "public_source": "<source url>"}]}. List every person you attribute to a function inside that function's members array, and never leave members empty when you have named a person for that function. Every evidence item is stamped with the newest date its source proves (as of YYYY-MM-DD). Use those dates: when two sources disagree about a person's role, prefer the newer one, and do not present someone whose only sources are several years old as a current executive — either record their dated role or leave them out. Every person you list must be tied to the researched company stated at the top of the request: a page that never names that company is not evidence about it, however relevant it looks.`
+	prompt := `You are an expert corporate intelligence analyst. Use only the supplied evidence and search snippets. Do not invent employees, titles, locations, reporting lines, or facts not supported by evidence. A job listing, vacancy, requisition, careers page, hiring announcement, or open position is not an employee and must never become a leadership or department member. Never put a role title such as "Manager, Logistics and Purchasing" in the name field; if no actual person's full name is supported, omit the row. Return only the top-level OrgChart JSON with company_name, domain, overview, headquarters, leadership, departments, and locations. Do not wrap the result in an org_chart object. The headquarters field MUST be a plain string such as "New Delhi, India". The locations field may contain objects with city, country, address, and headcount_est as a string. Image metadata is supporting evidence; do not invent visual facts from image URLs. Include supported department leaders even when their exact title is not in the search query: consider functional variants such as Chief, C-level, President, Executive Vice President, Senior Vice President, Vice President, VP, Head, Director, and General Manager. Treat procurement, purchasing, strategic sourcing, supply chain, logistics, operations, marketing, brand, communications, growth, and digital marketing as relevant department functions. Conference speaker evidence may identify a person's company, function, and industry relevance, but conference participation alone does not prove that the person is a current executive; label or place such people conservatively unless current employment is corroborated. Profile candidates are snippets from professional networks: when one pairs a person's name with a functional title and the target company (or one of the aliases the request lists), treat it as evidence of that person's function, list them in the matching department, and record which entity they belong to in their title. Promote a profile candidate into leadership only for board or C-level titles. Prefer listing a named profile candidate in a department over leaving that department empty, but only when the company is named in the same snippet. Every object in the departments array must use the shape {"name": "<function>", "head": "<optional person>", "description": "<optional summary>", "members": [{"name": "<person>", "title": "<their title>", "public_source": "<source url>"}]}. List every person you attribute to a function inside that function's members array, and never leave members empty when you have named a person for that function. Every evidence item is stamped with the newest date its source proves (as of YYYY-MM-DD). Use those dates: when two sources disagree about a person's role, prefer the newer one, and do not present someone whose only sources are several years old as a current executive — either record their dated role or leave them out. Every person you list must be tied to the researched company stated at the top of the request: a page that never names that company is not evidence about it, however relevant it looks.`
 	var chart models.OrgChart
 	contextData := fmt.Sprintf("Research brief: %+v\n\nSearch snippets:\n%s\n\nSelected evidence:\n%s", brief, FormatSearchSnippets(results), formatEvidence(evidence))
 	if matcher := ca.entityMatcherFor(brief); matcher != nil {
@@ -289,6 +289,8 @@ func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.Compan
 	if err := ca.engine.SynthesizeJSON(llmCtx, prompt, contextData, &chart); err != nil {
 		return nil, fmt.Errorf("synthesis failed: %w", err)
 	}
+	removeVacancyPlaceholders(&chart)
+	dedupeChartEmployees(&chart)
 	if chart.CompanyName == "" {
 		chart.CompanyName = brief.CompanyName
 	}
@@ -299,6 +301,142 @@ func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.Compan
 	chart.Sources = evidenceSources(evidence)
 	chart.LastUpdated = time.Now()
 	return &chart, nil
+}
+
+// dedupeChartEmployees keeps one canonical row per normalized person name.
+// Leadership wins over department membership because it is the more specific
+// placement; duplicate rows are merged rather than emitted twice.
+func dedupeChartEmployees(chart *models.OrgChart) {
+	if chart == nil {
+		return
+	}
+	seen := make(map[string]models.Employee)
+	leadershipIndex := make(map[string]int)
+	leadership := make([]models.Employee, 0, len(chart.Leadership))
+	for _, employee := range chart.Leadership {
+		key := normalizePersonName(employee.Name)
+		if key == "" {
+			continue
+		}
+		if existing, ok := seen[key]; ok {
+			seen[key] = mergeEmployee(existing, employee)
+			leadership[leadershipIndex[key]] = seen[key]
+			continue
+		}
+		seen[key] = employee
+		leadershipIndex[key] = len(leadership)
+		leadership = append(leadership, employee)
+	}
+	chart.Leadership = leadership
+
+	for departmentIndex := range chart.Departments {
+		department := &chart.Departments[departmentIndex]
+		members := make([]models.Employee, 0, len(department.Members))
+		for _, employee := range department.Members {
+			key := normalizePersonName(employee.Name)
+			if key == "" {
+				continue
+			}
+			if existing, ok := seen[key]; ok {
+				seen[key] = mergeEmployee(existing, employee)
+				continue
+			}
+			seen[key] = employee
+			members = append(members, employee)
+		}
+		department.Members = members
+	}
+}
+
+func mergeEmployee(primary, duplicate models.Employee) models.Employee {
+	if len(strings.TrimSpace(duplicate.Bio)) > len(strings.TrimSpace(primary.Bio)) {
+		primary.Bio = duplicate.Bio
+	}
+	if len(strings.TrimSpace(duplicate.Title)) > len(strings.TrimSpace(primary.Title)) {
+		primary.Title = duplicate.Title
+	}
+	if primary.PublicSource == "" {
+		primary.PublicSource = duplicate.PublicSource
+	}
+	if primary.PublicEmail == "" {
+		primary.PublicEmail = duplicate.PublicEmail
+		primary.EmailSource = duplicate.EmailSource
+	}
+	if primary.AsOf == "" {
+		primary.AsOf = duplicate.AsOf
+	}
+	if primary.Verification == "" {
+		primary.Verification = duplicate.Verification
+	}
+	primary.Tags = appendUniqueStrings(primary.Tags, duplicate.Tags...)
+	primary.VerifiedBy = appendUniqueStrings(primary.VerifiedBy, duplicate.VerifiedBy...)
+	return primary
+}
+
+func appendUniqueStrings(values []string, additions ...string) []string {
+	seen := make(map[string]bool, len(values)+len(additions))
+	for _, value := range values {
+		seen[value] = true
+	}
+	for _, value := range additions {
+		if value != "" && !seen[value] {
+			values = append(values, value)
+			seen[value] = true
+		}
+	}
+	return values
+}
+
+// removeVacancyPlaceholders protects the chart when a model mistakes a job
+// posting title for a person's name. Real employees normally have a distinct
+// name and title; role-only rows are safe to discard before validation/export.
+func removeVacancyPlaceholders(chart *models.OrgChart) {
+	if chart == nil {
+		return
+	}
+	leadership := chart.Leadership[:0]
+	for _, employee := range chart.Leadership {
+		if !isVacancyPlaceholder(employee.Name, employee.Title, employee.Bio) {
+			leadership = append(leadership, employee)
+		}
+	}
+	chart.Leadership = leadership
+	for index := range chart.Departments {
+		department := &chart.Departments[index]
+		members := department.Members[:0]
+		for _, employee := range department.Members {
+			if !isVacancyPlaceholder(employee.Name, employee.Title, employee.Bio) {
+				members = append(members, employee)
+			}
+		}
+		department.Members = members
+		if isVacancyPlaceholder(department.Head, department.Head, "") {
+			department.Head = ""
+		}
+	}
+}
+
+func isVacancyPlaceholder(name, title, bio string) bool {
+	name = strings.ToLower(strings.Join(strings.Fields(name), " "))
+	title = strings.ToLower(strings.Join(strings.Fields(title), " "))
+	bio = strings.ToLower(strings.Join(strings.Fields(bio), " "))
+	if name == "" {
+		return true
+	}
+	for _, marker := range []string{"vacancy", "job opening", "open position", "requisition", "apply now", "we are hiring", "not specified"} {
+		if strings.Contains(name, marker) || strings.Contains(title, marker) || strings.Contains(bio, marker) {
+			return true
+		}
+	}
+	if name != title || title == "" {
+		return false
+	}
+	for _, role := range []string{"chief", "officer", "president", "vice president", "director", "manager", "head", "lead", "engineer", "analyst", "specialist", "coordinator", "supervisor", "procurement", "purchasing", "logistics", "operations"} {
+		if strings.Contains(name, role) {
+			return true
+		}
+	}
+	return false
 }
 
 // entityGateActive reports whether the gate filters anything. It is kept on the agent
