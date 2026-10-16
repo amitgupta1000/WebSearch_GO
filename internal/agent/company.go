@@ -1487,9 +1487,9 @@ const maxDocumentPreviewTriages = 3
 
 // triageDocumentCandidates applies a 2-stage conservative relevance gate to PDF-looking
 // candidates before the scraper downloads them:
-// 1. Fast metadata triage from search title, snippet, and URL.
-// 2. Bounded preview triage (fetching initial bytes and extracting the first pages) for
-//    uncertain/borderline candidates.
+//  1. Fast metadata triage from search title, snippet, and URL.
+//  2. Bounded preview triage (fetching initial bytes and extracting the first pages) for
+//     uncertain/borderline candidates.
 func (ca *CompanyAgent) triageDocumentCandidates(ctx context.Context, brief models.CompanyBrief, candidates []models.RankedResult, searchResults []models.SearchResult) ([]models.RankedResult, []models.ScrapeReportEntry) {
 	byURL := make(map[string]models.SearchResult, len(searchResults))
 	for _, result := range searchResults {

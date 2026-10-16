@@ -1012,7 +1012,7 @@ func (s *Scraper) fetchHTTPOnce(ctx context.Context, targetURL string) (*fetchRe
 	}
 
 	maxBytes := maxBodyBytes
-	if response.ContentType != "" && !isHTMLContentType(response.ContentType) {
+	if !isHTMLContentType(response.ContentType) {
 		maxBytes = maxDocumentDownloadBytes
 	}
 
