@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -10,6 +11,15 @@ import (
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
+
+const maxPublicEmailLookups = 8
+
+var publicEmailPattern = regexp.MustCompile(`(?i)\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b`)
+
+var freeEmailHosts = map[string]bool{
+	"gmail.com": true, "googlemail.com": true, "yahoo.com": true, "outlook.com": true,
+	"hotmail.com": true, "icloud.com": true, "proton.me": true, "protonmail.com": true,
+}
 
 // validate.go is the freshness pass over a finished chart.
 //
@@ -496,6 +506,7 @@ func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, bri
 
 	report.Lookups, report.Skipped = ca.runReverseLookups(ctx, brief, rows, assessments, buckets, position, state, now, staleAfter, recentWithin, matcher, gate)
 	report.LookupsUsed = len(report.Lookups)
+	ca.enrichPublicEmails(ctx, brief, rows, matcher, ca.engine.ValidationLookups()-report.LookupsUsed)
 	countVerdicts(report, buckets)
 
 	// The entity pass runs last: it needs the labels above, and its removals must not
@@ -513,6 +524,52 @@ func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, bri
 			report.RowsChecked, report.RowsRecent, report.RowsDated, report.RowsStale, report.RowsUndated, len(report.Conflicts), report.LookupsUsed),
 	})
 	return report
+}
+
+// enrichPublicEmails performs bounded, explicit searches for work addresses that
+// are already published by a source. It never constructs or infers an address.
+func (ca *CompanyAgent) enrichPublicEmails(ctx context.Context, brief models.CompanyBrief, rows []rosterRow, matcher *entityMatcher, budget int) {
+	if !ca.engine.ValidationEnabled() || len(rows) == 0 || budget <= 0 {
+		return
+	}
+	lookups := 0
+	for _, row := range rows {
+		if lookups >= maxPublicEmailLookups || lookups >= budget || !hasBudgetForValidation(ctx) || strings.TrimSpace(row.employee.PublicEmail) != "" {
+			break
+		}
+		name := strings.TrimSpace(row.employee.Name)
+		if name == "" {
+			continue
+		}
+		query := fmt.Sprintf(`"%s" "%s" email`, name, strings.TrimSpace(brief.CompanyName))
+		searchCtx, cancel := context.WithTimeout(ctx, validationLookupTimeout)
+		results, err := ca.engine.SearchFresh(searchCtx, query, ca.engine.MaxSearchResults())
+		cancel()
+		lookups++
+		if err != nil {
+			continue
+		}
+		for _, result := range results {
+			if matcher != nil {
+				match := matcher.match(result.Link, result.Title, result.Snippet)
+				if !match.Matched {
+					continue
+				}
+			}
+			for _, email := range publicEmailPattern.FindAllString(result.Title+" "+result.Snippet, -1) {
+				host := strings.ToLower(strings.TrimSpace(strings.SplitN(email, "@", 2)[1]))
+				if freeEmailHosts[host] {
+					continue
+				}
+				row.employee.PublicEmail = strings.ToLower(email)
+				row.employee.EmailSource = result.Link
+				break
+			}
+			if row.employee.PublicEmail != "" {
+				break
+			}
+		}
+	}
 }
 
 // countVerdicts tallies the freshness buckets into the report.

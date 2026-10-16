@@ -483,7 +483,11 @@ func scrapeCacheKey(ctx context.Context, targetURL string) string {
 			mode = "http"
 		}
 	}
-	return cache.HashKey("scrape", targetURL+"|mode="+mode)
+	targetScope := ""
+	if target, ok := tools.DocumentTargetFromContext(ctx); ok {
+		targetScope = "|document-target=" + tools.DocumentTargetFingerprint(target)
+	}
+	return cache.HashKey("scrape", targetURL+"|mode="+mode+targetScope)
 }
 
 // ScrapeOutcome pairs a scrape target with the result of fetching it. Outcomes

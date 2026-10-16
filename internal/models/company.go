@@ -206,6 +206,8 @@ type Department struct {
 type Employee struct {
 	Name         string   `json:"name"`
 	Title        string   `json:"title"`
+	PublicEmail  string   `json:"public_email,omitempty"`
+	EmailSource  string   `json:"email_source,omitempty"`
 	Department   string   `json:"department,omitempty"`
 	Location     string   `json:"location,omitempty"`
 	Bio          string   `json:"bio,omitempty"`

@@ -250,6 +250,7 @@
 						<span>{{.Name}}</span>
 						<div class="flex items-center gap-2 shrink-0">
 							<span class="text-slate-500">{{.Title}}</span>
+							{{if .PublicEmail}}<a href="mailto:{{.PublicEmail}}" class="text-indigo-400 hover:underline break-all">{{.PublicEmail}}</a>{{end}}
 							{{if .Freshness}}<span class="text-[10px] text-slate-600">{{.Freshness}}</span>{{end}}
 							<form onsubmit="return submitDossier(event, this)">
 								<input type="hidden" name="mode" value="person">

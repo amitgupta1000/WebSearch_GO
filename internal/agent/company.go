@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -1220,6 +1221,13 @@ func (ca *CompanyAgent) scrapeRanked(ctx context.Context, sessionID string, rank
 }
 
 func (ca *CompanyAgent) scrapeRankedWithBrief(ctx context.Context, sessionID string, brief models.CompanyBrief, ranked []models.RankedResult, searchResults []models.SearchResult, existing []models.Evidence, eventCh chan<- models.AgentEvent, matcher *entityMatcher) ([]models.Evidence, []string, []models.ScrapeReportEntry) {
+	documentTarget := tools.DocumentTarget{
+		CompanyName:     brief.CompanyName,
+		Aliases:         append([]string(nil), brief.Aliases...),
+		AreasOfInterest: append([]string(nil), brief.AreasOfInterest...),
+		TimeScope:       brief.TimeScope,
+	}
+	ctx = tools.WithDocumentTarget(ctx, documentTarget)
 	evidence := make([]models.Evidence, 0, ca.engine.MaxScrapes())
 	sources := make([]string, 0, ca.engine.MaxScrapes())
 	report := make([]models.ScrapeReportEntry, 0, ca.engine.MaxScrapes()*2)
@@ -1652,7 +1660,151 @@ Document preview (first pages text):
 		entry.Reason = "document triage uncertain: " + decision.Reason
 		report = append(report, entry)
 	}
-	return kept, report
+	kept, familyReport := selectLatestDocumentFamilies(kept, byURL, brief.TimeScope)
+	return kept, append(report, familyReport...)
+}
+
+var documentPeriodPattern = regexp.MustCompile(`(?i)\b(?:fy\s*)?(20\d{2})(?:\s*[-/]\s*(\d{2,4}))?\b`)
+var documentShortPeriodPattern = regexp.MustCompile(`(?i)\b(?:fy\s*)?(\d{2})\s*[-/]\s*(\d{2})\b`)
+
+type documentPeriodInfo struct {
+	endYear int
+	hasYear bool
+}
+
+// selectLatestDocumentFamilies prevents near-duplicate annual filings from
+// consuming scrape slots. It keeps the newest period for each normalized title
+// family and records older candidates as skipped.
+func selectLatestDocumentFamilies(candidates []models.RankedResult, searchResults map[string]models.SearchResult, timeScope string) ([]models.RankedResult, []models.ScrapeReportEntry) {
+	upperYear := documentScopeUpperYear(timeScope)
+	winners := make(map[string]int, len(candidates))
+	familyOrder := make([]string, 0, len(candidates))
+	for index, candidate := range candidates {
+		result, hasResult := searchResults[normalizeURL(candidate.URL)]
+		family := ""
+		if hasResult && looksLikePDF(candidate.URL, result.Title, candidate.SourceType) {
+			family = documentFamilyKey(candidate, result)
+		}
+		if family == "" {
+			family = "url:" + normalizeURL(candidate.URL)
+		}
+		if _, seen := winners[family]; !seen {
+			winners[family] = index
+			familyOrder = append(familyOrder, family)
+			continue
+		}
+		current := candidates[winners[family]]
+		if newerDocumentCandidate(candidate, result, current, searchResults[normalizeURL(current.URL)], upperYear) {
+			winners[family] = index
+		}
+	}
+
+	selected := make([]models.RankedResult, 0, len(winners))
+	report := make([]models.ScrapeReportEntry, 0)
+	for _, family := range familyOrder {
+		winner := winners[family]
+		selected = append(selected, candidates[winner])
+		for index, candidate := range candidates {
+			if index == winner {
+				continue
+			}
+			otherResult := searchResults[normalizeURL(candidate.URL)]
+			if documentFamilyKey(candidate, otherResult) != family {
+				continue
+			}
+			report = append(report, models.ScrapeReportEntry{
+				URL: candidate.URL, SourceType: candidate.SourceType, Status: "skipped",
+				Reason: fmt.Sprintf("older similar document superseded by %s", candidates[winner].URL),
+			})
+		}
+	}
+	return selected, report
+}
+
+func documentFamilyKey(candidate models.RankedResult, result models.SearchResult) string {
+	title := strings.TrimSpace(result.Title)
+	if title == "" {
+		title = strings.TrimSpace(candidate.Title)
+	}
+	if title == "" {
+		title = strings.TrimSpace(candidate.URL)
+	}
+	title = strings.ToLower(title)
+	title = documentPeriodPattern.ReplaceAllString(title, " ")
+	title = documentShortPeriodPattern.ReplaceAllString(title, " ")
+	title = strings.NewReplacer("-", " ", "_", " ", "/", " ", ".", " ", ":", " ").Replace(title)
+	return strings.Join(strings.Fields(title), " ")
+}
+
+func documentCandidatePeriod(candidate models.RankedResult, result models.SearchResult) documentPeriodInfo {
+	value := strings.Join([]string{
+		result.Title, candidate.Title, candidate.URL, result.Snippet,
+	}, " ")
+	if shortMatch := documentShortPeriodPattern.FindStringSubmatch(value); len(shortMatch) > 0 {
+		start, end := 0, 0
+		fmt.Sscanf(shortMatch[1], "%d", &start)
+		fmt.Sscanf(shortMatch[2], "%d", &end)
+		return documentPeriodInfo{endYear: 2000 + end, hasYear: start > 0 && end > 0}
+	}
+	match := documentPeriodPattern.FindStringSubmatch(value)
+	if len(match) == 0 {
+		return documentPeriodInfo{}
+	}
+	year := 0
+	fmt.Sscanf(match[1], "%d", &year)
+	if match[2] != "" {
+		end := match[2]
+		if len(end) == 2 {
+			end = match[1][:2] + end
+		}
+		fmt.Sscanf(end, "%d", &year)
+	}
+	return documentPeriodInfo{endYear: year, hasYear: year > 0}
+}
+
+func newerDocumentCandidate(candidate models.RankedResult, candidateResult models.SearchResult, current models.RankedResult, currentResult models.SearchResult, upperYear int) bool {
+	candidatePeriod := documentCandidatePeriod(candidate, candidateResult)
+	currentPeriod := documentCandidatePeriod(current, currentResult)
+	if upperYear > 0 {
+		if candidatePeriod.hasYear && candidatePeriod.endYear > upperYear {
+			return false
+		}
+		if currentPeriod.hasYear && currentPeriod.endYear > upperYear {
+			return true
+		}
+	}
+	if candidatePeriod.hasYear != currentPeriod.hasYear {
+		return candidatePeriod.hasYear
+	}
+	return candidatePeriod.hasYear && candidatePeriod.endYear > currentPeriod.endYear
+}
+
+func documentScopeUpperYear(scope string) int {
+	shortMatches := documentShortPeriodPattern.FindAllStringSubmatch(scope, -1)
+	upper := 0
+	for _, match := range shortMatches {
+		end := 0
+		fmt.Sscanf(match[2], "%d", &end)
+		if end > 0 && 2000+end > upper {
+			upper = 2000 + end
+		}
+	}
+	matches := documentPeriodPattern.FindAllStringSubmatch(scope, -1)
+	for _, match := range matches {
+		year := 0
+		fmt.Sscanf(match[1], "%d", &year)
+		if match[2] != "" {
+			end := match[2]
+			if len(end) == 2 {
+				end = match[1][:2] + end
+			}
+			fmt.Sscanf(end, "%d", &year)
+		}
+		if year > upper {
+			upper = year
+		}
+	}
+	return upper
 }
 
 func looksLikePDF(targetURL, title, sourceType string) bool {

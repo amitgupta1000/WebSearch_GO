@@ -206,6 +206,42 @@ func WithDocumentTimeout(timeout time.Duration) Option {
 // ExtractorPDFGemini / ExtractorPDFLocal), which is reported in the scrape result.
 type DocumentTextExtractor func(ctx context.Context, contentType string, body []byte) (text string, extractor string, err error)
 
+// DocumentTarget describes the research scope used to extract relevant findings
+// from a document. It is immutable for the lifetime of one scrape context.
+type DocumentTarget struct {
+	CompanyName     string
+	Aliases         []string
+	AreasOfInterest []string
+	TimeScope       string
+}
+
+type documentTargetContextKey struct{}
+
+// WithDocumentTarget attaches the per-run document target to a scrape context.
+// The target is carried explicitly through the scrape call without changing the
+// PageFetcher interface used by other callers.
+func WithDocumentTarget(ctx context.Context, target DocumentTarget) context.Context {
+	return context.WithValue(ctx, documentTargetContextKey{}, target)
+}
+
+// DocumentTargetFromContext returns the target attached to ctx, if any.
+func DocumentTargetFromContext(ctx context.Context) (DocumentTarget, bool) {
+	target, ok := ctx.Value(documentTargetContextKey{}).(DocumentTarget)
+	return target, ok
+}
+
+// DocumentTargetFingerprint identifies the extraction scope for cache keys.
+func DocumentTargetFingerprint(target DocumentTarget) string {
+	value := strings.Join([]string{
+		target.CompanyName,
+		strings.Join(target.Aliases, "\x1f"),
+		strings.Join(target.AreasOfInterest, "\x1f"),
+		target.TimeScope,
+	}, "\x1e")
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
 // Option customizes a Scraper created by NewScraper / NewScraperWithBrowser.
 type Option func(*Scraper)
 

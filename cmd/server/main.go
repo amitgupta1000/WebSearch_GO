@@ -314,13 +314,27 @@ type documentReader interface {
 	ExtractDocumentText(ctx context.Context, contentType string, body []byte) (string, error)
 }
 
+type targetedDocumentReader interface {
+	ExtractDocumentTextTargeted(ctx context.Context, contentType string, body []byte, target tools.DocumentTarget) (string, error)
+}
+
 // documentTextExtractor builds the extractor handed to the scraper. Gemini is tried
 // first because it reads PDFs natively, including compressed streams, subsetted fonts
 // and scanned filings that a text parser cannot recover. The local parser is the
 // fallback for when the model is unavailable, rate-limited or refuses the document.
 func documentTextExtractor(reader documentReader) tools.DocumentTextExtractor {
 	return func(ctx context.Context, contentType string, body []byte) (string, string, error) {
-		text, err := reader.ExtractDocumentText(ctx, contentType, body)
+		var text string
+		var err error
+		if target, ok := tools.DocumentTargetFromContext(ctx); ok {
+			if targetedReader, supported := reader.(targetedDocumentReader); supported {
+				text, err = targetedReader.ExtractDocumentTextTargeted(ctx, contentType, body, target)
+			} else {
+				err = errors.New("document reader does not support targeted extraction")
+			}
+		} else {
+			text, err = reader.ExtractDocumentText(ctx, contentType, body)
+		}
 		if err == nil && strings.TrimSpace(text) != "" {
 			return text, tools.ExtractorPDFGemini, nil
 		}
