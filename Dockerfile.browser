@@ -16,6 +16,7 @@ COPY --from=builder /app/websearch /app/websearch
 RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
 
 EXPOSE 8080
+ENV PORT=8080
 USER appuser
 
 ENTRYPOINT ["/app/websearch"]

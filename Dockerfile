@@ -26,6 +26,7 @@ WORKDIR /app
 COPY --from=builder /app/websearch /app/websearch
 
 EXPOSE 8080
+ENV PORT=8080
 
 USER nonroot:nonroot
 

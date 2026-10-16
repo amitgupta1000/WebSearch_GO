@@ -1,0 +1,4 @@
+# Dependencies for the standalone react_engine.py learning/demo companion.
+# The production WebSearch_GO server is written in Go and uses go.mod/go.sum.
+google-genai>=1.0.0,<2.0.0
+requests>=2.31.0,<3.0.0

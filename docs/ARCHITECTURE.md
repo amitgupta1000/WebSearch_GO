@@ -866,6 +866,8 @@ WebSearch_GO/
 ├── .vscode/tasks.json           # "Go: Watch Server" VS Code task (wraps dev.ps1)
 ├── Dockerfile                   # Multi-stage: golang:1.24-alpine → distroless nonroot (HTTP-only)
 ├── Dockerfile.browser           # Playwright base image variant, for browser rendering
+├── .dockerignore                # Excludes credentials, cookies, docs, and local artifacts
+├── requirements.txt             # Python companion dependencies only
 ├── go.mod / go.sum              # Module: goquery + genai + playwright-go + golang.org/x/net + ledongthuc/pdf
 ├── docs/
 │   ├── README.md                # Usage: prerequisites, env vars, endpoints, Docker, policies
@@ -1376,6 +1378,34 @@ That image deliberately **cannot** render pages. `Dockerfile.browser` builds on
 `mcr.microsoft.com/playwright:v1.62.1-noble` instead (browser version kept in step
 with the `playwright-go` dependency) and is the one to deploy with
 `ENABLE_BROWSER_FALLBACK=true` or the per-run toggle.
+
+### Cloud Run deployment
+
+Cloud Run runs the Go HTTP server and supplies the `PORT` environment variable
+(the images default it to `8080` for local runs). Cloud Storage is an object store,
+not an application host: it is used for exported Markdown/PDF artifacts and the
+optional GCS cache backend. Redis is the default shared cache backend when the
+service can reach the configured Redis endpoint.
+
+```bash
+gcloud builds submit --tag REGION-docker.pkg.dev/PROJECT/REPOSITORY/websearch-go:TAG .
+gcloud run deploy websearch-go \
+  --image REGION-docker.pkg.dev/PROJECT/REPOSITORY/websearch-go:TAG \
+  --region REGION \
+  --set-env-vars CACHE_BACKEND=redis,OUTPUT_BUCKET=BUCKET \
+  --set-secrets GOOGLE_API_KEY=google-api-key:latest,SERPER_API_KEY=serper-api-key:latest
+```
+
+Grant the Cloud Run runtime service account the minimum required permissions:
+Secret Manager access for configured secrets, Storage object access for output/cache
+prefixes, and any permissions required by the selected Vertex/Google API path.
+Keep `REDIS_URL`, API keys, service-account files, and cookie exports out of the
+image; `.dockerignore` explicitly excludes local credentials and cookie files.
+
+The existing UI is embedded Go HTML/HTMX and should normally remain on the same
+Cloud Run service. A Firebase Hosting split is optional: deploy a separate static
+frontend, rewrite `/api/**` to Cloud Run, configure CORS and authentication, and
+serve GCS artifacts through authenticated or signed URLs.
 
 ### Environment note for Windows dev
 

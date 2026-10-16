@@ -22,7 +22,8 @@ LLM synthesis, with TTL caching and bounded memory.
 
 ## Prerequisites
 
-- Go 1.24+
+- Go 1.24+ (local development)
+- Docker (recommended for Cloud Run deployment)
 - A Serper API key ([serper.dev](https://serper.dev))
 - Gemini credentials, one of:
   - `GOOGLE_API_KEY` (Gemini API / AI Studio key), **or**
@@ -658,3 +659,40 @@ image contains only the static binary. Use `Dockerfile.browser` (based on the
 matching Playwright image) together with `ENABLE_BROWSER_FALLBACK=true` or the
 per-run toggle when you need rendering in a container. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for the system design.
+
+### Cloud Run
+
+Cloud Run is the production host for the Go HTTP server; Cloud Storage stores exports
+and can optionally store the cache. Cloud Storage does not execute Go binaries.
+
+```bash
+export PROJECT_ID="your-gcp-project"
+export REGION="us-central1"
+export REPOSITORY="websearch"
+export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/websearch-go:latest"
+
+gcloud auth configure-docker "${REGION}-docker.pkg.dev"
+gcloud builds submit --tag "${IMAGE}" .
+gcloud run deploy websearch-go \
+  --image "${IMAGE}" \
+  --region "${REGION}" \
+  --platform managed \
+  --allow-unauthenticated \
+  --set-env-vars "CACHE_BACKEND=redis,GCS_CACHE_BUCKET=crystal-crm-store,OUTPUT_BUCKET=crystal-crm-store"
+```
+
+Use Secret Manager for `GOOGLE_API_KEY`, `SERPER_API_KEY`, `REDIS_URL`, and any
+other credentials; do not put secrets in the Dockerfile or image arguments. The
+browser-enabled image can be built with `Dockerfile.browser` when browser fallback
+is required, but it is larger and has slower cold starts.
+
+The current UI is server-rendered Go templates and HTMX, so it can be served directly
+from Cloud Run. Firebase Hosting is only needed for a separately built static frontend;
+in that architecture, configure Firebase rewrites for `/api/**` to the Cloud Run
+service and use signed URLs or authenticated backend routes for GCS artifacts.
+
+### Python companion dependencies
+
+`requirements.txt` applies only to the standalone `react_engine.py` demo/learning
+companion. The Go server is built from `go.mod` and `go.sum`; Python dependencies are
+not installed into either production Docker image.
