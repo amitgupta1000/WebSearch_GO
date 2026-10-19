@@ -1,0 +1,5 @@
+# Keep the repository's normal exclusions, but restore source files whose names
+# happen to match the local cookie-artifact ignore rule.
+#!include:.gitignore
+!internal/tools/cookies.go
+!internal/tools/cookies_test.go

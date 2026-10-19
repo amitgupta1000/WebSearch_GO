@@ -1403,6 +1403,8 @@ optional GCS cache backend. Redis is the default shared cache backend when the
 service can reach the configured Redis endpoint. The repository includes
 [`deploy/cloud-run.env.yaml`](../deploy/cloud-run.env.yaml) as a loadable
 non-secret baseline for the service configuration.
+If a managed Redis endpoint is non-TLS but its stored URL uses `rediss://`,
+set `REDIS_USE_SSL=false`; when unset, the URL scheme is honored unchanged.
 
 ```bash
 gcloud builds submit --tag REGION-docker.pkg.dev/PROJECT/REPOSITORY/websearch-go:TAG .

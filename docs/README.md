@@ -222,6 +222,7 @@ nothing. Person mode still has no freshness pass and no image OCR; company mode 
 | `REDIS_HOST` | — | Redis host; with `REDIS_PORT` / `REDIS_PASSWORD` it is assembled into a connection URL when `REDIS_URL` is unset |
 | `REDIS_PORT` | `6379` | Redis port |
 | `REDIS_PASSWORD` | — | Redis password (URL-escaped when the connection URL is assembled) |
+| `REDIS_USE_SSL` | unset | Optional override for the Redis URL scheme: `true` forces TLS (`rediss://`), `false` disables TLS (`redis://`); unset honors the scheme already stored in `REDIS_URL` |
 | `REDIS_KEY_PREFIX` | `websearch-go:` | Key namespace inside a shared Redis database |
 | `GCS_CACHE_BUCKET` | `crystal-crm-store` | Bucket used when `CACHE_BACKEND=gcs` |
 | `GCS_CACHE_PREFIX` | `WebSearch_GO/cache/` | Object-name prefix inside that bucket |

@@ -36,6 +36,9 @@ type Config struct {
 	RedisHost     string
 	RedisPort     int
 	RedisPassword string
+	// RedisUseSSL optionally overrides the TLS scheme in RedisURL. When unset,
+	// redis:// and rediss:// continue to control the connection as before.
+	RedisUseSSL *bool
 	// RedisKeyPrefix namespaces every key so a shared Redis database stays clean.
 	RedisKeyPrefix string
 	// GCSCacheBucket is the bucket used when CacheBackend is "gcs".
@@ -196,6 +199,7 @@ func Load() *Config {
 		RedisHost:              os.Getenv("REDIS_HOST"),
 		RedisPort:              redisPort,
 		RedisPassword:          os.Getenv("REDIS_PASSWORD"),
+		RedisUseSSL:            envOptionalBool("REDIS_USE_SSL"),
 		RedisKeyPrefix:         envString("REDIS_KEY_PREFIX", defaultRedisKeyPrefix),
 		GCSCacheBucket:         envString("GCS_CACHE_BUCKET", defaultGCSCacheBucket),
 		GCSCachePrefix:         envString("GCS_CACHE_PREFIX", defaultGCSCachePrefix),
@@ -255,7 +259,7 @@ func (c *Config) RedisConnectionURL() string {
 	}
 	if configured := strings.TrimSpace(c.RedisURL); configured != "" {
 		// A full URL wins: it can also carry a username, a database number and TLS.
-		return configured
+		return c.applyRedisSSLOverride(configured)
 	}
 	host := strings.TrimSpace(c.RedisHost)
 	if host == "" {
@@ -275,7 +279,23 @@ func (c *Config) RedisConnectionURL() string {
 	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
 		host = "[" + host + "]"
 	}
-	return fmt.Sprintf("redis://%s%s:%d", credentials, host, port)
+	scheme := "redis"
+	if c.RedisUseSSL != nil && *c.RedisUseSSL {
+		scheme = "rediss"
+	}
+	return fmt.Sprintf("%s://%s%s:%d", scheme, credentials, host, port)
+}
+
+func (c *Config) applyRedisSSLOverride(rawURL string) string {
+	if c.RedisUseSSL == nil {
+		return rawURL
+	}
+	switch {
+	case *c.RedisUseSSL:
+		return strings.Replace(rawURL, "redis://", "rediss://", 1)
+	default:
+		return strings.Replace(rawURL, "rediss://", "redis://", 1)
+	}
 }
 
 // ResearchTimeoutFor returns the research budget for a run. Rendered runs get the
@@ -351,11 +371,25 @@ func envBool(name string, def bool) bool {
 	if v == "" {
 		return def
 	}
+
 	parsed, err := strconv.ParseBool(v)
 	if err != nil {
 		return def
 	}
 	return parsed
+}
+
+func envOptionalBool(name string) *bool {
+	value, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return nil
+	}
+	trimmed := strings.TrimSpace(value)
+	parsed := strings.EqualFold(trimmed, "true") || trimmed == "1"
+	if !parsed && !strings.EqualFold(trimmed, "false") && trimmed != "0" {
+		return nil
+	}
+	return &parsed
 }
 
 // envInt reads a positive integer from an environment variable, falling back to
