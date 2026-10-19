@@ -11,6 +11,37 @@ import (
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
 
+func TestHasCurrentEmployerConflict(t *testing.T) {
+	tests := []struct {
+		name   string
+		result models.SearchResult
+		want   bool
+	}{
+		{
+			name:   "current role elsewhere",
+			result: models.SearchResult{Title: "Drishti Pahwa - Managing Partner - OtherCo | LinkedIn", Snippet: "Currently Managing Partner at OtherCo."},
+			want:   true,
+		},
+		{
+			name:   "former company and current role elsewhere",
+			result: models.SearchResult{Title: "Drishti Pahwa profile", Snippet: "Previously worked at Coralbay Advisors, now Managing Partner at OtherCo."},
+			want:   true,
+		},
+		{
+			name:   "current role at researched company",
+			result: models.SearchResult{Title: "Drishti Pahwa - Managing Partner - Coralbay Advisors", Snippet: "Currently Managing Partner at Coralbay Advisors."},
+			want:   false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := hasCurrentEmployerConflict([]models.SearchResult{test.result}, "Coralbay Advisors", "Drishti Pahwa"); got != test.want {
+				t.Fatalf("hasCurrentEmployerConflict() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 // datedSearcher returns canned results and records the queries it was asked, so
 // a test can assert both what the validation pass found and what it spent.
 type datedSearcher struct {

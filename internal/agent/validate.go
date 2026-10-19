@@ -507,6 +507,7 @@ func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, bri
 	report.Lookups, report.Skipped = ca.runReverseLookups(ctx, brief, rows, assessments, buckets, position, state, now, staleAfter, recentWithin, matcher, gate)
 	report.LookupsUsed = len(report.Lookups)
 	ca.enrichPublicEmails(ctx, brief, rows, matcher, ca.engine.ValidationLookups()-report.LookupsUsed)
+	applyCurrentEmployerConflicts(ca.engine.EntityGateRemoves(), chart, rows, report.Lookups)
 	countVerdicts(report, buckets)
 
 	// The entity pass runs last: it needs the labels above, and its removals must not
@@ -760,6 +761,12 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 		lookup.Status = "no-results"
 		return lookup, nil
 	}
+	if hasCurrentEmployerConflict(results, brief.CompanyName, name) {
+		lookup.Status = "conflicting-employer"
+		lookup.CurrentEmployerConflict = true
+		lookup.Detail = "a current-role result names another employer"
+		return lookup, results
+	}
 
 	// Association first, and it is the more important fact: a result that names both the
 	// person and the company ties them together, which is what rescues a row no collected
@@ -789,6 +796,7 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 		}
 		return lookup, results
 	}
+
 	lookup.AsOf = formatAsOf(newest)
 	lookup.Source = source
 	if !newest.Before(time.Now().Add(-ca.engine.ValidationRecentWithin())) {
@@ -796,8 +804,97 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 		lookup.Detail = "dated mention inside the recent window"
 		return lookup, results
 	}
+
 	lookup.Status = "refreshed"
 	return lookup, results
+}
+
+func hasCurrentEmployerConflict(results []models.SearchResult, company, person string) bool {
+	target := strings.ToLower(strings.Join(strings.Fields(company), " "))
+	name := strings.ToLower(strings.Join(strings.Fields(person), " "))
+	if target == "" || name == "" {
+		return false
+	}
+	for _, result := range results {
+		title := strings.ToLower(strings.Join(strings.Fields(result.Title), " "))
+		text := title + " " + strings.ToLower(strings.Join(strings.Fields(result.Snippet), " "))
+		if !strings.Contains(text, name) {
+			continue
+		}
+		if hasFormerEmploymentSignal(text) && hasCurrentEmploymentSignal(text) {
+			return true
+		}
+		if !strings.Contains(text, target) && hasRoleEmploymentShape(title) &&
+			(hasCurrentEmploymentSignal(text) || isProfessionalProfileResult(result)) {
+			return true
+		}
+	}
+	return false
+}
+
+func isProfessionalProfileResult(result models.SearchResult) bool {
+	link := strings.ToLower(result.Link)
+	title := strings.ToLower(result.Title)
+	return strings.Contains(link, "linkedin.com/in/") ||
+		strings.Contains(link, "crunchbase.com/person/") ||
+		strings.Contains(title, "linkedin")
+}
+
+func hasFormerEmploymentSignal(text string) bool {
+	for _, marker := range []string{"previously", "former", "formerly", "past employer", "ex-", "left ", "before joining"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCurrentEmploymentSignal(text string) bool {
+	for _, marker := range []string{"currently", "current role", "now ", "present", "joined ", "managing partner at", "partner at", "director at", "officer at"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRoleEmploymentShape(title string) bool {
+	if !strings.Contains(title, " - ") && !strings.Contains(title, " | ") {
+		return false
+	}
+	for _, role := range []string{"chief", "ceo", "cfo", "coo", "cto", "president", "partner", "director", "manager", "head", "officer", "vp"} {
+		if strings.Contains(title, role) {
+			return true
+		}
+	}
+	return false
+}
+
+func applyCurrentEmployerConflicts(remove bool, chart *models.OrgChart, rows []rosterRow, lookups []models.ValidationLookup) {
+	conflicts := make(map[string]bool)
+	for _, lookup := range lookups {
+		if lookup.CurrentEmployerConflict {
+			conflicts[normalizePersonName(lookup.Person)] = true
+		}
+	}
+	if len(conflicts) == 0 {
+		return
+	}
+	excluded := make(map[*models.Employee]bool)
+	excludedNames := make(map[string]bool)
+	for _, row := range rows {
+		key := normalizePersonName(row.employee.Name)
+		if !conflicts[key] {
+			continue
+		}
+		row.employee.Verification = models.VerificationConflicting
+		row.employee.VerificationNote = appendNote(row.employee.VerificationNote, "current employer is not the researched company")
+		excluded[row.employee] = true
+		excludedNames[key] = true
+	}
+	if remove {
+		removeRosterRows(chart, excluded, excludedNames)
+	}
 }
 
 // applyEntityRescue upgrades every row whose company association the lookup confirmed: a

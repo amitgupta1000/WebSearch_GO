@@ -787,6 +787,7 @@ func TestRemoveVacancyPlaceholdersKeepsNamedEmployees(t *testing.T) {
 	chart := &models.OrgChart{
 		Leadership: []models.Employee{
 			{Name: "Manager, Logistics and Purchasing", Title: "Manager, Logistics and Purchasing"},
+			{Name: "Leadership Team", Title: "Highly experienced leadership team with extensive background"},
 			{Name: "Jane Doe", Title: "Director of Logistics"},
 		},
 		Departments: []models.Department{{

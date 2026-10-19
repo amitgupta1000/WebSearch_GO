@@ -200,9 +200,10 @@ type ValidationLookup struct {
 	// MatchedCompany reports that a result names both the person and the company,
 	// which is what rescues a row no collected source could tie to the company.
 	// MatchedKey is the strongest key that result matched with.
-	MatchedCompany bool   `json:"matched_company,omitempty"`
-	MatchedKey     string `json:"matched_key,omitempty"`
-	Detail         string `json:"detail,omitempty"`
+	MatchedCompany          bool   `json:"matched_company,omitempty"`
+	MatchedKey              string `json:"matched_key,omitempty"`
+	CurrentEmployerConflict bool   `json:"current_employer_conflict,omitempty"`
+	Detail                  string `json:"detail,omitempty"`
 }
 
 // ValidationReport summarises the freshness pass over a finished chart: what
