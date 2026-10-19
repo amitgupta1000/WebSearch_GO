@@ -154,7 +154,7 @@ Compactly:
 | Page | `Blocked` ⇒ one ladder escalation | else `failed`, snippet retained |
 | Synthesis | — | run fails (no fallback) |
 | QC | 2 follow-ups max, needs ≥60 s | result returned as-is |
-| Freshness | 10 reverse lookups, 18/36-month windows | row excluded unless a lookup rescues it |
+| Freshness | 10 reverse lookups, 18/36-month windows | historical or current-unverified row excluded from the current chart and listed in **Excluded from the current org chart** |
 
 **Person run**
 
@@ -213,7 +213,7 @@ nothing. Person mode still has no freshness pass and no image OCR; company mode 
 | `HARD_URLS_PER_RUN` | `2` | Hard cap on how many URLs one run may escalate. Raise it for profile-heavy briefs, but remember each escalation can take up to `HARD_URL_BUDGET_SECONDS` |
 | `HARD_URL_BUDGET_SECONDS` | derived | Budget for the whole ladder on one URL. `0` derives it from the ladder's own step caps (15 s + 15 s + 20 s + margin), so the extended-settle step can never be clipped |
 | `VALIDATE_EVIDENCE` | `true` | Date and label every person row from the sources behind it (`verified-recent` / `dated` / `stale` / `undated` / `conflicting`) and allow bounded reverse lookups. The offline half costs nothing; `0` keeps the labels and spends no searches |
-| `ENTITY_GATE_MODE` | `enforce` | How strictly sources are held to the confirmed company: `enforce` rejects and removes people no source connects to the company, `report` labels them but keeps them (for measuring the gate's effect), `off` disables the gate entirely for comparison runs |
+| `ENTITY_GATE_MODE` | `enforce` | How strictly sources are held to the confirmed company: `enforce` removes off-entity, historical, retired, deceased, or current-unverified rows and lists them in the report, `report` labels them but keeps them, `off` disables the gate entirely for comparison runs |
 | `VALIDATION_LOOKUPS_PER_RUN` | `10` | Cap on reverse lookups — `"Name" "Company"`, snippet-only, never fetched. The policy is deliberately aggressive: anything not already current *and* tied to the company by a domain, alias or registration id gets one, because a lookup is what rescues a person no collected source could tie to the company. `0` disables them but keeps the labels |
 | `VALIDATION_STALE_AFTER_MONTHS` | `36` | Age at which a row's newest source is reported as `stale` |
 | `VALIDATION_RECENT_WITHIN_MONTHS` | `18` | Age inside which a dated source from the company's own domain, or from two independent domains, counts as `verified-recent` |
@@ -414,6 +414,13 @@ and pins the selected employer and location before the dossier run starts.
    entity, not a person. Rows matched by the name alone carry a visible
    `matched by company name only` warning, because a same-named company matches the same
    way.
+   Current-employment validation is separate from entity matching: a historical company
+   association is not treated as current merely because no newer employer is found. Explicit
+   former, retired, or deceased evidence is excluded, and an old association with no positive
+   current evidence is marked `current-unverified`. In enforce mode these rows are removed
+   from the current chart but listed in the report's **Excluded from the current org chart**
+   section with their source and reason. Report mode keeps the rows visible with the same
+   labels for tuning and review.
 5. **Reverse lookup before exclusion** — every row that is not already current *and* tied
    by a domain, alias or registration id gets one snippet-only `"Name" "Company"` search
    first. If a result names both, the person is **kept** and the rescue is recorded
@@ -678,11 +685,15 @@ gcloud run deploy websearch-go \
   --region "${REGION}" \
   --platform managed \
   --allow-unauthenticated \
-  --set-env-vars "CACHE_BACKEND=redis,GCS_CACHE_BUCKET=crystal-crm-store,OUTPUT_BUCKET=crystal-crm-store"
+  --env-vars-file deploy/cloud-run.env.yaml \
+  --set-secrets "GOOGLE_API_KEY=google-api-key:latest,SERPER_API_KEY=serper-api-key:latest,REDIS_URL=redis-url:latest"
 ```
 
-Use Secret Manager for `GOOGLE_API_KEY`, `SERPER_API_KEY`, `REDIS_URL`, and any
-other credentials; do not put secrets in the Dockerfile or image arguments. The
+`deploy/cloud-run.env.yaml` contains the non-secret runtime configuration and is
+safe to keep in source control after replacing the `REPLACE_WITH_*` bucket/project
+values. Create the referenced Secret Manager secrets and grant the Cloud Run runtime
+service account `roles/secretmanager.secretAccessor` before deploying. The secret
+values must not be placed in the YAML file, Dockerfile, or image arguments. The
 browser-enabled image can be built with `Dockerfile.browser` when browser fallback
 is required, but it is larger and has slower cold starts.
 

@@ -962,7 +962,22 @@ Snippets and aggregator listings arrive undated, so a director appointed in 2020
 
 1. **Dating** (`internal/agent/evidence_dates.go`, no requests). Every source is stamped with the newest date it proves about its own content: the LinkedIn activity id's timestamp (`id >> 22` is epoch ms, which is what turns a profile URL into a dated citation), JSON-LD `datePublished`/`dateModified`, a date written into the URL or file name (`…1july2020.pdf`, `…_October 24_ 2025_…`, `/nov-dec_2023/`), and finally the response's `Last-Modified`. Content signals beat `Last-Modified`, because a re-uploaded 2020 filing is still a 2020 filing. Each stamp reaches the synthesiser as `as of YYYY-MM-DD` on the evidence item itself.
 2. **Assessment** (`internal/agent/validate.go`, no requests). Every leadership and department row is matched to the sources that support it — its recorded citation plus any evidence naming that person — and labelled `verified-recent` (a dated source inside the recent window from the company's own domain or two independent domains), `dated`, `stale`, `undated`, or `conflicting` when two people claim one title. Row metadata (`AsOf`, `Verification`, `VerifiedBy`, `VerificationNote`) is attached by the agent, never by the model.
-3. **Bounded reverse lookups.** Only the rows the assessment could not resolve get one snippet-only search — `"Name" "Company"` — capped by `VALIDATION_LOOKUPS_PER_RUN`, skipped when under `minValidationBudget` remains, and never fetched: the point is to find a *date*, and a LinkedIn result URL carries its own. A dated recent mention promotes the row; nothing is ever added to the roster from a lookup.
+3. **Bounded reverse lookups.** Only the rows the assessment could not resolve get one snippet-only search — `"Name" "Company"` — capped by `VALIDATION_LOOKUPS_PER_RUN`, skipped when under `minValidationBudget` remains, and never fetched: the point is to find a *date* or establish current employment. A dated recent mention promotes the row; a positive current-employer statement keeps it current; nothing is ever added to the roster from a lookup.
+
+Current-employment status is conservative and three-way:
+
+- **Current** requires positive evidence tying the person to the researched company.
+- **Historical** covers explicit former, retired, deceased, obituary, or passed-away evidence.
+- **Current-unverified** covers an old or undated company association where no positive current
+  employment evidence was found. Absence of a newer employer is not evidence of continued
+  employment.
+
+With `ENTITY_GATE_MODE=enforce`, historical and current-unverified rows are removed from the
+current roster and preserved in `ValidationReport.ExcludedRows`, rendered as **Excluded from
+the current org chart** in the web UI, Markdown, and PDF reports. `report` mode applies the
+same verdicts and notes but leaves the rows in the chart for inspection; `off` disables the
+entity gate comparison. This preserves an audit trail without presenting uncertain historical
+affiliations as current leadership.
 
 The result renders as an `As of` column and a "Data freshness" section in the console, the Markdown and the PDF, including the conflicts and what each lookup changed. `OrgChart.UnverifiedSourceCount()` remains the separate measure of sources that could not be used at all.
 
@@ -1385,20 +1400,25 @@ Cloud Run runs the Go HTTP server and supplies the `PORT` environment variable
 (the images default it to `8080` for local runs). Cloud Storage is an object store,
 not an application host: it is used for exported Markdown/PDF artifacts and the
 optional GCS cache backend. Redis is the default shared cache backend when the
-service can reach the configured Redis endpoint.
+service can reach the configured Redis endpoint. The repository includes
+[`deploy/cloud-run.env.yaml`](../deploy/cloud-run.env.yaml) as a loadable
+non-secret baseline for the service configuration.
 
 ```bash
 gcloud builds submit --tag REGION-docker.pkg.dev/PROJECT/REPOSITORY/websearch-go:TAG .
 gcloud run deploy websearch-go \
   --image REGION-docker.pkg.dev/PROJECT/REPOSITORY/websearch-go:TAG \
   --region REGION \
-  --set-env-vars CACHE_BACKEND=redis,OUTPUT_BUCKET=BUCKET \
-  --set-secrets GOOGLE_API_KEY=google-api-key:latest,SERPER_API_KEY=serper-api-key:latest
+  --env-vars-file deploy/cloud-run.env.yaml \
+  --set-secrets GOOGLE_API_KEY=google-api-key:latest,SERPER_API_KEY=serper-api-key:latest,REDIS_URL=redis-url:latest
 ```
 
 Grant the Cloud Run runtime service account the minimum required permissions:
 Secret Manager access for configured secrets, Storage object access for output/cache
 prefixes, and any permissions required by the selected Vertex/Google API path.
+Replace the `REPLACE_WITH_*` values in the env file before deployment. Create the
+referenced secrets in Secret Manager and grant the runtime service account
+`roles/secretmanager.secretAccessor`; never put secret values in the env file.
 Keep `REDIS_URL`, API keys, service-account files, and cookie exports out of the
 image; `.dockerignore` explicitly excludes local credentials and cookie files.
 
