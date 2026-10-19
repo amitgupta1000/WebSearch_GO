@@ -13,11 +13,40 @@ import (
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/agent"
 	"github.com/amitgupta1000/WebSearch_GO/internal/config"
+	"github.com/amitgupta1000/WebSearch_GO/internal/gcs"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 	"github.com/amitgupta1000/WebSearch_GO/internal/testutil"
 	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 	"github.com/amitgupta1000/WebSearch_GO/internal/web"
 )
+
+func TestHandleExportDownloadUsesAuthenticatedStorageClient(t *testing.T) {
+	storage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Query().Get("alt") != "media" {
+			t.Fatalf("unexpected storage request: %s %s", r.Method, r.URL.String())
+		}
+		w.Header().Set("Content-Type", "text/markdown")
+		_, _ = w.Write([]byte("# report"))
+	}))
+	defer storage.Close()
+
+	server := &Server{
+		outputClient: gcs.NewClientWithHTTPClient(storage.Client(), storage.URL),
+		outputBucket: "private-bucket",
+		outputPrefix: "WebSearch_GO/",
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/exports?object=WebSearch_GO%2Fcompany%2Freport.md", nil)
+	response := httptest.NewRecorder()
+
+	server.handleExportDownload(response, request)
+
+	if response.Code != http.StatusOK || response.Body.String() != "# report" {
+		t.Fatalf("download response = %d %q", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Content-Disposition"); !strings.Contains(got, "report.md") {
+		t.Fatalf("content disposition = %q", got)
+	}
+}
 
 func TestHandleEventsTerminatesAfterFailedSession(t *testing.T) {
 	templates, err := web.Templates()

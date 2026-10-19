@@ -687,9 +687,11 @@ browser-enabled image can be built with `Dockerfile.browser` when browser fallba
 is required, but it is larger and has slower cold starts.
 
 The current UI is server-rendered Go templates and HTMX, so it can be served directly
-from Cloud Run. Firebase Hosting is only needed for a separately built static frontend;
-in that architecture, configure Firebase rewrites for `/api/**` to the Cloud Run
-service and use signed URLs or authenticated backend routes for GCS artifacts.
+from Cloud Run. GCS artifacts are downloaded through the authenticated `/api/exports`
+Cloud Run route rather than unsigned `storage.googleapis.com` links. Firebase Hosting
+is only needed for a separately built static frontend; in that architecture, configure
+Firebase rewrites for `/api/**` to the Cloud Run service and keep the authenticated
+artifact route on Cloud Run.
 
 ### Python companion dependencies
 

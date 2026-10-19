@@ -22,13 +22,14 @@ type documentPrinter interface {
 // Exporting is optional infrastructure, so a failure here degrades to "no
 // artifacts" with a clear log line rather than stopping the server: a research run
 // is still useful without a saved copy of it.
-func buildExporter(ctx context.Context, cfg *config.Config, printer documentPrinter) *export.Exporter {
+func buildExporter(ctx context.Context, cfg *config.Config, printer documentPrinter) (*export.Exporter, *gcs.Client) {
 	if len(cfg.OutputFormats) == 0 {
 		log.Printf("Output artifacts: disabled (OUTPUT_FORMATS is empty)")
-		return nil
+		return nil, nil
 	}
 
 	var destination export.Destination
+	var outputClient *gcs.Client
 	switch {
 	case strings.TrimSpace(cfg.OutputLocalDir) != "":
 		// An explicit directory wins: setting it is a request for files on disk.
@@ -37,12 +38,13 @@ func buildExporter(ctx context.Context, cfg *config.Config, printer documentPrin
 		client, err := gcs.NewClient(ctx, gcs.ReadWriteScope)
 		if err != nil {
 			log.Printf("[WARN] output artifacts disabled: %v", err)
-			return nil
+			return nil, nil
 		}
-		destination = export.NewGCSDestination(client, cfg.OutputBucket)
+		outputClient = client
+		destination = export.NewGCSDestinationWithDownloadURL(client, cfg.OutputBucket, "/api/exports")
 	default:
 		log.Printf("Output artifacts: disabled (set OUTPUT_BUCKET or OUTPUT_LOCAL_DIR)")
-		return nil
+		return nil, nil
 	}
 
 	var pdfRenderer export.PDFRenderer
@@ -52,8 +54,8 @@ func buildExporter(ctx context.Context, cfg *config.Config, printer documentPrin
 	exporter := export.New(destination, pdfRenderer, cfg.OutputPrefix, cfg.OutputFormats)
 	if !exporter.Enabled() {
 		log.Printf("Output artifacts: disabled (no usable format)")
-		return nil
+		return nil, nil
 	}
 	log.Printf("Output artifacts: %s, formats %s", exporter.Describe(), strings.Join(cfg.OutputFormats, "+"))
-	return exporter
+	return exporter, outputClient
 }

@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,13 +45,22 @@ type Destination interface {
 
 // GCSDestination writes artifacts to a Cloud Storage bucket.
 type GCSDestination struct {
-	client *gcs.Client
-	bucket string
+	client          *gcs.Client
+	bucket          string
+	downloadBaseURL string
 }
 
 // NewGCSDestination builds a bucket destination.
 func NewGCSDestination(client *gcs.Client, bucket string) *GCSDestination {
 	return &GCSDestination{client: client, bucket: strings.TrimSpace(bucket)}
+}
+
+// NewGCSDestinationWithDownloadURL uses an application download endpoint for
+// browser access while retaining GCS for server-side storage.
+func NewGCSDestinationWithDownloadURL(client *gcs.Client, bucket, downloadBaseURL string) *GCSDestination {
+	destination := NewGCSDestination(client, bucket)
+	destination.downloadBaseURL = strings.TrimRight(strings.TrimSpace(downloadBaseURL), "?&")
+	return destination
 }
 
 // Write uploads the artifact.
@@ -64,7 +74,11 @@ func (d *GCSDestination) Write(ctx context.Context, objectName, contentType stri
 	if err := d.client.Upload(ctx, d.bucket, objectName, contentType, data); err != nil {
 		return "", "", err
 	}
-	return gcs.URI(d.bucket, objectName), gcs.HTTPSURL(d.bucket, objectName), nil
+	downloadURL := gcs.HTTPSURL(d.bucket, objectName)
+	if d.downloadBaseURL != "" {
+		downloadURL = d.downloadBaseURL + "?object=" + url.QueryEscape(objectName)
+	}
+	return gcs.URI(d.bucket, objectName), downloadURL, nil
 }
 
 // Describe identifies the bucket for logs.

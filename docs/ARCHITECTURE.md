@@ -1403,9 +1403,11 @@ Keep `REDIS_URL`, API keys, service-account files, and cookie exports out of the
 image; `.dockerignore` explicitly excludes local credentials and cookie files.
 
 The existing UI is embedded Go HTML/HTMX and should normally remain on the same
-Cloud Run service. A Firebase Hosting split is optional: deploy a separate static
-frontend, rewrite `/api/**` to Cloud Run, configure CORS and authentication, and
-serve GCS artifacts through authenticated or signed URLs.
+Cloud Run service. GCS artifacts are stored privately and downloaded through the
+authenticated `/api/exports` Cloud Run route; the application identity reads the
+object, so the browser never needs GCS credentials. A Firebase Hosting split is
+optional: deploy a separate static frontend, rewrite `/api/**` to Cloud Run,
+configure CORS and authentication, and keep the artifact route on Cloud Run.
 
 ### Environment note for Windows dev
 

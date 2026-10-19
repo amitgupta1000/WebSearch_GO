@@ -19,6 +19,7 @@ import (
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/agent"
 	"github.com/amitgupta1000/WebSearch_GO/internal/config"
+	"github.com/amitgupta1000/WebSearch_GO/internal/gcs"
 	"github.com/amitgupta1000/WebSearch_GO/internal/llm"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
@@ -38,6 +39,9 @@ type Server struct {
 	// rendering toggle that cannot work.
 	browserAvailable   bool
 	allowBrowserToggle bool
+	outputClient       *gcs.Client
+	outputBucket       string
+	outputPrefix       string
 }
 
 // indexView is the data passed to the full-page console.
@@ -208,7 +212,8 @@ func main() {
 	}
 	// Finished runs are written to the configured destination as Markdown and PDF.
 	// A nil exporter simply means the runs are not saved.
-	if exporter := buildExporter(ctx, cfg, scraper); exporter != nil {
+	exporter, outputClient := buildExporter(ctx, cfg, scraper)
+	if exporter != nil {
 		options = append(options, agent.WithExporter(exporter))
 	}
 	eng := agent.NewEngine(gemini, serper, scraper, store, cfg.MaxScrapesPerRun, cfg.MaxSearchResults, cfg.MaxSteps,
@@ -250,6 +255,9 @@ func main() {
 		tmpl:               tmpl,
 		browserAvailable:   browserAvailable,
 		allowBrowserToggle: cfg.AllowBrowserToggle,
+		outputClient:       outputClient,
+		outputBucket:       cfg.OutputBucket,
+		outputPrefix:       cfg.OutputPrefix,
 	}
 
 	mux := http.NewServeMux()
@@ -260,6 +268,7 @@ func main() {
 	mux.HandleFunc("POST /api/rerun", srv.handleRerun)
 	mux.HandleFunc("POST /api/question", srv.handleQuestion)
 	mux.HandleFunc("GET /api/events", srv.handleEvents)
+	mux.HandleFunc("GET /api/exports", srv.handleExportDownload)
 	mux.HandleFunc("GET /healthz", srv.handleHealth)
 
 	httpServer := &http.Server{
@@ -1047,6 +1056,58 @@ func (s *Server) renderError(w http.ResponseWriter, msg string) {
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte("ok"))
+}
+
+// handleExportDownload proxies private GCS artifacts through the authenticated
+// server identity. The object must remain under the configured output prefix;
+// clients cannot use this endpoint to read arbitrary bucket objects.
+func (s *Server) handleExportDownload(w http.ResponseWriter, r *http.Request) {
+	if s.outputClient == nil || strings.TrimSpace(s.outputBucket) == "" {
+		http.Error(w, "artifact storage is not configured", http.StatusNotFound)
+		return
+	}
+	object := strings.TrimSpace(r.URL.Query().Get("object"))
+	prefix := strings.TrimSuffix(strings.TrimSpace(s.outputPrefix), "/")
+	if prefix != "" {
+		prefix += "/"
+	}
+	if object == "" || (prefix != "" && !strings.HasPrefix(object, prefix)) ||
+		strings.Contains(object, "..") || strings.ContainsAny(object, `\`) {
+		http.Error(w, "invalid artifact object", http.StatusBadRequest)
+		return
+	}
+
+	data, found, err := s.outputClient.Download(r.Context(), s.outputBucket, object)
+	if err != nil {
+		log.Printf("[WARN] artifact download failed for %s: %v", object, err)
+		http.Error(w, "artifact download failed", http.StatusBadGateway)
+		return
+	}
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+	contentType := "application/octet-stream"
+	switch {
+	case strings.HasSuffix(strings.ToLower(object), ".pdf"):
+		contentType = "application/pdf"
+	case strings.HasSuffix(strings.ToLower(object), ".json"):
+		contentType = "application/json; charset=utf-8"
+	case strings.HasSuffix(strings.ToLower(object), ".md"):
+		contentType = "text/markdown; charset=utf-8"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+pathBase(object)+`"`)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+func pathBase(object string) string {
+	if index := strings.LastIndexByte(object, '/'); index >= 0 {
+		return object[index+1:]
+	}
+	return object
 }
 
 // securityHeaders sets baseline defensive headers on every response.
