@@ -203,6 +203,7 @@ type ValidationLookup struct {
 	MatchedCompany          bool   `json:"matched_company,omitempty"`
 	MatchedKey              string `json:"matched_key,omitempty"`
 	CurrentEmployerConflict bool   `json:"current_employer_conflict,omitempty"`
+	CurrentStatus           string `json:"current_status,omitempty"`
 	Detail                  string `json:"detail,omitempty"`
 }
 
@@ -218,6 +219,8 @@ type ValidationReport struct {
 	RowsStale   int                `json:"rows_stale"`
 	RowsUndated int                `json:"rows_undated"`
 	Conflicts   []string           `json:"conflicts,omitempty"`
+	// ExcludedRows records people removed from the current chart by current-employment checks.
+	ExcludedRows []OffEntityRow `json:"excluded_rows,omitempty"`
 	// Skipped names why no reverse lookups ran (validation disabled, out of
 	// budget, or nothing needed checking).
 	Skipped string `json:"skipped,omitempty"`
@@ -237,6 +240,12 @@ const (
 	VerificationConflicting = "conflicting"
 	// VerificationUndated means no source carried a date at all.
 	VerificationUndated = "undated"
+	// VerificationCurrentUnverified means historical evidence exists but current
+	// employment could not be established.
+	VerificationCurrentUnverified = "current-unverified"
+	// VerificationHistorical means a source explicitly identifies a former,
+	// retired or deceased association.
+	VerificationHistorical = "historical"
 )
 
 // ScrapeReportEntry records the outcome of attempting to use one target URL.

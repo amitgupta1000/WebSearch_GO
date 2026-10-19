@@ -178,6 +178,18 @@
 				<span class="px-2 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300">undated {{.Validation.RowsUndated}}</span>
 			</div>
 			{{if .Validation.Conflicts}}<ul class="list-disc pl-5 space-y-1 text-amber-300">{{range .Validation.Conflicts}}<li>{{.}}</li>{{end}}</ul>{{end}}
+			{{if .Validation.ExcludedRows}}
+			<div>
+				<h4 class="font-medium text-amber-300">Excluded from the current org chart</h4>
+				<p class="text-slate-500 mt-1">Removed by current-employment checks and retained for auditability.</p>
+				<div class="overflow-x-auto mt-2">
+					<table class="w-full text-xs text-left">
+						<thead class="text-slate-500 border-b border-slate-800"><tr><th class="py-2 pr-3">Name</th><th class="py-2 pr-3">Title</th><th class="py-2 pr-3">Section</th><th class="py-2">Reason</th></tr></thead>
+						<tbody>{{range .Validation.ExcludedRows}}<tr class="border-b border-slate-800/60"><td class="py-2 pr-3 text-slate-300">{{.Name}}</td><td class="py-2 pr-3">{{.Title}}</td><td class="py-2 pr-3">{{.Place}}</td><td class="py-2 text-slate-400">{{.Reason}}</td></tr>{{end}}</tbody>
+					</table>
+				</div>
+			</div>
+			{{end}}
 			{{if .Validation.Lookups}}
 			<div class="overflow-x-auto">
 				<table class="w-full text-xs text-left">

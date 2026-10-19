@@ -194,6 +194,17 @@ func renderValidationMarkdown(report *models.ValidationReport) string {
 	if len(report.Conflicts) > 0 {
 		builder.WriteString("\n")
 	}
+	if len(report.ExcludedRows) > 0 {
+		builder.WriteString("### Excluded from the current org chart\n\n")
+		builder.WriteString("These rows were removed by current-employment checks and remain listed for auditability.\n\n")
+		builder.WriteString("| Name | Title | Section | Source | Reason |\n| :--- | :--- | :--- | :--- | :--- |\n")
+		for _, row := range report.ExcludedRows {
+			fmt.Fprintf(&builder, "| %s | %s | %s | %s | %s |\n",
+				markdownCell(row.Name), markdownCell(row.Title), markdownCell(row.Place),
+				markdownCell(row.Source), markdownCell(row.Reason))
+		}
+		builder.WriteString("\n")
+	}
 
 	if len(report.Lookups) > 0 {
 		builder.WriteString("| Person | Reverse lookup | Outcome | Newest mention |\n| :--- | :--- | :--- | :--- |\n")

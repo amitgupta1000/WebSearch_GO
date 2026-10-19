@@ -507,7 +507,7 @@ func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, bri
 	report.Lookups, report.Skipped = ca.runReverseLookups(ctx, brief, rows, assessments, buckets, position, state, now, staleAfter, recentWithin, matcher, gate)
 	report.LookupsUsed = len(report.Lookups)
 	ca.enrichPublicEmails(ctx, brief, rows, matcher, ca.engine.ValidationLookups()-report.LookupsUsed)
-	applyCurrentEmployerConflicts(ca.engine.EntityGateRemoves(), chart, rows, report.Lookups)
+	report.ExcludedRows = applyCurrentStatusVerdicts(ca.engine.EntityGateRemoves(), chart, rows, report.Lookups)
 	countVerdicts(report, buckets)
 
 	// The entity pass runs last: it needs the labels above, and its removals must not
@@ -761,9 +761,17 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 		lookup.Status = "no-results"
 		return lookup, nil
 	}
+	if hasHistoricalPersonStatus(results, brief.CompanyName, name) {
+		lookup.Status = "historical"
+		lookup.CurrentEmployerConflict = true
+		lookup.CurrentStatus = "historical"
+		lookup.Detail = "the person is identified as former, retired or deceased"
+		return lookup, results
+	}
 	if hasCurrentEmployerConflict(results, brief.CompanyName, name) {
 		lookup.Status = "conflicting-employer"
 		lookup.CurrentEmployerConflict = true
+		lookup.CurrentStatus = "historical"
 		lookup.Detail = "a current-role result names another employer"
 		return lookup, results
 	}
@@ -790,6 +798,11 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 	newest, source := newestDatedResult(results)
 	if newest.IsZero() {
 		lookup.Status = "unchanged"
+		if hasCurrentCompanyEmployment(results, brief.CompanyName, name) {
+			lookup.CurrentStatus = "current"
+		} else {
+			lookup.CurrentStatus = "unknown"
+		}
 		lookup.Detail = "no dated mention in the results"
 		if associationSource != "" {
 			lookup.Source = associationSource
@@ -801,11 +814,16 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 	lookup.Source = source
 	if !newest.Before(time.Now().Add(-ca.engine.ValidationRecentWithin())) {
 		lookup.Status = "promoted"
+		lookup.CurrentStatus = "current"
 		lookup.Detail = "dated mention inside the recent window"
 		return lookup, results
 	}
-
 	lookup.Status = "refreshed"
+	if hasCurrentCompanyEmployment(results, brief.CompanyName, name) {
+		lookup.CurrentStatus = "current"
+	} else {
+		lookup.CurrentStatus = "unknown"
+	}
 	return lookup, results
 }
 
@@ -826,6 +844,48 @@ func hasCurrentEmployerConflict(results []models.SearchResult, company, person s
 		}
 		if !strings.Contains(text, target) && hasRoleEmploymentShape(title) &&
 			(hasCurrentEmploymentSignal(text) || isProfessionalProfileResult(result)) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasHistoricalPersonStatus(results []models.SearchResult, company, person string) bool {
+	target := strings.ToLower(strings.Join(strings.Fields(company), " "))
+	name := strings.ToLower(strings.Join(strings.Fields(person), " "))
+	for _, result := range results {
+		text := strings.ToLower(strings.Join(strings.Fields(result.Title+" "+result.Snippet), " "))
+		if !strings.Contains(text, name) || !hasExplicitHistoricalStatus(text) {
+			continue
+		}
+		if strings.Contains(text, target) || hasFormerEmploymentSignal(text) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCurrentCompanyEmployment(results []models.SearchResult, company, person string) bool {
+	target := strings.ToLower(strings.Join(strings.Fields(company), " "))
+	name := strings.ToLower(strings.Join(strings.Fields(person), " "))
+	for _, result := range results {
+		title := strings.ToLower(strings.Join(strings.Fields(result.Title), " "))
+		text := title + " " + strings.ToLower(strings.Join(strings.Fields(result.Snippet), " "))
+		if !strings.Contains(text, name) || !strings.Contains(text, target) ||
+			hasFormerEmploymentSignal(text) {
+			continue
+		}
+		if hasCurrentEmploymentSignal(text) || strings.Contains(text, " at "+target) ||
+			hasRoleEmploymentShape(title) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasExplicitHistoricalStatus(text string) bool {
+	for _, marker := range []string{"retired", "retirement", "deceased", "passed away", "died ", "obituary", "in memoriam"} {
+		if strings.Contains(text, marker) {
 			return true
 		}
 	}
@@ -870,31 +930,51 @@ func hasRoleEmploymentShape(title string) bool {
 	return false
 }
 
-func applyCurrentEmployerConflicts(remove bool, chart *models.OrgChart, rows []rosterRow, lookups []models.ValidationLookup) {
-	conflicts := make(map[string]bool)
+func applyCurrentStatusVerdicts(remove bool, chart *models.OrgChart, rows []rosterRow, lookups []models.ValidationLookup) []models.OffEntityRow {
+	statuses := make(map[string]string)
 	for _, lookup := range lookups {
-		if lookup.CurrentEmployerConflict {
-			conflicts[normalizePersonName(lookup.Person)] = true
+		status := lookup.CurrentStatus
+		if status == "" && lookup.CurrentEmployerConflict {
+			status = "historical"
+		}
+		if status != "" {
+			statuses[normalizePersonName(lookup.Person)] = status
 		}
 	}
-	if len(conflicts) == 0 {
-		return
+	if len(statuses) == 0 {
+		return nil
 	}
 	excluded := make(map[*models.Employee]bool)
 	excludedNames := make(map[string]bool)
+	removed := make([]models.OffEntityRow, 0)
 	for _, row := range rows {
 		key := normalizePersonName(row.employee.Name)
-		if !conflicts[key] {
+		status := statuses[key]
+		if status == "" || status == "current" {
 			continue
 		}
-		row.employee.Verification = models.VerificationConflicting
-		row.employee.VerificationNote = appendNote(row.employee.VerificationNote, "current employer is not the researched company")
+		if status == "historical" {
+			row.employee.Verification = models.VerificationHistorical
+			row.employee.VerificationNote = appendNote(row.employee.VerificationNote, "historical association: former, retired or deceased status")
+		} else {
+			row.employee.Verification = models.VerificationCurrentUnverified
+			row.employee.VerificationNote = appendNote(row.employee.VerificationNote, "current employment could not be established")
+		}
 		excluded[row.employee] = true
 		excludedNames[key] = true
+		source := row.employee.PublicSource
+		if len(row.employee.VerifiedBy) > 0 && row.employee.VerifiedBy[0] != "" {
+			source = row.employee.VerifiedBy[0]
+		}
+		removed = append(removed, models.OffEntityRow{
+			Name: row.employee.Name, Title: row.employee.Title, Place: row.context,
+			Source: source, Reason: row.employee.VerificationNote,
+		})
 	}
 	if remove {
 		removeRosterRows(chart, excluded, excludedNames)
 	}
+	return removed
 }
 
 // applyEntityRescue upgrades every row whose company association the lookup confirmed: a

@@ -203,6 +203,11 @@ var companyHTMLTemplate = documentTemplate("company", `
 	<tr><td>undated</td><td>{{.Chart.Validation.RowsUndated}}</td></tr>
 	</tbody></table>
 	{{if .Chart.Validation.Conflicts}}<ul>{{range .Chart.Validation.Conflicts}}<li><strong>Conflicting title:</strong> {{.}}</li>{{end}}</ul>{{end}}
+	{{if .Chart.Validation.ExcludedRows}}<h3>Excluded from the current org chart</h3>
+	<p class="dim">These rows were removed by current-employment checks and are retained here for auditability.</p>
+	<table><thead><tr><th>Name</th><th>Title</th><th>Section</th><th>Source</th><th>Reason</th></tr></thead><tbody>
+	{{range .Chart.Validation.ExcludedRows}}<tr><td>{{.Name}}</td><td>{{.Title}}</td><td>{{.Place}}</td><td class="src">{{.Source}}</td><td>{{.Reason}}</td></tr>{{end}}
+	</tbody></table>{{end}}
 	{{if .Chart.Validation.Lookups}}<table><thead><tr><th>Person</th><th>Reverse lookup</th><th>Outcome</th><th>Newest mention</th><th>Source</th></tr></thead><tbody>
 	{{range .Chart.Validation.Lookups}}<tr><td>{{.Person}}</td><td class="src">{{.Query}}</td><td>{{.Status}}</td><td>{{.AsOf}}</td><td class="src">{{.Source}}</td></tr>{{end}}
 	</tbody></table>{{end}}

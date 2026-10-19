@@ -42,6 +42,28 @@ func TestHasCurrentEmployerConflict(t *testing.T) {
 	}
 }
 
+func TestHistoricalPersonStatus(t *testing.T) {
+	results := []models.SearchResult{{
+		Title:   "Drishti Pahwa profile",
+		Snippet: "Drishti Pahwa retired from Coralbay Advisors in 2024.",
+	}}
+	if !hasHistoricalPersonStatus(results, "Coralbay Advisors", "Drishti Pahwa") {
+		t.Fatal("expected explicit retirement status to be detected")
+	}
+}
+
+func TestApplyCurrentStatusVerdictsRemovesUnverifiedRows(t *testing.T) {
+	chart := &models.OrgChart{Leadership: []models.Employee{{Name: "Drishti Pahwa", Title: "Managing Partner"}}}
+	rows := collectRosterRows(chart)
+	applyCurrentStatusVerdicts(true, chart, rows, []models.ValidationLookup{{
+		Person:        "Drishti Pahwa",
+		CurrentStatus: "unknown",
+	}})
+	if len(chart.Leadership) != 0 {
+		t.Fatal("expected current-unverified row to be removed")
+	}
+}
+
 // datedSearcher returns canned results and records the queries it was asked, so
 // a test can assert both what the validation pass found and what it spent.
 type datedSearcher struct {
