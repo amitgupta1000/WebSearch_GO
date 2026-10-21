@@ -745,12 +745,9 @@ func enforceEntityQueries(plan models.QueryPlan, brief models.CompanyBrief) (mod
 	}
 
 	// Refill with queries that are safe by construction, which also guarantees a
-	// site:<domain> query when a domain is known. The dedicated indexed-profile and
-	// aggregator slots are reserved so a full LLM plan cannot crowd them out.
+	// site:<domain> query when a domain is known. The dedicated indexed-profile slots
+	// are reserved so a full LLM plan cannot crowd them out.
 	reserve := len(indexedProfileQueries(brief))
-	if companyAggregatorQuery(brief) != "" {
-		reserve++
-	}
 	kept = limitQueryPlan(models.QueryPlan{Queries: kept}, maxCompanySearchQueries-reserve).Queries
 	refill := entityAnchoredQueries(brief)
 	for _, indexed := range indexedProfileQueries(brief) {
@@ -758,17 +755,6 @@ func enforceEntityQueries(plan models.QueryPlan, brief models.CompanyBrief) (mod
 		if !seen[key] {
 			refill = append([]models.PlannedQuery{indexed}, refill...)
 		}
-	}
-	if aggregatorQuery := companyAggregatorQuery(brief); aggregatorQuery != "" && !seen[strings.ToLower(aggregatorQuery)] {
-		// Reserve its slot at the front of the refill rather than at the back: with one slot
-		// free, the domains that stand in for a LinkedIn profile are worth more than another
-		// site:<domain> query, which the planner already writes on its own.
-		refill = append([]models.PlannedQuery{{
-			Query:      aggregatorQuery,
-			Purpose:    "read company and people aggregator pages for names and titles",
-			TargetArea: "leadership",
-			Priority:   1,
-		}}, refill...)
 	}
 	for _, anchor := range refill {
 		if len(kept) >= maxCompanySearchQueries {
@@ -808,20 +794,12 @@ func entityAnchoredQueries(brief models.CompanyBrief) []models.PlannedQuery {
 	// title-and-employer facts a LinkedIn profile would; reserve their slots so they
 	// cannot be crowded out.
 	queries = append(queries, indexedProfileQueries(brief)...)
-	if aggregatorQuery := companyAggregatorQuery(brief); aggregatorQuery != "" {
-		queries = append(queries, models.PlannedQuery{
-			Query:      aggregatorQuery,
-			Purpose:    "read company and people aggregator pages for names and titles",
-			TargetArea: "leadership",
-			Priority:   1,
-		})
-	}
 	return queries
 }
 
-// indexedProfileQueries reserves two Google-index discovery slots for LinkedIn and
-// two dedicated slots for each promoted aggregator. Their snippets are the fallback
-// when the profile itself is unavailable.
+// indexedProfileQueries reserves one company-name-only Google-index slot for LinkedIn
+// and each promoted aggregator, plus LinkedIn role-specific slots. Their snippets are
+// the fallback when the profile itself is unavailable.
 func indexedProfileQueries(brief models.CompanyBrief) []models.PlannedQuery {
 	company := strings.TrimSpace(brief.CompanyName)
 	if company == "" {
@@ -829,23 +807,21 @@ func indexedProfileQueries(brief models.CompanyBrief) []models.PlannedQuery {
 	}
 	quoted := fmt.Sprintf("%q", company)
 	queries := []models.PlannedQuery{
-		{Query: `site:linkedin.com/in/ ` + quoted + ` (procurement OR sourcing OR "supply chain" OR CPO OR CSCO)`, Purpose: "find procurement executives in LinkedIn's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 1},
-		{Query: `site:linkedin.com/in/ ` + quoted + ` ("chief procurement officer" OR "procurement director" OR "head of procurement" OR "VP supply chain")`, Purpose: "find senior procurement titles in LinkedIn's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 1},
+		{Query: `site:linkedin.com/in/ ` + quoted, Purpose: "find people associated with the company in LinkedIn's Google index", TargetArea: "leadership", Priority: 1},
 	}
 	for _, host := range promotedCompanyAggregators {
-		queries = append(queries,
-			models.PlannedQuery{Query: `site:` + host + ` ` + quoted + ` (leadership OR executive OR management OR director OR "chief")`, Purpose: "find company leadership in " + host + "'s Google index", TargetArea: "leadership", Priority: 2},
-			models.PlannedQuery{Query: `site:` + host + ` ` + quoted + ` (procurement OR sourcing OR "supply chain" OR CPO OR CSCO)`, Purpose: "find procurement executives in " + host + "'s Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
-		)
+		queries = append(queries, models.PlannedQuery{
+			Query:      `site:` + host + ` ` + quoted,
+			Purpose:    "find company records in " + host + "'s Google index",
+			TargetArea: "company profile",
+			Priority:   1,
+		})
 	}
+	queries = append(queries,
+		models.PlannedQuery{Query: `site:linkedin.com/in/ ` + quoted + ` ("chief procurement officer" OR "procurement director" OR "head of procurement" OR "VP supply chain")`, Purpose: "find procurement executives in LinkedIn's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 1},
+		models.PlannedQuery{Query: `site:linkedin.com/in/ ` + quoted + ` (CPO OR CSCO OR "chief marketing officer" OR CMO OR CTO OR CFO)`, Purpose: "find department executives in LinkedIn's Google index", TargetArea: "department leadership", Priority: 1},
+	)
 	return queries
-}
-
-// companyAggregatorQuery is the one anchored query that targets the people-data aggregators.
-// It is derived, never hand-written, so a host the entity gate filters can never appear in a
-// query whose results would be discarded.
-func companyAggregatorQuery(brief models.CompanyBrief) string {
-	return sourceSiteQuery("\""+strings.TrimSpace(brief.CompanyName)+"\"", companyAcceptedProfileSources())
 }
 
 func fallbackQueryPlan(brief models.CompanyBrief) models.QueryPlan {

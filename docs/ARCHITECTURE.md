@@ -1178,15 +1178,16 @@ the two cited sources.
 - **Aggregator sources** (`internal/agent/sources.go`). LinkedIn person profiles cannot be read
   without a session, so `alternativeProfileSources` names the people-data aggregators that
   publish the same title-and-employer fact: crunchbase, zoominfo, clearbit, apollo.io, hunter.io.
-  Company mode gives two dedicated Google-index slots each to LinkedIn, Economic Times,
-  ZaubaCorp, TheCompanyCheck, Tracxn, and Crunchbase. Naukri has no dedicated slot and
-  remains below the company evidence floor when it appears in general search results.
+  Company mode gives one company-name-only Google-index slot each to LinkedIn, Economic
+  Times, ZaubaCorp, TheCompanyCheck, Tracxn, and Crunchbase, plus separate LinkedIn
+  role-specific slots. Naukri has no dedicated slot and remains below the company evidence
+  floor when it appears in general search results.
   Two roles, kept distinct: for **person** material they are claims about a named individual,
   which `personDirectoryHosts` already flags; for **company** material some are directories, and
   `companyAcceptedProfileSources` derives which ones the gate keeps by testing each host against
   `lowQualityHosts` — ZoomInfo is on that list, so no company query ever targets it. The company
-  plan gains one anchored query (`"<Company>" (site:… OR site:…)`, which also passes
-  `matcher.covers`), person research gains one more search whose snippets are labelled
+  plan gains one anchored query per promoted host (`site:<host> "<Company>"`, which also
+  passes `matcher.covers`), plus role-specific LinkedIn searches; person research gains one more search whose snippets are labelled
   `DIRECTORY CLAIMS`, the confirmation step spends an aggregator query only when its two core
   passes come back thin, and `isProfileSourceURL` keeps the fetch priority in step with the query
   builder so a searched domain is not ignored at fetch time.
@@ -1602,8 +1603,8 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 
 | # | Stage | What happens | Bound | On failure |
 | :--- | :--- | :--- | :--- | :--- |
-| 1 | Plan | Gemini plans queries → `enforceEntityQueries` drops unanchored/duplicate → `entityAnchoredQueries` refill | *filter*: a query must name the company, an alias, its domain or its registration id; cap 24; dedicated indexed-profile slots and one combined aggregator slot are reserved | `fallbackQueryPlan` |
-| 1a | ↳ anchored set | `site:<domain>` ×3, name-anchored leadership/procurement, two LinkedIn slots and two slots each for Economic Times, ZaubaCorp, TheCompanyCheck, Tracxn and Crunchbase | Naukri has no dedicated company slot; ZoomInfo remains excluded from company queries by the deny-list | — |
+| 1 | Plan | Gemini plans queries → `enforceEntityQueries` drops unanchored/duplicate → `entityAnchoredQueries` refill | *filter*: a query must name the company, an alias, its domain or its registration id; cap 24; dedicated indexed-profile slots are reserved | `fallbackQueryPlan` |
+| 1a | ↳ anchored set | `site:<domain>` ×3, name-anchored leadership/procurement, one company-name-only slot per promoted host, plus role-specific LinkedIn slots | Naukri has no dedicated company slot; ZoomInfo remains excluded from company queries by the deny-list | — |
 | 2 | Search | Serper per query | `MaxSearchResults` per query; 48 h cache; URL dedupe | per-query failure tolerated |
 | 3 | Rank | BM25 → top **12** semantically reranked by Gemini, 8 s deadline → `pruneUnconnected` | *filter*: no shared company token with the snippet ⇒ dropped (kept when there is no snippet); quality: aggregator 0.1, `linkedin.` 0.6, external 0.55, leadership 0.7, official 0.9–1.0 | BM25 order continues, marked `semantic skip` |
 | 3a | ↳ relevance floor | `Score += 0.18·(quality−0.5)`; quality < 0.25 ⇒ `Relevant=false` | ***filter at fetch level***: deny-listed hosts are never downloaded; promoted aggregator snippets remain retained evidence | — |

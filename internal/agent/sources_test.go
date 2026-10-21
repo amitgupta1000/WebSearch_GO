@@ -33,34 +33,7 @@ func TestAlternativeProfileSourcesRespectTheCompanyDenyList(t *testing.T) {
 	}
 }
 
-// TestEntityAnchoredQueriesUseOnlyAcceptedAggregators covers the company query builder: the
-// aggregator query is generated, names the company (so it passes the entity gate), and never
-// mentions a denied host.
-func TestEntityAnchoredQueriesUseOnlyAcceptedAggregators(t *testing.T) {
-	brief := models.CompanyBrief{CompanyName: "Sanjay Chemicals", Domain: "sanjaychemindia.com"}
-	queries := entityAnchoredQueries(brief)
-
-	var aggregatorQuery string
-	for _, query := range queries {
-		if strings.Contains(query.Query, "site:crunchbase.com") {
-			aggregatorQuery = query.Query
-		}
-	}
-	if aggregatorQuery == "" {
-		t.Fatalf("expected an aggregator query in the plan, got %+v", queries)
-	}
-	if !strings.Contains(aggregatorQuery, `"Sanjay Chemicals"`) {
-		t.Errorf("expected the aggregator query to name the company, got %q", aggregatorQuery)
-	}
-	if strings.Contains(aggregatorQuery, "site:zoominfo.com") {
-		t.Errorf("a denied host must never appear in a company query, got %q", aggregatorQuery)
-	}
-	if !newEntityMatcher(brief).covers(aggregatorQuery) {
-		t.Errorf("the aggregator query must survive the entity gate, got %q", aggregatorQuery)
-	}
-}
-
-func TestIndexedProfileQueriesReservePromotedAggregatorSlots(t *testing.T) {
+func TestIndexedProfileQueriesUseCompanyOnlyAggregatorSlotsAndLinkedInRoleSlots(t *testing.T) {
 	queries := indexedProfileQueries(models.CompanyBrief{CompanyName: "Sanjay Chemicals"})
 	text := make([]string, 0, len(queries))
 	for _, query := range queries {
@@ -75,8 +48,17 @@ func TestIndexedProfileQueriesReservePromotedAggregatorSlots(t *testing.T) {
 		"site:tracxn.com",
 		"site:crunchbase.com",
 	} {
-		if strings.Count(joined, host) != 2 {
-			t.Errorf("expected two dedicated queries for %s, got %d", host, strings.Count(joined, host))
+		want := 1
+		if host == "site:linkedin.com/in/" {
+			want = 3
+		}
+		if strings.Count(joined, host) != want {
+			t.Errorf("expected %d dedicated queries for %s, got %d", want, host, strings.Count(joined, host))
+		}
+	}
+	for _, query := range queries[:6] {
+		if strings.Contains(query.Query, "OR") {
+			t.Errorf("company-name-only slot must not contain role terms: %q", query.Query)
 		}
 	}
 	if strings.Contains(joined, "site:naukri.com") {
@@ -138,12 +120,7 @@ func TestPersonResolveSkipsTheAggregatorPassWhenTheCorePassesAreProductive(t *te
 	}
 }
 
-// TestEnforceEntityQueriesReservesASlotForTheAggregatorQuery is the regression the live run
-// caught: the planner filled the plan exactly (10 queries), so the deterministic refill had no
-// room and the aggregator query — the only one aimed at the domains standing in for an
-// unwinnable LinkedIn profile — was silently dropped. Unit tests that called
-// entityAnchoredQueries directly never saw it.
-func TestEnforceEntityQueriesReservesASlotForTheAggregatorQuery(t *testing.T) {
+func TestEnforceEntityQueriesReservesDedicatedSourceSlots(t *testing.T) {
 	brief := models.CompanyBrief{CompanyName: "Sanjay Chemicals", Domain: "sanjaychemindia.com"}
 	full := make([]models.PlannedQuery, 0, maxCompanySearchQueries)
 	for index := 0; index < maxCompanySearchQueries; index++ {
@@ -162,14 +139,11 @@ func TestEnforceEntityQueriesReservesASlotForTheAggregatorQuery(t *testing.T) {
 	}
 	found := false
 	for _, query := range plan.Queries {
-		if strings.Contains(query.Query, "site:crunchbase.com") {
+		if strings.Contains(query.Query, "site:crunchbase.com \"Sanjay Chemicals\"") {
 			found = true
-			if strings.Contains(query.Query, "site:zoominfo.com") {
-				t.Errorf("a denied host must never reach the plan: %q", query.Query)
-			}
 		}
 	}
 	if !found {
-		t.Fatalf("expected the aggregator query to hold its reserved slot, got %+v", plan.Queries)
+		t.Fatalf("expected the dedicated Crunchbase query to hold its reserved slot, got %+v", plan.Queries)
 	}
 }
