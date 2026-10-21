@@ -73,7 +73,7 @@ const (
 	defaultValidationStaleAfterMonths   = 36
 	defaultValidationRecentWithinMonths = 18
 	// defaultMaxSearchResults is the default cap on search results returned per query.
-	defaultMaxSearchResults = 12
+	defaultMaxSearchResults = 15
 	// defaultMaxSteps is the default cap on agent/tool iterations per run.
 	defaultMaxSteps = 10
 	// defaultScrapeConcurrency bounds how many pages are fetched at once. Pages

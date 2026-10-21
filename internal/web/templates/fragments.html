@@ -285,7 +285,7 @@
 	<details class="border-t border-slate-800/60 pt-3">
 		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
 			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
-			Search results
+			All search results
 			<span class="text-slate-500">({{len .SearchTrace.Queries}} queries · {{.SearchTrace.KeptCount}} kept · {{.SearchTrace.ExcludedCount}} excluded)</span>
 		</summary>
 		<div class="mt-3 space-y-2 text-xs">
@@ -297,7 +297,8 @@
 				</div>
 				{{if .Purpose}}<div class="text-slate-500">{{.Purpose}}</div>{{end}}
 				<div class="space-y-0.5">
-					{{range .Kept}}<div class="text-slate-400"><span class="text-slate-300">{{.Title}}</span>{{if .Snippet}} &mdash; {{.Snippet}}{{end}} <a href="{{.Link}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline">source</a></div>{{end}}
+					{{range .Kept}}<div class="text-slate-400"><span class="text-emerald-300">Kept</span> <span class="text-slate-300">{{.Title}}</span>{{if .Snippet}} &mdash; {{.Snippet}}{{end}} <a href="{{.Link}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline break-all">{{.Link}}</a></div>{{end}}
+					{{range .Excluded}}<div class="text-slate-500"><span class="text-amber-400">Excluded</span> <span class="text-slate-400">{{.Title}}</span>{{if .Snippet}} &mdash; {{.Snippet}}{{end}} <a href="{{.Link}}" target="_blank" rel="noreferrer" class="text-indigo-400/70 hover:underline break-all">{{.Link}}</a></div>{{end}}
 				</div>
 			</div>
 			{{end}}
@@ -546,7 +547,7 @@
 	<details class="border-t border-slate-800/60 pt-3">
 		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
 			<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
-			Search results
+			All search results
 			<span class="text-slate-500">({{len .SearchTrace.Queries}} queries · {{.SearchTrace.KeptCount}} kept · {{.SearchTrace.ExcludedCount}} excluded)</span>
 		</summary>
 		<div class="mt-3 space-y-2 text-xs">
@@ -558,7 +559,8 @@
 				</div>
 				{{if .Purpose}}<div class="text-slate-500">{{.Purpose}}</div>{{end}}
 				<div class="space-y-0.5">
-					{{range .Kept}}<div class="text-slate-400"><span class="text-slate-300">{{.Title}}</span>{{if .Snippet}} &mdash; {{.Snippet}}{{end}} <a href="{{.Link}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline">source</a></div>{{end}}
+					{{range .Kept}}<div class="text-slate-400"><span class="text-emerald-300">Kept</span> <span class="text-slate-300">{{.Title}}</span>{{if .Snippet}} &mdash; {{.Snippet}}{{end}} <a href="{{.Link}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline break-all">{{.Link}}</a></div>{{end}}
+					{{range .Excluded}}<div class="text-slate-500"><span class="text-amber-400">Excluded</span> <span class="text-slate-400">{{.Title}}</span>{{if .Snippet}} &mdash; {{.Snippet}}{{end}} <a href="{{.Link}}" target="_blank" rel="noreferrer" class="text-indigo-400/70 hover:underline break-all">{{.Link}}</a></div>{{end}}
 				</div>
 			</div>
 			{{end}}

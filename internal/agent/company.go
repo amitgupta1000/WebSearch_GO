@@ -226,6 +226,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		finishScrape(fmt.Sprintf("%d attempts -> %d pages kept", len(scrapeReport), len(newEvidence)))
 		state.Evidence = appendUniqueEvidence(state.Evidence, newEvidence)
 		state.ScrapeReport = appendUniqueScrapeReports(state.ScrapeReport, scrapeReport)
+		state.Evidence = appendUniqueEvidence(state.Evidence, allSearchSnippetEvidence(state.SearchResults, matcher))
 		if len(state.Evidence) == 0 {
 			state.Evidence = appendUniqueEvidence(state.Evidence, searchSnippetEvidence(state.RankedResults, state.SearchResults, ca.engine.MaxScrapes(), matcher))
 		}
@@ -645,6 +646,48 @@ func searchSnippetEvidence(ranked []models.RankedResult, results []models.Search
 	return evidence
 }
 
+// allSearchSnippetEvidence keeps the public snippet for every collected result.
+// Full-page evidence remains preferred by appendUniqueEvidence, while snippets
+// preserve useful indexed facts when a page is blocked, paywalled, or simply
+// outside the scrape budget.
+func allSearchSnippetEvidence(results []models.SearchResult, matcher *entityMatcher) []models.Evidence {
+	evidence := make([]models.Evidence, 0, len(results))
+	for _, result := range results {
+		if strings.TrimSpace(result.Snippet) == "" || !snippetNamesEntity(result, matcher) {
+			continue
+		}
+		sourceType := "search_snippet"
+		evidenceType := "search_snippet"
+		quality := 0.2
+		switch {
+		case isIndexedProfileSourceURL(result.Link):
+			sourceType = "indexed_profile"
+			evidenceType = "search_snippet_fallback"
+			quality = 0.25
+		case matchesAlternativeProfileSource(result.Link):
+			sourceType = "aggregator"
+			quality = 0.1
+		case isBlockedSourceURL(result.Link):
+			sourceType = "blocked"
+			quality = 0.1
+		}
+		entry := models.Evidence{
+			URL:          result.Link,
+			Title:        result.Title,
+			Content:      result.Snippet,
+			EvidenceType: evidenceType,
+			SourceType:   sourceType,
+			QualityScore: quality,
+		}
+		if when, ok := searchResultDate(result); ok {
+			entry.AsOf = when
+			entry.DateSignal = dateSignalSearch
+		}
+		evidence = append(evidence, entry)
+	}
+	return evidence
+}
+
 // planQueries returns the run's query plan and how many planned queries the entity
 // gate dropped for not naming the company.
 func (ca *CompanyAgent) planQueries(ctx context.Context, brief models.CompanyBrief) (models.QueryPlan, int) {
@@ -876,9 +919,6 @@ func (ca *CompanyAgent) searchPlan(ctx context.Context, sessionID string, plan m
 		}
 		usable := make([]models.SearchResult, 0, len(results))
 		for _, result := range results {
-			if isBlockedSourceURL(result.Link) {
-				continue
-			}
 			usable = append(usable, result)
 			key := strings.ToLower(strings.TrimSpace(result.Link))
 			if key != "" && !seen[key] {
@@ -1087,11 +1127,13 @@ func inferOfficialDomain(companyName string, ranked []models.RankedResult) strin
 // farms, company directories, document dumps and social networks. Quality 0.1 puts them
 // below the relevance floor, so they are not fetched at all.
 var lowQualityHosts = []string{
-	"ziprecruiter", "indeed.", "glassdoor.", "zoominfo.", "rocketreach.", "naukri", "shine.",
+	"ziprecruiter", "indeed.", "glassdoor.", "shine.",
 	"ambitionbox.", "iipmr", "scribd.", "unlistedcart", "cphi-online.", "indiamart.", "tradeindia.",
 	"exportersindia.", "studylib", "docslib", "coursehero", "yumpu", "issuu.", "calameo", "pubhtml5",
-	"slideshare", "wikipedia.", "wikidata.", "facebook.", "instagram.", "twitter.", "x.com", "tiktok.",
+	"slideshare", "wikipedia.", "wikidata.", "facebook.", "instagram.", "tiktok.",
 }
+
+//"zoominfo.", "rocketreach.", "naukri", "x.com", "twitter.",
 
 type sourceProfile struct {
 	sourceType string

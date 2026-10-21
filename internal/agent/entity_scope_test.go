@@ -100,12 +100,6 @@ func TestClassifySourceDropsJobBoardsAndContentFarms(t *testing.T) {
 		"https://www.instagram.com/spgleaders/reel/Db8GkB0tlbR/",
 	} {
 		profile := classifySource(brief, target)
-		if strings.Contains(target, "naukri.") {
-			if profile.sourceType != "indexed_profile" || profile.quality < 0.25 {
-				t.Errorf("%s should be retained as indexed snippet evidence, got %+v", target, profile)
-			}
-			continue
-		}
 		if profile.quality >= 0.25 {
 			t.Errorf("%s should be below the relevance floor, got quality %.2f (%s)", target, profile.quality, profile.sourceType)
 		}

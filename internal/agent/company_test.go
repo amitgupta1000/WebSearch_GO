@@ -218,6 +218,16 @@ func TestLinkedInSearchSnippetIsRetainedWithoutDirectScrape(t *testing.T) {
 	}
 }
 
+func TestNaukriSourcesRemainBelowTheCompanyEvidenceFloor(t *testing.T) {
+	cacheStore := cache.NewMemoryCache(100)
+	defer cacheStore.Close()
+
+	profile := classifySource(models.CompanyBrief{CompanyName: "Sanjay Chemicals"}, "https://www.naukri.com/sanjay-chemicals-jobs")
+	if profile.sourceType != "aggregator" || profile.quality >= 0.25 {
+		t.Fatalf("Naukri should remain below the company evidence floor, got %+v", profile)
+	}
+}
+
 func TestFormatEvidenceIncludesImageOCR(t *testing.T) {
 	formatted := formatEvidence([]models.Evidence{{
 		URL:    "https://acme.com/leadership",

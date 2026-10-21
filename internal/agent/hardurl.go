@@ -59,11 +59,11 @@ func isProfessionalProfileURL(targetURL string) bool {
 	return strings.Contains(strings.ToLower(targetURL), "linkedin.")
 }
 
-// isIndexedProfileSourceURL reports sources that are useful through Google's
-// indexed title and snippet, but should not be fetched as profile pages.
+// isIndexedProfileSourceURL reports LinkedIn sources that are useful through
+// Google's indexed title and snippet, but should not be fetched as profile pages.
 func isIndexedProfileSourceURL(targetURL string) bool {
 	lowered := strings.ToLower(targetURL)
-	return strings.Contains(lowered, "linkedin.") || strings.Contains(lowered, "naukri.")
+	return strings.Contains(lowered, "linkedin.")
 }
 
 // isProfileSourceURL reports whether a search hit is worth fetching for a person dossier: a
