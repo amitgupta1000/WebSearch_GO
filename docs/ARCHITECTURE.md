@@ -1178,6 +1178,9 @@ the two cited sources.
 - **Aggregator sources** (`internal/agent/sources.go`). LinkedIn person profiles cannot be read
   without a session, so `alternativeProfileSources` names the people-data aggregators that
   publish the same title-and-employer fact: crunchbase, zoominfo, clearbit, apollo.io, hunter.io.
+  Company mode gives two dedicated Google-index slots each to LinkedIn, Economic Times,
+  ZaubaCorp, TheCompanyCheck, Tracxn, and Crunchbase. Naukri has no dedicated slot and
+  remains below the company evidence floor when it appears in general search results.
   Two roles, kept distinct: for **person** material they are claims about a named individual,
   which `personDirectoryHosts` already flags; for **company** material some are directories, and
   `companyAcceptedProfileSources` derives which ones the gate keeps by testing each host against
@@ -1415,6 +1418,31 @@ gcloud run deploy websearch-go \
   --set-secrets GOOGLE_API_KEY=google-api-key:latest,SERPER_API_KEY=serper-api-key:latest,REDIS_URL=redis-url:latest
 ```
 
+The command above builds the default image, which intentionally has no Chromium.
+For browser rendering, build with [`Dockerfile.browser`](../Dockerfile.browser)
+through the checked-in Cloud Build config, then deploy that image:
+
+```bash
+IMAGE="REGION-docker.pkg.dev/PROJECT/REPOSITORY/websearch-go:TAG"
+gcloud builds submit \
+  --config cloudbuild.browser.yaml \
+  --substitutions "_IMAGE=${IMAGE}" \
+  .
+gcloud run deploy websearch-go \
+  --image "${IMAGE}" \
+  --region REGION \
+  --env-vars-file deploy/cloud-run.env.yaml \
+  --set-env-vars ENABLE_BROWSER_FALLBACK=true,ALLOW_BROWSER_TOGGLE=true \
+  --set-secrets GOOGLE_API_KEY=google-api-key:latest,SERPER_API_KEY=serper-api-key:latest,REDIS_URL=redis-url:latest
+```
+
+On Windows, [`scripts/deploy-browser.ps1`](../scripts/deploy-browser.ps1) wraps
+these browser-image build and deploy steps:
+
+```powershell
+.\scripts\deploy-browser.ps1
+```
+
 Grant the Cloud Run runtime service account the minimum required permissions:
 Secret Manager access for configured secrets, Storage object access for output/cache
 prefixes, and any permissions required by the selected Vertex/Google API path.
@@ -1574,11 +1602,11 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 
 | # | Stage | What happens | Bound | On failure |
 | :--- | :--- | :--- | :--- | :--- |
-| 1 | Plan | Gemini plans ≤10 queries → `enforceEntityQueries` drops unanchored/duplicate → `entityAnchoredQueries` refill | *filter*: a query must name the company, an alias, its domain or its registration id; cap 10; **one slot reserved** for the aggregator query | `fallbackQueryPlan` |
-| 1a | ↳ anchored set | aggregator query first in the refill, then `site:<domain>` ×3, then name-anchored leadership/procurement | ZoomInfo excluded here (deny-list); all five used in person mode | — |
+| 1 | Plan | Gemini plans queries → `enforceEntityQueries` drops unanchored/duplicate → `entityAnchoredQueries` refill | *filter*: a query must name the company, an alias, its domain or its registration id; cap 24; dedicated indexed-profile slots and one combined aggregator slot are reserved | `fallbackQueryPlan` |
+| 1a | ↳ anchored set | `site:<domain>` ×3, name-anchored leadership/procurement, two LinkedIn slots and two slots each for Economic Times, ZaubaCorp, TheCompanyCheck, Tracxn and Crunchbase | Naukri has no dedicated company slot; ZoomInfo remains excluded from company queries by the deny-list | — |
 | 2 | Search | Serper per query | `MaxSearchResults` per query; 48 h cache; URL dedupe | per-query failure tolerated |
 | 3 | Rank | BM25 → top **12** semantically reranked by Gemini, 8 s deadline → `pruneUnconnected` | *filter*: no shared company token with the snippet ⇒ dropped (kept when there is no snippet); quality: aggregator 0.1, `linkedin.` 0.6, external 0.55, leadership 0.7, official 0.9–1.0 | BM25 order continues, marked `semantic skip` |
-| 3a | ↳ relevance floor | `Score += 0.18·(quality−0.5)`; quality < 0.25 ⇒ `Relevant=false` | ***filter at fetch level***: deny-listed hosts are never downloaded | — |
+| 3a | ↳ relevance floor | `Score += 0.18·(quality−0.5)`; quality < 0.25 ⇒ `Relevant=false` | ***filter at fetch level***: deny-listed hosts are never downloaded; promoted aggregator snippets remain retained evidence | — |
 | 4 | Gate tag | `EntityKey` per candidate (domain 0.95 / registration 0.9 / alias 0.8 / name 0.7) | counts reported | — |
 | 5 | Select | ordered official_leadership → official_report → official_locations → official → leadership → industry_event → external; one page per domain unless official | `MaxScrapes × 2` candidates | — |
 | 6 | Session fetch, then ladder pass (first) | `fetchProfileWithSession` tries one cookie-authenticated fetch when the jar covers the host (company mode included, `ALLOW_PROFILE_SCRAPING` regardless, and the flag is not consulted); otherwise `orderProfileEscalations` by shape priority post 0 / company 1 / other 2 / person 3 / directory 4 | *budget*: `HARD_URLS_PER_RUN` 2; 55 s per URL; needs budget + 20 s | session fetch ⇒ evidence; else recovered by the ladder ⇒ evidence; else `skipped` + public snippet retained (with `ALLOW_PROFILE_SCRAPING=true`, falls through to the batch instead) |

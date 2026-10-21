@@ -218,21 +218,21 @@ func TestLinkedInSearchSnippetIsRetainedWithoutDirectScrape(t *testing.T) {
 	}
 }
 
-func TestNaukriSourcesRemainBelowTheCompanyEvidenceFloor(t *testing.T) {
+func TestPromotedAggregatorSnippetsAreRetained(t *testing.T) {
 	cacheStore := cache.NewMemoryCache(100)
 	defer cacheStore.Close()
 
-	profile := classifySource(models.CompanyBrief{CompanyName: "Sanjay Chemicals"}, "https://www.naukri.com/sanjay-chemicals-jobs")
-	if profile.sourceType != "aggregator" || profile.quality >= 0.25 {
-		t.Fatalf("Naukri should remain below the company evidence floor, got %+v", profile)
+	profile := classifySource(models.CompanyBrief{CompanyName: "Sanjay Chemicals"}, "https://economictimes.indiatimes.com/company/sanjay-chemicals")
+	if profile.sourceType != "external" {
+		t.Fatalf("promoted aggregator should remain fetchable external evidence, got %+v", profile)
 	}
 	evidence := allSearchSnippetEvidence([]models.SearchResult{{
-		Title:   "Sanjay Chemicals jobs",
-		Link:    "https://www.naukri.com/sanjay-chemicals-jobs",
-		Snippet: "Sanjay Chemicals procurement and supply chain roles.",
+		Title:   "Sanjay Chemicals Company Profile",
+		Link:    "https://economictimes.indiatimes.com/company/sanjay-chemicals",
+		Snippet: "Sanjay Chemicals procurement and supply chain leadership.",
 	}}, newEntityMatcher(models.CompanyBrief{CompanyName: "Sanjay Chemicals"}))
-	if len(evidence) != 1 || evidence[0].SourceType != "aggregator" || evidence[0].QualityScore != 0.1 {
-		t.Fatalf("Naukri snippet evidence must remain downgraded, got %+v", evidence)
+	if len(evidence) != 1 || evidence[0].SourceType != "aggregator" || evidence[0].QualityScore != 0.25 {
+		t.Fatalf("promoted aggregator snippet evidence must be retained, got %+v", evidence)
 	}
 }
 

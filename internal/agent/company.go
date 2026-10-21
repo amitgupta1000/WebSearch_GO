@@ -89,7 +89,7 @@ func hasBudgetForIteration(ctx context.Context) bool {
 	return time.Until(deadline) >= minQCIterationBudget
 }
 
-const maxCompanySearchQueries = 14
+const maxCompanySearchQueries = 24
 
 const (
 	companyPlanningTimeout  = 20 * time.Second
@@ -664,9 +664,9 @@ func allSearchSnippetEvidence(results []models.SearchResult, matcher *entityMatc
 			sourceType = "indexed_profile"
 			evidenceType = "search_snippet_fallback"
 			quality = 0.25
-		case matchesAlternativeProfileSource(result.Link):
+		case matchesPromotedCompanyAggregator(result.Link):
 			sourceType = "aggregator"
-			quality = 0.1
+			quality = 0.25
 		case strings.Contains(strings.ToLower(result.Link), "naukri."):
 			sourceType = "aggregator"
 			quality = 0.1
@@ -745,8 +745,8 @@ func enforceEntityQueries(plan models.QueryPlan, brief models.CompanyBrief) (mod
 	}
 
 	// Refill with queries that are safe by construction, which also guarantees a
-	// site:<domain> query when a domain is known. Four indexed-profile slots and one
-	// aggregator slot are reserved so a full LLM plan cannot crowd them out.
+	// site:<domain> query when a domain is known. The dedicated indexed-profile and
+	// aggregator slots are reserved so a full LLM plan cannot crowd them out.
 	reserve := len(indexedProfileQueries(brief))
 	if companyAggregatorQuery(brief) != "" {
 		reserve++
@@ -804,8 +804,9 @@ func entityAnchoredQueries(brief models.CompanyBrief) []models.PlannedQuery {
 			models.PlannedQuery{Query: base + " procurement supply chain sourcing head director", Purpose: "identify procurement and supply chain leads", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
 		)
 	}
-	// The indexed profile sources and aggregators publish the same title-and-employer
-	// facts a LinkedIn profile would; reserve their slots so they cannot be crowded out.
+	// The indexed profile sources and promoted aggregators publish the same
+	// title-and-employer facts a LinkedIn profile would; reserve their slots so they
+	// cannot be crowded out.
 	queries = append(queries, indexedProfileQueries(brief)...)
 	if aggregatorQuery := companyAggregatorQuery(brief); aggregatorQuery != "" {
 		queries = append(queries, models.PlannedQuery{
@@ -818,20 +819,26 @@ func entityAnchoredQueries(brief models.CompanyBrief) []models.PlannedQuery {
 	return queries
 }
 
-// indexedProfileQueries reserve four Google-index discovery slots: two for LinkedIn
-// and two for Naukri. Their snippets are the fallback when the profile itself is unavailable.
+// indexedProfileQueries reserves two Google-index discovery slots for LinkedIn and
+// two dedicated slots for each promoted aggregator. Their snippets are the fallback
+// when the profile itself is unavailable.
 func indexedProfileQueries(brief models.CompanyBrief) []models.PlannedQuery {
 	company := strings.TrimSpace(brief.CompanyName)
 	if company == "" {
 		return nil
 	}
 	quoted := fmt.Sprintf("%q", company)
-	return []models.PlannedQuery{
+	queries := []models.PlannedQuery{
 		{Query: `site:linkedin.com/in/ ` + quoted + ` (procurement OR sourcing OR "supply chain" OR CPO OR CSCO)`, Purpose: "find procurement executives in LinkedIn's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 1},
 		{Query: `site:linkedin.com/in/ ` + quoted + ` ("chief procurement officer" OR "procurement director" OR "head of procurement" OR "VP supply chain")`, Purpose: "find senior procurement titles in LinkedIn's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 1},
-		{Query: `site:naukri.com ` + quoted + ` (procurement OR sourcing OR "supply chain" OR CPO OR CSCO)`, Purpose: "find procurement executives in Naukri's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
-		{Query: `site:naukri.com ` + quoted + ` ("procurement manager" OR "supply chain manager" OR "procurement director" OR "head of procurement")`, Purpose: "find senior procurement titles in Naukri's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
 	}
+	for _, host := range promotedCompanyAggregators {
+		queries = append(queries,
+			models.PlannedQuery{Query: `site:` + host + ` ` + quoted + ` (leadership OR executive OR management OR director OR "chief")`, Purpose: "find company leadership in " + host + "'s Google index", TargetArea: "leadership", Priority: 2},
+			models.PlannedQuery{Query: `site:` + host + ` ` + quoted + ` (procurement OR sourcing OR "supply chain" OR CPO OR CSCO)`, Purpose: "find procurement executives in " + host + "'s Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
+		)
+	}
+	return queries
 }
 
 // companyAggregatorQuery is the one anchored query that targets the people-data aggregators.
@@ -1133,7 +1140,7 @@ var lowQualityHosts = []string{
 	"naukri.", "ziprecruiter", "indeed.", "glassdoor.", "shine.",
 	"ambitionbox.", "iipmr", "scribd.", "unlistedcart", "cphi-online.", "indiamart.", "tradeindia.",
 	"exportersindia.", "studylib", "docslib", "coursehero", "yumpu", "issuu.", "calameo", "pubhtml5",
-	"slideshare", "wikipedia.", "wikidata.", "facebook.", "instagram.", "tiktok.",
+	"slideshare", "wikipedia.", "wikidata.", "facebook.", "instagram.", "tiktok.", "zoominfo.",
 }
 
 //var additionalLowQualityHosts = []string{

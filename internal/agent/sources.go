@@ -29,6 +29,17 @@ var alternativeProfileSources = []string{
 	"hunter.io",
 }
 
+// promotedCompanyAggregators receive dedicated company-mode Google-index slots.
+// Keep this list limited to sources that routinely expose company or people records
+// in their public result snippets.
+var promotedCompanyAggregators = []string{
+	"economictimes.indiatimes.com",
+	"zaubacorp.com",
+	"thecompanycheck.com",
+	"tracxn.com",
+	"crunchbase.com",
+}
+
 // companyAcceptedProfileSources returns the aggregator hosts the company entity gate keeps.
 // ZoomInfo is absent because it is on lowQualityHosts; that is a deliberate filter for company
 // evidence, not an oversight, and it stays in force.
@@ -58,6 +69,16 @@ func hostIsCompanyDenied(host string) bool {
 func matchesAlternativeProfileSource(targetURL string) bool {
 	lowered := strings.ToLower(targetURL)
 	for _, host := range alternativeProfileSources {
+		if strings.Contains(lowered, host) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesPromotedCompanyAggregator(targetURL string) bool {
+	lowered := strings.ToLower(targetURL)
+	for _, host := range promotedCompanyAggregators {
 		if strings.Contains(lowered, host) {
 			return true
 		}

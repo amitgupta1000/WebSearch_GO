@@ -60,6 +60,30 @@ func TestEntityAnchoredQueriesUseOnlyAcceptedAggregators(t *testing.T) {
 	}
 }
 
+func TestIndexedProfileQueriesReservePromotedAggregatorSlots(t *testing.T) {
+	queries := indexedProfileQueries(models.CompanyBrief{CompanyName: "Sanjay Chemicals"})
+	text := make([]string, 0, len(queries))
+	for _, query := range queries {
+		text = append(text, query.Query)
+	}
+	joined := strings.Join(text, "\n")
+	for _, host := range []string{
+		"site:linkedin.com/in/",
+		"site:economictimes.indiatimes.com",
+		"site:zaubacorp.com",
+		"site:thecompanycheck.com",
+		"site:tracxn.com",
+		"site:crunchbase.com",
+	} {
+		if strings.Count(joined, host) != 2 {
+			t.Errorf("expected two dedicated queries for %s, got %d", host, strings.Count(joined, host))
+		}
+	}
+	if strings.Contains(joined, "site:naukri.com") {
+		t.Error("Naukri must not receive a dedicated company search slot")
+	}
+}
+
 // TestSourceSiteQueryShape pins the rendering: a base plus one site: per host, OR-joined.
 func TestSourceSiteQueryShape(t *testing.T) {
 	got := sourceSiteQuery("Jane Doe", []string{"a.com", "b.com"})
