@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -24,6 +25,8 @@ type CompanyAgent struct {
 }
 
 const maxCompanyReviewIterations = 3
+
+const companySearchConcurrency = 4
 
 // minQCIterationBudget is the minimum time that must remain before another
 // QC-driven iteration (search + scrape + synthesis) is worth starting.
@@ -86,7 +89,7 @@ func hasBudgetForIteration(ctx context.Context) bool {
 	return time.Until(deadline) >= minQCIterationBudget
 }
 
-const maxCompanySearchQueries = 10
+const maxCompanySearchQueries = 14
 
 const (
 	companyPlanningTimeout  = 20 * time.Second
@@ -696,16 +699,20 @@ func enforceEntityQueries(plan models.QueryPlan, brief models.CompanyBrief) (mod
 	}
 
 	// Refill with queries that are safe by construction, which also guarantees a
-	// site:<domain> query when a domain is known. One slot is reserved for the aggregator
-	// query: a planner that fills the plan exactly — 10 queries, which is what a live run
-	// produced — would otherwise crowd out the only query aimed at the domains that stand in
-	// for a LinkedIn profile.
-	reserve := 0
+	// site:<domain> query when a domain is known. Four indexed-profile slots and one
+	// aggregator slot are reserved so a full LLM plan cannot crowd them out.
+	reserve := len(indexedProfileQueries(brief))
 	if companyAggregatorQuery(brief) != "" {
-		reserve = 1
+		reserve++
 	}
 	kept = limitQueryPlan(models.QueryPlan{Queries: kept}, maxCompanySearchQueries-reserve).Queries
 	refill := entityAnchoredQueries(brief)
+	for _, indexed := range indexedProfileQueries(brief) {
+		key := strings.ToLower(indexed.Query)
+		if !seen[key] {
+			refill = append([]models.PlannedQuery{indexed}, refill...)
+		}
+	}
 	if aggregatorQuery := companyAggregatorQuery(brief); aggregatorQuery != "" && !seen[strings.ToLower(aggregatorQuery)] {
 		// Reserve its slot at the front of the refill rather than at the back: with one slot
 		// free, the domains that stand in for a LinkedIn profile are worth more than another
@@ -751,10 +758,9 @@ func entityAnchoredQueries(brief models.CompanyBrief) []models.PlannedQuery {
 			models.PlannedQuery{Query: base + " procurement supply chain sourcing head director", Purpose: "identify procurement and supply chain leads", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
 		)
 	}
-	// The aggregators that publish the same title-and-employer facts a LinkedIn profile would
-	// go last here, because the company's own pages are the better fallback material. When the
-	// plan is full they matter more than the entries above, so enforceEntityQueries gives this
-	// one the reserved slot ahead of them.
+	// The indexed profile sources and aggregators publish the same title-and-employer
+	// facts a LinkedIn profile would; reserve their slots so they cannot be crowded out.
+	queries = append(queries, indexedProfileQueries(brief)...)
 	if aggregatorQuery := companyAggregatorQuery(brief); aggregatorQuery != "" {
 		queries = append(queries, models.PlannedQuery{
 			Query:      aggregatorQuery,
@@ -764,6 +770,22 @@ func entityAnchoredQueries(brief models.CompanyBrief) []models.PlannedQuery {
 		})
 	}
 	return queries
+}
+
+// indexedProfileQueries reserve four Google-index discovery slots: two for LinkedIn
+// and two for Naukri. Their snippets are the fallback when the profile itself is unavailable.
+func indexedProfileQueries(brief models.CompanyBrief) []models.PlannedQuery {
+	company := strings.TrimSpace(brief.CompanyName)
+	if company == "" {
+		return nil
+	}
+	quoted := fmt.Sprintf("%q", company)
+	return []models.PlannedQuery{
+		{Query: `site:linkedin.com/in/ ` + quoted + ` (procurement OR sourcing OR "supply chain" OR CPO OR CSCO)`, Purpose: "find procurement executives in LinkedIn's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 1},
+		{Query: `site:linkedin.com/in/ ` + quoted + ` ("chief procurement officer" OR "procurement director" OR "head of procurement" OR "VP supply chain")`, Purpose: "find senior procurement titles in LinkedIn's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 1},
+		{Query: `site:naukri.com ` + quoted + ` (procurement OR sourcing OR "supply chain" OR CPO OR CSCO)`, Purpose: "find procurement executives in Naukri's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
+		{Query: `site:naukri.com ` + quoted + ` ("procurement manager" OR "supply chain manager" OR "procurement director" OR "head of procurement")`, Purpose: "find senior procurement titles in Naukri's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 2},
+	}
 }
 
 // companyAggregatorQuery is the one anchored query that targets the people-data aggregators.
@@ -818,9 +840,36 @@ func (ca *CompanyAgent) searchPlan(ctx context.Context, sessionID string, plan m
 	seen := make(map[string]bool)
 	trace := &models.SearchTrace{Queries: make([]models.QueryTrace, 0, len(plan.Queries))}
 	var lastErr error
+	type searchOutcome struct {
+		results []models.SearchResult
+		err     error
+	}
+	outcomes := make([]searchOutcome, len(plan.Queries))
+	workers := companySearchConcurrency
+	if workers > len(plan.Queries) {
+		workers = len(plan.Queries)
+	}
+	jobs := make(chan int, len(plan.Queries))
+	var waitGroup sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			for index := range jobs {
+				planned := plan.Queries[index]
+				outcomes[index].results, outcomes[index].err = ca.engine.SearchCached(ctx, planned.Query, ca.engine.MaxSearchResults())
+			}
+		}()
+	}
 	for index, planned := range plan.Queries {
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolCall, Step: 3 + index, ToolName: "serper_search", ToolInput: planned.Query, Content: planned.Purpose})
-		results, err := ca.engine.SearchCached(ctx, planned.Query, ca.engine.MaxSearchResults())
+		jobs <- index
+	}
+	close(jobs)
+	waitGroup.Wait()
+
+	for index, planned := range plan.Queries {
+		results, err := outcomes[index].results, outcomes[index].err
 		if err != nil {
 			lastErr = err
 			continue
@@ -1061,6 +1110,9 @@ func classifySource(brief models.CompanyBrief, targetURL string) sourceProfile {
 	path := strings.ToLower(parsed.Path)
 	if isBlockedSourceURL(targetURL) {
 		return sourceProfile{sourceType: "blocked", quality: 0}
+	}
+	if isIndexedProfileSourceURL(targetURL) {
+		return sourceProfile{sourceType: "indexed_profile", quality: 0.45}
 	}
 	official := false
 	primary := false
@@ -1352,7 +1404,7 @@ func contentHash(content string) string {
 func orderProfileEscalations(ranked []models.RankedResult) []models.RankedResult {
 	profiles := make([]models.RankedResult, 0, len(ranked))
 	for _, item := range ranked {
-		if item.SourceType == "professional_profile" {
+		if item.SourceType == "professional_profile" || item.SourceType == "indexed_profile" {
 			profiles = append(profiles, item)
 		}
 	}
@@ -1406,6 +1458,17 @@ func (ca *CompanyAgent) scrapeRankedWithBrief(ctx context.Context, sessionID str
 	// logged-out person profile is an authwall that exhausts the ladder in 15-25 s.
 	for _, item := range orderProfileEscalations(ranked) {
 		if known[normalizeURL(item.URL)] {
+			continue
+		}
+		if item.SourceType == "indexed_profile" {
+			if snippet := snippetEvidenceForURL(item, searchResults, matcher); snippet != nil {
+				evidence = append(evidence, *snippet)
+			}
+			known[normalizeURL(item.URL)] = true
+			report = append(report, models.ScrapeReportEntry{
+				URL: item.URL, SourceType: item.SourceType, Status: "skipped",
+				Reason: "public search snippet retained; indexed profile sources are snippet-only",
+			})
 			continue
 		}
 		// A session the operator supplied is tried the cheap way first, and it does not need
@@ -2111,6 +2174,9 @@ func snippetEvidenceForURL(item models.RankedResult, results []models.SearchResu
 // scrapeRanked).
 func excludedScrapeCandidate(candidate models.RankedResult, allowProfiles bool) bool {
 	if candidate.SourceType == "blocked" || isBlockedSourceURL(candidate.URL) {
+		return true
+	}
+	if candidate.SourceType == "indexed_profile" {
 		return true
 	}
 	return candidate.SourceType == "professional_profile" && !allowProfiles
