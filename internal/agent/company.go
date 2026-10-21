@@ -667,6 +667,9 @@ func allSearchSnippetEvidence(results []models.SearchResult, matcher *entityMatc
 		case matchesAlternativeProfileSource(result.Link):
 			sourceType = "aggregator"
 			quality = 0.1
+		case strings.Contains(strings.ToLower(result.Link), "naukri."):
+			sourceType = "aggregator"
+			quality = 0.1
 		case isBlockedSourceURL(result.Link):
 			sourceType = "blocked"
 			quality = 0.1

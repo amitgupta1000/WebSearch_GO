@@ -226,6 +226,14 @@ func TestNaukriSourcesRemainBelowTheCompanyEvidenceFloor(t *testing.T) {
 	if profile.sourceType != "aggregator" || profile.quality >= 0.25 {
 		t.Fatalf("Naukri should remain below the company evidence floor, got %+v", profile)
 	}
+	evidence := allSearchSnippetEvidence([]models.SearchResult{{
+		Title:   "Sanjay Chemicals jobs",
+		Link:    "https://www.naukri.com/sanjay-chemicals-jobs",
+		Snippet: "Sanjay Chemicals procurement and supply chain roles.",
+	}}, newEntityMatcher(models.CompanyBrief{CompanyName: "Sanjay Chemicals"}))
+	if len(evidence) != 1 || evidence[0].SourceType != "aggregator" || evidence[0].QualityScore != 0.1 {
+		t.Fatalf("Naukri snippet evidence must remain downgraded, got %+v", evidence)
+	}
 }
 
 func TestFormatEvidenceIncludesImageOCR(t *testing.T) {
