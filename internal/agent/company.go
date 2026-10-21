@@ -1127,13 +1127,15 @@ func inferOfficialDomain(companyName string, ranked []models.RankedResult) strin
 // farms, company directories, document dumps and social networks. Quality 0.1 puts them
 // below the relevance floor, so they are not fetched at all.
 var lowQualityHosts = []string{
-	"ziprecruiter", "indeed.", "glassdoor.", "shine.",
+	"naukri.", "ziprecruiter", "indeed.", "glassdoor.", "shine.",
 	"ambitionbox.", "iipmr", "scribd.", "unlistedcart", "cphi-online.", "indiamart.", "tradeindia.",
 	"exportersindia.", "studylib", "docslib", "coursehero", "yumpu", "issuu.", "calameo", "pubhtml5",
 	"slideshare", "wikipedia.", "wikidata.", "facebook.", "instagram.", "tiktok.",
 }
 
-//"zoominfo.", "rocketreach.", "naukri", "x.com", "twitter.",
+//var additionalLowQualityHosts = []string{
+//	"zoominfo.", "rocketreach.", "twitter.", "x.com",
+//}
 
 type sourceProfile struct {
 	sourceType string
