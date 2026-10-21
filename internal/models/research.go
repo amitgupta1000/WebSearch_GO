@@ -19,7 +19,8 @@ type ResearchPreferences struct {
 
 // CompanyBrief identifies a company and the user's research scope.
 type CompanyBrief struct {
-	CompanyName string `json:"company_name"`
+	CompanyName   string `json:"company_name"`
+	SourceProfile string `json:"source_profile,omitempty"`
 	// Domain is the entity's primary domain. It is what query anchoring uses
 	// (`site:<domain> …`), so extra domains never multiply the searches.
 	Domain   string `json:"domain,omitempty"`

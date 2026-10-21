@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"strings"
+
+	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
 
 // sources.go holds the non-LinkedIn places a person's title and employer can be found.
@@ -37,7 +39,54 @@ var promotedCompanyAggregators = []string{
 	"zaubacorp.com",
 	"thecompanycheck.com",
 	"tracxn.com",
-	"crunchbase.com",
+}
+
+// globalCompanySources are reserved for the global source profile. They are not
+// automatically mixed into the India-focused company plan because news and business
+// directories have different coverage and ranking characteristics.
+var globalCompanySources = []string{
+	"linkedin.com",
+	"zoominfo.com",
+	"apollo.io",
+	"rocketreach.com",
+	"theorg.com",
+	"forbes.com",
+	"fortune.com",
+	"reuters.com",
+	"craft.co",
+}
+
+const (
+	SourceProfileAuto   = "auto"
+	SourceProfileIndia  = "india"
+	SourceProfileGlobal = "global"
+)
+
+func companySourceProfile(brief models.CompanyBrief) string {
+	switch strings.ToLower(strings.TrimSpace(brief.SourceProfile)) {
+	case SourceProfileIndia, SourceProfileGlobal:
+		return strings.ToLower(strings.TrimSpace(brief.SourceProfile))
+	}
+	country := strings.ToLower(strings.TrimSpace(brief.Country))
+	if strings.Contains(country, "india") || strings.HasPrefix(strings.ToUpper(strings.TrimSpace(brief.RegistrationID)), "L") || strings.HasPrefix(strings.ToUpper(strings.TrimSpace(brief.RegistrationID)), "U") {
+		return SourceProfileIndia
+	}
+	// Preserve the established company-mode behavior when no geography is supplied;
+	// users can select Global explicitly when researching an international company.
+	return SourceProfileIndia
+}
+
+func companySourceHosts(brief models.CompanyBrief) []string {
+	if companySourceProfile(brief) == SourceProfileIndia {
+		return promotedCompanyAggregators
+	}
+	hosts := make([]string, 0, len(globalCompanySources)-1)
+	for _, host := range globalCompanySources {
+		if host != "linkedin.com" {
+			hosts = append(hosts, host)
+		}
+	}
+	return hosts
 }
 
 // companyAcceptedProfileSources returns the aggregator hosts the company entity gate keeps.

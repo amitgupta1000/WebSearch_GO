@@ -1179,15 +1179,24 @@ the two cited sources.
   without a session, so `alternativeProfileSources` names the people-data aggregators that
   publish the same title-and-employer fact: crunchbase, zoominfo, clearbit, apollo.io, hunter.io.
   Company mode gives one company-name-only Google-index slot each to LinkedIn, Economic
-  Times, ZaubaCorp, TheCompanyCheck, Tracxn, and Crunchbase, plus separate LinkedIn
-  role-specific slots. Naukri has no dedicated slot and remains below the company evidence
-  floor when it appears in general search results.
+  Times, ZaubaCorp, TheCompanyCheck, and Tracxn. Each slot covers common
+  legal-name variants such as `Limited`/`LTD`; when available, registry slots also get a
+  CIN-based fallback. Separate LinkedIn role-specific slots use the same name variants.
+  Naukri has no dedicated slot and remains below the company evidence floor when it appears
+  in general search results. Crunchbase is retained only as a low-confidence corroborating
+  source, not a dedicated company search slot.
+  The planned global source profile includes LinkedIn, ZoomInfo, Apollo, RocketReach, The Org,
+  Forbes, Fortune, Reuters, and Craft.co; these are kept separate from the India-focused
+  source profile and selected through the company form's **Auto / India-focused / Global**
+  source-profile toggle. Auto preserves the established India-focused default unless the
+  operator explicitly selects Global.
   Two roles, kept distinct: for **person** material they are claims about a named individual,
   which `personDirectoryHosts` already flags; for **company** material some are directories, and
   `companyAcceptedProfileSources` derives which ones the gate keeps by testing each host against
   `lowQualityHosts` — ZoomInfo is on that list, so no company query ever targets it. The company
-  plan gains one anchored query per promoted host (`site:<host> "<Company>"`, which also
-  passes `matcher.covers`), plus role-specific LinkedIn searches; person research gains one more search whose snippets are labelled
+  plan gains one anchored query per promoted host (`site:<host> ("<Company>" OR "<Company LTD>")`,
+  which also passes `matcher.covers`), plus role-specific LinkedIn searches and optional
+  CIN fallbacks; person research gains one more search whose snippets are labelled
   `DIRECTORY CLAIMS`, the confirmation step spends an aggregator query only when its two core
   passes come back thin, and `isProfileSourceURL` keeps the fetch priority in step with the query
   builder so a searched domain is not ignored at fetch time.

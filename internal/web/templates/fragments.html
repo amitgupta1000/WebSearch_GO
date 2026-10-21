@@ -603,6 +603,7 @@
 			<input type="hidden" name="time_scope" value="{{.TimeScope}}">
 			<input type="hidden" name="research_notes" value="{{.Notes}}">
 			<input type="hidden" name="use_browser" value="{{.UseBrowser}}">
+			<input type="hidden" name="source_profile" value="{{$.SourceProfile}}">
 			<input type="hidden" name="entity_confirmed" value="1">
 			<input type="hidden" name="entity_source" value="resolved">
 			<div class="flex items-center justify-between gap-2">
@@ -651,6 +652,7 @@
 		<input type="hidden" name="time_scope" value="{{.TimeScope}}">
 		<input type="hidden" name="research_notes" value="{{.Notes}}">
 		<input type="hidden" name="use_browser" value="{{.UseBrowser}}">
+		<input type="hidden" name="source_profile" value="{{.SourceProfile}}">
 		<input type="hidden" name="entity_confirmed" value="0">
 		<input type="hidden" name="entity_source" value="typed">
 		<button type="submit" class="w-full text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-1.5">Research by name only (entity unconfirmed)</button>

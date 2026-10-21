@@ -98,6 +98,15 @@
                         <input type="text" name="company_industry" placeholder="e.g. software"
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
                     </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Source profile</label>
+                        <select name="source_profile" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                            <option value="auto" selected>Auto (recommended)</option>
+                            <option value="india">India-focused sources</option>
+                            <option value="global">Global sources</option>
+                        </select>
+                        <span class="block text-[11px] text-slate-500 mt-1">Controls which company directories and publishers receive dedicated searches.</span>
+                    </div>
                     <div class="sm:col-span-2">
                         <label class="text-xs font-medium text-slate-400">Areas of Interest (comma-separated)</label>
                         <input type="text" name="areas_of_interest" placeholder="leadership, engineering, locations, subsidiaries"

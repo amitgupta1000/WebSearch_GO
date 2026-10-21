@@ -46,7 +46,6 @@ func TestIndexedProfileQueriesUseCompanyOnlyAggregatorSlotsAndLinkedInRoleSlots(
 		"site:zaubacorp.com",
 		"site:thecompanycheck.com",
 		"site:tracxn.com",
-		"site:crunchbase.com",
 	} {
 		want := 1
 		if host == "site:linkedin.com/in/" {
@@ -56,13 +55,49 @@ func TestIndexedProfileQueriesUseCompanyOnlyAggregatorSlotsAndLinkedInRoleSlots(
 			t.Errorf("expected %d dedicated queries for %s, got %d", want, host, strings.Count(joined, host))
 		}
 	}
-	for _, query := range queries[:6] {
-		if strings.Contains(query.Query, "OR") {
-			t.Errorf("company-name-only slot must not contain role terms: %q", query.Query)
+	if strings.Contains(joined, "site:crunchbase.com") {
+		t.Error("Crunchbase must not receive a dedicated company search slot")
+	}
+	for _, query := range queries[:1+len(promotedCompanyAggregators)] {
+		if !strings.Contains(query.Query, `"Sanjay Chemicals"`) ||
+			strings.Contains(query.Query, "procurement") ||
+			strings.Contains(query.Query, "supply chain") {
+			t.Errorf("company-name-only slot must contain only company-name variants: %q", query.Query)
 		}
 	}
 	if strings.Contains(joined, "site:naukri.com") {
 		t.Error("Naukri must not receive a dedicated company search slot")
+	}
+}
+
+func TestCompanyNameSearchQueryCoversLimitedVariants(t *testing.T) {
+	got := companyNameSearchQuery("KLJ Resources Limited")
+	if got != `("KLJ Resources Limited" OR "KLJ Resources LTD")` {
+		t.Fatalf("company name variants = %q", got)
+	}
+}
+
+func TestCrunchbaseRemainsLowConfidence(t *testing.T) {
+	profile := classifySource(models.CompanyBrief{}, "https://www.crunchbase.com/organization/klj-resources")
+	if profile.quality >= 0.25 {
+		t.Fatalf("Crunchbase should remain below the promoted evidence floor, got %+v", profile)
+	}
+	evidence := allSearchSnippetEvidence([]models.SearchResult{{
+		Title:   "KLJ Resources",
+		Link:    "https://www.crunchbase.com/organization/klj-resources",
+		Snippet: "KLJ Resources company profile.",
+	}}, newEntityMatcher(models.CompanyBrief{CompanyName: "KLJ Resources"}))
+	if len(evidence) != 1 || evidence[0].QualityScore != 0.1 {
+		t.Fatalf("Crunchbase snippet should be downgraded, got %+v", evidence)
+	}
+}
+
+func TestGlobalCompanySourcesIncludeRequestedPublishers(t *testing.T) {
+	joined := strings.Join(globalCompanySources, ",")
+	for _, host := range []string{"forbes.com", "fortune.com", "reuters.com", "craft.co"} {
+		if !strings.Contains(joined, host) {
+			t.Errorf("global company sources must include %s, got %v", host, globalCompanySources)
+		}
 	}
 }
 
@@ -139,11 +174,11 @@ func TestEnforceEntityQueriesReservesDedicatedSourceSlots(t *testing.T) {
 	}
 	found := false
 	for _, query := range plan.Queries {
-		if strings.Contains(query.Query, "site:crunchbase.com \"Sanjay Chemicals\"") {
+		if strings.Contains(query.Query, `site:tracxn.com "Sanjay Chemicals"`) {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("expected the dedicated Crunchbase query to hold its reserved slot, got %+v", plan.Queries)
+		t.Fatalf("expected the dedicated Tracxn query to hold its reserved slot, got %+v", plan.Queries)
 	}
 }

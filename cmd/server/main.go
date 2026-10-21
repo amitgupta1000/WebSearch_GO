@@ -78,6 +78,7 @@ type entityCandidateView struct {
 	TimeScope       string
 	Notes           string
 	UseBrowser      string
+	SourceProfile   string
 	// PreSelected marks the top candidate: it is the one the operator confirms by
 	// pressing Enter, so it is rendered first with autofocus on its button.
 	PreSelected bool
@@ -111,6 +112,7 @@ type entityCandidatesView struct {
 	TimeScope       string
 	Notes           string
 	UseBrowser      string
+	SourceProfile   string
 	// TypedDomain is true when the operator already gave a domain, so the step spent no
 	// search and can say so rather than implying it looked the company up.
 	TypedDomain bool
@@ -409,6 +411,7 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.FormValue("query"))
 	companyBrief := models.CompanyBrief{
 		CompanyName:     query,
+		SourceProfile:   strings.TrimSpace(r.FormValue("source_profile")),
 		Domain:          entityDomainValue(r),
 		Aliases:         splitFormList(r.FormValue("entity_aliases")),
 		RegistrationID:  strings.TrimSpace(r.FormValue("entity_reg_id")),
@@ -652,6 +655,7 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 		TimeScope:       strings.TrimSpace(r.FormValue("time_scope")),
 		Notes:           strings.TrimSpace(r.FormValue("research_notes")),
 		UseBrowser:      strings.TrimSpace(r.FormValue("use_browser")),
+		SourceProfile:   strings.TrimSpace(r.FormValue("source_profile")),
 	}
 
 	var candidates []models.EntityCandidate
@@ -688,6 +692,7 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 			TimeScope:       view.TimeScope,
 			Notes:           view.Notes,
 			UseBrowser:      view.UseBrowser,
+			SourceProfile:   view.SourceProfile,
 			PreSelected:     index == 0,
 		}
 		for otherIndex, other := range candidates {

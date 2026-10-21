@@ -667,6 +667,9 @@ func allSearchSnippetEvidence(results []models.SearchResult, matcher *entityMatc
 		case matchesPromotedCompanyAggregator(result.Link):
 			sourceType = "aggregator"
 			quality = 0.25
+		case matchesAlternativeProfileSource(result.Link):
+			sourceType = "aggregator"
+			quality = 0.1
 		case strings.Contains(strings.ToLower(result.Link), "naukri."):
 			sourceType = "aggregator"
 			quality = 0.1
@@ -805,23 +808,51 @@ func indexedProfileQueries(brief models.CompanyBrief) []models.PlannedQuery {
 	if company == "" {
 		return nil
 	}
-	quoted := fmt.Sprintf("%q", company)
+	nameQuery := companyNameSearchQuery(company)
 	queries := []models.PlannedQuery{
-		{Query: `site:linkedin.com/in/ ` + quoted, Purpose: "find people associated with the company in LinkedIn's Google index", TargetArea: "leadership", Priority: 1},
+		{Query: `site:linkedin.com/in/ ` + nameQuery, Purpose: "find people associated with the company in LinkedIn's Google index", TargetArea: "leadership", Priority: 1},
 	}
-	for _, host := range promotedCompanyAggregators {
+	for _, host := range companySourceHosts(brief) {
 		queries = append(queries, models.PlannedQuery{
-			Query:      `site:` + host + ` ` + quoted,
+			Query:      `site:` + host + ` ` + nameQuery,
 			Purpose:    "find company records in " + host + "'s Google index",
 			TargetArea: "company profile",
 			Priority:   1,
 		})
 	}
 	queries = append(queries,
-		models.PlannedQuery{Query: `site:linkedin.com/in/ ` + quoted + ` ("chief procurement officer" OR "procurement director" OR "head of procurement" OR "VP supply chain")`, Purpose: "find procurement executives in LinkedIn's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 1},
-		models.PlannedQuery{Query: `site:linkedin.com/in/ ` + quoted + ` (CPO OR CSCO OR "chief marketing officer" OR CMO OR CTO OR CFO)`, Purpose: "find department executives in LinkedIn's Google index", TargetArea: "department leadership", Priority: 1},
+		models.PlannedQuery{Query: `site:linkedin.com/in/ ` + nameQuery + ` ("chief procurement officer" OR "procurement director" OR "head of procurement" OR "VP supply chain")`, Purpose: "find procurement executives in LinkedIn's Google index", TargetArea: "procurement, sourcing, and supply chain", Priority: 1},
+		models.PlannedQuery{Query: `site:linkedin.com/in/ ` + nameQuery + ` (CPO OR CSCO OR "chief marketing officer" OR CMO OR CTO OR CFO)`, Purpose: "find department executives in LinkedIn's Google index", TargetArea: "department leadership", Priority: 1},
 	)
+	if registrationID := strings.TrimSpace(brief.RegistrationID); registrationID != "" {
+		for _, host := range companySourceHosts(brief) {
+			queries = append(queries, models.PlannedQuery{
+				Query:      `site:` + host + ` ` + fmt.Sprintf("%q", registrationID),
+				Purpose:    "find the company registration record in " + host + "'s Google index",
+				TargetArea: "company profile",
+				Priority:   2,
+			})
+		}
+	}
 	return queries
+}
+
+// companyNameSearchQuery keeps company-only slots focused while covering common
+// legal-name variants used by registries and indexed company pages.
+func companyNameSearchQuery(company string) string {
+	trimmed := strings.TrimSpace(company)
+	variants := []string{fmt.Sprintf("%q", trimmed)}
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasSuffix(lower, " limited"):
+		variants = append(variants, fmt.Sprintf("%q", strings.TrimSpace(trimmed[:len(trimmed)-len("limited")])+" LTD"))
+	case strings.HasSuffix(lower, " ltd"):
+		variants = append(variants, fmt.Sprintf("%q", strings.TrimSpace(trimmed[:len(trimmed)-len("ltd")])+" Limited"))
+	}
+	if len(variants) == 1 {
+		return variants[0]
+	}
+	return "(" + strings.Join(variants, " OR ") + ")"
 }
 
 func fallbackQueryPlan(brief models.CompanyBrief) models.QueryPlan {
@@ -1157,6 +1188,9 @@ func classifySource(brief models.CompanyBrief, targetURL string) sourceProfile {
 	// dump. They rank with the aggregators, so they are dropped before they can seed a
 	// roster.
 	if containsAny(host, lowQualityHosts...) {
+		return sourceProfile{sourceType: "aggregator", quality: 0.1}
+	}
+	if strings.Contains(host, "crunchbase.") {
 		return sourceProfile{sourceType: "aggregator", quality: 0.1}
 	}
 	if strings.Contains(host, "linkedin.") {

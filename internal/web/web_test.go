@@ -470,6 +470,7 @@ type entityCandidatesStub struct {
 	TimeScope       string
 	Notes           string
 	UseBrowser      string
+	SourceProfile   string
 	TypedDomain     bool
 }
 
