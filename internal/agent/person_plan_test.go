@@ -14,7 +14,7 @@ import (
 // confirmed company anchors the company run's searches, the aggregator query keeps its
 // snippets-only slot, and the plan stays inside its cap.
 func TestPersonPlanAnchorsEveryQuery(t *testing.T) {
-	plan := buildPersonPlan("Dilip Parmar", "Sanjay Chemicals (India) Pvt Ltd", "Vapi")
+	plan := buildPersonPlan("Dilip Parmar", "Sanjay Chemicals (India) Pvt Ltd", "Vapi", "India")
 	if len(plan) != 8 {
 		t.Fatalf("expected eight planned searches for a company run, got %d: %+v", len(plan), plan)
 	}
@@ -48,7 +48,7 @@ func TestPersonPlanAnchorsEveryQuery(t *testing.T) {
 		t.Errorf("the primary query must carry the confirmed company, got %q", plan[0].query)
 	}
 
-	alone := buildPersonPlan("Jane Doe", "", "")
+	alone := buildPersonPlan("Jane Doe", "", "", "")
 	if len(alone) != 6 {
 		t.Fatalf("expected six planned searches for a name-alone run, got %d", len(alone))
 	}

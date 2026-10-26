@@ -242,7 +242,7 @@ Compactly:
 | Stage | Gate | Fallback |
 | :--- | :--- | :--- |
 | Confirmation | 2 searches + 1 aggregator pass only when <2 candidates | name-alone card |
-| Plan | 8 anchored searches — profile, role, appointments, career/education, aggregator `site:`, plus Facebook, Instagram, and X/Twitter personalization searches, capped at 9 | a failed search is skipped; the run fails only when every one does |
+| Plan | 8–11 anchored searches — profile, role, appointments, career/education, regional/global aggregator `site:`, plus Facebook, Instagram, and X/Twitter personalization searches, capped at 12 | a failed search is skipped; the run fails only when every one does |
 | Snippets | **identity gate**: a snippet must name the person *and* the confirmed company or location | excluded — listed in the dossier's **Identity check** |
 | Fetch targets | identity gate first: profile URLs from *every* planned search, then any gate-matched page, up to `MaxScrapes` 10 | excluded, with the stated employer in the reason |
 | Profile URL | session ⇒ **one cookie-authenticated fetch**; otherwise the ladder (2/run, 55 s) | ladder ⇒ snippet |

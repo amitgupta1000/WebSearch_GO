@@ -6,8 +6,10 @@ import (
 	"log"
 	"net/url"
 	"regexp"
+	"runtime/debug"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
@@ -76,13 +78,18 @@ type LegalAgent struct {
 	queriesPerRun int
 	docsPerRun    int
 	pagesPerQuery int
+	// concurrency bounds how many searches and document fetches run at once.
+	// The per-source limiters keep each site polite regardless — the pool is
+	// what lets an IndianKanoon wait overlap a Casemine fetch instead of
+	// queueing behind it.
+	concurrency int
 }
 
 // NewLegalAgent initializes the legal agent. Non-positive budgets restore the
 // defaults, the same way the Engine's constructor does. The case-law sources are
 // the real clients in production and fakes in tests; a nil Casemine client keeps
 // the search-engine snippet track instead of the native one.
-func NewLegalAgent(engine *Engine, indianKanoon legalSource, casemine *tools.CasemineClient, queriesPerRun, docsPerRun, pagesPerQuery int) *LegalAgent {
+func NewLegalAgent(engine *Engine, indianKanoon legalSource, casemine *tools.CasemineClient, queriesPerRun, docsPerRun, pagesPerQuery, concurrency int) *LegalAgent {
 	if queriesPerRun <= 0 {
 		queriesPerRun = defaultLegalQueriesPerRun
 	}
@@ -92,6 +99,9 @@ func NewLegalAgent(engine *Engine, indianKanoon legalSource, casemine *tools.Cas
 	if pagesPerQuery <= 0 {
 		pagesPerQuery = defaultLegalPagesPerQuery
 	}
+	if concurrency <= 0 {
+		concurrency = defaultLegalConcurrency
+	}
 	return &LegalAgent{
 		engine:        engine,
 		indianKanoon:  indianKanoon,
@@ -99,7 +109,92 @@ func NewLegalAgent(engine *Engine, indianKanoon legalSource, casemine *tools.Cas
 		queriesPerRun: queriesPerRun,
 		docsPerRun:    docsPerRun,
 		pagesPerQuery: pagesPerQuery,
+		concurrency:   concurrency,
 	}
+}
+
+// defaultLegalConcurrency is how many legal searches may run at once. The
+// per-source limiters (one request a second on the free IndianKanoon index, the
+// scraper's own politeness on Casemine) keep any single site quiet whatever
+// this is; the pool is what lets different sources progress together.
+const defaultLegalConcurrency = 4
+
+// legalBudget is the run's shared query allowance under bounded concurrency:
+// continuation pages and person-search slots are claimed atomically, so
+// parallel workers cannot overspend the run's budget.
+type legalBudget struct {
+	mu        sync.Mutex
+	remaining int
+}
+
+func newLegalBudget(remaining int) *legalBudget {
+	return &legalBudget{remaining: remaining}
+}
+
+// tryTake claims one unit of the allowance, reporting whether there was room.
+func (b *legalBudget) tryTake() bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.remaining <= 0 {
+		return false
+	}
+	b.remaining--
+	return true
+}
+
+// left reports the unclaimed remainder.
+func (b *legalBudget) left() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.remaining
+}
+
+// runBoundedLegal runs fn over the unit indices [0, units) with a bounded
+// worker pool. fn writes its own outcome wherever it likes — callers index
+// their result slices so the serial fold afterwards is in plan order and the
+// artifacts stay deterministic whatever the scheduling did. A panic in fn fails
+// that one unit, not the run: these goroutines sit outside net/http's
+// per-request recovery, the same way the engine's scrape batch does.
+func runBoundedLegal(units, concurrency int, fn func(index int)) {
+	if units <= 0 {
+		return
+	}
+	limit := concurrency
+	if limit <= 0 {
+		limit = 1
+	}
+	if limit > units {
+		limit = units
+	}
+	if limit == 1 {
+		for index := 0; index < units; index++ {
+			fn(index)
+		}
+		return
+	}
+	semaphore := make(chan struct{}, limit)
+	var waitGroup sync.WaitGroup
+	for index := 0; index < units; index++ {
+		waitGroup.Add(1)
+		go func(index int) {
+			defer waitGroup.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					log.Printf("[ERROR] legal worker panicked (unit %d): %v\n%s", index, recovered, debug.Stack())
+				}
+			}()
+			fn(index)
+		}(index)
+	}
+	waitGroup.Wait()
 }
 
 // legalPlannedQuery is one bounded search the run will spend: which source,
@@ -258,7 +353,7 @@ func (la *LegalAgent) ResearchLegal(ctx context.Context, sessionID string, query
 	finishPlan(fmt.Sprintf("%d company-track queries across %d source(s); %d named person(s) to check",
 		len(companyPlans), legalSources(companyPlans), len(operatorPersonPlans)))
 
-	// --- Search both sources (company track) -------------------------------
+	// --- Search both sources (company track, bounded parallel) --------------
 	finishSearch := timer.start("search")
 	trace := &models.SearchTrace{}
 	var findings, sameNamed []models.LegalFinding
@@ -267,37 +362,59 @@ func (la *LegalAgent) ResearchLegal(ctx context.Context, sessionID string, query
 		sources[name] = &models.LegalSourceReport{Name: name}
 	}
 	seenDocs := map[string]bool{}
-	budgetLeft := la.queriesPerRun - len(companyPlans)
+	budget := newLegalBudget(la.queriesPerRun - len(companyPlans))
 
-	for _, plannedQuery := range companyPlans {
+	// The company-track searches run concurrently within the configured
+	// bound. Outcomes are indexed by plan position, and the fold below is
+	// serial in that order, so the findings and the search trace are
+	// deterministic whatever the scheduling did.
+	type legalQueryOutcome struct {
+		kept     []tools.LegalSearchHit
+		excluded []tools.LegalSearchHit
+		err      error
+	}
+	outcomes := make([]legalQueryOutcome, len(companyPlans))
+	runBoundedLegal(len(companyPlans), la.concurrency, func(index int) {
+		outcomes[index].kept, outcomes[index].excluded, outcomes[index].err =
+			la.executeLegalQuery(ctx, sessionID, companyPlans[index], matcher, eventCh, budget)
+	})
+	for index, plannedQuery := range companyPlans {
 		report := sources[plannedQuery.Source]
 		report.Queries++
 
-		hits, excluded, err := la.executeLegalQuery(ctx, sessionID, plannedQuery, matcher, trace, eventCh, &budgetLeft)
-		if err != nil {
-			log.Printf("[LEGAL][session %s] %s search failed: %v", sessionID, plannedQuery.Source, err)
+		outcome := outcomes[index]
+		if outcome.err != nil {
+			log.Printf("[LEGAL][session %s] %s search failed: %v", sessionID, plannedQuery.Source, outcome.err)
 			if report.Unavailable == "" {
-				report.Unavailable = err.Error()
+				report.Unavailable = outcome.err.Error()
 			}
 			continue
 		}
-		report.Hits += len(hits) + len(excluded)
-		foldLegalHits(hits, plannedQuery, matcher, query.RegistrationID, identity.Aliases, seenDocs, report, &findings, &sameNamed)
+		report.Hits += len(outcome.kept) + len(outcome.excluded)
+		// The trace is appended here, in plan order, so the searches artifact
+		// is the same on every run however the workers interleaved.
+		trace.Queries = append(trace.Queries, models.QueryTrace{
+			Query:    plannedQuery.Query,
+			Purpose:  plannedQuery.Purpose,
+			Kept:     legalHitsToSearchResults(outcome.kept),
+			Excluded: legalHitsToSearchResults(outcome.excluded),
+		})
+		foldLegalHits(outcome.kept, plannedQuery, matcher, query.RegistrationID, identity.Aliases, seenDocs, report, &findings, &sameNamed)
 	}
 	finishSearch(fmt.Sprintf("%d matched, %d same-named across %d company-track queries", len(findings), len(sameNamed), len(companyPlans)))
 
 	// --- Directors discovery (toggle-driven, company-linked) ----------------
 	discoveredVia := map[string]string{}
 	var discovered []discoveredPerson
-	used := len(companyPlans)
 	if query.IncludeDirectors {
 		finishDiscovery := timer.start("discovery")
 		discoveryReport := &models.LegalSourceReport{Name: directorsDiscoverySource}
 		var usedByDiscovery int
-		discovered, usedByDiscovery = la.discoverDirectors(ctx, sessionID, identity, matcher, query.Persons, trace, eventCh, budgetLeft, discoveryReport)
+		discovered, usedByDiscovery = la.discoverDirectors(ctx, sessionID, identity, matcher, query.Persons, trace, eventCh, budget.left(), discoveryReport)
 		sources[directorsDiscoverySource] = discoveryReport
-		used += usedByDiscovery
-		budgetLeft -= usedByDiscovery
+		for i := 0; i < usedByDiscovery; i++ {
+			budget.tryTake()
+		}
 		for _, person := range discovered {
 			discoveredVia[strings.ToLower(person.name)] = person.via
 		}
@@ -308,7 +425,7 @@ func (la *LegalAgent) ResearchLegal(ctx context.Context, sessionID string, query
 		discoveredPersons = append(discoveredPersons, person.name)
 	}
 
-	// --- Person track within the remaining budget ---------------------------
+	// --- Person track within the remaining budget (bounded parallel) -------
 	finishPersons := timer.start("persons")
 	personPlans := operatorPersonPlans
 	for _, name := range discoveredPersons {
@@ -320,35 +437,59 @@ func (la *LegalAgent) ResearchLegal(ctx context.Context, sessionID string, query
 			PartyKind: "person",
 		})
 	}
-	personBudgetPtr := &budgetLeft
-	executedPersons := map[string]bool{}
+	// An operator-named person may also surface from discovery; one search
+	// covers both, so the duplicates are dropped before the pool launches —
+	// first occurrence wins, and operator-named plans come first.
+	uniquePersonPlans := make([]legalPlannedQuery, 0, len(personPlans))
+	seenPersons := map[string]bool{}
 	for _, plannedQuery := range personPlans {
-		if *personBudgetPtr <= 0 {
-			break
-		}
-		// An operator-named person may also surface from discovery; one search
-		// covers both, so the second entry only spends the budget entry.
 		key := strings.ToLower(plannedQuery.Party)
-		if executedPersons[key] {
+		if seenPersons[key] {
 			continue
 		}
-		executedPersons[key] = true
-		*personBudgetPtr--
+		seenPersons[key] = true
+		uniquePersonPlans = append(uniquePersonPlans, plannedQuery)
+	}
 
+	personOutcomes := make([]legalQueryOutcome, len(uniquePersonPlans))
+	personRan := make([]bool, len(uniquePersonPlans))
+	runBoundedLegal(len(uniquePersonPlans), la.concurrency, func(index int) {
+		// Each worker claims its query slot atomically; a worker that cannot
+		// is recorded as not searched rather than racing the budget.
+		if !budget.tryTake() {
+			return
+		}
+		personRan[index] = true
+		personOutcomes[index].kept, personOutcomes[index].excluded, personOutcomes[index].err =
+			la.executeLegalQuery(ctx, sessionID, uniquePersonPlans[index], matcher, eventCh, budget)
+	})
+	executedPersons := 0
+	for index, plannedQuery := range uniquePersonPlans {
+		if !personRan[index] {
+			continue
+		}
+		executedPersons++
 		report := sources[plannedQuery.Source]
 		report.Queries++
-		hits, excluded, err := la.executeLegalQuery(ctx, sessionID, plannedQuery, matcher, trace, eventCh, personBudgetPtr)
-		if err != nil {
-			log.Printf("[LEGAL][session %s] %s person search failed: %v", sessionID, plannedQuery.Source, err)
+
+		outcome := personOutcomes[index]
+		if outcome.err != nil {
+			log.Printf("[LEGAL][session %s] %s person search failed: %v", sessionID, plannedQuery.Source, outcome.err)
 			if report.Unavailable == "" {
-				report.Unavailable = err.Error()
+				report.Unavailable = outcome.err.Error()
 			}
 			continue
 		}
-		report.Hits += len(hits) + len(excluded)
-		foldLegalHits(hits, plannedQuery, matcher, query.RegistrationID, identity.Aliases, seenDocs, report, &findings, &sameNamed)
+		report.Hits += len(outcome.kept) + len(outcome.excluded)
+		trace.Queries = append(trace.Queries, models.QueryTrace{
+			Query:    plannedQuery.Query,
+			Purpose:  plannedQuery.Purpose,
+			Kept:     legalHitsToSearchResults(outcome.kept),
+			Excluded: legalHitsToSearchResults(outcome.excluded),
+		})
+		foldLegalHits(outcome.kept, plannedQuery, matcher, query.RegistrationID, identity.Aliases, seenDocs, report, &findings, &sameNamed)
 	}
-	finishPersons(fmt.Sprintf("%d person search(es) run, %d left unchecked by the budget", len(executedPersons), len(personPlans)-len(executedPersons)))
+	finishPersons(fmt.Sprintf("%d person search(es) run, %d left unchecked by the budget", executedPersons, len(uniquePersonPlans)-executedPersons))
 
 	// --- Fold case iterations (same matter, latest record wins) -------------
 	finishFold := timer.start("fold")
@@ -400,7 +541,7 @@ func (la *LegalAgent) ResearchLegal(ctx context.Context, sessionID string, query
 		seeds = append(seeds, personSeed{name: person, via: via})
 	}
 
-	summary := la.summarize(identity, classified, modelSummary, findings, sameNamed, len(personPlans)-len(executedPersons))
+	summary := la.summarize(identity, classified, modelSummary, findings, sameNamed, len(uniquePersonPlans)-executedPersons)
 	finishClassify(map[bool]string{true: "model classification applied", false: "model classification unavailable; findings keep identity labels only"}[classified])
 
 	// --- Overall risk assessment (snippets assembled for the model) ---------
@@ -954,18 +1095,27 @@ func (la *LegalAgent) extractDirectors(_ context.Context, _ string, identity mod
 
 // executeLegalQuery runs one planned search on its source, walking result
 // pages while the run's query budget allows, and returns the parsed hits split
-// into what the run keeps (judgments) and what it excluded (statute sections,
-// recorded in the trace).
+// into what the run keeps (judgments) and what it excluded (statute sections).
+//
+// It is safe to run concurrently: the per-source limiters and caches are
+// mutex-protected, so parallel workers queue politely per site while different
+// sources progress together.
 //
 // Pagination is bounded and budgeted: page 1 is part of the search itself, and
-// each page past it costs one run query (decremented through budget). A page
-// that answers nothing ends the walk — as does a source without pagination
-// (Casemine answers empty for page 2, measured) or an exhausted budget. The
-// IndianKanoon track goes through the native client and its cache; the Casemine
-// track goes through the native client when one is configured — its own fetch
-// ladder with the render fallback — and rides the engine's cached Serper search
-// otherwise. The snippet track does not paginate.
-func (la *LegalAgent) executeLegalQuery(ctx context.Context, sessionID string, planned legalPlannedQuery, matcher *entityMatcher, trace *models.SearchTrace, eventCh chan<- models.AgentEvent, budget *int) (kept, excluded []tools.LegalSearchHit, err error) {
+// each page past it claims one run query atomically through the shared budget —
+// under parallel workers, first claim wins. A page that answers nothing ends
+// the walk — as does a source without pagination (Casemine answers empty for
+// page 2, measured) or an exhausted budget. The IndianKanoon track goes through
+// the native client and its cache; the Casemine track goes through the native
+// client when one is configured — its own fetch ladder with the render
+// fallback — and rides the engine's cached Serper search otherwise. The snippet
+// track does not paginate.
+//
+// The search trace is NOT written here: parallel workers would append out of
+// completion order and the searches artifact would shuffle between runs. The
+// coordinator folds the returned hits into the trace in plan order after the
+// pool drains.
+func (la *LegalAgent) executeLegalQuery(ctx context.Context, sessionID string, planned legalPlannedQuery, matcher *entityMatcher, eventCh chan<- models.AgentEvent, budget *legalBudget) (kept, excluded []tools.LegalSearchHit, err error) {
 	Emit(eventCh, models.AgentEvent{
 		SessionID: sessionID,
 		Type:      models.EventToolCall,
@@ -981,7 +1131,13 @@ func (la *LegalAgent) executeLegalQuery(ctx context.Context, sessionID string, p
 	fetchErr := error(nil)
 	for page := 1; page <= la.pagesPerQuery; page++ {
 		if page > 1 {
-			if budget == nil || *budget <= 0 {
+			// Sources without pagination end the walk before claiming budget
+			// for a page that cannot exist (Casemine, measured: the site
+			// ignores the page parameter).
+			if planned.Source == "casemine" {
+				break
+			}
+			if !budget.tryTake() {
 				break
 			}
 		}
@@ -1016,19 +1172,21 @@ func (la *LegalAgent) executeLegalQuery(ctx context.Context, sessionID string, p
 		if len(pageHits) == 0 {
 			break
 		}
-		if page > 1 && budget != nil {
-			*budget--
-		}
 		allHits = append(allHits, pageHits...)
-		if len(pageHits) < legalMaxResultsPerQuery {
-			// A short page is the last page.
+		if page == 1 && len(pageHits) < legalMaxResultsPerQuery && planned.Source == "indiankanoon" {
+			// A short first page is the last page: no continuation can
+			// carry more records, so the walk ends without spending a
+			// query. Other sources have their own page sizes.
+			break
+		}
+		if page > 1 && len(pageHits) < legalMaxResultsPerQuery {
+			// A short continuation page is the last page.
 			break
 		}
 	}
 
 	kept = make([]tools.LegalSearchHit, 0, len(allHits))
 	excluded = make([]tools.LegalSearchHit, 0)
-	traceQuery := models.QueryTrace{Query: planned.Query, Purpose: planned.Purpose}
 	for _, hit := range allHits {
 		if hit.DocType == "statute" {
 			excluded = append(excluded, hit)
@@ -1036,9 +1194,6 @@ func (la *LegalAgent) executeLegalQuery(ctx context.Context, sessionID string, p
 		}
 		kept = append(kept, hit)
 	}
-	traceQuery.Kept = legalHitsToSearchResults(kept)
-	traceQuery.Excluded = legalHitsToSearchResults(excluded)
-	trace.Queries = append(trace.Queries, traceQuery)
 
 	pages := 1
 	if len(allHits) > legalMaxResultsPerQuery {
@@ -1220,6 +1375,11 @@ func truncateLegalSnippet(snippet string) string {
 // match there is; a full name in the body is the one a title-only reading can
 // miss. Findings are mutated through their pointers, so every upgrade lands in
 // the caller's slices.
+//
+// The fetches run through the bounded pool — each worker touches only its own
+// finding pointer, and the IndianKanoon client's politeness limiter keeps the
+// actual requests one a second whatever the pool size, so the wall clock is
+// bounded by the limiter rather than the sum of the fetches.
 func (la *LegalAgent) confirmWithDocuments(ctx context.Context, sessionID string, identity models.CompanyBrief, pointers []*models.LegalFinding) (upgraded, fetched int) {
 	if la.docsPerRun <= 0 || la.indianKanoon == nil || len(pointers) == 0 {
 		return 0, 0
@@ -1233,29 +1393,45 @@ func (la *LegalAgent) confirmWithDocuments(ctx context.Context, sessionID string
 		return legalMatchWeight(ordered[i].MatchKey) < legalMatchWeight(ordered[j].MatchKey)
 	})
 
+	// The candidates that are worth a fetch: the run's document budget, in
+	// weakest-first order, skipping sources without a fetchable document page.
+	candidates := make([]*models.LegalFinding, 0, la.docsPerRun)
 	for _, finding := range ordered {
-		if fetched >= la.docsPerRun {
+		if len(candidates) >= la.docsPerRun {
 			break
 		}
 		if !strings.Contains(finding.URL, "/doc/") {
 			continue // the Casemine track has no fetchable document page
 		}
+		candidates = append(candidates, finding)
+	}
+	if len(candidates) == 0 {
+		return 0, 0
+	}
+
+	var counters sync.Mutex
+	runBoundedLegal(len(candidates), la.concurrency, func(index int) {
+		finding := candidates[index]
 		document, err := la.indianKanoonDocCached(ctx, finding.URL)
 		if err != nil || document == nil || document.Text == "" {
-			continue
+			return
 		}
-		fetched++
 
 		match, matched := matcher.matchText(document.Text)
+		counters.Lock()
+		fetched++
+		counters.Unlock()
 		if !matched {
-			continue
+			return
 		}
 		// The document confirms the link; upgrade the key when it is stronger
 		// than what the snippet suggested. The caller re-grades the buckets.
+		// Each worker mutates only its own finding pointer.
 		newKey := models.LegalKeyName
 		if match.Key == models.EntityKeyRegistration {
 			newKey = models.LegalKeyCIN
 		}
+		counters.Lock()
 		if legalMatchWeight(newKey) < legalMatchWeight(finding.MatchKey) {
 			finding.MatchKey = newKey
 			finding.Reason = "confirmed in the document text (" + match.Key + ")"
@@ -1267,7 +1443,8 @@ func (la *LegalAgent) confirmWithDocuments(ctx context.Context, sessionID string
 		if document.Title != "" && finding.CaseTitle == "" {
 			finding.CaseTitle = document.Title
 		}
-	}
+		counters.Unlock()
+	})
 	return upgraded, fetched
 }
 

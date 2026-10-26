@@ -250,9 +250,9 @@ func main() {
 	// case-law clients: IndianKanoon with its own politeness and robots guard, and
 	// Casemine with its measured fetch ladder (plain fetch first, cookie-bridged
 	// render on a wall).
-	legalAgent := agent.NewLegalAgent(eng, tools.NewIndianKanoonClient(), tools.NewCasemineClient(scraper), cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery)
-	log.Printf("Legal mode: IndianKanoon + Casemine (native, render fallback), up to %d queries (+%d page(s) each) and %d document fetches per run, %s budget",
-		cfg.LegalQueriesPerRun, cfg.LegalPagesPerQuery, cfg.LegalDocsPerRun, cfg.LegalTimeoutFor())
+	legalAgent := agent.NewLegalAgent(eng, tools.NewIndianKanoonClient(), tools.NewCasemineClient(scraper), cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery, cfg.LegalConcurrency)
+	log.Printf("Legal mode: IndianKanoon + Casemine (native, render fallback), up to %d queries (+%d page(s) each), %d document fetches, %d concurrent searches, %s budget",
+		cfg.LegalQueriesPerRun, cfg.LegalPagesPerQuery, cfg.LegalDocsPerRun, cfg.LegalConcurrency, cfg.LegalTimeoutFor())
 	sessionHub := agent.NewSessionHub()
 
 	// 5. Parse templates embedded into the binary (independent of working directory)
@@ -562,6 +562,7 @@ func personQueryFromForm(r *http.Request, name string) models.PersonQuery {
 		Name:        strings.TrimSpace(name),
 		Company:     strings.TrimSpace(r.FormValue("company_name")),
 		Location:    strings.TrimSpace(r.FormValue("location")),
+		Country:     strings.TrimSpace(r.FormValue("company_country")),
 		Confirmed:   strings.TrimSpace(r.FormValue("person_confirmed")) == "1",
 		Source:      source,
 		SeedURL:     strings.TrimSpace(r.FormValue("person_seed_url")),

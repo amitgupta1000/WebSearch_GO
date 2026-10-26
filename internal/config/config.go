@@ -123,6 +123,10 @@ type Config struct {
 	// Page 1 is part of the search; every page past it costs one run query.
 	// IndianKanoon paginates natively; Casemine is a single-page source.
 	LegalPagesPerQuery int
+	// LegalConcurrency bounds how many legal searches and document fetches run
+	// at once. The per-source politeness limiters keep each site quiet
+	// regardless; the pool lets different sources progress together.
+	LegalConcurrency int
 }
 
 const (
@@ -157,7 +161,10 @@ const (
 	defaultLegalDocsPerRun    = 4
 	// defaultLegalPagesPerQuery bounds the page walk per search: page 1 plus
 	// one continuation, each continuation costing one of the run's queries.
-	defaultLegalPagesPerQuery    = 2
+	defaultLegalPagesPerQuery = 2
+	// defaultLegalConcurrency mirrors the agent's default: four searches in
+	// flight, with each source's own limiter still governing its politeness.
+	defaultLegalConcurrency = 4
 	defaultScrapeConcurrency     = 4
 	defaultScrapeHostRate        = 2
 	defaultScrapeHostBurst       = 3
@@ -261,6 +268,7 @@ func Load() *Config {
 		LegalQueriesPerRun: envInt("LEGAL_QUERIES_PER_RUN", defaultLegalQueriesPerRun),
 		LegalDocsPerRun:    envInt("LEGAL_DOCS_PER_RUN", defaultLegalDocsPerRun),
 		LegalPagesPerQuery: envInt("LEGAL_PAGES_PER_QUERY", defaultLegalPagesPerQuery),
+		LegalConcurrency:   envInt("LEGAL_CONCURRENCY", defaultLegalConcurrency),
 	}
 }
 

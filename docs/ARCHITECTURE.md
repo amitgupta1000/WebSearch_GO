@@ -222,9 +222,10 @@ chart + CompanyResearchContext ──► SSE result ──► HTMX UI
                                   └─► retained for /api/question
 ```
 
-Person mode runs a bounded identity-aware plan: professional and directory searches feed
-employment evidence, while separate Facebook, Instagram, and X/Twitter searches feed optional
-public personalization context → scrape top bio pages → synthesis/QC → `PersonProfile`.
+Person mode runs a bounded identity-aware plan: professional and regional/global directory
+searches feed employment evidence, while separate Facebook, Instagram, and X/Twitter searches
+feed optional public personalization context and deterministic public-account candidates →
+scrape top bio pages → synthesis/QC → `PersonProfile`.
 
 Both modes finish by saving their result: `Engine.ExportCompany` / `ExportPerson` write a
 Markdown document and a PDF (printed by the same Chromium) to the configured destination, and
@@ -1798,13 +1799,13 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 | # | Stage | What happens | Bound | On failure |
 | :--- | :--- | :--- | :--- | :--- |
 | 1 | Confirmation step | 2 core searches, candidates parsed from headlines, top match pre-selected | *budget*: 2 queries + **1 aggregator pass only when < 2 candidates**; company **and** place typed ⇒ 0 searches; no pre-selection when nothing names the typed company | 0 candidates ⇒ the step still renders the name-alone card |
-| 2 | Plan | 8 anchored searches — profile, role and position, appointments and news, career and education, aggregator `site:`, plus Facebook, Instagram, and X/Twitter personalization searches — deduped, capped 9 | one failed search is skipped | all planned searches fail ⇒ run fails |
-| 3 | Search phase | every planned query through `SearchCached`; employment snippets are identity-gated, while social snippets are kept in a separate public-personalization context | — | employment exclusions listed in the **Identity check**; social exclusions remain in the trace |
+| 2 | Plan | 8–11 anchored searches — profile, role and position, appointments and news, career and education, regional/global aggregator `site:`, plus Facebook, Instagram, and X/Twitter personalization searches — deduped, capped 12 | one failed search is skipped | all planned searches fail ⇒ run fails |
+| 3 | Search phase | every planned query through `SearchCached` with four bounded workers; results are processed back in plan order; employment snippets are identity-gated, while social snippets are kept in a separate public-personalization context | concurrency 4; cache, cancellation, and provider limits still apply | employment exclusions listed in the **Identity check**; social exclusions remain in the trace |
 | 4 | Fetch targets | confirmed seed first; profile URLs from *every* planned search, then any gate-matched page, up to `MaxScrapes` 10; directory results are snippets-only | cap `MaxScrapes` 10 | non-matching hits stay snippets |
 | 5 | Profile URL | **session for the host** ⇒ one cookie-authenticated `ScrapeCached`; otherwise ⇒ the ladder | usable = unblocked ∧ > 80 chars; ladder: 2/run, 55 s, needs budget + 20 s | cheap fetch ⇒ ladder ⇒ snippet; a redirect loop with a session ⇒ `session-rejected` |
 | 6 | Other URLs | parallel `ScrapeCachedBatch`; a fetched body that names the person but states no employer is counted **name-only** | content-hash dedupe; host limits | `Blocked` ⇒ one ladder escalation |
 | 7 | Identity check event | kept / name-only / excluded reported before synthesis | — | — |
-| 8 | Synthesis | dossier from gated employment snippets/pages plus labelled public-personalization snippets and the confirmed-profile block; social context cannot establish identity or employment | — | run fails |
+| 8 | Synthesis | dossier from gated employment snippets/pages plus labelled public-personalization snippets, deterministic public-account candidates, and the confirmed-profile block; social context cannot establish identity or employment | — | run fails |
 | 9 | **Dossier QC** | every synthesised experience row held to the confirmed employer; a non-matching row survives only when a bounded reverse lookup (`"Name" "That employer"`) ties them; the headline employer is corrected to the confirmed one; identical repeated rows collapse to one; two rows at different employers overlapping by more than a handover year are **both flagged** on the row (concurrent roles or a blended row) | lookups ≤ `VALIDATION_LOOKUPS_PER_RUN`, gated by `VALIDATE_EVIDENCE`, ≥ 15 s of run budget each; overlap threshold 2 shared years | dropped / corrected rows are listed in the **Identity check**; flags render on the rows |
 | 10 | **Same-named people** | the excluded evidence is regrouped multilaterally — one group per employer a same-named person's source states, plus unattributed name-only material — ordered strongest-first, most relevant snippets per group | caps: 8 groups × 4 snippets (`person_gate.go`) | rendered in the dossier (console, md, pdf); the console offers a re-run per employer |
 | 11 | Export | md + pdf, with **Identity check**, **Same-named people** and **Research trace** sections; experience rows carry their source; plus `-searches.json` — every planned query with its kept and excluded hits, linked from the **Search results** tab | — | written on a detached context |

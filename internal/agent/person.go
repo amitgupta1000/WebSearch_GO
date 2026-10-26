@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -30,6 +31,7 @@ func (pa *PersonAgent) ResearchPerson(
 	personName := strings.TrimSpace(query.Name)
 	companyName := strings.TrimSpace(query.Company)
 	location := strings.TrimSpace(query.Location)
+	country := strings.TrimSpace(query.Country)
 	// The identity gate is what stops a same-named person at another employer from reaching
 	// the dossier: the company and location the operator confirmed are acceptance rules, not
 	// just search terms. Everything the run collects — snippets and fetched pages — is held
@@ -51,7 +53,7 @@ func (pa *PersonAgent) ResearchPerson(
 	// question and two afterthoughts: profile, role, appointments, career history, and the
 	// people-data aggregators. Every query is anchored on the confirmed name and company —
 	// an unanchored query is how another person's pages used to reach the synthesiser.
-	plan := limitPersonPlan(buildPersonPlan(personName, companyName, location))
+	plan := limitPersonPlan(buildPersonPlan(personName, companyName, location, country))
 	finishSearches := timer.start("planned searches")
 
 	// The profile the operator confirmed the identity from is evidence about the right
@@ -83,6 +85,8 @@ func (pa *PersonAgent) ResearchPerson(
 		results []models.SearchResult
 	}
 	planResults := make([]planSearch, 0, len(plan))
+	personalizationAccounts := make([]models.PublicAccount, 0, 8)
+	seenAccounts := make(map[string]bool)
 	searchTrace := &models.SearchTrace{Queries: make([]models.QueryTrace, 0, len(plan)+1)}
 	if confirmedSeed != "" {
 		searchTrace.Queries = append(searchTrace.Queries, models.QueryTrace{
@@ -97,16 +101,44 @@ func (pa *PersonAgent) ResearchPerson(
 	}
 	seenSnippet := make(map[string]bool, 32)
 	successfulSearches := 0
-	for _, entry := range plan {
+	type searchOutcome struct {
+		results []models.SearchResult
+		err     error
+	}
+	searchOutcomes := make([]searchOutcome, len(plan))
+	workers := personSearchConcurrency
+	if workers > len(plan) {
+		workers = len(plan)
+	}
+	jobs := make(chan int, len(plan))
+	var waitGroup sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			for index := range jobs {
+				entry := plan[index]
+				searchOutcomes[index].results, searchOutcomes[index].err =
+					pa.engine.SearchCached(ctx, entry.query, pa.engine.MaxSearchResults())
+			}
+		}()
+	}
+	for index, entry := range plan {
 		Emit(eventCh, models.AgentEvent{
 			SessionID: sessionID,
 			Type:      models.EventToolCall,
-			Step:      2,
+			Step:      2 + index,
 			ToolName:  "serper_search",
 			ToolInput: entry.query,
 			Content:   fmt.Sprintf("Searching (%s): %s", entry.section, entry.query),
 		})
-		results, err := pa.engine.SearchCached(ctx, entry.query, pa.engine.MaxSearchResults())
+		jobs <- index
+	}
+	close(jobs)
+	waitGroup.Wait()
+
+	for index, entry := range plan {
+		results, err := searchOutcomes[index].results, searchOutcomes[index].err
 		if err != nil {
 			// One failed search is not a failed run: the plan has more directions, and the
 			// run only fails when nothing at all came back.
@@ -151,6 +183,28 @@ func (pa *PersonAgent) ResearchPerson(
 			}
 			fmt.Fprintf(target, "\n=== %s ===\n", entry.section)
 			target.WriteString(FormatSearchSnippets(fresh))
+			if entry.personalization {
+				for _, result := range fresh {
+					key := strings.ToLower(strings.TrimSpace(result.Link))
+					if key == "" || seenAccounts[key] {
+						continue
+					}
+					seenAccounts[key] = true
+					basis := "name-only possible account"
+					confidence := 0.25
+					if mentionsCompany(result.Title+" "+result.Snippet, companyName) ||
+						(location != "" && strings.Contains(strings.ToLower(result.Title+" "+result.Snippet), strings.ToLower(location))) {
+						basis = "name plus company or location match"
+						confidence = 0.65
+					}
+					personalizationAccounts = append(personalizationAccounts, models.PublicAccount{
+						Platform:      publicPlatform(result.Link),
+						URL:           result.Link,
+						IdentityBasis: basis,
+						Confidence:    confidence,
+					})
+				}
+			}
 		}
 		planResults = append(planResults, planSearch{entry: entry, results: fresh})
 	}
@@ -453,6 +507,14 @@ Synthesize the provided web search and scraped profiles into a PersonProfile JSO
   },
   "public_interests": ["string"],
   "recent_themes": ["string"],
+  "public_accounts": [
+    {
+      "platform": "Facebook | Instagram | X/Twitter",
+      "url": "string",
+      "identity_basis": "string",
+      "confidence": 0.0
+    }
+  ],
   "personalization_evidence": [
     {
       "platform": "facebook | instagram | x",
@@ -477,6 +539,7 @@ Rules:
 	if err := pa.engine.SynthesizeJSON(ctx, systemPrompt, gatheredContext.String(), &profile); err != nil {
 		return nil, fmt.Errorf("person synthesis failed: %w", err)
 	}
+	profile.PublicAccounts = personalizationAccounts
 
 	finishSynthesis("dossier synthesised")
 

@@ -19,6 +19,7 @@ type PersonProfile struct {
 	OnlinePresence          map[string]string         `json:"online_presence,omitempty"` // e.g. "github", "twitter", "homepage"
 	PublicInterests         []string                  `json:"public_interests,omitempty"`
 	RecentThemes            []string                  `json:"recent_themes,omitempty"`
+	PublicAccounts          []PublicAccount           `json:"public_accounts,omitempty"`
 	PersonalizationEvidence []PersonalizationEvidence `json:"personalization_evidence,omitempty"`
 	Sources                 []string                  `json:"sources"`
 	ConfidenceScore         float64                   `json:"confidence_score"`
@@ -45,6 +46,15 @@ type PersonProfile struct {
 	// model, because a person search answers with several people and the operator should see
 	// all of them.
 	SameNamed []PersonEvidenceGroup `json:"same_named,omitempty"`
+}
+
+// PublicAccount is a social account discovered from public indexed evidence. It is
+// intentionally separate from employment evidence and may be only a possible match.
+type PublicAccount struct {
+	Platform      string  `json:"platform"`
+	URL           string  `json:"url"`
+	IdentityBasis string  `json:"identity_basis"`
+	Confidence    float64 `json:"confidence"`
 }
 
 // PersonalizationEvidence is public, non-sensitive context that may help tailor
@@ -129,6 +139,7 @@ type PersonQuery struct {
 	Name     string
 	Company  string
 	Location string
+	Country  string
 	// Confirmed reports that a human confirmed this identity in the confirmation step, and
 	// Source records how it arrived: "resolved" or "typed".
 	Confirmed bool

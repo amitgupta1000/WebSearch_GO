@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // person_plan.go replaces person mode's three hardcoded searches with a plan, the way company
@@ -14,7 +15,8 @@ import (
 
 // personPlanMaxQueries caps the plan. Social discovery has its own bounded searches and is
 // kept separate from employment evidence.
-const personPlanMaxQueries = 9
+const personPlanMaxQueries = 12
+const personSearchConcurrency = 4
 
 // personDirectorySection is the heading the aggregator snippets are written under, unchanged
 // from when they were a separate ad-hoc search.
@@ -35,14 +37,14 @@ type personPlanEntry struct {
 // buildPersonPlan returns the run's searches, anchored on the confirmed identity. With no
 // company confirmed the plan cannot anchor on an employer, so it asks for the pages that
 // carry one; the gate still holds whatever comes back to the name.
-func buildPersonPlan(name, company, location string) []personPlanEntry {
+func buildPersonPlan(name, company, location, country string) []personPlanEntry {
 	quotedName := fmt.Sprintf("%q", strings.TrimSpace(name))
 	if strings.TrimSpace(company) == "" {
 		plan := []personPlanEntry{
 			{section: "PRIMARY PROFILE SNIPPETS", query: fmt.Sprintf("%s (linkedin OR profile OR leadership OR career)", quotedName)},
 			{section: "APPOINTMENTS AND CAREER SNIPPETS", query: fmt.Sprintf("%s (interview OR appointment OR speaker OR award OR education)", quotedName)},
 		}
-		if aggregator := sourceSiteQuery(quotedName, alternativeProfileSources); aggregator != "" {
+		if aggregator := personDirectoryQuery(quotedName, location, country); aggregator != "" {
 			plan = append(plan, personPlanEntry{section: personDirectorySection, query: aggregator, snippetsOnly: true})
 		}
 		plan = append(plan, publicPersonalizationQueries(quotedName, company, location)...)
@@ -55,7 +57,7 @@ func buildPersonPlan(name, company, location string) []personPlanEntry {
 		{section: "APPOINTMENTS AND NEWS SNIPPETS", query: base + " (appointment OR promoted OR joins OR interview OR keynote OR award)"},
 		{section: "CAREER AND EDUCATION SNIPPETS", query: base + " (career OR experience OR education OR alumni OR university)"},
 	}
-	if aggregator := sourceSiteQuery(base, alternativeProfileSources); aggregator != "" {
+	if aggregator := personDirectoryQuery(base, location, country); aggregator != "" {
 		plan = append(plan, personPlanEntry{section: personDirectorySection, query: aggregator, snippetsOnly: true})
 	}
 	plan = append(plan, publicPersonalizationQueries(quotedName, company, location)...)
@@ -65,11 +67,20 @@ func buildPersonPlan(name, company, location string) []personPlanEntry {
 func publicPersonalizationQueries(name, company, location string) []personPlanEntry {
 	context := strings.TrimSpace(strings.Join([]string{company, location}, " "))
 	base := strings.TrimSpace(strings.Join([]string{name, context}, " "))
+	recent := time.Now().AddDate(-2, 0, 0).Format("2006-01-02")
 	return []personPlanEntry{
-		{section: "PUBLIC PERSONALIZATION — FACEBOOK", query: "site:facebook.com " + base, snippetsOnly: true, personalization: true},
-		{section: "PUBLIC PERSONALIZATION — INSTAGRAM", query: "site:instagram.com " + base, snippetsOnly: true, personalization: true},
-		{section: "PUBLIC PERSONALIZATION — X/TWITTER", query: "(site:x.com OR site:twitter.com) " + base, snippetsOnly: true, personalization: true},
+		{section: "PUBLIC PERSONALIZATION — FACEBOOK", query: "site:facebook.com " + base + " (interest OR conference OR volunteer OR speaker) after:" + recent, snippetsOnly: true, personalization: true},
+		{section: "PUBLIC PERSONALIZATION — INSTAGRAM", query: "site:instagram.com " + base + " (project OR event OR travel OR food OR book) after:" + recent, snippetsOnly: true, personalization: true},
+		{section: "PUBLIC PERSONALIZATION — X/TWITTER", query: "(site:x.com OR site:twitter.com) " + base + " (interest OR opinion OR conference OR industry) after:" + recent, snippetsOnly: true, personalization: true},
 	}
+}
+
+func personDirectoryQuery(base, location, country string) string {
+	hosts := append([]string(nil), alternativeProfileSources...)
+	if strings.Contains(strings.ToLower(location+" "+country), "india") {
+		hosts = append(hosts, promotedCompanyAggregators...)
+	}
+	return sourceSiteQuery(base, hosts)
 }
 
 // limitPersonPlan trims the plan to its cap and drops duplicate queries — the deterministic

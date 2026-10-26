@@ -194,6 +194,24 @@ func isPublicSocialURL(rawURL string) bool {
 		host == "x.com" || strings.HasSuffix(host, ".x.com")
 }
 
+func publicPlatform(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "social"
+	}
+	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+	switch {
+	case strings.Contains(host, "facebook."):
+		return "Facebook"
+	case strings.Contains(host, "instagram."):
+		return "Instagram"
+	case strings.Contains(host, "twitter."), strings.Contains(host, "x.com"):
+		return "X/Twitter"
+	default:
+		return "social"
+	}
+}
+
 // sortStableByName keeps exclusion listings deterministic.
 func sortStableByName(rows []models.OffEntityRow) {
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })

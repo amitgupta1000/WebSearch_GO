@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -221,7 +223,7 @@ func TestResearchLegalClassifiesAndBuckets(t *testing.T) {
 			},
 		},
 	}
-	agent := NewLegalAgent(newLegalTestEngine(t, legalClassifyLLM{}), source, nil, 8, 0, 1)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalClassifyLLM{}), source, nil, 8, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s1", models.LegalQuery{
 		CompanyName: "Acme Robotics Pvt Ltd",
@@ -286,7 +288,7 @@ func TestResearchLegalModelFailureKeepsFindings(t *testing.T) {
 			},
 		},
 	}
-	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), source, nil, 8, 0, 1)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), source, nil, 8, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s2", models.LegalQuery{CompanyName: "Acme Robotics Pvt Ltd"}, nil)
 	if err != nil {
@@ -304,7 +306,7 @@ func TestResearchLegalModelFailureKeepsFindings(t *testing.T) {
 }
 
 func TestResearchLegalReportsUnavailableSource(t *testing.T) {
-	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), &failingLegalSource{}, nil, 4, 0, 1)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), &failingLegalSource{}, nil, 4, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s3", models.LegalQuery{CompanyName: "Acme Robotics Pvt Ltd"}, nil)
 	if err != nil {
@@ -340,7 +342,7 @@ func TestResearchLegalUnbudgetedPersonIsNamed(t *testing.T) {
 		},
 	}
 	// Two queries of budget: company + casemine only; the person never runs.
-	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), source, nil, 2, 0, 1)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), source, nil, 2, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s4", models.LegalQuery{
 		CompanyName: "Acme Robotics Pvt Ltd",
@@ -411,7 +413,7 @@ func TestResearchLegalDiscoversDirectors(t *testing.T) {
 	store := cache.NewMemoryCache(100)
 	t.Cleanup(func() { store.Close() })
 	engine := NewEngine(discoveryLLM{}, discoverySearcher{}, &mockScraper{}, store, 5, 15, 20)
-	agent := NewLegalAgent(engine, source, nil, 8, 0, 1)
+	agent := NewLegalAgent(engine, source, nil, 8, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s5", models.LegalQuery{
 		CompanyName:      "Acme Robotics Pvt Ltd",
@@ -470,7 +472,7 @@ func TestResearchLegalDiscoversDirectors(t *testing.T) {
 }
 
 func TestResearchLegalToggleOffSkipsDiscovery(t *testing.T) {
-	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), &fakeLegalSource{hits: map[string][]tools.LegalSearchHit{}}, nil, 8, 0, 1)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), &fakeLegalSource{hits: map[string][]tools.LegalSearchHit{}}, nil, 8, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s6", models.LegalQuery{CompanyName: "Acme Robotics Pvt Ltd"}, nil)
 	if err != nil {
@@ -489,6 +491,80 @@ func TestLegalSnippetHost(t *testing.T) {
 	}
 	if got := legalSnippetHost("not a url"); got != "search snippet" {
 		t.Errorf("legalSnippetHost = %q, want the fallback source name", got)
+	}
+}
+
+// parallelFakeSource wraps the canned fake with in-flight tracking, so the
+// bounded pool's bound is observed rather than assumed.
+type parallelFakeSource struct {
+	fakeLegalSource
+	inFlight    atomic.Int32
+	maxInFlight atomic.Int32
+}
+
+func (f *parallelFakeSource) Search(ctx context.Context, query string, page, maxResults int) ([]tools.LegalSearchHit, error) {
+	current := f.inFlight.Add(1)
+	for {
+		seen := f.maxInFlight.Load()
+		if current <= seen || f.maxInFlight.CompareAndSwap(seen, current) {
+			break
+		}
+	}
+	time.Sleep(40 * time.Millisecond)
+	defer f.inFlight.Add(-1)
+	return f.fakeLegalSource.Search(ctx, query, page, maxResults)
+}
+
+func TestLegalRunsBoundedAndDeterministic(t *testing.T) {
+	// Four IndianKanoon units (company + three aliases) and a budget large
+	// enough that every plan survives; the pool bound is three, so the observed
+	// in-flight peak must reach parallelism without passing the bound.
+	source := &parallelFakeSource{fakeLegalSource: fakeLegalSource{
+		hits: map[string][]tools.LegalSearchHit{
+			`"Acme Robotics Pvt Ltd"`: {
+				{Title: "Acme Robotics Pvt Ltd vs State Of Maharashtra", Court: "Supreme Court of India", DocID: "111", DocURL: "/doc/111/"},
+			},
+			`"Acme Labs"`: {
+				{Title: "Acme Labs merger order", DocID: "222", DocURL: "/doc/222/"},
+			},
+			`"Acme Industries"`: nil,
+			`"Acme Traders"`:    nil,
+		},
+	}}
+	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), source, nil, 8, 0, 1, 3)
+
+	report, err := agent.ResearchLegal(context.Background(), "s7", models.LegalQuery{
+		CompanyName: "Acme Robotics Pvt Ltd",
+		Aliases:     []string{"Acme Labs", "Acme Industries", "Acme Traders"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("ResearchLegal failed: %v", err)
+	}
+
+	peak := source.maxInFlight.Load()
+	if peak < 2 {
+		t.Errorf("peak in-flight = %d, want >= 2 (the searches must actually run concurrently)", peak)
+	}
+	if peak > 3 {
+		t.Errorf("peak in-flight = %d, want <= 3 (the configured bound)", peak)
+	}
+
+	// The trace is in plan order — company first, then aliases — whatever the
+	// workers' completion order was, so the searches artifact is deterministic.
+	if len(report.SearchTrace.Queries) < 2 {
+		t.Fatalf("trace queries = %d, want the plan's searches", len(report.SearchTrace.Queries))
+	}
+	if !strings.Contains(report.SearchTrace.Queries[0].Query, "Acme Robotics Pvt Ltd") ||
+		strings.Contains(report.SearchTrace.Queries[0].Query, "directors") {
+		t.Errorf("first traced query = %q, want the company party search", report.SearchTrace.Queries[0].Query)
+	}
+	for _, queryTrace := range report.SearchTrace.Queries {
+		if strings.HasPrefix(queryTrace.Query, `"Acme Labs`) {
+			break
+		}
+		if strings.HasPrefix(queryTrace.Query, `"Acme Industries`) {
+			t.Errorf("trace order shuffled: Acme Industries appears before Acme Labs: %+v", report.SearchTrace.Queries)
+		}
 	}
 }
 
