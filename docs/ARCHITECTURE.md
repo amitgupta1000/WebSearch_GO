@@ -1190,6 +1190,10 @@ the two cited sources.
   source profile and selected through the company form's **Auto / India-focused / Global**
   source-profile toggle. Auto preserves the established India-focused default unless the
   operator explicitly selects Global.
+  Company mode also exposes default-on Leadership, Marketing, and Procurement / Supply Chain
+  interests, plus an optional person-of-interest field. A supplied person receives three
+  reserved company-anchored searches, including a LinkedIn-index query, before general
+  planner queries are admitted.
   Two roles, kept distinct: for **person** material they are claims about a named individual,
   which `personDirectoryHosts` already flags; for **company** material some are directories, and
   `companyAcceptedProfileSources` derives which ones the gate keeps by testing each host against

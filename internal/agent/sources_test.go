@@ -101,6 +101,31 @@ func TestGlobalCompanySourcesIncludeRequestedPublishers(t *testing.T) {
 	}
 }
 
+func TestPersonOfInterestQueriesAreReserved(t *testing.T) {
+	brief := models.CompanyBrief{CompanyName: "KLJ Resources Limited", PersonOfInterest: "Suresh Jalther"}
+	queries := personOfInterestQueries(brief)
+	if len(queries) != 3 {
+		t.Fatalf("expected three person-of-interest queries, got %d", len(queries))
+	}
+	for _, query := range queries {
+		if !strings.Contains(query.Query, "Suresh Jalther") || !strings.Contains(query.Query, "KLJ Resources") {
+			t.Errorf("person query is not company-anchored: %q", query.Query)
+		}
+	}
+	plan, _ := enforceEntityQueries(models.QueryPlan{Queries: []models.PlannedQuery{
+		{Query: "KLJ Resources Limited general company overview"},
+	}}, brief)
+	found := 0
+	for _, query := range plan.Queries {
+		if query.TargetArea == "person of interest" {
+			found++
+		}
+	}
+	if found != len(queries) {
+		t.Fatalf("expected all person-of-interest queries to survive planning, got %d/%d", found, len(queries))
+	}
+}
+
 // TestSourceSiteQueryShape pins the rendering: a base plus one site: per host, OR-joined.
 func TestSourceSiteQueryShape(t *testing.T) {
 	got := sourceSiteQuery("Jane Doe", []string{"a.com", "b.com"})

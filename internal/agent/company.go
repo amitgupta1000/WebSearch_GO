@@ -702,6 +702,7 @@ func (ca *CompanyAgent) planQueries(ctx context.Context, brief models.CompanyBri
 		brief.CompanyName, strings.Join(entityDomains(brief), ", "), strings.Join(brief.Aliases, ", "), brief.RegistrationID, brief.Industry,
 		brief.Country, brief.City, strings.Join(brief.AreasOfInterest, ", "),
 		strings.Join(brief.DesiredOutput, ", "), brief.TimeScope, brief.UserNotes)
+	request += fmt.Sprintf("\nPerson of interest: %s", brief.PersonOfInterest)
 	llmCtx, cancel := context.WithTimeout(ctx, companyPlanningTimeout)
 	defer cancel()
 	err := ca.engine.GenerateStructured(llmCtx, `Create a focused company web research query plan. Return JSON with a queries array. Each query needs query, purpose, target_area, and priority from 1 to 5. EVERY query must contain the company name, one of its aliases, or its domain — a query without one of those is discarded before it runs, because an unanchored query returns another company's pages that merely look relevant. Prefer "site:<domain>" queries for the company's own pages. Cover leadership, locations, and user-requested areas. Treat procurement, sourcing, supply chain, and marketing as explicit department targets, and write them against the company ("<company> chief procurement officer", not "chief procurement officer India"). Conference speaker lists may only be searched together with the company name. For department-level executives, use title variants such as CPO, Chief Procurement Officer, CSCO, Chief Supply Chain Officer, VP Sourcing, VP Supply Chain, CMO, Chief Marketing Officer, VP Sales, CRO, VP Engineering, CTO, and CFO. You may use site:linkedin.com/in/ in search queries to find public profile snippets, but do not assume LinkedIn pages can be directly scraped or that snippets prove employment without corroboration. `+profileSourceHint(), request, &plan)
@@ -750,9 +751,15 @@ func enforceEntityQueries(plan models.QueryPlan, brief models.CompanyBrief) (mod
 	// Refill with queries that are safe by construction, which also guarantees a
 	// site:<domain> query when a domain is known. The dedicated indexed-profile slots
 	// are reserved so a full LLM plan cannot crowd them out.
-	reserve := len(indexedProfileQueries(brief))
+	reserve := len(indexedProfileQueries(brief)) + len(personOfInterestQueries(brief))
 	kept = limitQueryPlan(models.QueryPlan{Queries: kept}, maxCompanySearchQueries-reserve).Queries
 	refill := entityAnchoredQueries(brief)
+	for _, personQuery := range personOfInterestQueries(brief) {
+		key := strings.ToLower(personQuery.Query)
+		if !seen[key] {
+			refill = append([]models.PlannedQuery{personQuery}, refill...)
+		}
+	}
 	for _, indexed := range indexedProfileQueries(brief) {
 		key := strings.ToLower(indexed.Query)
 		if !seen[key] {
@@ -771,6 +778,20 @@ func enforceEntityQueries(plan models.QueryPlan, brief models.CompanyBrief) (mod
 		kept = append(kept, anchor)
 	}
 	return limitQueryPlan(models.QueryPlan{Queries: kept}, maxCompanySearchQueries), dropped
+}
+
+func personOfInterestQueries(brief models.CompanyBrief) []models.PlannedQuery {
+	person := strings.TrimSpace(brief.PersonOfInterest)
+	company := strings.TrimSpace(brief.CompanyName)
+	if person == "" || company == "" {
+		return nil
+	}
+	personQuery := fmt.Sprintf("%q %s", person, companyNameSearchQuery(company))
+	return []models.PlannedQuery{
+		{Query: personQuery, Purpose: "validate the person of interest against the company", TargetArea: "person of interest", Priority: 1},
+		{Query: `site:linkedin.com/in/ ` + personQuery, Purpose: "find the person of interest in LinkedIn's Google index", TargetArea: "person of interest", Priority: 1},
+		{Query: personQuery + ` (current OR appointed OR director OR executive OR leadership)`, Purpose: "validate the person's current company role", TargetArea: "person of interest", Priority: 1},
+	}
 }
 
 // entityAnchoredQueries are the queries that cannot stray: they either restrict the
@@ -797,6 +818,7 @@ func entityAnchoredQueries(brief models.CompanyBrief) []models.PlannedQuery {
 	// title-and-employer facts a LinkedIn profile would; reserve their slots so they
 	// cannot be crowded out.
 	queries = append(queries, indexedProfileQueries(brief)...)
+	queries = append(queries, personOfInterestQueries(brief)...)
 	return queries
 }
 

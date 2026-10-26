@@ -108,9 +108,20 @@
                         <span class="block text-[11px] text-slate-500 mt-1">Controls which company directories and publishers receive dedicated searches.</span>
                     </div>
                     <div class="sm:col-span-2">
-                        <label class="text-xs font-medium text-slate-400">Areas of Interest (comma-separated)</label>
-                        <input type="text" name="areas_of_interest" placeholder="leadership, engineering, locations, subsidiaries"
+                        <label class="text-xs font-medium text-slate-400">Areas of Interest</label>
+                        <div class="flex flex-wrap gap-3 mt-2 text-xs text-slate-300">
+                            <label class="flex items-center gap-1.5"><input type="checkbox" name="company_area" value="leadership" checked class="accent-indigo-500"> Leadership</label>
+                            <label class="flex items-center gap-1.5"><input type="checkbox" name="company_area" value="marketing" checked class="accent-indigo-500"> Marketing</label>
+                            <label class="flex items-center gap-1.5"><input type="checkbox" name="company_area" value="procurement supply chain management" checked class="accent-indigo-500"> Procurement / supply chain</label>
+                        </div>
+                        <input type="text" name="areas_of_interest" placeholder="Additional areas, comma-separated (optional)"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-2">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="text-xs font-medium text-slate-400">Person of interest (optional)</label>
+                        <input type="text" name="person_of_interest" placeholder="e.g. Jane Doe"
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                        <span class="block text-[11px] text-slate-500 mt-1">Adds reserved company-and-person searches, including LinkedIn-index lookup.</span>
                     </div>
                     <div class="sm:col-span-2">
                         <label class="text-xs font-medium text-slate-400">Desired Output (comma-separated)</label>

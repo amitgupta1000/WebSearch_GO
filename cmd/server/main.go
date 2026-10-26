@@ -67,18 +67,19 @@ const entityResolveTimeout = 25 * time.Second
 // entityCandidateView is one candidate identity plus the brief fields, so a card can
 // post a complete research request without any client-side state.
 type entityCandidateView struct {
-	Candidate       models.EntityCandidate
-	Query           string
-	Industry        string
-	Country         string
-	City            string
-	Domain          string
-	AreasOfInterest string
-	DesiredOutput   string
-	TimeScope       string
-	Notes           string
-	UseBrowser      string
-	SourceProfile   string
+	Candidate        models.EntityCandidate
+	Query            string
+	Industry         string
+	Country          string
+	City             string
+	Domain           string
+	AreasOfInterest  string
+	DesiredOutput    string
+	TimeScope        string
+	Notes            string
+	UseBrowser       string
+	SourceProfile    string
+	PersonOfInterest string
 	// PreSelected marks the top candidate: it is the one the operator confirms by
 	// pressing Enter, so it is rendered first with autofocus on its button.
 	PreSelected bool
@@ -102,17 +103,18 @@ type entityExtraView struct {
 
 // entityCandidatesView is the dialogue rendered before a run starts.
 type entityCandidatesView struct {
-	Query           string
-	Candidates      []entityCandidateView
-	Industry        string
-	Country         string
-	City            string
-	AreasOfInterest string
-	DesiredOutput   string
-	TimeScope       string
-	Notes           string
-	UseBrowser      string
-	SourceProfile   string
+	Query            string
+	Candidates       []entityCandidateView
+	Industry         string
+	Country          string
+	City             string
+	AreasOfInterest  string
+	DesiredOutput    string
+	TimeScope        string
+	Notes            string
+	UseBrowser       string
+	SourceProfile    string
+	PersonOfInterest string
 	// TypedDomain is true when the operator already gave a domain, so the step spent no
 	// search and can say so rather than implying it looked the company up.
 	TypedDomain bool
@@ -410,18 +412,19 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	mode := strings.TrimSpace(r.FormValue("mode"))
 	query := strings.TrimSpace(r.FormValue("query"))
 	companyBrief := models.CompanyBrief{
-		CompanyName:     query,
-		SourceProfile:   strings.TrimSpace(r.FormValue("source_profile")),
-		Domain:          entityDomainValue(r),
-		Aliases:         splitFormList(r.FormValue("entity_aliases")),
-		RegistrationID:  strings.TrimSpace(r.FormValue("entity_reg_id")),
-		EntityConfirmed: strings.TrimSpace(r.FormValue("entity_confirmed")) == "1",
-		EntitySource:    entitySourceValue(r),
-		Industry:        strings.TrimSpace(r.FormValue("company_industry")),
+		CompanyName:      query,
+		SourceProfile:    strings.TrimSpace(r.FormValue("source_profile")),
+		PersonOfInterest: strings.TrimSpace(r.FormValue("person_of_interest")),
+		Domain:           entityDomainValue(r),
+		Aliases:          splitFormList(r.FormValue("entity_aliases")),
+		RegistrationID:   strings.TrimSpace(r.FormValue("entity_reg_id")),
+		EntityConfirmed:  strings.TrimSpace(r.FormValue("entity_confirmed")) == "1",
+		EntitySource:     entitySourceValue(r),
+		Industry:         strings.TrimSpace(r.FormValue("company_industry")),
 		ResearchPreferences: models.ResearchPreferences{
 			Country:         strings.TrimSpace(r.FormValue("company_country")),
 			City:            strings.TrimSpace(r.FormValue("company_city")),
-			AreasOfInterest: splitFormList(r.FormValue("areas_of_interest")),
+			AreasOfInterest: companyAreasFromForm(r),
 			DesiredOutput:   splitFormList(r.FormValue("desired_output")),
 			TimeScope:       strings.TrimSpace(r.FormValue("time_scope")),
 			UserNotes:       strings.TrimSpace(r.FormValue("research_notes")),
@@ -496,6 +499,7 @@ func personQueryFromForm(r *http.Request, name string) models.PersonQuery {
 	if source == "" {
 		source = "typed"
 	}
+
 	return models.PersonQuery{
 		Name:        strings.TrimSpace(name),
 		Company:     strings.TrimSpace(r.FormValue("company_name")),
@@ -506,6 +510,14 @@ func personQueryFromForm(r *http.Request, name string) models.PersonQuery {
 		SeedTitle:   strings.TrimSpace(r.FormValue("person_seed_title")),
 		SeedSnippet: strings.TrimSpace(r.FormValue("person_seed_snippet")),
 	}
+}
+
+func companyAreasFromForm(r *http.Request) []string {
+	areas := append([]string(nil), r.Form["company_area"]...)
+	if custom := strings.TrimSpace(r.FormValue("areas_of_interest")); custom != "" {
+		areas = append(areas, splitFormList(custom)...)
+	}
+	return areas
 }
 
 // startRun launches a research session in the background and renders the live
@@ -646,16 +658,17 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	view := entityCandidatesView{
-		Query:           name,
-		Industry:        strings.TrimSpace(r.FormValue("company_industry")),
-		Country:         strings.TrimSpace(r.FormValue("company_country")),
-		City:            strings.TrimSpace(r.FormValue("company_city")),
-		AreasOfInterest: strings.TrimSpace(r.FormValue("areas_of_interest")),
-		DesiredOutput:   strings.TrimSpace(r.FormValue("desired_output")),
-		TimeScope:       strings.TrimSpace(r.FormValue("time_scope")),
-		Notes:           strings.TrimSpace(r.FormValue("research_notes")),
-		UseBrowser:      strings.TrimSpace(r.FormValue("use_browser")),
-		SourceProfile:   strings.TrimSpace(r.FormValue("source_profile")),
+		Query:            name,
+		Industry:         strings.TrimSpace(r.FormValue("company_industry")),
+		Country:          strings.TrimSpace(r.FormValue("company_country")),
+		City:             strings.TrimSpace(r.FormValue("company_city")),
+		AreasOfInterest:  strings.Join(companyAreasFromForm(r), ", "),
+		DesiredOutput:    strings.TrimSpace(r.FormValue("desired_output")),
+		TimeScope:        strings.TrimSpace(r.FormValue("time_scope")),
+		Notes:            strings.TrimSpace(r.FormValue("research_notes")),
+		UseBrowser:       strings.TrimSpace(r.FormValue("use_browser")),
+		SourceProfile:    strings.TrimSpace(r.FormValue("source_profile")),
+		PersonOfInterest: strings.TrimSpace(r.FormValue("person_of_interest")),
 	}
 
 	var candidates []models.EntityCandidate
@@ -682,18 +695,19 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 	// company — without re-entering anything.
 	for index, candidate := range candidates {
 		card := entityCandidateView{
-			Candidate:       candidate,
-			Query:           view.Query,
-			Industry:        view.Industry,
-			Country:         view.Country,
-			City:            view.City,
-			AreasOfInterest: view.AreasOfInterest,
-			DesiredOutput:   view.DesiredOutput,
-			TimeScope:       view.TimeScope,
-			Notes:           view.Notes,
-			UseBrowser:      view.UseBrowser,
-			SourceProfile:   view.SourceProfile,
-			PreSelected:     index == 0,
+			Candidate:        candidate,
+			Query:            view.Query,
+			Industry:         view.Industry,
+			Country:          view.Country,
+			City:             view.City,
+			AreasOfInterest:  view.AreasOfInterest,
+			DesiredOutput:    view.DesiredOutput,
+			TimeScope:        view.TimeScope,
+			Notes:            view.Notes,
+			UseBrowser:       view.UseBrowser,
+			SourceProfile:    view.SourceProfile,
+			PersonOfInterest: view.PersonOfInterest,
+			PreSelected:      index == 0,
 		}
 		for otherIndex, other := range candidates {
 			if otherIndex == index {
