@@ -60,6 +60,7 @@ func (pa *PersonAgent) ResearchPerson(
 	// context: everything after it is judged against it.
 	confirmedSeed := strings.TrimSpace(query.SeedURL)
 	var gatheredContext strings.Builder
+	var personalizationContext strings.Builder
 	if confirmedSeed != "" {
 		gatheredContext.WriteString("=== CONFIRMED IDENTITY (chosen by the operator) ===\n")
 		gatheredContext.WriteString(fmt.Sprintf("%s — %s\n%s\n", firstNonEmpty(query.SeedTitle, "Confirmed profile"), confirmedSeed, query.SeedSnippet))
@@ -117,8 +118,15 @@ func (pa *PersonAgent) ResearchPerson(
 		// holds a fetched page: a snippet must name the confirmed company or location to
 		// enter the dossier. That is the rule that stops a same-named person's snippet
 		// from being synthesised into this person's resume.
-		kept, excluded := gate.filterSnippets(results)
-		gateExcluded = append(gateExcluded, excluded...)
+		var kept, excluded []models.SearchResult
+		if entry.personalization {
+			kept, excluded = gate.filterPersonalization(results)
+		} else {
+			kept, excluded = gate.filterSnippets(results)
+		}
+		if !entry.personalization {
+			gateExcluded = append(gateExcluded, excluded...)
+		}
 		searchTrace.Queries = append(searchTrace.Queries, models.QueryTrace{
 			Query:    entry.query,
 			Purpose:  entry.section,
@@ -137,8 +145,12 @@ func (pa *PersonAgent) ResearchPerson(
 		}
 		gateKept += len(fresh)
 		if len(fresh) > 0 {
-			fmt.Fprintf(&gatheredContext, "\n=== %s ===\n", entry.section)
-			gatheredContext.WriteString(FormatSearchSnippets(fresh))
+			target := &gatheredContext
+			if entry.personalization {
+				target = &personalizationContext
+			}
+			fmt.Fprintf(target, "\n=== %s ===\n", entry.section)
+			target.WriteString(FormatSearchSnippets(fresh))
 		}
 		planResults = append(planResults, planSearch{entry: entry, results: fresh})
 	}
@@ -366,6 +378,10 @@ func (pa *PersonAgent) ResearchPerson(
 	}
 	finishFetches(fmt.Sprintf("%d page(s) read", scrapeCount))
 	gatheredContext.WriteString(gatheredScrapes.String())
+	if personalizationContext.Len() > 0 {
+		gatheredContext.WriteString("\n=== PUBLIC PERSONALIZATION CONTEXT (not identity or employment proof) ===\n")
+		gatheredContext.WriteString(personalizationContext.String())
+	}
 	// A confirmed profile that could not be fetched still belongs in the dossier's sources:
 	// its snippet was used as evidence, and the operator pointed at it.
 	if confirmedSeed != "" && !seedFetched {
@@ -435,12 +451,27 @@ Synthesize the provided web search and scraped profiles into a PersonProfile JSO
   "online_presence": {
     "platform_or_site": "url"
   },
+  "public_interests": ["string"],
+  "recent_themes": ["string"],
+  "personalization_evidence": [
+    {
+      "platform": "facebook | instagram | x",
+      "url": "string",
+      "summary": "string",
+      "identity_basis": "company/location match | name-only possible account",
+      "confidence": 0.0
+    }
+  ],
   "confidence_score": 0.95
 }
 Rules:
 - Set "source" on every experience row to the URL in the evidence that supports it.
 - If the evidence does not support a field or a section, return it empty — an empty dossier is better than an invented or blended one.
-- Never mix another person's role, employer, education, or skills into this dossier.`
+- Never mix another person's role, employer, education, or skills into this dossier.
+- Public personalization is optional context only. Never use social evidence to establish identity,
+  current employment, title, location, or other sensitive personal attributes.
+- Include public interests or recurring themes only when directly supported by the labelled
+  personalization context. Mark name-only social matches as possible accounts with low confidence.`
 
 	var profile models.PersonProfile
 	if err := pa.engine.SynthesizeJSON(ctx, systemPrompt, gatheredContext.String(), &profile); err != nil {

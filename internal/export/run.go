@@ -27,6 +27,14 @@ func (e *Exporter) ExportPerson(ctx context.Context, profile *models.PersonProfi
 	return e.exportRun(ctx, "person", profile.FullName, renderPersonMarkdown(profile), renderPersonHTML(profile), profile.SearchTrace)
 }
 
+// ExportLegal renders and stores a finished legal run's artifacts.
+func (e *Exporter) ExportLegal(ctx context.Context, report *models.LegalReport) []models.ExportArtifact {
+	if !e.Enabled() || report == nil {
+		return nil
+	}
+	return e.exportRun(ctx, "legal", report.CompanyName, renderLegalMarkdown(report), renderLegalHTML(report), report.SearchTrace)
+}
+
 // exportRun writes every enabled format, reporting one artifact per attempt: a
 // failed PDF must not hide the Markdown that was stored successfully. The search
 // trace — every query with its kept and excluded hits — is stored alongside them

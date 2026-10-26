@@ -439,18 +439,21 @@ func TestCompanyChartShowsFreshness(t *testing.T) {
 // package. Templates read fields by name, so a mirror is enough to pin the markup that
 // makes the step one click to confirm.
 type entityCandidateStub struct {
-	Candidate       models.EntityCandidate
-	Query           string
-	Industry        string
-	Country         string
-	City            string
-	AreasOfInterest string
-	DesiredOutput   string
-	TimeScope       string
-	Notes           string
-	UseBrowser      string
-	PreSelected     bool
-	Extras          []entityExtraStub
+	Candidate        models.EntityCandidate
+	Query            string
+	Industry         string
+	Country          string
+	City             string
+	AreasOfInterest  string
+	DesiredOutput    string
+	TimeScope        string
+	Notes            string
+	UseBrowser       string
+	Mode             string
+	LegalPersons     string
+	IncludeDirectors string
+	PreSelected      bool
+	Extras           []entityExtraStub
 }
 
 type entityExtraStub struct {
@@ -472,6 +475,9 @@ type entityCandidatesStub struct {
 	UseBrowser       string
 	SourceProfile    string
 	PersonOfInterest string
+	Mode             string
+	LegalPersons     string
+	IncludeDirectors string
 	TypedDomain      bool
 }
 

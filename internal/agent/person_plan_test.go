@@ -15,8 +15,8 @@ import (
 // snippets-only slot, and the plan stays inside its cap.
 func TestPersonPlanAnchorsEveryQuery(t *testing.T) {
 	plan := buildPersonPlan("Dilip Parmar", "Sanjay Chemicals (India) Pvt Ltd", "Vapi")
-	if len(plan) != 5 {
-		t.Fatalf("expected five planned searches for a company run, got %d: %+v", len(plan), plan)
+	if len(plan) != 8 {
+		t.Fatalf("expected eight planned searches for a company run, got %d: %+v", len(plan), plan)
 	}
 	seenSections := make(map[string]bool, len(plan))
 	for _, entry := range plan {
@@ -27,8 +27,17 @@ func TestPersonPlanAnchorsEveryQuery(t *testing.T) {
 			if !strings.Contains(entry.query, "site:crunchbase.com") || !entry.snippetsOnly {
 				t.Errorf("the directory entry must target the aggregators and stay snippets-only, got %+v", entry)
 			}
-		} else if entry.snippetsOnly {
+		} else if entry.snippetsOnly && !entry.personalization {
 			t.Errorf("only the directory entry is snippets-only, got %+v", entry)
+		}
+		social := 0
+		for _, entry := range plan {
+			if entry.personalization {
+				social++
+			}
+		}
+		if social != 3 {
+			t.Fatalf("expected three bounded social personalization queries, got %d", social)
 		}
 		if entry.section == "" || seenSections[entry.section] {
 			t.Errorf("every plan entry needs a unique context section, got %q", entry.section)
@@ -40,8 +49,8 @@ func TestPersonPlanAnchorsEveryQuery(t *testing.T) {
 	}
 
 	alone := buildPersonPlan("Jane Doe", "", "")
-	if len(alone) != 3 {
-		t.Fatalf("expected three planned searches for a name-alone run, got %d", len(alone))
+	if len(alone) != 6 {
+		t.Fatalf("expected six planned searches for a name-alone run, got %d", len(alone))
 	}
 	for _, entry := range alone {
 		if strings.Contains(entry.query, "Acme") {
@@ -66,8 +75,8 @@ func TestPersonResearchRunsThePlannedSearches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResearchPerson: %v", err)
 	}
-	if len(profile.SearchQueries) != 5 {
-		t.Fatalf("expected the five planned searches, got %v", profile.SearchQueries)
+	if len(profile.SearchQueries) != 8 {
+		t.Fatalf("expected the eight planned searches, got %v", profile.SearchQueries)
 	}
 	for _, query := range profile.SearchQueries {
 		if !strings.Contains(query, `"Jane Doe"`) {

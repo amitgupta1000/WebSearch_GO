@@ -256,7 +256,139 @@ func generatedStamp(updated time.Time) string {
 	return updated.UTC().Format("2006-01-02 15:04 UTC")
 }
 
-// renderPersonMarkdown renders a dossier as Markdown.
+// renderLegalMarkdown renders a legal check as Markdown. A reader who has never
+// seen the console can follow what was searched, what matched the confirmed
+// identity, what only shares its name, and what each source actually answered.
+func renderLegalMarkdown(report *models.LegalReport) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "# %s — Legal Check\n\n", nonEmpty(report.CompanyName, "Company"))
+	fmt.Fprintf(&builder, "_Generated %s by WebSearch_GO_\n\n", generatedStamp(report.LastUpdated))
+
+	identity := "not confirmed"
+	if report.EntityConfirmed {
+		identity = "confirmed by the operator"
+	}
+	builder.WriteString("| Field | Value |\n| :--- | :--- |\n")
+	builder.WriteString(markdownRow("Registration ID", report.RegistrationID))
+	builder.WriteString(markdownRow("Domain", report.Domain))
+	builder.WriteString(markdownRow("Aliases", strings.Join(report.Aliases, ", ")))
+	builder.WriteString(markdownRow("Entity", identity))
+	builder.WriteString(markdownRow("Findings", fmt.Sprintf("%d matched, %d same-named", len(report.Findings), len(report.SameNamed))))
+	builder.WriteString("\n")
+
+	if summary := trimmed(report.Summary); summary != "" {
+		builder.WriteString("## Exposure summary\n\n")
+		builder.WriteString(summary)
+		builder.WriteString("\n\n")
+	}
+
+	if risk := report.Risk; risk != nil {
+		builder.WriteString("## Legal risk\n\n")
+		fmt.Fprintf(&builder, "**Level: %s**", strings.ToUpper(nonEmpty(risk.Level, "unknown")))
+		if !risk.Classified {
+			builder.WriteString(" _(count-derived fallback — the model was unavailable)_")
+		}
+		builder.WriteString("\n\n")
+		if narrative := trimmed(risk.Summary); narrative != "" {
+			builder.WriteString(narrative)
+			builder.WriteString("\n\n")
+		}
+		for _, driver := range risk.Drivers {
+			fmt.Fprintf(&builder, "- %s\n", markdownCell(driver))
+		}
+		builder.WriteString("\n")
+	}
+
+	if len(report.Sources) > 0 {
+		builder.WriteString("## Sources\n\n")
+		for _, source := range report.Sources {
+			if source.Unavailable != "" {
+				fmt.Fprintf(&builder, "- **%s** — unavailable: %s\n", source.Name, source.Unavailable)
+				continue
+			}
+			fmt.Fprintf(&builder, "- **%s** — %d kept of %d hits in %d search(es)\n", source.Name, source.Kept, source.Hits, source.Queries)
+		}
+		builder.WriteString("\n")
+	}
+
+	if len(report.Findings) > 0 {
+		builder.WriteString("## Matched findings\n\n")
+		builder.WriteString("| Case | Court | Date | Side | Category | Status | Records |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
+		for _, finding := range report.Findings {
+			side := ""
+			switch finding.Role {
+			case models.LegalRoleInitiated:
+				side = "company initiated"
+			case models.LegalRoleFacing:
+				side = "company responding"
+			}
+			records := "1"
+			if finding.Iterations > 1 {
+				records = fmt.Sprintf("%d (latest kept)", finding.Iterations)
+			}
+			fmt.Fprintf(&builder, "| %s | %s | %s | %s | %s | %s | %s |\n",
+				markdownCell(finding.CaseTitle), markdownCell(finding.Court), markdownCell(finding.Date),
+				markdownCell(side), markdownCell(finding.Category), markdownCell(finding.Status), records)
+			if snippet := trimmed(finding.Snippet); snippet != "" {
+				fmt.Fprintf(&builder, "\n> %s\n\n", markdownCell(snippet))
+				if finding.URL != "" {
+					fmt.Fprintf(&builder, "> [case record](%s)\n\n", finding.URL)
+				}
+			}
+		}
+	} else {
+		builder.WriteString("## Matched findings\n\nNo case records matched the confirmed identity. Check the sources above: an empty list with an unavailable source means the search could not run, not that nothing exists.\n\n")
+	}
+
+	if len(report.SameNamed) > 0 {
+		builder.WriteString("## Same-named entities — kept for review, not attributed\n\n")
+		builder.WriteString("These records share part of the party name without a stronger identity key. They are listed rather than dropped, because a legal check must not silently discard a hit that merely shares a name.\n\n")
+		for _, finding := range report.SameNamed {
+			fmt.Fprintf(&builder, "- **%s**", markdownCell(finding.CaseTitle))
+			if court := trimmed(finding.Court); court != "" {
+				fmt.Fprintf(&builder, " (%s", court)
+				if date := trimmed(finding.Date); date != "" {
+					fmt.Fprintf(&builder, ", %s", date)
+				}
+				builder.WriteString(")")
+			}
+			if finding.URL != "" {
+				fmt.Fprintf(&builder, " — [case record](%s)", finding.URL)
+			}
+			builder.WriteString("\n")
+		}
+		builder.WriteString("\n")
+	}
+
+	for _, person := range report.Persons {
+		fmt.Fprintf(&builder, "## Person check — %s\n\n", nonEmpty(person.Name, "unnamed person"))
+		if reason := trimmed(person.SkippedReason); reason != "" {
+			fmt.Fprintf(&builder, "_Not searched: %s_\n\n", reason)
+			continue
+		}
+		if len(person.Findings) == 0 {
+			builder.WriteString("No case records found.\n\n")
+			continue
+		}
+		builder.WriteString("| Case | Court | Date | Category | Status |\n| :--- | :--- | :--- | :--- | :--- |\n")
+		for _, finding := range person.Findings {
+			fmt.Fprintf(&builder, "| %s | %s | %s | %s | %s |\n",
+				markdownCell(finding.CaseTitle), markdownCell(finding.Court), markdownCell(finding.Date),
+				markdownCell(finding.Category), markdownCell(finding.Status))
+		}
+		builder.WriteString("\n")
+	}
+
+	if len(report.Timings) > 0 {
+		builder.WriteString(renderTimingsMarkdown(report.Timings))
+		builder.WriteString("\n")
+	}
+	return builder.String()
+}
+
+// renderPersonMarkdown renders a dossier as Markdown. The output is
+// self-contained: a reader can follow the career, the education and where every
+// claim came from.
 func renderPersonMarkdown(profile *models.PersonProfile) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "# %s — Professional Dossier\n\n", nonEmpty(profile.FullName, "Person"))

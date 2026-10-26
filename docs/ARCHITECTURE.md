@@ -30,26 +30,27 @@ endpoints and deployment.
 15. [Project health & known issues](#project-health--known-issues)
 16. [Design history & roadmap](#design-history--roadmap)
 
-## The two research modes
+## The three research modes
 
 WebSearch_GO is an **agentic AI research server** written in idiomatic Go (module
 `github.com/amitgupta1000/WebSearch_GO`, Go 1.24). It performs autonomous web research in
-two modes:
+three modes:
 
 | Mode | What it produces | How it works |
 | :--- | :--- | :--- |
 | **Company** (`mode=company`) | A structured `OrgChart`: overview, HQ, leadership, departments, locations, sources | LLM plans a set of Google queries → results are ranked for relevance → the top pages are scraped → Gemini synthesizes the org chart from the collected evidence |
 | **Person** (`mode=person`) | A structured `PersonProfile` dossier: title, company, bio, experiences, education, skills, confidence score | Disambiguated search (name + company + location) → bio-oriented pages are scraped → a secondary career search supplements snippets → Gemini synthesizes the dossier |
+| **Legal** (`mode=legal`) | A structured `LegalReport`: litigation findings on the confirmed company and named persons, plus same-named hits kept for review | The company identity is confirmed as in company mode → a deterministic plan searches IndianKanoon (native client) and Casemine (search snippets) → every hit is tied to the identity by CIN/name/alias → Gemini classifies category/status and writes an exposure summary |
 
 The system is built from six cooperating layers:
 
 - **HTTP layer** (`cmd/server`, `internal/web`) — an HTMX-powered single-page console,
   with templates embedded into the binary via `go:embed`.
-- **Agentic orchestration** (`internal/agent`) — a shared *Engine* plus two domain
-  specialists (company / person) that plan, search, rank, scrape and synthesize.
+- **Agentic orchestration** (`internal/agent`) — a shared *Engine* plus three domain
+  specialists (company / person / legal) that plan, search, rank, scrape and synthesize.
 - **Tooling** (`internal/tools`) — Serper.dev Google-search client, a sanitized HTML
-  scraper with an optional Playwright renderer and PDF text extraction, and
-  browser-cookie import.
+  scraper with an optional Playwright renderer and PDF text extraction,
+  browser-cookie import, and the IndianKanoon case-law client.
 - **LLM layer** (`internal/llm`) — a Gemini client (`gemini-2.5-flash-lite` by default)
   that returns *structured JSON* with cleaning + retry.
 - **State & caching** (`internal/cache`, `internal/agent/hub.go`) — a bounded TTL cache
@@ -221,8 +222,9 @@ chart + CompanyResearchContext ──► SSE result ──► HTMX UI
                                   └─► retained for /api/question
 ```
 
-Person mode is the same skeleton without planning/QC: two searches → scrape top bio pages →
-single synthesis → `PersonProfile`.
+Person mode runs a bounded identity-aware plan: professional and directory searches feed
+employment evidence, while separate Facebook, Instagram, and X/Twitter searches feed optional
+public personalization context → scrape top bio pages → synthesis/QC → `PersonProfile`.
 
 Both modes finish by saving their result: `Engine.ExportCompany` / `ExportPerson` write a
 Markdown document and a PDF (printed by the same Chromium) to the configured destination, and
@@ -458,6 +460,95 @@ renders the snippet-sourced candidates.
    key skills, notable projects, online presence map, confidence score).
    `Sources` and `LastUpdated` are stamped locally. *(Steps 7–8)*
 
+#### `legal.go` — LegalAgent: identity → case-law search → classify → report
+
+`ResearchLegal` runs the legal mode pipeline, deliberately smaller than the other
+two modes (no planning model call, no scrape ladder, no QC loop):
+
+1. **Plan (`planLegalQueries`)** — deterministic, strongest first, capped at
+   `LEGAL_QUERIES_PER_RUN`: the company name, the CIN (a registration id cannot
+   belong to a same-named company), confirmed aliases, a Casemine snippet track
+   (`site:casemine.com "Company"` through `SearchCached`), then each named person
+   as `"Name" "Company"` co-occurrence. *(Step 40)*
+2. **Search (`executeLegalQuery`)** — IndianKanoon searches go through the native
+   client (`legal_search:<sha256(query)>`, TTL 48 h) and always carry
+   `doctype=judgments`; statute sections land in the trace's excluded list rather
+   than vanishing. Casemine goes through its native client when one is configured —
+   its own fetch ladder, measured: the site 403s every non-browser User-Agent
+   (headless Chromium's included), but its server-rendered results page answers the
+   scraper's Chrome UA, so `Scraper.FetchHTML` (plain, jar session) runs first and
+   `Scraper.RenderHTML` (cookie-bridged shared-browser render) is the wall
+   fallback. Without the client the track falls back to search-engine snippets.
+   *(Steps 41–42)*
+3. **Classify (`legalFindingFromHit`)** — every judgment is tied to the confirmed
+   identity by the same `entityMatcher` keys a company run is held to: CIN in the
+   record (`cin`, decisive), the full legal name (`exact-name`), a confirmed alias
+   (`alias`), and a person's name in a person-and-company search (`exact-name`).
+   Anything weaker is the **same-named bucket**: kept and labelled
+   `matched by name only`, never silently dropped — a legal check's risk profile
+   inverts the org chart's, so a false positive must be visible and a false
+   negative must not happen. The case title's `X v. Y` structure is parsed
+   deterministically into the party's side (`legalPartyRole`): the left side is
+   `initiated` (petitioner/complainant/appellant), the right side `facing`
+   (respondent/defendant/accused), a match outside the sides is `mentioned` — the
+   distinction that changes a risk reading, and it survives model outages. A
+   Gemini pass then adds category, status and an exposure summary keyed by index;
+   on failure the findings stay deterministic and the summary falls back to a
+   count line. *(Step 44)*
+4. **Fold iterations (`foldCaseIterations`)** — records are grouped by case key
+   (the title with its trailing `on <date>` stripped, so the trial order and the
+   appeal judgment fold together) and the **latest dated record wins the row**:
+   the matter's current state. The group's identity class upgrades to its
+   strongest member, fields are backfilled, and the survivor reports
+   `Iterations` so the artifact shows how many stages folded. *(Step 43 pre-
+   classification; runs before the confirm pass so documents confirm only live
+   rows)*
+5. **Confirm (`confirmWithDocuments`)** — up to `LEGAL_DOCS_PER_RUN` IndianKanoon
+   documents are fetched in full (TTL 7 d), weakest identity first; a CIN or full
+   name in a judgment body upgrades a name-only match and re-grades it out of the
+   same-named bucket.
+6. **Assess risk (`assessRisk`)** — every matched finding's snippet, side,
+   category and status feed one model call returning `LegalRiskAssessment`
+   (level on the none/low/moderate/high/critical scale, narrative, drivers).
+   Responding-side pending matters weigh most; same-named records are context
+   only. The fallback (`legalFallbackRisk`) derives the level from documented
+   count rules — pending responding-side criminal/insolvency/sebi → high, any
+   pending responding-side → moderate, otherwise low — and names the pending
+   matters as drivers, so even a model outage leaves an honest baseline. The
+   assessment is attached as `report.Risk` and rendered first in the console
+   panel, the Markdown and the PDF. *(Step 47)*
+7. **Report (`assembleLegalReport`)** — matched findings, same-named hits,
+   per-person results in request order (an unbudgeted person is named as
+   *not searched* rather than silently missing), and per-source honesty
+   (`LegalSourceReport.Unavailable`), so "no findings" is never ambiguous between
+   "none exist" and "we could not look". Exports run on a detached context like
+   the other modes. *(Steps 45–46)*
+
+#### Directors discovery (`discoverDirectors`, toggle-driven)
+
+With the form's directors toggle on, a discovery pass runs between the company
+track and the person track:
+
+1. It spends up to `legalDiscoveryQueries = 2` of the remaining query budget on
+   registry snippets — a generic `"Company" directors list` and a
+   `site:zaubacorp.com` query through the engine's cached search, recorded in the
+   trace under their own purpose.
+2. **The company-linked gate:** a snippet can nominate a person only when the
+   entity matcher ties it to the confirmed company, so an unrelated company's
+   board never enters the run. Excluded snippets sit in the trace's excluded
+   list.
+3. `extractDirectors` reads person names out of the company-linked snippets
+   through one model call, row-keyed so the source host travels
+   deterministically; the names then pass the deterministic gates (multi-token,
+   not the company itself, deduplicated, capped at
+   `legalMaxDiscoveredDirectors = 4`, operator-named persons skipped) before any
+   search is spent on one.
+4. Discovered persons join the person track as `"Name" "Company"` searches within
+   the remaining budget; their `LegalPersonResult.DiscoveredVia` records how they
+   entered the run, and the pass reports its own queries/yield as the
+   `directors discovery` source — which appears in the report only when the
+   toggle was on.
+
 ### `internal/tools` — external-world adapters
 
 #### `serper.go` — Google search via Serper.dev
@@ -681,6 +772,63 @@ Wraps `google.golang.org/genai` (default model `gemini-2.5-flash-lite`):
   pipeline resilient to the usual LLM formatting drift.
 - `cleanJSONString` is unit-tested in `gemini_test.go`.
 
+### `internal/tools/indiankanoon.go` — the case-law client
+
+The IndianKanoon client (`indiankanoon.org`, India's free case-law index) is the
+native source of legal mode. Its shape was pinned against the live site, not
+guessed, and the integration test (`LEGAL_INTEGRATION=1`) re-checks the live
+markup:
+
+- **Search** — `GET /search/?formInput=<query>&doctype=judgments`; the
+  `doctype=judgments` filter is the statute guard, because a bare party search
+  otherwise answers with IPC and Income-Tax-Act sections before any case. Query
+  operators (`sortby:mostrecent`, `year:<yyyy>`, `cites:`/`citedby:`) pass through
+  unmodified, so the agent composes them.
+- **Parse** — `<article class="result">` items: the title link carries a
+  `/docfragment/<id>/` (judgment) or `/doc/<id>/` (statute) id; the headline
+  snippet often carries the judgment's structured `PETITIONER:` / `RESPONDENT:` /
+  `CASE NO.:` / `DATE OF JUDGMENT:` block, which is read into
+  `LegalSearchHit` and is what makes party matching stronger than title text;
+  `<span class="docsource">` names the court; `Cited by N` tags are read as a
+  weak relevance signal.
+- **Documents** — a `/docfragment/` URL is normalised to `/doc/<id>/`; the
+  judgment body lives in `div.judgments`, with `doc_title` / `docsource_main`
+  for the title and court. Bodies are capped at 3 MiB.
+- **Politeness** — one request per second, burst one, one in flight (the free
+  public index is not owed the scraper's burst budget), with a single retry on
+  transient failures.
+- **`robots_guard.go`** — the site's robots.txt carries a long list of
+  individually disallowed `/doc/` paths: case-removal orders. The guard loads it
+  once, honours the `User-Agent: *` group, and refuses those documents by name
+  (`indiankanoon document N is excluded by robots.txt`) rather than fetching a
+  taken-down judgment. An unreadable robots.txt fails open, so the mode is never
+  silently blinded.
+
+### `internal/tools/casemine.go` — the second case-law client
+
+Casemine's access policy was measured, and the client encodes the measurement as
+a two-step fetch ladder:
+
+- **Measured (October 2026):** every non-browser User-Agent is answered with a
+  flat nginx 403 — 117 bytes, no challenge to solve — and that includes headless
+  Chromium's own `HeadlessChrome` UA. With the scraper's Chrome UA the same
+  request returns the full server-rendered page (366 KB homepage, 478 KB
+  search results). The wall is User-Agent-only.
+- **The ladder:** `Scraper.FetchHTML` (plain HTTP, the scraper's browser-like
+  headers and jar session) runs first; when it fails or the body reads as a wall
+  (`casemineLooksBlocked`: the 403 title, or suspiciously few bytes),
+  `Scraper.RenderHTML` retries through the shared browser with the jar's cookies
+  bridged in — the session a user exported via `COOKIE_FILE_PATH` travels with
+  the render. Both failures are named in one error; neither stage is retried
+  silently.
+- **Parse:** `div.jdlist` cards — `a.jdlink` carries `/judgement/in/<id>` with
+  the `jd-title`, `p.text-snippet` (with `<em>` highlights stripped), and
+  `jd-court` / `jd-date` / `jd-cite` metadata spans. The first page carries no
+  pagination markup; a bounded legal check reads the first page only.
+- **Scraper additions:** `FetchHTML` and `RenderHTML` are general capabilities
+  (validated target, jar session, render semaphore), not Casemine-specific
+  hooks — any client that needs raw or rendered markup can use them.
+
 ### `internal/export` — saved output files
 
 A finished run becomes files: `ExportCompany` / `ExportPerson` render Markdown from the
@@ -810,8 +958,10 @@ WebSearch_GO/
 │   │   ├── engine.go            # ReAct core: tool interfaces, cached search/scrape, Emit, synthesis plumbing
 │   │   ├── company.go           # Company agent: plan → search → rank → scrape → synthesize + QC loop
 │   │   ├── person.go            # Person agent: disambiguation → bio scraping → dossier synthesis
+│   │   ├── legal.go             # Legal agent: identity → IndianKanoon/Casemine search → classify → report
 │   │   ├── hub.go               # Session + SessionHub: thread-safe per-research event buses
 │   │   ├── timing.go            # Per-phase timer/recorder for the run's timing report
+│   │   ├── legal_test.go        # Query plan, identity classification, buckets, budget honesty
 │   │   ├── engine_test.go       # Engine limits, negative scrape cache, render-mode cache keys
 │   │   └── company_test.go      # Fallback query plan, ranking, QC loop, profile candidates
 │   ├── cache/
@@ -826,8 +976,8 @@ WebSearch_GO/
 │   ├── export/
 │   │   ├── export.go            # Artifact/Destination types, exporter wiring, Cloud Storage
 │   │   │                        #   and filesystem destinations, format selection
-│   │   ├── run.go               # ExportCompany / ExportPerson, object naming, slugify
-│   │   ├── markdown.go          # Markdown documents for both research modes
+│   │   ├── run.go               # ExportCompany / ExportPerson / ExportLegal, object naming, slugify
+│   │   ├── markdown.go          # Markdown documents for all research modes
 │   │   ├── html.go              # Self-contained printable documents for the PDF
 │   │   ├── util.go              # Small rendering helpers
 │   │   └── export_test.go / render_test.go / export_integration_test.go
@@ -841,18 +991,23 @@ WebSearch_GO/
 │   │   ├── agent.go             # AgentEvent (5 event types), SearchResult, ScrapeResult
 │   │   ├── company.go           # OrgChart (+UnverifiedSourceCount), Department, Employee, Location
 │   │   ├── person.go            # PersonProfile (+ScorePercent), Experience, Education
+│   │   ├── legal.go             # LegalQuery, LegalReport, LegalFinding, LegalSourceReport
 │   │   └── research.go          # Briefs, QueryPlan, RankedResult, Evidence, ScrapeReportEntry,
 │   │                            #   QualityReview (tolerant follow_up_queries), QuestionAnswer
 │   ├── tools/
 │   │   ├── serper.go            # Serper.dev search client with retry + linear backoff
-│   │   ├── scraper.go           # Fetch policy, charset decode, noise-stripping text extractor, retries
+│   │   ├── scraper.go           # Fetch policy, charset decode, noise-stripping text extractor, retries,
+│   │   │                        #   FetchHTML/RenderHTML (raw & rendered markup with jar sessions)
+│   │   ├── indiankanoon.go      # IndianKanoon case-law client: search parse, doc fetch, robots guard
+│   │   ├── casemine.go          # Casemine client: plain-fetch → cookie-bridged render ladder, jdlist parse
+│   │   ├── robots_guard.go      # robots.txt User-Agent:* group honouring, fail-open, load-once
 │   │   ├── hostlimit.go         # Per-host politeness: token bucket + concurrency cap
 │   │   ├── pdf.go               # PDF content-type policy, local text extraction, printable-ratio gate
 │   │   ├── scraper_browser.go   # Optional Playwright renderer (full Chromium, shared context)
 │   │   ├── scraper_browser_integration_test.go  # Opt-in real-Chromium test (PLAYWRIGHT_INTEGRATION=1)
 │   │   ├── pdf_integration_test.go              # Opt-in real-world PDF test (same gate)
 │   │   ├── cookies.go           # Browser cookie-export JSON → http.CookieJar
-│   │   └── serper_test.go / scraper_test.go / pdf_test.go / cookies_test.go
+│   │   └── serper_test.go / scraper_test.go / pdf_test.go / cookies_test.go / indiankanoon_test.go
 │   └── web/
 │       ├── web.go               # go:embed of templates + template set parsing
 │       ├── web_test.go          # Template parsing / escaping / disclosure-panel tests
@@ -1643,13 +1798,13 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 | # | Stage | What happens | Bound | On failure |
 | :--- | :--- | :--- | :--- | :--- |
 | 1 | Confirmation step | 2 core searches, candidates parsed from headlines, top match pre-selected | *budget*: 2 queries + **1 aggregator pass only when < 2 candidates**; company **and** place typed ⇒ 0 searches; no pre-selection when nothing names the typed company | 0 candidates ⇒ the step still renders the name-alone card |
-| 2 | Plan | 5 anchored searches — profile, role and position, appointments and news, career and education, aggregator `site:` (3 when no company was confirmed) — deduped, capped 6 | one failed search is skipped | all planned searches fail ⇒ run fails |
-| 3 | Search phase | every planned query through `SearchCached`; snippets gate-filtered and deduped across queries; each section labelled by purpose (`PRIMARY PROFILE SNIPPETS`, `ROLE AND POSITION SNIPPETS`, …, `DIRECTORY CLAIMS`) | — | excluded — listed in the **Identity check** |
+| 2 | Plan | 8 anchored searches — profile, role and position, appointments and news, career and education, aggregator `site:`, plus Facebook, Instagram, and X/Twitter personalization searches — deduped, capped 9 | one failed search is skipped | all planned searches fail ⇒ run fails |
+| 3 | Search phase | every planned query through `SearchCached`; employment snippets are identity-gated, while social snippets are kept in a separate public-personalization context | — | employment exclusions listed in the **Identity check**; social exclusions remain in the trace |
 | 4 | Fetch targets | confirmed seed first; profile URLs from *every* planned search, then any gate-matched page, up to `MaxScrapes` 10; directory results are snippets-only | cap `MaxScrapes` 10 | non-matching hits stay snippets |
 | 5 | Profile URL | **session for the host** ⇒ one cookie-authenticated `ScrapeCached`; otherwise ⇒ the ladder | usable = unblocked ∧ > 80 chars; ladder: 2/run, 55 s, needs budget + 20 s | cheap fetch ⇒ ladder ⇒ snippet; a redirect loop with a session ⇒ `session-rejected` |
 | 6 | Other URLs | parallel `ScrapeCachedBatch`; a fetched body that names the person but states no employer is counted **name-only** | content-hash dedupe; host limits | `Blocked` ⇒ one ladder escalation |
 | 7 | Identity check event | kept / name-only / excluded reported before synthesis | — | — |
-| 8 | Synthesis | dossier from gated snippets + gated scraped pages + the confirmed-profile block; the prompt carries the one-person rule and requires a per-row `source` URL | — | run fails |
+| 8 | Synthesis | dossier from gated employment snippets/pages plus labelled public-personalization snippets and the confirmed-profile block; social context cannot establish identity or employment | — | run fails |
 | 9 | **Dossier QC** | every synthesised experience row held to the confirmed employer; a non-matching row survives only when a bounded reverse lookup (`"Name" "That employer"`) ties them; the headline employer is corrected to the confirmed one; identical repeated rows collapse to one; two rows at different employers overlapping by more than a handover year are **both flagged** on the row (concurrent roles or a blended row) | lookups ≤ `VALIDATION_LOOKUPS_PER_RUN`, gated by `VALIDATE_EVIDENCE`, ≥ 15 s of run budget each; overlap threshold 2 shared years | dropped / corrected rows are listed in the **Identity check**; flags render on the rows |
 | 10 | **Same-named people** | the excluded evidence is regrouped multilaterally — one group per employer a same-named person's source states, plus unattributed name-only material — ordered strongest-first, most relevant snippets per group | caps: 8 groups × 4 snippets (`person_gate.go`) | rendered in the dossier (console, md, pdf); the console offers a re-run per employer |
 | 11 | Export | md + pdf, with **Identity check**, **Same-named people** and **Research trace** sections; experience rows carry their source; plus `-searches.json` — every planned query with its kept and excluded hits, linked from the **Search results** tab | — | written on a detached context |

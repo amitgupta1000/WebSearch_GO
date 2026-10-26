@@ -32,14 +32,15 @@ const printCSS = `
   footer { margin-top: 22px; border-top: 1px solid #d0d5dd; padding-top: 6px; color: #667085; font-size: 8.5pt; }
 `
 
-// document is the data one printed artifact is rendered from. Company and person
-// builds use the same struct so both templates share the shell.
+// document is the data one printed artifact is rendered from. Company, person
+// and legal builds use the same struct so all templates share the shell.
 type document struct {
 	Title       string
 	Subtitle    string
 	GeneratedAt string
 	Chart       *models.OrgChart
 	Profile     *models.PersonProfile
+	Legal       *models.LegalReport
 	Timings     []models.PhaseTiming
 }
 
@@ -128,6 +129,68 @@ func renderPersonHTML(profile *models.PersonProfile) string {
 		Profile:     profile,
 	})
 }
+
+// renderLegalHTML renders a legal check as a printable, self-contained document.
+func renderLegalHTML(report *models.LegalReport) string {
+	subtitle := report.Domain
+	if report.RegistrationID != "" {
+		subtitle = joinNonEmpty([]string{subtitle, "CIN " + report.RegistrationID}, " · ")
+	}
+	return executeDocument(legalHTMLTemplate, document{
+		Title:       nonEmpty(report.CompanyName, "Company") + " — Legal Check",
+		Subtitle:    subtitle,
+		GeneratedAt: generatedStamp(report.LastUpdated),
+		Legal:       report,
+	})
+}
+
+var legalHTMLTemplate = documentTemplate("legal", `
+<header>
+	<h1>{{.Legal.CompanyName}} — Legal Check</h1>
+	{{if .Subtitle}}<p class="subtitle">{{.Subtitle}}</p>{{end}}
+	<p class="meta">Generated {{.GeneratedAt}} by WebSearch_GO &middot;
+	{{if .Legal.EntityConfirmed}}identity confirmed by the operator{{else}}identity unconfirmed &mdash; matches lean on the name alone{{end}}</p>
+</header>
+{{if .Legal.Risk}}<section>
+	<h2>Legal risk — {{.Legal.Risk.Level}}</h2>
+	{{if .Legal.Risk.Summary}}<p>{{.Legal.Risk.Summary}}</p>{{end}}
+	{{if .Legal.Risk.Drivers}}<ul>{{range .Legal.Risk.Drivers}}<li>{{.}}</li>{{end}}</ul>{{end}}
+	{{if not .Legal.Risk.Classified}}<p class="dim">Count-derived fallback: the model was unavailable for this run.</p>{{end}}
+</section>{{end}}
+{{if .Legal.Summary}}<section><h2>Exposure summary</h2><p>{{.Legal.Summary}}</p></section>{{end}}
+{{if .Legal.Sources}}<section>
+	<h2>Sources</h2>
+	<ul>{{range .Legal.Sources}}
+		<li>{{.Name}} &mdash; {{.Kept}} kept of {{.Hits}} hits in {{.Queries}} search(es){{if .Unavailable}} <span class="dim">({{.Unavailable}})</span>{{end}}</li>
+	{{end}}</ul>
+</section>{{end}}
+<section>
+	<h2>Matched findings</h2>
+	{{if .Legal.Findings}}
+	<table><thead><tr><th>Case</th><th>Court</th><th>Date</th><th>Side</th><th>Category</th><th>Status</th></tr></thead><tbody>
+	{{range .Legal.Findings}}<tr><td>{{.CaseTitle}}{{if .Snippet}}<br><span class="src">{{.Snippet}}</span>{{end}}</td><td>{{.Court}}</td><td>{{.Date}}</td><td>{{if eq .Role "facing"}}responding{{else if eq .Role "initiated"}}initiated{{end}}</td><td>{{.Category}}</td><td>{{.Status}}{{if .Iterations}} <span class="dim">({{.Iterations}} records)</span>{{end}}</td></tr>{{end}}
+	</tbody></table>
+	{{else}}<p class="dim">No case records matched the confirmed identity.</p>{{end}}
+</section>
+{{if .Legal.SameNamed}}<section>
+	<h2>Same-named entities</h2>
+	<p class="dim">These records share part of the party name without a stronger identity key. They are listed rather than dropped, because a legal check must not silently discard a hit that merely shares a name.</p>
+	<table><thead><tr><th>Case</th><th>Court</th><th>Date</th></tr></thead><tbody>
+	{{range .Legal.SameNamed}}<tr><td>{{.CaseTitle}}</td><td>{{.Court}}</td><td>{{.Date}}</td></tr>{{end}}
+	</tbody></table>
+</section>{{end}}
+{{if .Legal.Persons}}<section>
+	<h2>Named persons</h2>
+	{{range .Legal.Persons}}
+	<div class="dept">
+		<h3>{{.Name}}{{if not .Checked}} <span class="dim">(not searched)</span>{{end}}</h3>
+		{{if .SkippedReason}}<p class="dim">{{.SkippedReason}}</p>{{end}}
+		{{if .Findings}}<ul>{{range .Findings}}<li>{{.CaseTitle}}{{if .Court}} &mdash; {{.Court}}{{end}}{{if .Date}}, {{.Date}}{{end}}{{if .Category}} <span class="dim">({{.Category}})</span>{{end}}</li>{{end}}</ul>{{end}}
+	</div>
+	{{end}}
+</section>{{end}}
+<footer>{{.Legal.CompanyName}} &middot; legal check &middot; generated {{.GeneratedAt}} by WebSearch_GO</footer>
+`)
 
 // executeDocument renders a template, falling back to a minimal page so a rendering
 // problem degrades to a plain PDF instead of an empty file.

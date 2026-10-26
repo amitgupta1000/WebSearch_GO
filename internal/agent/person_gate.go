@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -165,6 +166,32 @@ func (g *personGate) filterSnippets(results []models.SearchResult) (kept, exclud
 		excluded = append(excluded, result)
 	}
 	return kept, excluded
+}
+
+// filterPersonalization admits only public social results that name the person. Unlike
+// employment evidence, these results do not need to mention the company: they are explicitly
+// labelled as possible personalization context and never prove identity, employment, or role.
+func (g *personGate) filterPersonalization(results []models.SearchResult) (kept, excluded []models.SearchResult) {
+	for _, result := range results {
+		if containsAllTokens(strings.ToLower(result.Title+" "+result.Snippet), g.tokens) && isPublicSocialURL(result.Link) {
+			kept = append(kept, result)
+			continue
+		}
+		excluded = append(excluded, result)
+	}
+	return kept, excluded
+}
+
+func isPublicSocialURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+	return host == "facebook.com" || strings.HasSuffix(host, ".facebook.com") ||
+		host == "instagram.com" || strings.HasSuffix(host, ".instagram.com") ||
+		host == "twitter.com" || strings.HasSuffix(host, ".twitter.com") ||
+		host == "x.com" || strings.HasSuffix(host, ".x.com")
 }
 
 // sortStableByName keeps exclusion listings deterministic.

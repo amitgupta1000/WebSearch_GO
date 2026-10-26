@@ -621,6 +621,72 @@ func (s *Scraper) DocumentPrinter() bool {
 	return ok
 }
 
+// RenderHTML renders a page in the shared browser and returns the full HTML, for
+// clients that parse rendered markup rather than extracted text.
+//
+// It exists for the Casemine case-law client: the site answers plain HTTP with
+// 403 (measured, including for robots.txt), its results are JavaScript-rendered,
+// and its document links are the payload a parser needs — which the scraper's
+// text extraction throws away. The jar's cookies for the target host are bridged
+// into the browser context first, so a user-exported session (COOKIE_FILE_PATH)
+// authenticates the render the same way the hard-URL ladder's cookie step does.
+// The render semaphore, the shared context and the browser's clearance cookies
+// are all shared with every other render, so this is bounded like any other
+// browser work.
+func (s *Scraper) RenderHTML(ctx context.Context, targetURL string) (string, error) {
+	if s == nil || s.isClosed() {
+		return "", fmt.Errorf("scraper is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := s.validateTarget(targetURL); err != nil {
+		return "", err
+	}
+	browser, err := s.getBrowser()
+	if err != nil {
+		return "", fmt.Errorf("browser rendering is unavailable: %w", err)
+	}
+	return s.render(ctx, browser, targetURL, renderOptions{cookies: s.jarCookies(targetURL)})
+}
+
+// FetchHTML fetches a page over plain HTTP — the scraper's browser-like headers,
+// jar session and retry policy — and returns the raw HTML without extracting
+// text, for clients that parse markup themselves.
+//
+// It exists beside RenderHTML for the same client: the measured reality is that
+// Casemine's 403 wall is User-Agent-only (a plain fetch with the scraper's Chrome
+// UA returns the full server-rendered page), so the cheap path runs first and the
+// cookie-bridged render is the fallback when a wall ever tightens. The body is
+// capped at maxBodyBytes like every other fetch.
+func (s *Scraper) FetchHTML(ctx context.Context, targetURL string) (string, error) {
+	if s == nil || s.isClosed() {
+		return "", fmt.Errorf("scraper is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := s.validateTarget(targetURL); err != nil {
+		return "", err
+	}
+	response, err := s.fetchHTTP(ctx, targetURL)
+	if err != nil {
+		return "", err
+	}
+	if response.NotModified {
+		// A conditional request has no body here; the caller never sends
+		// validators on this path, but a cached ETag elsewhere could produce
+		// one, and empty HTML must not be mistaken for content.
+		return "", fmt.Errorf("the page has not changed since the cached copy (304)")
+	}
+	if response.Truncated {
+		// Truncation is acceptable for a search page: the results live in the
+		// first part of the document, and the caller reports byte size.
+		return string(response.Body), nil
+	}
+	return string(response.Body), nil
+}
+
 // ScrapeURL fetches a target URL, strips non-content tags, and returns sanitized text.
 func (s *Scraper) ScrapeURL(ctx context.Context, targetURL string) (*models.ScrapeResult, error) {
 	if err := s.validateTarget(targetURL); err != nil {

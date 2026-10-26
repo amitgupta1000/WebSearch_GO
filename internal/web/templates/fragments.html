@@ -450,6 +450,41 @@
 			</div>
 		</div>
 	</div>
+	{{if or .PublicInterests .RecentThemes .PersonalizationEvidence}}
+	<div class="border-t border-slate-800/60 pt-4">
+		<h4 class="text-sm font-semibold text-slate-300 mb-2">Public personalization</h4>
+		<p class="text-xs text-slate-500 mb-3">Public social context for outreach only; it does not verify identity, employment, or sensitive attributes.</p>
+		{{if .PublicInterests}}
+		<div class="mb-3">
+			<div class="text-xs text-slate-500 mb-1">Public interests</div>
+			<div class="flex flex-wrap gap-1.5">
+				{{range .PublicInterests}}<span class="text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-md">{{.}}</span>{{end}}
+			</div>
+		</div>
+		{{end}}
+		{{if .RecentThemes}}
+		<div class="mb-3">
+			<div class="text-xs text-slate-500 mb-1">Recent themes</div>
+			<ul class="list-disc list-inside text-sm text-slate-400 space-y-1">
+				{{range .RecentThemes}}<li>{{.}}</li>{{end}}
+			</ul>
+		</div>
+		{{end}}
+		{{if .PersonalizationEvidence}}
+		<div class="space-y-2">
+			{{range .PersonalizationEvidence}}
+			<div class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs">
+				<div class="flex items-start justify-between gap-2">
+					<span class="text-slate-300">{{.Platform}} · {{.Summary}}</span>
+					<a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline shrink-0">source</a>
+				</div>
+				<div class="text-slate-500 mt-1">{{.IdentityBasis}} · confidence {{printf "%.2f" .Confidence}}</div>
+			</div>
+			{{end}}
+		</div>
+		{{end}}
+	</div>
+	{{end}}
 	{{if .PersonGate}}
 	<details class="border-t border-slate-800/60 pt-3">
 		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
@@ -586,14 +621,16 @@
 
 {{define "entity_candidates"}}
 <div class="mt-4 space-y-3">
-	<p class="text-xs text-slate-400">Which company is <span class="text-slate-200">{{.Query}}</span>? Confirming the identity is what keeps another company's people out of the chart — every source then has to name it.
+	<p class="text-xs text-slate-400">Which company is <span class="text-slate-200">{{.Query}}</span>? Confirming the identity is what keeps another company's {{if eq .Mode "legal"}}cases out of the legal check{{else}}people out of the chart{{end}} — every source then has to name it.
 	{{if .TypedDomain}}You entered a domain, so this step spent no search; check it and confirm.{{else}}The top match is selected: press <span class="text-slate-200">Confirm</span> to start, or edit the fields first.{{end}}
 	Tick <span class="text-slate-200">also part of this company</span> when one company answers to more than one name or domain — the gate then accepts a source naming any of them.</p>
 	{{if .Candidates}}
 	<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
 		{{range .Candidates}}
 		<form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="bg-slate-950 border {{if .PreSelected}}border-indigo-600{{else}}border-slate-800{{end}} rounded-xl p-3 space-y-2">
-			<input type="hidden" name="mode" value="company">
+			<input type="hidden" name="mode" value="{{.Mode}}">
+			<input type="hidden" name="legal_persons" value="{{$.LegalPersons}}">
+			<input type="hidden" name="include_directors" value="{{$.IncludeDirectors}}">
 			<input type="hidden" name="query" value="{{.Query}}">
 			<input type="hidden" name="company_industry" value="{{.Industry}}">
 			<input type="hidden" name="company_country" value="{{.Country}}">
@@ -643,7 +680,9 @@
 	<p class="text-xs text-slate-500">No company domain could be identified from that name. Confirm by name only below, or edit the name above — the run is still gated, but only on the name, so expect same-named companies to be mixed in unless you add one.</p>
 	{{end}}
 	<form hx-post="/api/research" hx-target="#results-container" hx-swap="innerHTML" class="bg-slate-950 border border-slate-800 rounded-xl p-3">
-		<input type="hidden" name="mode" value="company">
+		<input type="hidden" name="mode" value="{{.Mode}}">
+		<input type="hidden" name="legal_persons" value="{{.LegalPersons}}">
+		<input type="hidden" name="include_directors" value="{{.IncludeDirectors}}">
 		<input type="hidden" name="query" value="{{.Query}}">
 		<input type="hidden" name="company_industry" value="{{.Industry}}">
 		<input type="hidden" name="company_country" value="{{.Country}}">
@@ -711,5 +750,134 @@
 		<input type="hidden" name="person_source" value="typed">
 		<button type="submit" class="w-full text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-1.5">Research on the name alone (unconfirmed)</button>
 	</form>
+</div>
+{{end}}
+{{define "legal_report"}}
+<div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+	<div class="flex items-start justify-between border-b border-slate-800 pb-4">
+		<div>
+			<h3 class="text-2xl font-bold text-white">Legal check — {{.CompanyName}}</h3>
+			<p class="text-sm text-slate-500 mt-0.5">
+				{{if .RegistrationID}}CIN {{.RegistrationID}} · {{end}}
+				{{if .Domain}}{{.Domain}} · {{end}}
+				{{if .EntityConfirmed}}identity confirmed by operator{{else}}identity unconfirmed — matches lean on the name alone{{end}}
+			</p>
+		</div>
+		<div class="text-right">
+			<span class="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-3 py-1 rounded-full font-medium">{{.FindingCount}} finding(s)</span>
+		</div>
+	</div>
+
+	{{if .Risk}}
+	<div class="rounded-xl border p-4 {{if eq .Risk.Level "critical"}}border-red-800 bg-red-950/40{{else if eq .Risk.Level "high"}}border-red-900 bg-red-950/30{{else if eq .Risk.Level "moderate"}}border-amber-900 bg-amber-950/30{{else if eq .Risk.Level "low"}}border-emerald-900 bg-emerald-950/20{{else}}border-slate-800 bg-slate-950{{end}}">
+		<div class="flex items-center gap-2 mb-1">
+			<span class="text-xs font-semibold uppercase tracking-wide text-slate-400">Legal risk</span>
+			<span class="text-xs font-bold px-2 py-0.5 rounded-full {{if eq .Risk.Level "critical"}}bg-red-500/20 text-red-300{{else if eq .Risk.Level "high"}}bg-red-500/20 text-red-300{{else if eq .Risk.Level "moderate"}}bg-amber-500/20 text-amber-300{{else if eq .Risk.Level "low"}}bg-emerald-500/20 text-emerald-300{{else}}bg-slate-800 text-slate-400{{end}}">{{.Risk.Level}}</span>
+			{{if not .Risk.Classified}}<span class="text-[10px] text-slate-500">count-derived fallback — the model was unavailable</span>{{end}}
+		</div>
+		{{if .Risk.Summary}}<p class="text-sm text-slate-300 leading-relaxed">{{.Risk.Summary}}</p>{{end}}
+		{{if .Risk.Drivers}}
+		<ul class="mt-2 space-y-1">
+			{{range .Risk.Drivers}}<li class="text-xs text-slate-400">• {{.}}</li>{{end}}
+		</ul>
+		{{end}}
+	</div>
+	{{end}}
+
+	{{if .Summary}}
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-1">Exposure summary</h4>
+		<p class="text-sm text-slate-400 leading-relaxed">{{.Summary}}</p>
+	</div>
+	{{end}}
+
+	{{if .Sources}}
+	<div class="flex flex-wrap gap-2 text-[11px]">
+		{{range .Sources}}
+		<span class="px-2 py-1 rounded-full border {{if .Unavailable}}border-amber-900 bg-amber-950/30 text-amber-400{{else}}border-slate-800 bg-slate-950 text-slate-400{{end}}">
+			{{.Name}}: {{.Kept}} kept of {{.Hits}} hits in {{.Queries}} search(es){{if .Unavailable}} — {{.Unavailable}}{{end}}
+		</span>
+		{{end}}
+	</div>
+	{{end}}
+
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Matched findings</h4>
+		{{if .Findings}}
+		<div class="space-y-3">
+			{{range .Findings}}
+			<div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+				<div class="flex items-start justify-between gap-2">
+					<a href="{{if .URL}}{{if not (hasScheme .URL)}}https://indiankanoon.org{{.URL}}{{else}}{{.URL}}{{end}}{{end}}" target="_blank" rel="noreferrer" class="text-sm font-medium text-white hover:text-indigo-300 break-all">{{if .CaseTitle}}{{.CaseTitle}}{{else}}(untitled record){{end}}</a>
+					<span class="text-[10px] text-slate-500 whitespace-nowrap">{{.MatchKey}}</span>
+				</div>
+				<div class="flex flex-wrap gap-1.5 text-[11px]">
+					{{if .Court}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">{{.Court}}</span>{{end}}
+					{{if .Date}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">{{.Date}}</span>{{end}}
+					{{if .Role}}<span class="px-2 py-0.5 rounded-full {{if eq .Role "facing"}}bg-amber-500/10 text-amber-300 border border-amber-500/20{{else}}bg-emerald-500/10 text-emerald-300 border border-emerald-500/20{{end}}">{{if eq .Role "facing"}}company responding{{else}}company initiated{{end}}</span>{{end}}
+					{{if .Category}}<span class="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">{{.Category}}</span>{{end}}
+					{{if .Status}}<span class="px-2 py-0.5 rounded-full {{if eq .Status "pending"}}bg-amber-500/10 text-amber-300 border border-amber-500/20{{else if eq .Status "decided"}}bg-emerald-500/10 text-emerald-300 border border-emerald-500/20{{else}}bg-slate-800 text-slate-400{{end}}">{{.Status}}</span>{{end}}
+					{{if .Involvement}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">{{.Involvement}}</span>{{end}}
+					{{if .Iterations}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400" title="earlier records of the same matter were folded into this row">{{.Iterations}} record(s) folded</span>{{end}}
+					{{if .PartyKind}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">via {{.Party}}</span>{{end}}
+				</div>
+				{{if .Snippet}}<p class="text-xs text-slate-500 leading-relaxed">{{.Snippet}}</p>{{end}}
+				{{if .Reason}}<p class="text-[11px] text-slate-600">{{.Reason}}</p>{{end}}
+			</div>
+			{{end}}
+		</div>
+		{{else}}
+		<p class="text-sm text-slate-500">No case records matched the confirmed identity. Check the source line above — an empty list with a walled source means the search could not run, not that nothing exists.</p>
+		{{end}}
+	</div>
+
+	{{if .SameNamed}}
+	<div>
+		<h4 class="text-sm font-semibold text-amber-300 mb-3">Same-named entities — kept for review, not attributed</h4>
+		<div class="space-y-3">
+			{{range .SameNamed}}
+			<div class="bg-slate-950 border border-amber-900/50 rounded-xl p-3 space-y-1">
+				<div class="flex items-start justify-between gap-2">
+					<a href="{{if .URL}}{{if not (hasScheme .URL)}}https://indiankanoon.org{{.URL}}{{else}}{{.URL}}{{end}}{{end}}" target="_blank" rel="noreferrer" class="text-sm font-medium text-slate-200 hover:text-amber-200 break-all">{{.CaseTitle}}</a>
+				</div>
+				<div class="flex flex-wrap gap-1.5 text-[11px]">
+					{{if .Court}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">{{.Court}}</span>{{end}}
+					{{if .Date}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">{{.Date}}</span>{{end}}
+					{{if .Party}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">via {{.Party}}</span>{{end}}
+				</div>
+				<p class="text-[11px] text-amber-500/80">{{.Reason}}</p>
+			</div>
+			{{end}}
+		</div>
+	</div>
+	{{end}}
+
+	{{if .Persons}}
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Named persons</h4>
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+			{{range .Persons}}
+			<div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+				<div class="flex items-center justify-between">
+					<span class="text-sm font-medium text-white">{{.Name}}{{if .DiscoveredVia}} <span class="text-[10px] text-indigo-300 border border-indigo-500/20 bg-indigo-500/10 px-1.5 py-0.5 rounded-full ml-1">discovered</span>{{end}}</span>
+					<span class="text-[10px] text-slate-500">{{if .Checked}}{{len .Findings}} finding(s){{else}}not searched{{end}}</span>
+				</div>
+				{{if .DiscoveredVia}}<p class="text-[11px] text-slate-500">{{.DiscoveredVia}}</p>{{end}}
+				{{if .SkippedReason}}<p class="text-[11px] text-amber-400">{{.SkippedReason}}</p>{{end}}
+				{{range .Findings}}
+				<div class="border-t border-slate-800/60 pt-1.5">
+					<a href="{{if .URL}}{{if not (hasScheme .URL)}}https://indiankanoon.org{{.URL}}{{else}}{{.URL}}{{end}}{{end}}" target="_blank" rel="noreferrer" class="text-xs text-slate-300 hover:text-indigo-300 break-all">{{.CaseTitle}}</a>
+					<div class="flex flex-wrap gap-1.5 text-[10px] mt-1">
+						{{if .Court}}<span class="px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400">{{.Court}}</span>{{end}}
+						{{if .Date}}<span class="px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-500">{{.Date}}</span>{{end}}
+						{{if .Category}}<span class="px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300">{{.Category}}</span>{{end}}
+					</div>
+				</div>
+				{{end}}
+			</div>
+			{{end}}
+		</div>
+	</div>
+	{{end}}
 </div>
 {{end}}

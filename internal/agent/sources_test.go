@@ -24,7 +24,7 @@ func TestAlternativeProfileSourcesRespectTheCompanyDenyList(t *testing.T) {
 		t.Errorf("zoominfo is on the company deny-list, so no company query may target it: %v", accepted)
 	}
 
-	// The person path keeps all five: a directory page is a claim about a named person, which
+	// The person path keeps all alternative profile sources: a directory page is a claim about a named person, which
 	// that path already labels, rather than company evidence.
 	if len(alternativeProfileSources) != 5 || !strings.Contains(strings.Join(alternativeProfileSources, ","), "zoominfo.com") {
 		t.Errorf("expected all five aggregators to be available to the person path, got %v", alternativeProfileSources)

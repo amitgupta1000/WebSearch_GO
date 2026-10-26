@@ -7,19 +7,22 @@ import (
 
 // PersonProfile represents the structured research dossier of an individual.
 type PersonProfile struct {
-	FullName         string            `json:"full_name"`
-	CurrentTitle     string            `json:"current_title"`
-	CurrentCompany   string            `json:"current_company"`
-	Location         string            `json:"location"`
-	ExecutiveSummary string            `json:"executive_summary"`
-	Experiences      []Experience      `json:"experiences"`
-	Education        []Education       `json:"education"`
-	KeySkills        []string          `json:"key_skills"`
-	NotableProjects  []string          `json:"notable_projects,omitempty"`
-	OnlinePresence   map[string]string `json:"online_presence,omitempty"` // e.g. "github", "twitter", "homepage"
-	Sources          []string          `json:"sources"`
-	ConfidenceScore  float64           `json:"confidence_score"`
-	LastUpdated      time.Time         `json:"last_updated"`
+	FullName                string                    `json:"full_name"`
+	CurrentTitle            string                    `json:"current_title"`
+	CurrentCompany          string                    `json:"current_company"`
+	Location                string                    `json:"location"`
+	ExecutiveSummary        string                    `json:"executive_summary"`
+	Experiences             []Experience              `json:"experiences"`
+	Education               []Education               `json:"education"`
+	KeySkills               []string                  `json:"key_skills"`
+	NotableProjects         []string                  `json:"notable_projects,omitempty"`
+	OnlinePresence          map[string]string         `json:"online_presence,omitempty"` // e.g. "github", "twitter", "homepage"
+	PublicInterests         []string                  `json:"public_interests,omitempty"`
+	RecentThemes            []string                  `json:"recent_themes,omitempty"`
+	PersonalizationEvidence []PersonalizationEvidence `json:"personalization_evidence,omitempty"`
+	Sources                 []string                  `json:"sources"`
+	ConfidenceScore         float64                   `json:"confidence_score"`
+	LastUpdated             time.Time                 `json:"last_updated"`
 	// Exports lists the output files written for this run (Markdown and PDF).
 	Exports []ExportArtifact `json:"exports,omitempty"`
 	// PersonGate records what the identity check kept and excluded, so a dossier can show why
@@ -42,6 +45,16 @@ type PersonProfile struct {
 	// model, because a person search answers with several people and the operator should see
 	// all of them.
 	SameNamed []PersonEvidenceGroup `json:"same_named,omitempty"`
+}
+
+// PersonalizationEvidence is public, non-sensitive context that may help tailor
+// outreach. It is not employment or identity proof.
+type PersonalizationEvidence struct {
+	Platform      string  `json:"platform"`
+	URL           string  `json:"url"`
+	Summary       string  `json:"summary"`
+	IdentityBasis string  `json:"identity_basis"`
+	Confidence    float64 `json:"confidence"`
 }
 
 // PersonGate summarises the identity check a person run applies to everything it collects. A

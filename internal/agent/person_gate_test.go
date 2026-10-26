@@ -128,6 +128,7 @@ func TestPersonGateHoldsSnippetsHarderThanPages(t *testing.T) {
 		{Title: "Jane Doe - VP Procurement - Acme Corporation | LinkedIn", Link: "https://x/1", Snippet: "Jane Doe at Acme Corporation, Mumbai."},
 		{Title: "Jane Doe will keynote the supply chain summit", Link: "https://x/2", Snippet: "Jane Doe joins the speaker lineup."},
 	}
+
 	gate := newPersonGate(models.PersonQuery{Name: "Jane Doe", Company: "Acme Corporation"})
 	kept, excluded := gate.filterSnippets(results)
 	if len(kept) != 1 || kept[0].Link != "https://x/1" {
@@ -141,6 +142,17 @@ func TestPersonGateHoldsSnippetsHarderThanPages(t *testing.T) {
 	kept, excluded = alone.filterSnippets(results)
 	if len(kept) != 2 || len(excluded) != 0 {
 		t.Fatalf("a name-alone run has no company to hold snippets to: kept=%d excluded=%d", len(kept), len(excluded))
+	}
+}
+
+func TestPersonGateKeepsSocialResultsSeparateFromEmploymentGate(t *testing.T) {
+	gate := newPersonGate(models.PersonQuery{Name: "Jane Doe", Company: "Acme"})
+	kept, excluded := gate.filterPersonalization([]models.SearchResult{
+		{Title: "Jane Doe | Instagram", Link: "https://www.instagram.com/jane.doe", Snippet: "Jane Doe shares design projects."},
+		{Title: "Jane Doe", Link: "https://www.example.com/jane", Snippet: "Jane Doe"},
+	})
+	if len(kept) != 1 || len(excluded) != 1 {
+		t.Fatalf("expected one social result kept and one excluded, got %d/%d", len(kept), len(excluded))
 	}
 }
 
@@ -207,8 +219,8 @@ func TestPersonResearchDropsTheSameNamedPersonAtAnotherEmployer(t *testing.T) {
 
 	// The search trace is the data behind the Search results tab: every planned query with
 	// its kept and excluded hits, recorded per query before cross-query dedupe.
-	if profile.SearchTrace == nil || len(profile.SearchTrace.Queries) != 5 {
-		t.Fatalf("expected the five planned searches traced, got %+v", profile.SearchTrace)
+	if profile.SearchTrace == nil || len(profile.SearchTrace.Queries) != 8 {
+		t.Fatalf("expected the eight planned searches traced, got %+v", profile.SearchTrace)
 	}
 	first := profile.SearchTrace.Queries[0]
 	if len(first.Kept) != 1 || first.Kept[0].Link != target {
@@ -223,8 +235,8 @@ func TestPersonResearchDropsTheSameNamedPersonAtAnotherEmployer(t *testing.T) {
 	}
 
 	// The operating results the report also asked for: queries, timings, and every fetch.
-	if len(profile.SearchQueries) != 5 {
-		t.Errorf("expected the five planned searches recorded, got %v", profile.SearchQueries)
+	if len(profile.SearchQueries) != 8 {
+		t.Errorf("expected the eight planned searches recorded, got %v", profile.SearchQueries)
 	}
 	if len(profile.Timings) == 0 {
 		t.Errorf("expected phase timings on the dossier")

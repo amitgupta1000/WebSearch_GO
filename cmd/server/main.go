@@ -33,6 +33,7 @@ type Server struct {
 	cfg          *config.Config
 	companyAgent *agent.CompanyAgent
 	personAgent  *agent.PersonAgent
+	legalAgent   *agent.LegalAgent
 	hub          *agent.SessionHub
 	tmpl         *template.Template
 	// browserAvailable is probed once at startup so the console never offers a
@@ -80,6 +81,15 @@ type entityCandidateView struct {
 	UseBrowser       string
 	SourceProfile    string
 	PersonOfInterest string
+	// Mode is the research mode the confirmation card posts back ("company"
+	// or "legal"), so a legal run survives its own confirmation round trip.
+	Mode string
+	// LegalPersons carries the person names a legal run will check alongside
+	// the company, through the same card that carries the identity.
+	LegalPersons string
+	// IncludeDirectors carries the legal run's directors toggle ("1" when on),
+	// so the confirmed card starts the run the operator asked for.
+	IncludeDirectors string
 	// PreSelected marks the top candidate: it is the one the operator confirms by
 	// pressing Enter, so it is rendered first with autofocus on its button.
 	PreSelected bool
@@ -115,6 +125,12 @@ type entityCandidatesView struct {
 	UseBrowser       string
 	SourceProfile    string
 	PersonOfInterest string
+	// Mode and LegalPersons travel the same round trip the card does, so a
+	// legal run's confirmation card posts a legal research request.
+	Mode         string
+	LegalPersons string
+	// IncludeDirectors is the legal run's directors toggle, carried the same way.
+	IncludeDirectors string
 	// TypedDomain is true when the operator already gave a domain, so the step spent no
 	// search and can say so rather than implying it looked the company up.
 	TypedDomain bool
@@ -230,6 +246,13 @@ func main() {
 	log.Printf("Entity gate: %s (sources must name the company, its domain, an alias or its registration id)", cfg.EntityGateMode)
 	compAgent := agent.NewCompanyAgent(eng)
 	persAgent := agent.NewPersonAgent(eng)
+	// Legal mode rides the same engine (cached search, LLM, budgets) plus the two
+	// case-law clients: IndianKanoon with its own politeness and robots guard, and
+	// Casemine with its measured fetch ladder (plain fetch first, cookie-bridged
+	// render on a wall).
+	legalAgent := agent.NewLegalAgent(eng, tools.NewIndianKanoonClient(), tools.NewCasemineClient(scraper), cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery)
+	log.Printf("Legal mode: IndianKanoon + Casemine (native, render fallback), up to %d queries (+%d page(s) each) and %d document fetches per run, %s budget",
+		cfg.LegalQueriesPerRun, cfg.LegalPagesPerQuery, cfg.LegalDocsPerRun, cfg.LegalTimeoutFor())
 	sessionHub := agent.NewSessionHub()
 
 	// 5. Parse templates embedded into the binary (independent of working directory)
@@ -255,6 +278,7 @@ func main() {
 		cfg:                cfg,
 		companyAgent:       compAgent,
 		personAgent:        persAgent,
+		legalAgent:         legalAgent,
 		hub:                sessionHub,
 		tmpl:               tmpl,
 		browserAvailable:   browserAvailable,
@@ -275,15 +299,20 @@ func main() {
 	mux.HandleFunc("GET /api/exports", srv.handleExportDownload)
 	mux.HandleFunc("GET /healthz", srv.handleHealth)
 
+	// Size the write timeout for the longest possible run so a browser-rendered
+	// research stream is never cut off mid-flight, and a legal run's own budget
+	// is covered the same way.
+	writeTimeout := cfg.MaxResearchTimeout()
+	if legal := cfg.LegalTimeoutFor(); legal > writeTimeout {
+		writeTimeout = legal
+	}
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           securityHeaders(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		// Size the write timeout for the longest possible run so a browser-rendered
-		// research stream is never cut off mid-flight.
-		WriteTimeout: cfg.MaxResearchTimeout() + 30*time.Second,
-		IdleTimeout:  90 * time.Second,
+		WriteTimeout:      writeTimeout + 30*time.Second,
+		IdleTimeout:       90 * time.Second,
 	}
 
 	// Graceful shutdown on SIGINT/SIGTERM (Cloud Run sends SIGTERM on scale-in).
@@ -477,6 +506,18 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if mode == "legal" {
+			legalQuery := legalQueryFromForm(r, query)
+			report, researchErr := s.legalAgent.ResearchLegal(ctx, sessionID, legalQuery, nil)
+			if researchErr != nil {
+				log.Printf("[ERROR] legal research failed (session %s): %v", sessionID, researchErr)
+				s.renderError(w, "Legal research failed: "+researchErr.Error())
+				return
+			}
+			s.render(w, "legal_report", report)
+			return
+		}
+
 		chart, researchErr := s.companyAgent.ResearchCompanyWithBrief(ctx, sessionID, companyBrief, nil)
 		if researchErr != nil {
 			log.Printf("[ERROR] company research failed (session %s): %v", sessionID, researchErr)
@@ -487,7 +528,24 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.startRun(w, sessionID, mode, query, personQueryFromForm(r, query), companyBrief, browserEnabled, browserExplicit)
+	s.startRun(w, sessionID, mode, query, personQueryFromForm(r, query), companyBrief, legalQueryFromForm(r, query), browserEnabled, browserExplicit)
+}
+
+// legalQueryFromForm reads the identity a legal run starts from. The company
+// identity fields are the same entity_* fields a company run carries — the legal
+// confirmation step is the company confirmation step — plus the person names to
+// check alongside it.
+func legalQueryFromForm(r *http.Request, company string) models.LegalQuery {
+	return models.LegalQuery{
+		CompanyName:      strings.TrimSpace(company),
+		Domain:           entityDomainValue(r),
+		Aliases:          splitFormList(r.FormValue("entity_aliases")),
+		RegistrationID:   strings.TrimSpace(r.FormValue("entity_reg_id")),
+		EntityConfirmed:  strings.TrimSpace(r.FormValue("entity_confirmed")) == "1",
+		EntitySource:     entitySourceValue(r),
+		Persons:          splitFormList(r.FormValue("legal_persons")),
+		IncludeDirectors: strings.TrimSpace(r.FormValue("include_directors")) == "1",
+	}
 }
 
 // personQueryFromForm reads the identity a person run starts from. The confirmation step
@@ -522,10 +580,15 @@ func companyAreasFromForm(r *http.Request) []string {
 
 // startRun launches a research session in the background and renders the live
 // workflow console for HTMX.
-func (s *Server) startRun(w http.ResponseWriter, sessionID, mode, query string, person models.PersonQuery, brief models.CompanyBrief, browserEnabled, browserExplicit bool) {
+func (s *Server) startRun(w http.ResponseWriter, sessionID, mode, query string, person models.PersonQuery, brief models.CompanyBrief, legal models.LegalQuery, browserEnabled, browserExplicit bool) {
 	session := s.hub.Create(sessionID, mode, query)
 
 	timeout := s.cfg.ResearchTimeoutFor(browserEnabled)
+	if mode == "legal" {
+		// A legal run is search-and-snippet shaped and does not render pages,
+		// so it gets its own budget rather than the research one.
+		timeout = s.cfg.LegalTimeoutFor()
+	}
 
 	go func() {
 		// An async run sits outside net/http's per-request panic recovery, so a
@@ -552,6 +615,17 @@ func (s *Server) startRun(w http.ResponseWriter, sessionID, mode, query string, 
 			return
 		}
 
+		if mode == "legal" {
+			report, err := s.legalAgent.ResearchLegal(ctx, sessionID, legal, session.EventCh)
+			if err != nil {
+				log.Printf("[ERROR][session %s] legal research failed: %v", sessionID, err)
+			} else {
+				log.Printf("[RESULT][session %s] legal research completed: %d finding(s)", sessionID, report.FindingCount())
+			}
+			session.Complete(report, err)
+			return
+		}
+
 		chart, companyContext, err := s.companyAgent.ResearchCompanyRun(ctx, sessionID, brief, session.EventCh)
 		if err != nil {
 			log.Printf("[ERROR][session %s] company research failed: %v", sessionID, err)
@@ -565,6 +639,9 @@ func (s *Server) startRun(w http.ResponseWriter, sessionID, mode, query string, 
 	displayMode := "Company"
 	if mode == "person" {
 		displayMode = "Person"
+	}
+	if mode == "legal" {
+		displayMode = "Legal"
 	}
 	s.render(w, "workflow_console", map[string]string{
 		"SessionID": sessionID,
@@ -603,7 +680,7 @@ func (s *Server) handleRerun(w http.ResponseWriter, r *http.Request) {
 
 	brief := researchContext.Brief
 	log.Printf("[RERUN] session %s -> new session, browser=%t", sessionID, browserEnabled)
-	s.startRun(w, newSessionID(), "company", brief.CompanyName, models.PersonQuery{}, brief, browserEnabled, browserExplicit)
+	s.startRun(w, newSessionID(), "company", brief.CompanyName, models.PersonQuery{}, brief, models.LegalQuery{}, browserEnabled, browserExplicit)
 }
 
 // handleQuestion answers a question against a completed company session.
@@ -669,7 +746,18 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 		UseBrowser:       strings.TrimSpace(r.FormValue("use_browser")),
 		SourceProfile:    strings.TrimSpace(r.FormValue("source_profile")),
 		PersonOfInterest: strings.TrimSpace(r.FormValue("person_of_interest")),
+		LegalPersons:     strings.TrimSpace(r.FormValue("legal_persons")),
 	}
+	// The mode travels with the step: the confirmation card posts it back, so a
+	// legal run's card starts a legal run. Only the modes that share this step
+	// are accepted; anything else keeps the company default.
+	switch strings.TrimSpace(r.FormValue("mode")) {
+	case "legal":
+		view.Mode = "legal"
+	default:
+		view.Mode = "company"
+	}
+	view.IncludeDirectors = strings.TrimSpace(r.FormValue("include_directors"))
 
 	var candidates []models.EntityCandidate
 	if typedDomain := entityDomainValue(r); typedDomain != "" {
@@ -707,6 +795,9 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 			UseBrowser:       view.UseBrowser,
 			SourceProfile:    view.SourceProfile,
 			PersonOfInterest: view.PersonOfInterest,
+			Mode:             view.Mode,
+			LegalPersons:     view.LegalPersons,
+			IncludeDirectors: view.IncludeDirectors,
 			PreSelected:      index == 0,
 		}
 		for otherIndex, other := range candidates {
@@ -1041,6 +1132,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				if sessionErr != nil {
 					sendSSE("result", renderFragment("error_box", sessionErr.Error()))
 					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">● Failed</span>`)
+				} else if session.Mode == "legal" {
+					if report, ok := result.(*models.LegalReport); ok {
+						sendSSE("result", renderFragment("legal_report", report))
+					}
+					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 				} else if session.Mode == "person" {
 					if profile, ok := result.(*models.PersonProfile); ok {
 						sendSSE("result", renderFragment("person_dossier", profile))

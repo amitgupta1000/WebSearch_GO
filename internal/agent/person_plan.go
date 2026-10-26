@@ -12,9 +12,9 @@ import (
 // name and company, because an unanchored query is how another person's pages used to reach the
 // synthesiser.
 
-// personPlanMaxQueries caps the plan. Person mode now spends up to six searches per run (it
-// spent three); each one is anchored, so the budget buys identity-checked breadth, not noise.
-const personPlanMaxQueries = 6
+// personPlanMaxQueries caps the plan. Social discovery has its own bounded searches and is
+// kept separate from employment evidence.
+const personPlanMaxQueries = 9
 
 // personDirectorySection is the heading the aggregator snippets are written under, unchanged
 // from when they were a separate ad-hoc search.
@@ -28,7 +28,8 @@ type personPlanEntry struct {
 	// snippetsOnly marks results that are never fetched: the people-data aggregators state a
 	// title and employer but are usually paywalled past the snippet, so their URLs would only
 	// spend scrape budget failing.
-	snippetsOnly bool
+	snippetsOnly    bool
+	personalization bool
 }
 
 // buildPersonPlan returns the run's searches, anchored on the confirmed identity. With no
@@ -44,6 +45,7 @@ func buildPersonPlan(name, company, location string) []personPlanEntry {
 		if aggregator := sourceSiteQuery(quotedName, alternativeProfileSources); aggregator != "" {
 			plan = append(plan, personPlanEntry{section: personDirectorySection, query: aggregator, snippetsOnly: true})
 		}
+		plan = append(plan, publicPersonalizationQueries(quotedName, company, location)...)
 		return limitPersonPlan(plan)
 	}
 	base := strings.TrimSpace(strings.Join([]string{quotedName, strings.TrimSpace(company), strings.TrimSpace(location)}, " "))
@@ -56,7 +58,18 @@ func buildPersonPlan(name, company, location string) []personPlanEntry {
 	if aggregator := sourceSiteQuery(base, alternativeProfileSources); aggregator != "" {
 		plan = append(plan, personPlanEntry{section: personDirectorySection, query: aggregator, snippetsOnly: true})
 	}
+	plan = append(plan, publicPersonalizationQueries(quotedName, company, location)...)
 	return limitPersonPlan(plan)
+}
+
+func publicPersonalizationQueries(name, company, location string) []personPlanEntry {
+	context := strings.TrimSpace(strings.Join([]string{company, location}, " "))
+	base := strings.TrimSpace(strings.Join([]string{name, context}, " "))
+	return []personPlanEntry{
+		{section: "PUBLIC PERSONALIZATION — FACEBOOK", query: "site:facebook.com " + base, snippetsOnly: true, personalization: true},
+		{section: "PUBLIC PERSONALIZATION — INSTAGRAM", query: "site:instagram.com " + base, snippetsOnly: true, personalization: true},
+		{section: "PUBLIC PERSONALIZATION — X/TWITTER", query: "(site:x.com OR site:twitter.com) " + base, snippetsOnly: true, personalization: true},
+	}
 }
 
 // limitPersonPlan trims the plan to its cap and drops duplicate queries — the deterministic

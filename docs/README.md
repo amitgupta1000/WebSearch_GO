@@ -92,6 +92,87 @@ match is pre-selected and focused), and never dead-ends:
   a seed source. A people-directory hit (RocketReach, ZoomInfo, SignalHire…) is offered but
   flagged as a claim rather than a profile, and if no profile is found the name-alone path
   is right there.
+- **Legal** (`POST /api/resolve-entity`, `mode=legal`): the same company-identity confirmation
+  a company run uses — a legal check needs exactly the same "which company is this"
+  discipline — plus an optional list of directors or key persons to check alongside it (see
+  [Legal mode](#legal-mode)).
+
+### Legal mode (Indian case-law check)
+
+A legal run is a bounded litigation-exposure check on the confirmed company and the named
+persons. It is deliberately smaller than the other modes: no planning model call, no scrape
+ladder, no QC loop.
+
+1. **Identity** — the confirmation step pins the company (domain, aliases, CIN); the form's
+   `Directors / key persons` field names the people to check.
+2. **Search** — a deterministic plan spends at most `LEGAL_QUERIES_PER_RUN` searches,
+   strongest first: the company name, the CIN (NCLT and ROC orders cite it, and a CIN in a
+   document cannot belong to a same-named company), confirmed aliases, Casemine, then each
+   person as `"Name" "Company"` co-occurrence.
+   IndianKanoon (`indiankanoon.org`) is searched natively — its results are
+   server-rendered HTML — with `doctype=judgments` so statute sections never crowd the
+   party search, one request a second politeness, a robots.txt guard for its
+   case-removal disallows, and a 48 h cache. Casemine (`casemine.com`) is searched
+   through its native client, whose access ladder was measured: the site 403s every
+   non-browser User-Agent (including headless Chromium's), but its own server-rendered
+   results come back to the scraper's Chrome UA, so the plain fetch runs first and a
+   cookie-bridged browser render (`COOKIE_FILE_PATH` session) is the fallback.
+3. **Classify** — every judgment is tied to the identity deterministically, strongest key
+   first: CIN in the record → exact legal name → confirmed alias → name-only. The case
+   title's "Petitioner v. Respondent" structure is parsed deterministically too, so a
+   **company initiating** an action (petitioner, complainant) is distinguished from one
+   **responding** (respondent, defendant, accused) — the distinction that changes the risk
+   reading, and it survives model outages because it never depended on the model. A Gemini
+   pass then adds category (insolvency, sebi, tax, criminal, civil, arbitration, consumer,
+   labour, other), status (decided/pending) and an exposure summary; if the model is
+   unavailable the findings keep their identity labels and a deterministic summary line —
+   evidence is never lost for want of a classification.
+4. **Fold case iterations** — the same matter travels through stages (trial, appeal,
+   revision) and each stage is its own document. Records are grouped by case title with
+   the date stripped, and the **latest dated record wins the row** — it is the matter's
+   current state — with the identity class upgraded to the group's strongest and the row
+   reporting how many earlier records were folded into it.
+5. **Confirm** — up to `LEGAL_DOCS_PER_RUN` IndianKanoon documents are fetched in full to
+   firm up the weakest matches (a CIN or full name in a judgment body upgrades a
+   name-only guess) and to fill in missing court/date.
+6. **Assess risk** — every matched finding's snippet, side, category and status are
+   assembled into one Gemini call that reads the company's **overall legal risk**: a level
+   on the none/low/moderate/high/critical scale, a narrative, and the specific matters
+   that drive it (responding-side pending matters weigh most; same-named records are
+   context only and must not inflate the level). The fallback derives the level from
+   documented count rules when the model is unavailable, so the report always carries an
+   honest baseline.
+7. **Report** — matched findings, same-named hits *kept and labelled* rather than dropped
+   (a legal check must not silently discard a hit that merely shares a name), per-person
+   results, and a source line that names what each source actually answered, so "no
+   findings" is never ambiguous between "none exist" and "we could not look".
+
+### Directors discovery (legal mode toggle)
+
+The legal form's **"Discover the company's directors & key persons"** checkbox turns on a
+discovery pass between the company track and the person track:
+
+1. The run spends up to two of its remaining queries on registry snippets — a generic
+   `"Company" directors list` and a `site:zaubacorp.com` query.
+2. Only snippets that name the confirmed company (the same identity keys the entity gate
+   uses) can nominate a person — the company-linked rule, so a different Acme's board
+   never enters the run.
+3. Gemini extracts person names from the company-linked snippets; the names then pass
+   deterministic gates (multi-token, not the company itself, deduplicated, capped at four)
+   before any search is spent on them.
+4. Discovered persons are searched exactly like operator-named ones, each as
+   `"Name" "Company"`, within the remaining budget; a person the budget never reached is
+   listed as *not searched* with how they were discovered. The report marks them
+   **discovered**, and the pass reports its own queries and yield as a source line.
+
+Exports write a Markdown document and a PDF under the `legal/` prefix, plus the run's
+`-searches.json` trace.
+
+```bash
+curl -X POST "http://localhost:8080/api/research?sync=1" \
+  -d "mode=legal" -d "query=Acme Robotics Pvt Ltd" \
+  -d "legal_persons=N. Chandrasekaran"
+```
 
 Then:
 
@@ -161,7 +242,7 @@ Compactly:
 | Stage | Gate | Fallback |
 | :--- | :--- | :--- |
 | Confirmation | 2 searches + 1 aggregator pass only when <2 candidates | name-alone card |
-| Plan | 5 anchored searches — profile, role, appointments, career/education, aggregator `site:` — 3 when no company was confirmed, capped at 6 | a failed search is skipped; the run fails only when every one does |
+| Plan | 8 anchored searches — profile, role, appointments, career/education, aggregator `site:`, plus Facebook, Instagram, and X/Twitter personalization searches, capped at 9 | a failed search is skipped; the run fails only when every one does |
 | Snippets | **identity gate**: a snippet must name the person *and* the confirmed company or location | excluded — listed in the dossier's **Identity check** |
 | Fetch targets | identity gate first: profile URLs from *every* planned search, then any gate-matched page, up to `MaxScrapes` 10 | excluded, with the stated employer in the reason |
 | Profile URL | session ⇒ **one cookie-authenticated fetch**; otherwise the ladder (2/run, 55 s) | ladder ⇒ snippet |
@@ -174,11 +255,13 @@ Compactly:
 The identity gate is person mode's counterpart of the company entity gate: the company and
 location confirmed on the card are acceptance rules, not just search terms — that is what keeps
 a same-named person at another employer out of the dossier. The plan replaced three hardcoded
-searches with five anchored ones (six cap), because the old budget bought one broad question
-and two afterthoughts. A snippet is held harder than a fetched page (a snippet that names the
+searches with eight anchored ones (nine cap), including separate public-personalization
+searches for Facebook, Instagram, and X/Twitter, because the old budget bought one broad
+question and two afterthoughts. A snippet is held harder than a fetched page (a snippet that names the
 person but states no employer is dropped; a fetched page that does is kept but counted as
 *name-only*), because a career history legitimately lists past employers in its body while a
-snippet is a free-floating assertion. Dossier QC is the post-synthesis half of the same rule:
+snippet is a free-floating assertion. Social snippets are kept in a separate context and cannot
+establish identity, employment, title, or sensitive attributes. Dossier QC is the post-synthesis half of the same rule:
 the model's rows are held to the confirmed employer, with a bounded reverse lookup rescuing
 genuine past employers. The **Same-named people** section is the multilateral half of the same
 learning: a person search answers with several people who share the name, so the evidence the
@@ -204,6 +287,10 @@ nothing. Person mode still has no freshness pass and no image OCR; company mode 
 | `CACHE_MAX_ENTRIES` | `2048` | Max entries in the in-memory TTL cache |
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Per-request research budget |
 | `BROWSER_RESEARCH_TIMEOUT_SECONDS` | `300` | Per-request research budget when a run renders pages in a real browser (clamped to at least `RESEARCH_TIMEOUT_SECONDS`) |
+| `LEGAL_TIMEOUT_SECONDS` | `120` | Per-request budget for a legal mode run (floored at `RESEARCH_TIMEOUT_SECONDS` so the HTTP write timeout can never cut a legal stream off) |
+| `LEGAL_QUERIES_PER_RUN` | `8` | Max legal searches per run across all sources and parties (company, CIN, aliases, Casemine, persons) |
+| `LEGAL_DOCS_PER_RUN` | `4` | Max IndianKanoon documents fetched in full per legal run; findings otherwise stand on their search-page snippets |
+| `LEGAL_PAGES_PER_QUERY` | `2` | How many result pages one legal search may walk. Page 1 is part of the search; each continuation costs one of the run's queries. IndianKanoon paginates natively (`&pagenum=`); Casemine is a single-page source (measured: its pagination is JavaScript-driven, the parameter is ignored) |
 | `MAX_SCRAPES_PER_RUN` | `10` | Max web pages scraped per research session |
 | `MAX_SEARCH_RESULTS` | `12` | Max search results fetched per search query |
 | `MAX_AGENT_STEPS` | `10` | Max agent/tool iterations per research session |
@@ -520,7 +607,7 @@ The scraper is deliberately conservative, and several of these rules surprise pe
     from that list: it is on the company deny-list (`lowQualityHosts`), so a query for it would
     return pages the gate discards before fetching. The list is derived from the deny-list at
     runtime, so it cannot drift.
-  - **Person mode** searches all five — a directory page is a claim about a *named individual*,
+  - **Person mode** searches the people-directory set — a directory page is a claim about a *named individual*,
     which that path already labels as "a claim to check" — as an extra pass that is only spent
     when the two core searches come back thin, plus one such query during the research run
     itself.

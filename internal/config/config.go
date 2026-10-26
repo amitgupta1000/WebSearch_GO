@@ -109,6 +109,20 @@ type Config struct {
 	// EntityGateMode is how strictly sources are held to the confirmed company:
 	// enforce (reject and remove off-entity people), report (label only) or off.
 	EntityGateMode string
+	// LegalTimeout bounds one legal mode run's wall clock. Legal runs are
+	// search-and-snippet shaped (no page rendering in v1), so they get their
+	// own, smaller budget than a company dossier.
+	LegalTimeout time.Duration
+	// LegalQueriesPerRun caps the legal searches one run may spend across all
+	// sources and parties (company, aliases, persons).
+	LegalQueriesPerRun int
+	// LegalDocsPerRun caps how many source documents one legal run may fetch in
+	// full; findings otherwise stand on their search-page snippets.
+	LegalDocsPerRun int
+	// LegalPagesPerQuery is how many result pages one legal search may walk.
+	// Page 1 is part of the search; every page past it costs one run query.
+	// IndianKanoon paginates natively; Casemine is a single-page source.
+	LegalPagesPerQuery int
 }
 
 const (
@@ -133,7 +147,17 @@ const (
 	defaultValidationStaleMonths  = 36
 	defaultValidationRecentMonths = 18
 	// defaultEntityGateMode mirrors the agent's default: enforce.
-	defaultEntityGateMode        = "enforce"
+	defaultEntityGateMode = "enforce"
+	// defaultLegalTimeout, defaultLegalQueriesPerRun and defaultLegalDocsPerRun
+	// are the legal mode budgets: a run bounded to two minutes, eight searches
+	// across all parties and sources, and four full document fetches. A legal
+	// run is snippet-first; documents are fetched only to firm up identity.
+	defaultLegalTimeout       = 120
+	defaultLegalQueriesPerRun = 8
+	defaultLegalDocsPerRun    = 4
+	// defaultLegalPagesPerQuery bounds the page walk per search: page 1 plus
+	// one continuation, each continuation costing one of the run's queries.
+	defaultLegalPagesPerQuery    = 2
 	defaultScrapeConcurrency     = 4
 	defaultScrapeHostRate        = 2
 	defaultScrapeHostBurst       = 3
@@ -232,7 +256,28 @@ func Load() *Config {
 		ValidationStaleMonths:  envInt("VALIDATION_STALE_AFTER_MONTHS", defaultValidationStaleMonths),
 		ValidationRecentMonths: envInt("VALIDATION_RECENT_WITHIN_MONTHS", defaultValidationRecentMonths),
 		EntityGateMode:         entityGateMode(envString("ENTITY_GATE_MODE", defaultEntityGateMode)),
+
+		LegalTimeout:       time.Duration(envInt("LEGAL_TIMEOUT_SECONDS", defaultLegalTimeout)) * time.Second,
+		LegalQueriesPerRun: envInt("LEGAL_QUERIES_PER_RUN", defaultLegalQueriesPerRun),
+		LegalDocsPerRun:    envInt("LEGAL_DOCS_PER_RUN", defaultLegalDocsPerRun),
+		LegalPagesPerQuery: envInt("LEGAL_PAGES_PER_QUERY", defaultLegalPagesPerQuery),
 	}
+}
+
+// LegalTimeoutFor returns the budget a legal mode run gets. Legal runs do not
+// render pages in v1 — IndianKanoon is server-rendered and Casemine is reached
+// through search snippets — so the budget does not scale with the browser
+// toggle. It is still floored at the research timeout so the HTTP write
+// timeout, which is sized from the research budgets, can never cut a legal
+// stream off mid-run.
+func (c *Config) LegalTimeoutFor() time.Duration {
+	if c == nil {
+		return time.Duration(defaultLegalTimeout) * time.Second
+	}
+	if c.LegalTimeout > c.ResearchTimeout {
+		return c.LegalTimeout
+	}
+	return c.ResearchTimeout
 }
 
 // CacheBackendName reports the configured cache backend in lower case, defaulting

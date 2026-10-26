@@ -52,6 +52,10 @@
                                 <input type="radio" name="mode" value="person" class="accent-indigo-500" onclick="toggleFields('person')">
                                 <span>Person Dossier</span>
                             </label>
+                            <label class="flex items-center gap-2 cursor-pointer text-sm">
+                                <input type="radio" name="mode" value="legal" class="accent-indigo-500" onclick="toggleFields('legal')">
+                                <span>Legal Check</span>
+                            </label>
                         </div>
                     </div>
 
@@ -75,6 +79,25 @@
                         <input type="text" name="location" placeholder="e.g. San Francisco, London, Singapore..."
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
                     </div>
+                </div>
+
+                <!-- Legal check fields: Indian case law + Casemine results on the company and named persons -->
+                <div id="legal-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Directors / key persons to check (Optional, comma separated)</label>
+                        <input type="text" name="legal_persons" placeholder="e.g. N. Chandrasekaran"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Registration ID / CIN (Optional)</label>
+                        <input type="text" name="entity_reg_id" placeholder="e.g. L99999MH1996PLC101010"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <label class="sm:col-span-2 flex items-start gap-2 text-xs text-slate-300">
+                        <input type="checkbox" name="include_directors" value="1" class="mt-0.5 accent-indigo-500">
+                        <span>Discover the company's directors &amp; key persons from registry snippets (ZaubaCorp and the like) and extend the check to them — only snippets that name the confirmed company nominate a person. Uses part of the query budget.</span>
+                    </label>
+                    <div class="sm:col-span-2 text-[11px] text-slate-500">Searches Indian case law on indiankanoon.org plus casemine.com (plain fetch with browser headers, browser-render fallback with your exported session cookies). The identity confirmation step runs first.</div>
                 </div>
 
                 <div id="company-fields" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-800/60">
@@ -213,23 +236,33 @@
         function toggleFields(mode) {
             const pf = document.getElementById('person-fields');
             const cf = document.getElementById('company-fields');
+            const lf = document.getElementById('legal-fields');
             const ql = document.getElementById('query-label');
             const qi = document.getElementById('primary-query');
             const companySubmit = document.getElementById('company-submit');
             const personSubmit = document.getElementById('person-submit');
             const form = document.getElementById('research-form');
             const spinner = document.getElementById('resolve-spinner');
+            pf.classList.add('hidden');
+            cf.classList.add('hidden');
+            lf.classList.add('hidden');
             if (mode === 'person') {
                 pf.classList.remove('hidden');
-                cf.classList.add('hidden');
                 ql.innerText = 'Person Full Name';
                 qi.placeholder = 'e.g. Demis Hassabis, Ilya Sutskever...';
                 if (companySubmit) companySubmit.classList.add('hidden');
                 if (personSubmit) personSubmit.classList.remove('hidden');
                 if (spinner) spinner.innerText = 'Looking up matching profiles…';
                 if (form) form.setAttribute('hx-post', '/api/resolve-person');
+            } else if (mode === 'legal') {
+                lf.classList.remove('hidden');
+                ql.innerText = 'Company Name';
+                qi.placeholder = 'e.g. Tata Consultancy Services, Reliance Industries...';
+                if (companySubmit) companySubmit.classList.remove('hidden');
+                if (personSubmit) personSubmit.classList.add('hidden');
+                if (spinner) spinner.innerText = 'Confirming the company identity…';
+                if (form) form.setAttribute('hx-post', '/api/resolve-entity');
             } else {
-                pf.classList.add('hidden');
                 cf.classList.remove('hidden');
                 ql.innerText = 'Company Name / Domain';
                 qi.placeholder = 'e.g. Anthropic, Stripe, Datadog...';

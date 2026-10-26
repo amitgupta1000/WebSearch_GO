@@ -200,6 +200,7 @@ type RunExporter interface {
 	Enabled() bool
 	ExportCompany(ctx context.Context, chart *models.OrgChart) []models.ExportArtifact
 	ExportPerson(ctx context.Context, profile *models.PersonProfile) []models.ExportArtifact
+	ExportLegal(ctx context.Context, report *models.LegalReport) []models.ExportArtifact
 }
 
 // WithExporter attaches an artifact exporter. Without one, runs are not saved.
@@ -683,6 +684,16 @@ func (e *Engine) ExportPerson(ctx context.Context, profile *models.PersonProfile
 	exportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exportTimeout)
 	defer cancel()
 	return e.exporter.ExportPerson(exportCtx, profile)
+}
+
+// ExportLegal stores the finished legal check as output artifacts.
+func (e *Engine) ExportLegal(ctx context.Context, report *models.LegalReport) []models.ExportArtifact {
+	if e == nil || e.exporter == nil || report == nil || !e.exporter.Enabled() {
+		return nil
+	}
+	exportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exportTimeout)
+	defer cancel()
+	return e.exporter.ExportLegal(exportCtx, report)
 }
 
 // exportSummary describes a run's artifacts for the agent log, and returns "" when
