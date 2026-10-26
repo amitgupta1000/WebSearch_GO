@@ -525,6 +525,34 @@ two modes (no planning model call, no scrape ladder, no QC loop):
    "none exist" and "we could not look". Exports run on a detached context like
    the other modes. *(Steps 45–46)*
 
+#### Bounded concurrency (`runBoundedLegal`)
+
+The two search tracks and the document-confirm pass run through one bounded
+worker pool, mirroring the engine's `ScrapeCachedBatch` shape:
+
+- **The pool** (`runBoundedLegal`, `LEGAL_CONCURRENCY`, default 4): workers take
+  a semaphore, and a panic in a worker fails that one unit — not the run or the
+  process — because these goroutines sit outside net/http's per-request
+  recovery, exactly as the scrape batch's do.
+- **What parallelism buys here** is honest about the limiters: IndianKanoon's
+  client allows one request a second and Casemine's the same, so parallel
+  workers on one source queue at its limiter; the win is *cross-source*
+  (an IndianKanoon wait overlapping a Casemine fetch) and overlapping response
+  handling with the next request's wait.
+- **Determinism under concurrency:** workers write outcomes into slices indexed
+  by plan position, and the fold into the findings buckets and the search trace
+  happens serially in plan order after the pool drains — so the report and the
+  `-searches.json` artifact are identical on every run however the workers
+  interleaved. Live `tool_call`/`tool_result` events do interleave; each is
+  self-describing.
+- **Budget under concurrency:** the shared query allowance is a mutex-guarded
+  `legalBudget` — continuation pages and person-search slots are claimed
+  atomically, first claim wins, and a person worker that cannot claim is
+  recorded as *not searched* rather than racing the count.
+- The race detector (`go test -race ./internal/agent`) is part of the story: it
+  is what caught the test doubles' call logs and the company-mode mock searcher
+  when the pools landed.
+
 #### Directors discovery (`discoverDirectors`, toggle-driven)
 
 With the form's directors toggle on, a discovery pass runs between the company

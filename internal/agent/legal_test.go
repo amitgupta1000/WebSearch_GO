@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,16 +15,22 @@ import (
 )
 
 // fakeLegalSource stands in for the IndianKanoon client: canned hits per query
-// prefix, plus a canned document for the confirm pass.
+// prefix, plus a canned document for the confirm pass. Its call logs are
+// mutex-guarded because legal runs execute their searches and document fetches
+// concurrently — the race detector is what kept that honest.
 type fakeLegalSource struct {
 	hits        map[string][]tools.LegalSearchHit
 	documents   map[string]*tools.LegalDocument
 	searchCalls []string
 	docCalls    []string
+
+	mu sync.Mutex
 }
 
 func (f *fakeLegalSource) Search(_ context.Context, query string, page, maxResults int) ([]tools.LegalSearchHit, error) {
+	f.mu.Lock()
 	f.searchCalls = append(f.searchCalls, query)
+	f.mu.Unlock()
 	// Exact query match: the plan's quoted queries are distinct, and substring
 	// matching is ambiguous when one query names both the company and a person.
 	hits, exists := f.hits[query]
@@ -37,7 +44,9 @@ func (f *fakeLegalSource) Search(_ context.Context, query string, page, maxResul
 }
 
 func (f *fakeLegalSource) FetchDocument(_ context.Context, docURL string) (*tools.LegalDocument, error) {
+	f.mu.Lock()
 	f.docCalls = append(f.docCalls, docURL)
+	f.mu.Unlock()
 	if document, exists := f.documents[docURL]; exists {
 		return document, nil
 	}

@@ -164,7 +164,7 @@ const (
 	defaultLegalPagesPerQuery = 2
 	// defaultLegalConcurrency mirrors the agent's default: four searches in
 	// flight, with each source's own limiter still governing its politeness.
-	defaultLegalConcurrency = 4
+	defaultLegalConcurrency      = 4
 	defaultScrapeConcurrency     = 4
 	defaultScrapeHostRate        = 2
 	defaultScrapeHostBurst       = 3

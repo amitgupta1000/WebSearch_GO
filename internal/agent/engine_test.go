@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
@@ -12,11 +13,14 @@ import (
 )
 
 type mockSearcher struct {
-	lastMaxResults int
+	// lastMaxResults is written by parallel searchPlan workers, so it is
+	// atomic — the race detector caught the bare int when the search pool
+	// landed in company mode.
+	lastMaxResults atomic.Int64
 }
 
 func (m *mockSearcher) Search(ctx context.Context, query string, maxResults int) ([]models.SearchResult, error) {
-	m.lastMaxResults = maxResults
+	m.lastMaxResults.Store(int64(maxResults))
 	return []models.SearchResult{
 		{Title: "Result 1", Link: "https://example.com/1", Snippet: "Snippet 1"},
 	}, nil
