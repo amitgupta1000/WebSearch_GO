@@ -19,10 +19,9 @@ import (
 //
 //   - As *person* material they are a claim to corroborate, which the person path already
 //     labels (personDirectoryHosts, "treat its role and employer as a claim to check").
-//   - As *company* material some are directories, and lowQualityHosts already filters them as
-//     noise before they are fetched. The company query builder therefore uses only the hosts
-//     the gate will actually keep, computed from that list rather than hand-maintained, so a
-//     query can never be generated for a page the gate would throw away.
+//   - As *company* material some are directories, while source-profile slots explicitly allow
+//     the selected global publishers and directories. Other low-quality hosts remain filtered
+//     as noise before they are fetched.
 var alternativeProfileSources = []string{
 	"crunchbase.com",
 	"zoominfo.com",
@@ -89,9 +88,18 @@ func companySourceHosts(brief models.CompanyBrief) []string {
 	return hosts
 }
 
-// companyAcceptedProfileSources returns the aggregator hosts the company entity gate keeps.
-// ZoomInfo is absent because it is on lowQualityHosts; that is a deliberate filter for company
-// evidence, not an oversight, and it stays in force.
+func matchesGlobalCompanySource(targetURL string) bool {
+	lowered := strings.ToLower(targetURL)
+	for _, host := range globalCompanySources {
+		if strings.Contains(lowered, host) {
+			return true
+		}
+	}
+	return false
+}
+
+// companyAcceptedProfileSources returns the alternative profile hosts the company entity gate
+// keeps for secondary/person corroboration.
 func companyAcceptedProfileSources() []string {
 	kept := make([]string, 0, len(alternativeProfileSources))
 	for _, host := range alternativeProfileSources {

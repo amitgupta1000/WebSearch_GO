@@ -667,6 +667,9 @@ func allSearchSnippetEvidence(results []models.SearchResult, matcher *entityMatc
 		case matchesPromotedCompanyAggregator(result.Link):
 			sourceType = "aggregator"
 			quality = 0.25
+		case matchesGlobalCompanySource(result.Link):
+			sourceType = "global_source"
+			quality = 0.25
 		case matchesAlternativeProfileSource(result.Link):
 			sourceType = "aggregator"
 			quality = 0.1
@@ -1196,6 +1199,9 @@ func classifySource(brief models.CompanyBrief, targetURL string) sourceProfile {
 	}
 	if isIndexedProfileSourceURL(targetURL) {
 		return sourceProfile{sourceType: "indexed_profile", quality: 0.45}
+	}
+	if companySourceProfile(brief) == SourceProfileGlobal && matchesGlobalCompanySource(targetURL) {
+		return sourceProfile{sourceType: "global_source", quality: 0.45}
 	}
 	official := false
 	primary := false

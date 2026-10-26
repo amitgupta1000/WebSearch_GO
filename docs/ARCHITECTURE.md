@@ -198,7 +198,7 @@ Passing `nil` as `eventCh` (sync mode / tests) silently disables event emission.
 CompanyBrief (form)
    │
    ▼
-planQueries ──────────► QueryPlan (≤6 queries)          [Gemini]
+planQueries ──────────► QueryPlan (≤24 queries)         [Gemini]
    │
    ▼
 searchPlan ───────────► []SearchResult (deduped)        [Serper + cache]
@@ -937,7 +937,7 @@ and lets tests pass `nil` channels.
 | Max agent steps per run | `MAX_AGENT_STEPS` → `Engine.MaxSteps` | 10 |
 | Max pages scraped per run | `MAX_SCRAPES_PER_RUN` → `Engine.MaxScrapes` | 10 |
 | Max search results per query | `MAX_SEARCH_RESULTS` → `Engine.MaxSearchResults` | 12 |
-| Company query plan size | `limitQueryPlan` | 6 queries |
+| Company query plan size | `maxCompanySearchQueries` / `limitQueryPlan` | 24 queries |
 | QC review passes | `maxCompanyReviewIterations` | 3 (≤ 2 follow-ups) |
 | Min budget to start a QC follow-up | `minQCIterationBudget` | 60 s |
 | Per-run wall clock | `RESEARCH_TIMEOUT_SECONDS` → context timeout | 180 s |
@@ -1195,12 +1195,14 @@ the two cited sources.
   reserved company-anchored searches, including a LinkedIn-index query, before general
   planner queries are admitted.
   Two roles, kept distinct: for **person** material they are claims about a named individual,
-  which `personDirectoryHosts` already flags; for **company** material some are directories, and
-  `companyAcceptedProfileSources` derives which ones the gate keeps by testing each host against
-  `lowQualityHosts` — ZoomInfo is on that list, so no company query ever targets it. The company
-  plan gains one anchored query per promoted host (`site:<host> ("<Company>" OR "<Company LTD>")`,
-  which also passes `matcher.covers`), plus role-specific LinkedIn searches and optional
-  CIN fallbacks; person research gains one more search whose snippets are labelled
+  which `personDirectoryHosts` already flags; for **company** material, the selected source
+  profile controls which indexed source slots are reserved. India mode uses promoted registry
+  and business sources; Global mode uses its global publisher and directory list, with
+  profile-aware classification so those results are not rejected by the general low-quality
+  filter. The company plan gains one anchored query per selected host
+  (`site:<host> ("<Company>" OR "<Company LTD>")`, which also passes `matcher.covers`),
+  plus role-specific LinkedIn searches and optional CIN fallbacks; person research gains one
+  more search whose snippets are labelled
   `DIRECTORY CLAIMS`, the confirmation step spends an aggregator query only when its two core
   passes come back thin, and `isProfileSourceURL` keeps the fetch priority in step with the query
   builder so a searched domain is not ignored at fetch time.
@@ -1450,11 +1452,11 @@ gcloud run deploy websearch-go \
   --set-secrets GOOGLE_API_KEY=google-api-key:latest,SERPER_API_KEY=serper-api-key:latest,REDIS_URL=redis-url:latest
 ```
 
-On Windows, [`scripts/deploy-browser.ps1`](../scripts/deploy-browser.ps1) wraps
+On Windows, [`deploy-gcp.ps1`](../deploy-gcp.ps1) wraps
 these browser-image build and deploy steps:
 
 ```powershell
-.\scripts\deploy-browser.ps1
+.\deploy-gcp.ps1
 ```
 
 Grant the Cloud Run runtime service account the minimum required permissions:
@@ -1617,7 +1619,7 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 | # | Stage | What happens | Bound | On failure |
 | :--- | :--- | :--- | :--- | :--- |
 | 1 | Plan | Gemini plans queries → `enforceEntityQueries` drops unanchored/duplicate → `entityAnchoredQueries` refill | *filter*: a query must name the company, an alias, its domain or its registration id; cap 24; dedicated indexed-profile slots are reserved | `fallbackQueryPlan` |
-| 1a | ↳ anchored set | `site:<domain>` ×3, name-anchored leadership/procurement, one company-name-only slot per promoted host, plus role-specific LinkedIn slots | Naukri has no dedicated company slot; ZoomInfo remains excluded from company queries by the deny-list | — |
+| 1a | ↳ anchored set | `site:<domain>` ×3, name-anchored leadership/procurement, source-profile slots, role-specific LinkedIn slots, and three reserved person-of-interest queries when requested | Naukri has no dedicated company slot; Global mode uses its own source list | — |
 | 2 | Search | Serper per query | `MaxSearchResults` per query; 48 h cache; URL dedupe | per-query failure tolerated |
 | 3 | Rank | BM25 → top **12** semantically reranked by Gemini, 8 s deadline → `pruneUnconnected` | *filter*: no shared company token with the snippet ⇒ dropped (kept when there is no snippet); quality: aggregator 0.1, `linkedin.` 0.6, external 0.55, leadership 0.7, official 0.9–1.0 | BM25 order continues, marked `semantic skip` |
 | 3a | ↳ relevance floor | `Score += 0.18·(quality−0.5)`; quality < 0.25 ⇒ `Relevant=false` | ***filter at fetch level***: deny-listed hosts are never downloaded; promoted aggregator snippets remain retained evidence | — |

@@ -10,10 +10,8 @@ import (
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
 
-// TestAlternativeProfileSourcesRespectTheCompanyDenyList is the guard that keeps the query
-// builder honest: ZoomInfo is on lowQualityHosts, so a company-mode query for it would return
-// pages the gate throws away before fetching them. The list is derived from the deny-list
-// rather than hand-maintained, so the two cannot drift.
+// TestAlternativeProfileSourcesRespectTheCompanyDenyList keeps secondary/person source
+// selection aligned with the general company deny-list.
 func TestAlternativeProfileSourcesRespectTheCompanyDenyList(t *testing.T) {
 	accepted := companyAcceptedProfileSources()
 	joined := strings.Join(accepted, ",")
@@ -98,6 +96,21 @@ func TestGlobalCompanySourcesIncludeRequestedPublishers(t *testing.T) {
 		if !strings.Contains(joined, host) {
 			t.Errorf("global company sources must include %s, got %v", host, globalCompanySources)
 		}
+	}
+	india := companySourceHosts(models.CompanyBrief{SourceProfile: SourceProfileIndia})
+	global := companySourceHosts(models.CompanyBrief{SourceProfile: SourceProfileGlobal})
+	if strings.Contains(strings.Join(india, ","), "forbes.com") {
+		t.Error("India source profile must not include Forbes")
+	}
+	if !strings.Contains(strings.Join(global, ","), "forbes.com") {
+		t.Error("Global source profile must include Forbes")
+	}
+	globalZoomInfo := classifySource(
+		models.CompanyBrief{SourceProfile: SourceProfileGlobal},
+		"https://www.zoominfo.com/c/klj-resources/123",
+	)
+	if globalZoomInfo.quality < 0.25 {
+		t.Fatalf("Global ZoomInfo should be profile-aware evidence, got %+v", globalZoomInfo)
 	}
 }
 

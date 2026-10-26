@@ -147,7 +147,7 @@ Compactly:
 
 | Stage | Gate that can stop it | What happens when it does |
 | :--- | :--- | :--- |
-| Plan | unanchored query, cap 10, one slot held for the aggregator query | deterministic `fallbackQueryPlan` |
+| Plan | unanchored query, cap 24, dedicated indexed-source and person-of-interest slots reserved | deterministic `fallbackQueryPlan` |
 | Rank | no shared company token (`pruneUnconnected`); source quality < 0.25 (deny-listed hosts) | candidate dropped — **never fetched** |
 | Profile pass | `HARD_URLS_PER_RUN` 2, 55 s per URL, needs budget + 20 s | `skipped` + the public snippet is kept |
 | Batch scrape | `MAX_SCRAPES_PER_RUN` 10; fetches stop 55 s before the deadline | pages already fetched are kept |
