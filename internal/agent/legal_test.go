@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,24 @@ type fakeLegalSource struct {
 	docCalls    []string
 
 	mu sync.Mutex
+}
+
+type pagedLegalSource struct {
+	pages []int
+	hits  map[int][]tools.LegalSearchHit
+}
+
+func (s *pagedLegalSource) Search(_ context.Context, _ string, page, maxResults int) ([]tools.LegalSearchHit, error) {
+	s.pages = append(s.pages, page)
+	hits := s.hits[page]
+	if maxResults > 0 && len(hits) > maxResults {
+		return hits[:maxResults], nil
+	}
+	return hits, nil
+}
+
+func (s *pagedLegalSource) FetchDocument(_ context.Context, _ string) (*tools.LegalDocument, error) {
+	return nil, errors.New("not used")
 }
 
 func (f *fakeLegalSource) Search(_ context.Context, query string, page, maxResults int) ([]tools.LegalSearchHit, error) {
@@ -107,6 +126,7 @@ func TestPlanLegalQueries(t *testing.T) {
 		RegistrationID: "L29100MH2019PLC123456",
 		Persons:        []string{"Jane Doe", "John Roe"},
 	}
+
 	planned := planLegalQueries(query, 8, false)
 
 	if len(planned) != 6 {
@@ -135,6 +155,35 @@ func TestPlanLegalQueries(t *testing.T) {
 	// The strongest queries come first when the budget is tight: company, then CIN.
 	if tight[1].Query != `"L29100MH2019PLC123456"` {
 		t.Errorf("tight budget second query = %q, want the CIN ahead of aliases and persons", tight[1].Query)
+	}
+}
+
+func TestLegalPaginationStopsWhenPageAddsNoNewEntityHits(t *testing.T) {
+	pageOne := make([]tools.LegalSearchHit, legalMaxResultsPerQuery)
+	for index := range pageOne {
+		pageOne[index] = tools.LegalSearchHit{
+			Title:  fmt.Sprintf("Acme Robotics case %d", index),
+			DocURL: fmt.Sprintf("https://indiankanoon.org/doc/%d", index),
+		}
+	}
+	source := &pagedLegalSource{hits: map[int][]tools.LegalSearchHit{
+		1: pageOne,
+		2: pageOne,
+		3: {{Title: "Acme Robotics later case", DocURL: "https://indiankanoon.org/doc/3"}},
+	}}
+	agent := NewLegalAgent(newLegalTestEngine(t, legalClassifyLLM{}), source, nil, 8, 4, 5, 1)
+	matcher := newEntityMatcher(models.CompanyBrief{CompanyName: "Acme Robotics"})
+	kept, _, err := agent.executeLegalQuery(context.Background(), "session",
+		legalPlannedQuery{Query: `"Acme Robotics"`, Source: "indiankanoon", Party: "Acme Robotics", PartyKind: "company"},
+		matcher, nil, newLegalBudget(4))
+	if err != nil {
+		t.Fatalf("executeLegalQuery: %v", err)
+	}
+	if len(source.pages) != 2 || source.pages[0] != 1 || source.pages[1] != 2 {
+		t.Fatalf("expected adaptive walk to stop after repeated page 2, got pages %v", source.pages)
+	}
+	if len(kept) != legalMaxResultsPerQuery {
+		t.Fatalf("expected unique page-one findings only, got %d", len(kept))
 	}
 }
 

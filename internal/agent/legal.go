@@ -49,12 +49,14 @@ const (
 	// defaults, applied when the constructor is given non-positive values.
 	defaultLegalQueriesPerRun = 8
 	defaultLegalDocsPerRun    = 4
-	// defaultLegalPagesPerQuery is how many result pages one search may walk.
-	// Page 1 is part of the search; every page past it costs one run query.
+	// defaultLegalPagesPerQuery is the maximum result pages one search may walk.
+	// The adaptive walk usually stops earlier when pages repeat or stop matching
+	// the confirmed entity. Page 1 is part of the search; every page past it
+	// costs one run query.
 	// IndianKanoon paginates natively (&pagenum=); Casemine is a single-page
 	// source (measured: the site ignores the page parameter), so its walk ends
 	// after page 1 regardless of this knob.
-	defaultLegalPagesPerQuery = 2
+	defaultLegalPagesPerQuery = 5
 	// legalSnippetCap bounds the snippet text carried per finding.
 	legalSnippetCap = 600
 )
@@ -1125,10 +1127,12 @@ func (la *LegalAgent) executeLegalQuery(ctx context.Context, sessionID string, p
 		Content:   planned.Purpose,
 	})
 
-	// Walk the result pages: page 1 always, page N past it only while the
-	// budget pays for it and the previous page returned something.
+	// Walk the result pages: page 1 always, then continue only while the budget
+	// pays for it and the previous page adds new entity-relevant evidence.
 	var allHits []tools.LegalSearchHit
+	seenHits := make(map[string]bool)
 	fetchErr := error(nil)
+	pagesRead := 0
 	for page := 1; page <= la.pagesPerQuery; page++ {
 		if page > 1 {
 			// Sources without pagination end the walk before claiming budget
@@ -1172,7 +1176,26 @@ func (la *LegalAgent) executeLegalQuery(ctx context.Context, sessionID string, p
 		if len(pageHits) == 0 {
 			break
 		}
-		allHits = append(allHits, pageHits...)
+		newHits, newEntityHits := 0, 0
+		for _, hit := range pageHits {
+			key := strings.ToLower(strings.TrimSpace(hit.DocURL))
+			if key == "" {
+				key = strings.ToLower(strings.TrimSpace(hit.Title + "|" + hit.Date + "|" + hit.Snippet))
+			}
+			if seenHits[key] {
+				continue
+			}
+			seenHits[key] = true
+			allHits = append(allHits, hit)
+			newHits++
+			if matcher.match(hit.DocURL, hit.Title, hit.Snippet).Matched {
+				newEntityHits++
+			}
+		}
+		pagesRead = page
+		if page > 1 && (newHits == 0 || newEntityHits == 0) {
+			break
+		}
 		if page == 1 && len(pageHits) < legalMaxResultsPerQuery && planned.Source == "indiankanoon" {
 			// A short first page is the last page: no continuation can
 			// carry more records, so the walk ends without spending a
@@ -1195,11 +1218,7 @@ func (la *LegalAgent) executeLegalQuery(ctx context.Context, sessionID string, p
 		kept = append(kept, hit)
 	}
 
-	pages := 1
-	if len(allHits) > legalMaxResultsPerQuery {
-		pages = 2
-	}
-	summary := fmt.Sprintf("%d judgments, %d statute entries across %d page(s)", len(kept), len(excluded), pages)
+	summary := fmt.Sprintf("%d judgments, %d statute entries across %d page(s)", len(kept), len(excluded), pagesRead)
 	if fetchErr != nil {
 		summary += fmt.Sprintf("; page walk stopped early (%v)", fetchErr)
 	}

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -34,6 +35,7 @@ type Server struct {
 	companyAgent *agent.CompanyAgent
 	personAgent  *agent.PersonAgent
 	legalAgent   *agent.LegalAgent
+	relatedAgent *agent.RelatedEntityAgent
 	hub          *agent.SessionHub
 	tmpl         *template.Template
 	// browserAvailable is probed once at startup so the console never offers a
@@ -81,6 +83,7 @@ type entityCandidateView struct {
 	UseBrowser       string
 	SourceProfile    string
 	PersonOfInterest string
+	RelatedMaxLeaders string
 	// Mode is the research mode the confirmation card posts back ("company"
 	// or "legal"), so a legal run survives its own confirmation round trip.
 	Mode string
@@ -125,6 +128,7 @@ type entityCandidatesView struct {
 	UseBrowser       string
 	SourceProfile    string
 	PersonOfInterest string
+	RelatedMaxLeaders string
 	// Mode and LegalPersons travel the same round trip the card does, so a
 	// legal run's confirmation card posts a legal research request.
 	Mode         string
@@ -251,6 +255,7 @@ func main() {
 	// Casemine with its measured fetch ladder (plain fetch first, cookie-bridged
 	// render on a wall).
 	legalAgent := agent.NewLegalAgent(eng, tools.NewIndianKanoonClient(), tools.NewCasemineClient(scraper), cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery, cfg.LegalConcurrency)
+	relatedAgent := agent.NewRelatedEntityAgent(eng)
 	log.Printf("Legal mode: IndianKanoon + Casemine (native, render fallback), up to %d queries (+%d page(s) each), %d document fetches, %d concurrent searches, %s budget",
 		cfg.LegalQueriesPerRun, cfg.LegalPagesPerQuery, cfg.LegalDocsPerRun, cfg.LegalConcurrency, cfg.LegalTimeoutFor())
 	sessionHub := agent.NewSessionHub()
@@ -279,6 +284,7 @@ func main() {
 		companyAgent:       compAgent,
 		personAgent:        persAgent,
 		legalAgent:         legalAgent,
+		relatedAgent:       relatedAgent,
 		hub:                sessionHub,
 		tmpl:               tmpl,
 		browserAvailable:   browserAvailable,
@@ -443,6 +449,7 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	companyBrief := models.CompanyBrief{
 		CompanyName:      query,
 		SourceProfile:    strings.TrimSpace(r.FormValue("source_profile")),
+		RelatedMaxLeaders: parseBoundedInt(r.FormValue("related_max_leaders"), 8, 1, 8),
 		PersonOfInterest: strings.TrimSpace(r.FormValue("person_of_interest")),
 		Domain:           entityDomainValue(r),
 		Aliases:          splitFormList(r.FormValue("entity_aliases")),
@@ -514,6 +521,16 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 				s.renderError(w, "Legal research failed: "+researchErr.Error())
 				return
 			}
+			if mode == "related_entity" {
+				related, researchErr := s.relatedAgent.Research(ctx, sessionID, relatedEntityQueryFromBrief(companyBrief), nil)
+				if researchErr != nil {
+					log.Printf("[ERROR] related entity research failed (session %s): %v", sessionID, researchErr)
+					s.renderError(w, "Related entity research failed: "+researchErr.Error())
+					return
+				}
+				s.render(w, "related_entity_report", related)
+				return
+			}
 			s.render(w, "legal_report", report)
 			return
 		}
@@ -545,6 +562,14 @@ func legalQueryFromForm(r *http.Request, company string) models.LegalQuery {
 		EntitySource:     entitySourceValue(r),
 		Persons:          splitFormList(r.FormValue("legal_persons")),
 		IncludeDirectors: strings.TrimSpace(r.FormValue("include_directors")) == "1",
+	}
+}
+
+func relatedEntityQueryFromBrief(brief models.CompanyBrief) models.RelatedEntityQuery {
+	return models.RelatedEntityQuery{
+		CompanyName: brief.CompanyName, Domain: brief.Domain, Aliases: brief.Aliases,
+		RegistrationID: brief.RegistrationID, Country: brief.Country,
+		SourceProfile: brief.SourceProfile, MaxLeaders: brief.RelatedMaxLeaders,
 	}
 }
 
@@ -615,6 +640,16 @@ func (s *Server) startRun(w http.ResponseWriter, sessionID, mode, query string, 
 			session.Complete(profile, err)
 			return
 		}
+		if mode == "related_entity" {
+			related, err := s.relatedAgent.Research(ctx, sessionID, relatedEntityQueryFromBrief(brief), session.EventCh)
+			if err != nil {
+				log.Printf("[ERROR][session %s] related entity research failed: %v", sessionID, err)
+			} else {
+				log.Printf("[RESULT][session %s] related entity research completed: %d direct, %d leadership-derived", sessionID, len(related.DirectRelationships), len(related.LeadershipRelations))
+			}
+			session.Complete(related, err)
+			return
+		}
 
 		if mode == "legal" {
 			report, err := s.legalAgent.ResearchLegal(ctx, sessionID, legal, session.EventCh)
@@ -643,6 +678,9 @@ func (s *Server) startRun(w http.ResponseWriter, sessionID, mode, query string, 
 	}
 	if mode == "legal" {
 		displayMode = "Legal"
+	}
+	if mode == "related_entity" {
+		displayMode = "Related Entities"
 	}
 	s.render(w, "workflow_console", map[string]string{
 		"SessionID": sessionID,
@@ -747,6 +785,7 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 		UseBrowser:       strings.TrimSpace(r.FormValue("use_browser")),
 		SourceProfile:    strings.TrimSpace(r.FormValue("source_profile")),
 		PersonOfInterest: strings.TrimSpace(r.FormValue("person_of_interest")),
+		RelatedMaxLeaders: strings.TrimSpace(r.FormValue("related_max_leaders")),
 		LegalPersons:     strings.TrimSpace(r.FormValue("legal_persons")),
 	}
 	// The mode travels with the step: the confirmation card posts it back, so a
@@ -755,6 +794,8 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 	switch strings.TrimSpace(r.FormValue("mode")) {
 	case "legal":
 		view.Mode = "legal"
+	case "related_entity":
+		view.Mode = "related_entity"
 	default:
 		view.Mode = "company"
 	}
@@ -796,6 +837,7 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 			UseBrowser:       view.UseBrowser,
 			SourceProfile:    view.SourceProfile,
 			PersonOfInterest: view.PersonOfInterest,
+			RelatedMaxLeaders: view.RelatedMaxLeaders,
 			Mode:             view.Mode,
 			LegalPersons:     view.LegalPersons,
 			IncludeDirectors: view.IncludeDirectors,
@@ -1055,6 +1097,14 @@ func splitFormList(value string) []string {
 	return items
 }
 
+func parseBoundedInt(value string, fallback, minimum, maximum int) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || parsed < minimum || parsed > maximum {
+		return fallback
+	}
+	return parsed
+}
+
 // handleEvents streams live agent workflow events and final synthesis to HTMX via SSE.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
@@ -1141,6 +1191,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				} else if session.Mode == "person" {
 					if profile, ok := result.(*models.PersonProfile); ok {
 						sendSSE("result", renderFragment("person_dossier", profile))
+					}
+					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
+				} else if session.Mode == "related_entity" {
+					if report, ok := result.(*models.RelatedEntityReport); ok {
+						sendSSE("result", renderFragment("related_entity_report", report))
 					}
 					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 				} else {

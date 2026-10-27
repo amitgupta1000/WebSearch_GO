@@ -159,9 +159,9 @@ const (
 	defaultLegalTimeout       = 120
 	defaultLegalQueriesPerRun = 8
 	defaultLegalDocsPerRun    = 4
-	// defaultLegalPagesPerQuery bounds the page walk per search: page 1 plus
-	// one continuation, each continuation costing one of the run's queries.
-	defaultLegalPagesPerQuery = 2
+	// defaultLegalPagesPerQuery is the adaptive-walk ceiling: page 1 plus up
+	// to four continuations, subject to early stopping and the run budget.
+	defaultLegalPagesPerQuery = 5
 	// defaultLegalConcurrency mirrors the agent's default: four searches in
 	// flight, with each source's own limiter still governing its politeness.
 	defaultLegalConcurrency      = 4

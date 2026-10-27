@@ -56,6 +56,10 @@
                                 <input type="radio" name="mode" value="legal" class="accent-indigo-500" onclick="toggleFields('legal')">
                                 <span>Legal Check</span>
                             </label>
+                            <label class="flex items-center gap-2 cursor-pointer text-sm">
+                                <input type="radio" name="mode" value="related_entity" class="accent-indigo-500" onclick="toggleFields('related_entity')">
+                                <span>Related Entities</span>
+                            </label>
                         </div>
                     </div>
 
@@ -98,6 +102,17 @@
                         <span>Discover the company's directors &amp; key persons from registry snippets (ZaubaCorp and the like) and extend the check to them — only snippets that name the confirmed company nominate a person. Uses part of the query budget.</span>
                     </label>
                     <div class="sm:col-span-2 text-[11px] text-slate-500">Searches Indian case law on indiankanoon.org plus casemine.com (plain fetch with browser headers, browser-render fallback with your exported session cookies). The identity confirmation step runs first.</div>
+                </div>
+
+                <div id="related-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Maximum leaders to follow</label>
+                        <input type="number" name="related_max_leaders" value="8" min="1" max="8"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
+                    </div>
+                    <div class="text-[11px] text-slate-500 self-end pb-2">
+                        Checks direct group/subsidiary relationships first, then follows directors and C-suite leaders into other companies. Related companies remain separate from the primary company identity.
+                    </div>
                 </div>
 
                 <div id="company-fields" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-800/60">
@@ -237,6 +252,7 @@
             const pf = document.getElementById('person-fields');
             const cf = document.getElementById('company-fields');
             const lf = document.getElementById('legal-fields');
+            const rf = document.getElementById('related-fields');
             const ql = document.getElementById('query-label');
             const qi = document.getElementById('primary-query');
             const companySubmit = document.getElementById('company-submit');
@@ -246,6 +262,7 @@
             pf.classList.add('hidden');
             cf.classList.add('hidden');
             lf.classList.add('hidden');
+            rf.classList.add('hidden');
             if (mode === 'person') {
                 pf.classList.remove('hidden');
                 ql.innerText = 'Person Full Name';
@@ -260,6 +277,15 @@
                 qi.placeholder = 'e.g. Tata Consultancy Services, Reliance Industries...';
                 if (companySubmit) companySubmit.classList.remove('hidden');
                 if (personSubmit) personSubmit.classList.add('hidden');
+                if (spinner) spinner.innerText = 'Confirming the company identity…';
+                if (form) form.setAttribute('hx-post', '/api/resolve-entity');
+            } else if (mode === 'related_entity') {
+                cf.classList.remove('hidden');
+                rf.classList.remove('hidden');
+                ql.innerText = 'Company Name / Domain';
+                qi.placeholder = 'e.g. Tata Sons, Reliance Industries...';
+                if (personSubmit) personSubmit.classList.add('hidden');
+                if (companySubmit) companySubmit.classList.remove('hidden');
                 if (spinner) spinner.innerText = 'Confirming the company identity…';
                 if (form) form.setAttribute('hx-post', '/api/resolve-entity');
             } else {

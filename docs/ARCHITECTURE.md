@@ -1122,6 +1122,8 @@ and lets tests pass `nil` channels.
 | Max pages scraped per run | `MAX_SCRAPES_PER_RUN` → `Engine.MaxScrapes` | 10 |
 | Max search results per query | `MAX_SEARCH_RESULTS` → `Engine.MaxSearchResults` | 12 |
 | Company query plan size | `maxCompanySearchQueries` / `limitQueryPlan` | 24 queries |
+| Person query plan size | `personPlanMaxQueries` | 12 queries |
+| Person search concurrency | `personSearchConcurrency` | 4 bounded workers |
 | QC review passes | `maxCompanyReviewIterations` | 3 (≤ 2 follow-ups) |
 | Min budget to start a QC follow-up | `minQCIterationBudget` | 60 s |
 | Per-run wall clock | `RESEARCH_TIMEOUT_SECONDS` → context timeout | 180 s |
@@ -1130,6 +1132,14 @@ and lets tests pass `nil` channels.
 | Scraped HTML body | `maxBodyBytes` in `scraper.go` | 2 MiB |
 | Text sent to LLM per page | `maxContentBytes` (rune-safe) | 40 KB |
 | Scrape attempts per URL | `scraperMaxAttempts` | 3 (linear backoff) |
+
+Search-result caps are per Serper query. The normal company/person pipeline requests the
+first bounded result set returned by Serper; it does not automatically paginate Google results
+to positions 13–24, nor crawl the first two pages of every source domain. The separate legal
+search workflow is the exception: `LEGAL_PAGES_PER_QUERY` defaults to 2 and controls its
+source-specific result-page walk. Legal pagination has a configurable ceiling of 5 pages by
+default, but the walk stops earlier when a page is empty, repeats prior hits, or adds no new
+entity-relevant hits.
 | LLM attempts per call | `geminiMaxAttempts` | 3 (linear backoff) |
 | Concurrent browser renders | `maxConcurrentRenders` (semaphore) | 2 |
 | Failed scrape retention | `negativeScrapeTTL` | 15 min |
