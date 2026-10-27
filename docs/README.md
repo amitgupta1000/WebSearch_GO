@@ -9,6 +9,8 @@ tracks and synthesizes structured results with Gemini:
   uses: candidates come from profile headlines and pin the employer and place the run
   searches with (see [How a run works](#how-a-run-works))
   constraints and compiles a professional dossier.
+- **Related Entity mode** — confirms a company, checks the usual sources for direct group or
+  subsidiary relationships, then follows directors and C-suite leaders into other companies.
 
 The HTTP layer serves an HTMX UI from templates embedded in the binary
 (`internal/web`); the agents stream-step through search (Serper API) → scrape →
@@ -96,6 +98,10 @@ match is pre-selected and focused), and never dead-ends:
   a company run uses — a legal check needs exactly the same "which company is this"
   discipline — plus an optional list of directors or key persons to check alongside it (see
   [Legal mode](#legal-mode)).
+- **Related entities** (`POST /api/resolve-entity`, `mode=related_entity`): confirms the
+  company, searches direct corporate relationships first, then searches up to eight
+  company-linked leaders for external company involvement. Direct and leadership-derived
+  relationships are reported separately and are never folded into the primary company identity.
 
 ### Legal mode (Indian case-law check)
 

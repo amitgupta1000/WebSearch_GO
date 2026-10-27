@@ -56,7 +56,7 @@ func TestCCIClientThreadResolvesRelative(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Thread failed: %v", err)
 	}
-	if got != "https://www.caclubindia.com/applicability-of-rcm-import-services-616199.asp" {
+	if got != "https://www.caclubindia.com/forum/applicability-of-rcm-import-services-616199.asp" {
 		t.Errorf("fetched URL = %q, want the relative thread resolved against the base", got)
 	}
 	if thread.Title == "" {

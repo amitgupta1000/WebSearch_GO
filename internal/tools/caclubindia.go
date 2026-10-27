@@ -79,12 +79,20 @@ func (c *CCIClient) Thread(ctx context.Context, threadURL string) (*CCIThread, e
 	}
 	target := trimmed
 	if !strings.HasPrefix(trimmed, "http://") && !strings.HasPrefix(trimmed, "https://") {
-		target = c.baseURL + "/" + strings.TrimPrefix(trimmed, "/")
+		// Measured: thread links on Caclubindia pages are relative and resolve
+		// against the forum path (/forum/...), not the site root.
+		if strings.HasPrefix(trimmed, "/") {
+			target = c.baseURL + trimmed
+		} else {
+			target = c.baseURL + "/forum/" + trimmed
+		}
 	}
 
-	if _, err := c.limiter.acquire(ctx, hostOf(target)); err != nil {
+	release, err := c.limiter.acquire(ctx, hostOf(target))
+	if err != nil {
 		return nil, err
 	}
+	defer release()
 	body, err := c.fetchHTML(ctx, target)
 	if err != nil {
 		return nil, err

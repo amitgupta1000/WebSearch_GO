@@ -119,6 +119,36 @@ func newLegalTestEngine(t *testing.T, llm LLMClient) *Engine {
 	t.Cleanup(func() { store.Close() })
 	return NewEngine(llm, &emptySearcher{}, &mockScraper{}, store, 5, 15, 20)
 }
+func TestPlanLegalQueriesJuristwayTrack(t *testing.T) {
+	query := models.LegalQuery{CompanyName: "Acme Robotics"}
+	planned := planLegalQueries(query, 8, false, true)
+	var sources []string
+	for _, plannedQuery := range planned {
+		sources = append(sources, plannedQuery.Source)
+	}
+	found := false
+	for _, source := range sources {
+		if source == "juristway" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a juristway track, got %v", sources)
+	}
+	for _, plannedQuery := range planned {
+		if plannedQuery.Source == "juristway" && (plannedQuery.Query != "Acme Robotics" || plannedQuery.PartyKind != "company") {
+			t.Errorf("juristway plan = %+v", plannedQuery)
+		}
+	}
+	// Without the client the track must be absent, not merely empty.
+	absent := planLegalQueries(query, 8, false, false)
+	for _, plannedQuery := range absent {
+		if plannedQuery.Source == "juristway" {
+			t.Errorf("nil juristway client still planned its track: %+v", plannedQuery)
+		}
+	}
+}
+
 func TestPlanLegalQueries(t *testing.T) {
 	query := models.LegalQuery{
 		CompanyName:    "Acme Robotics Pvt Ltd",
@@ -127,7 +157,7 @@ func TestPlanLegalQueries(t *testing.T) {
 		Persons:        []string{"Jane Doe", "John Roe"},
 	}
 
-	planned := planLegalQueries(query, 8, false)
+	planned := planLegalQueries(query, 8, false, false)
 
 	if len(planned) != 6 {
 		t.Fatalf("planned %d queries, want 6 (company, CIN, alias, casemine, 2 persons)", len(planned))
@@ -148,7 +178,7 @@ func TestPlanLegalQueries(t *testing.T) {
 		t.Errorf("person query = %q, want name + company co-occurrence", planned[4].Query)
 	}
 
-	tight := planLegalQueries(query, 2, false)
+	tight := planLegalQueries(query, 2, false, false)
 	if len(tight) != 2 {
 		t.Fatalf("budget=2 planned %d queries, want 2", len(tight))
 	}
@@ -171,7 +201,7 @@ func TestLegalPaginationStopsWhenPageAddsNoNewEntityHits(t *testing.T) {
 		2: pageOne,
 		3: {{Title: "Acme Robotics later case", DocURL: "https://indiankanoon.org/doc/3"}},
 	}}
-	agent := NewLegalAgent(newLegalTestEngine(t, legalClassifyLLM{}), source, nil, 8, 4, 5, 1)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalClassifyLLM{}), source, nil, nil, 8, 4, 5, 1)
 	matcher := newEntityMatcher(models.CompanyBrief{CompanyName: "Acme Robotics"})
 	kept, _, err := agent.executeLegalQuery(context.Background(), "session",
 		legalPlannedQuery{Query: `"Acme Robotics"`, Source: "indiankanoon", Party: "Acme Robotics", PartyKind: "company"},
@@ -189,7 +219,7 @@ func TestLegalPaginationStopsWhenPageAddsNoNewEntityHits(t *testing.T) {
 
 func TestPlanLegalQueriesNativeCasemine(t *testing.T) {
 	query := models.LegalQuery{CompanyName: "Acme Robotics Pvt Ltd"}
-	planned := planLegalQueries(query, 8, true)
+	planned := planLegalQueries(query, 8, true, false)
 	var casemine *legalPlannedQuery
 	for i := range planned {
 		if planned[i].Source == "casemine" {
@@ -203,7 +233,7 @@ func TestPlanLegalQueriesNativeCasemine(t *testing.T) {
 		t.Errorf("native casemine query = %q, want the party name itself (the client fetches the site's own results page)", casemine.Query)
 	}
 
-	snippetPlanned := planLegalQueries(query, 8, false)
+	snippetPlanned := planLegalQueries(query, 8, false, false)
 	for _, plannedQuery := range snippetPlanned {
 		if plannedQuery.Source == "casemine" && !strings.HasPrefix(plannedQuery.Query, "site:casemine.com") {
 			t.Errorf("fallback casemine query = %q, want the site-restricted snippet shape", plannedQuery.Query)
@@ -281,7 +311,7 @@ func TestResearchLegalClassifiesAndBuckets(t *testing.T) {
 			},
 		},
 	}
-	agent := NewLegalAgent(newLegalTestEngine(t, legalClassifyLLM{}), source, nil, 8, 0, 1, 0)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalClassifyLLM{}), source, nil, nil, 8, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s1", models.LegalQuery{
 		CompanyName: "Acme Robotics Pvt Ltd",
@@ -346,7 +376,7 @@ func TestResearchLegalModelFailureKeepsFindings(t *testing.T) {
 			},
 		},
 	}
-	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), source, nil, 8, 0, 1, 0)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), source, nil, nil, 8, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s2", models.LegalQuery{CompanyName: "Acme Robotics Pvt Ltd"}, nil)
 	if err != nil {
@@ -364,7 +394,7 @@ func TestResearchLegalModelFailureKeepsFindings(t *testing.T) {
 }
 
 func TestResearchLegalReportsUnavailableSource(t *testing.T) {
-	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), &failingLegalSource{}, nil, 4, 0, 1, 0)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), &failingLegalSource{}, nil, nil, 4, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s3", models.LegalQuery{CompanyName: "Acme Robotics Pvt Ltd"}, nil)
 	if err != nil {
@@ -400,7 +430,7 @@ func TestResearchLegalUnbudgetedPersonIsNamed(t *testing.T) {
 		},
 	}
 	// Two queries of budget: company + casemine only; the person never runs.
-	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), source, nil, 2, 0, 1, 0)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), source, nil, nil, 2, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s4", models.LegalQuery{
 		CompanyName: "Acme Robotics Pvt Ltd",
@@ -471,7 +501,7 @@ func TestResearchLegalDiscoversDirectors(t *testing.T) {
 	store := cache.NewMemoryCache(100)
 	t.Cleanup(func() { store.Close() })
 	engine := NewEngine(discoveryLLM{}, discoverySearcher{}, &mockScraper{}, store, 5, 15, 20)
-	agent := NewLegalAgent(engine, source, nil, 8, 0, 1, 0)
+	agent := NewLegalAgent(engine, source, nil, nil, 8, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s5", models.LegalQuery{
 		CompanyName:      "Acme Robotics Pvt Ltd",
@@ -530,7 +560,7 @@ func TestResearchLegalDiscoversDirectors(t *testing.T) {
 }
 
 func TestResearchLegalToggleOffSkipsDiscovery(t *testing.T) {
-	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), &fakeLegalSource{hits: map[string][]tools.LegalSearchHit{}}, nil, 8, 0, 1, 0)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), &fakeLegalSource{hits: map[string][]tools.LegalSearchHit{}}, nil, nil, 8, 0, 1, 0)
 
 	report, err := agent.ResearchLegal(context.Background(), "s6", models.LegalQuery{CompanyName: "Acme Robotics Pvt Ltd"}, nil)
 	if err != nil {
@@ -589,7 +619,7 @@ func TestLegalRunsBoundedAndDeterministic(t *testing.T) {
 			`"Acme Traders"`:    nil,
 		},
 	}}
-	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), source, nil, 8, 0, 1, 3)
+	agent := NewLegalAgent(newLegalTestEngine(t, legalFailingLLM{}), source, nil, nil, 8, 0, 1, 3)
 
 	report, err := agent.ResearchLegal(context.Background(), "s7", models.LegalQuery{
 		CompanyName: "Acme Robotics Pvt Ltd",

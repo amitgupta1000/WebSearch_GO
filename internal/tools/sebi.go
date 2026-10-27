@@ -58,9 +58,11 @@ func NewSEBIClient(scraper *Scraper) *SEBIClient {
 // (SEBI writes readable slugs); the order page's own <title> is the same text
 // and can be confirmed later when a memo fetches the full order.
 func (c *SEBIClient) OrderIndex(ctx context.Context) ([]SourceDoc, error) {
-	if _, err := c.limiter.acquire(ctx, hostOf(c.sitemapURL)); err != nil {
+	release, err := c.limiter.acquire(ctx, hostOf(c.sitemapURL))
+	if err != nil {
 		return nil, err
 	}
+	defer release()
 	body, err := c.fetchHTML(ctx, c.sitemapURL)
 	if err != nil {
 		return nil, err
@@ -78,9 +80,11 @@ func (c *SEBIClient) Order(ctx context.Context, orderURL string) (*SourceDoc, st
 	if !strings.Contains(trimmed, "/enforcement/orders/") {
 		return nil, "", fmt.Errorf("url is not a sebi enforcement order: %s", orderURL)
 	}
-	if _, err := c.limiter.acquire(ctx, hostOf(trimmed)); err != nil {
+	release, err := c.limiter.acquire(ctx, hostOf(trimmed))
+	if err != nil {
 		return nil, "", err
 	}
+	defer release()
 	body, err := c.fetchHTML(ctx, trimmed)
 	if err != nil {
 		return nil, "", err

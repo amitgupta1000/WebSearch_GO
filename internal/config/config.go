@@ -11,12 +11,18 @@ import (
 
 // Config stores application runtime settings and API credentials.
 type Config struct {
-	Port                  string
-	GCPProjectID          string
-	GCPRegion             string
-	SerperAPIKey          string
-	GeminiModel           string
-	CookieFile            string
+	Port         string
+	GCPProjectID string
+	GCPRegion    string
+	SerperAPIKey string
+	GeminiModel  string
+	CookieFile   string
+	// JuristwayEmail and JuristwayPassword are the juristway.com account the
+	// legal mode's Juristway track authenticates as when configured. The
+	// case-law metadata search works anonymously either way; credentials
+	// raise the session's entitlement ceiling for future full-text work.
+	JuristwayEmail        string
+	JuristwayPassword     string
 	EnableBrowserFallback bool
 	AllowBrowserToggle    bool
 	// AllowProfileScraping permits fetching professional-profile pages directly.
@@ -219,6 +225,8 @@ func Load() *Config {
 		SerperAPIKey:          os.Getenv("SERPER_API_KEY"),
 		GeminiModel:           model,
 		CookieFile:            os.Getenv("COOKIE_FILE_PATH"),
+		JuristwayEmail:        envString("JURISTWAY_EMAIL", ""),
+		JuristwayPassword:     envString("JURISTWAY_PASSWORD", ""),
 		EnableBrowserFallback: envBool("ENABLE_BROWSER_FALLBACK", false),
 		// AllowBrowserToggle lets the console offer a per-run "render with a real
 		// browser" option, which is only shown when Chromium is actually runnable.

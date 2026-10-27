@@ -77,6 +77,7 @@ type LegalAgent struct {
 	engine        *Engine
 	indianKanoon  legalSource
 	casemine      *tools.CasemineClient
+	juristway     legalSource
 	queriesPerRun int
 	docsPerRun    int
 	pagesPerQuery int
@@ -90,8 +91,9 @@ type LegalAgent struct {
 // NewLegalAgent initializes the legal agent. Non-positive budgets restore the
 // defaults, the same way the Engine's constructor does. The case-law sources are
 // the real clients in production and fakes in tests; a nil Casemine client keeps
-// the search-engine snippet track instead of the native one.
-func NewLegalAgent(engine *Engine, indianKanoon legalSource, casemine *tools.CasemineClient, queriesPerRun, docsPerRun, pagesPerQuery, concurrency int) *LegalAgent {
+// the search-engine snippet track instead of the native one, and a nil
+// Juristway client drops that track from the plan entirely.
+func NewLegalAgent(engine *Engine, indianKanoon legalSource, casemine *tools.CasemineClient, juristway legalSource, queriesPerRun, docsPerRun, pagesPerQuery, concurrency int) *LegalAgent {
 	if queriesPerRun <= 0 {
 		queriesPerRun = defaultLegalQueriesPerRun
 	}
@@ -108,6 +110,7 @@ func NewLegalAgent(engine *Engine, indianKanoon legalSource, casemine *tools.Cas
 		engine:        engine,
 		indianKanoon:  indianKanoon,
 		casemine:      casemine,
+		juristway:     juristway,
 		queriesPerRun: queriesPerRun,
 		docsPerRun:    docsPerRun,
 		pagesPerQuery: pagesPerQuery,
@@ -219,11 +222,12 @@ type legalParty struct {
 // planLegalQueries lays out the run's searches deterministically, strongest
 // first, and caps them at the run's query budget. The CIN search comes before
 // aliases (a CIN cannot collide), the company name before Casemine (the native
-// source is the better one), and persons last (they are the optional part of a
-// run, and their queries spend two quoted names each). When the native Casemine
-// client is present its query is the party name itself; without it the track
-// rides the search engine's site-restricted snippets.
-func planLegalQueries(query models.LegalQuery, budget int, casemineNative bool) []legalPlannedQuery {
+// source is the better one), Juristway after Casemine (its editorial corpus
+// complements the raw-judgment sources), and persons last (they are the
+// optional part of a run, and their queries spend two quoted names each). When
+// the native Casemine client is present its query is the party name itself;
+// without it the track rides the search engine's site-restricted snippets.
+func planLegalQueries(query models.LegalQuery, budget int, casemineNative, juristwayNative bool) []legalPlannedQuery {
 	companyName := strings.TrimSpace(query.CompanyName)
 	var planned []legalPlannedQuery
 
@@ -281,7 +285,22 @@ func planLegalQueries(query models.LegalQuery, budget int, casemineNative bool) 
 		Party:     companyName,
 		PartyKind: "company",
 	})
-	// 5. Named persons, searched as name + company co-occurrence — the same
+	// 5. The Juristway track: a commercial case-law database whose robots.txt
+	// explicitly allows programmatic /api/caseLaws access. Its corpus skews
+	// toward high courts, tribunals and tax (GST) matters with editorial
+	// headnotes — a complement to the raw judgments, not a duplicate. The
+	// query is the party name itself: the API matches a regex term, not a
+	// quoted phrase, and answers one page.
+	if juristwayNative {
+		add(legalPlannedQuery{
+			Query:     companyName,
+			Purpose:   "company — juristway records",
+			Source:    "juristway",
+			Party:     companyName,
+			PartyKind: "company",
+		})
+	}
+	// 6. Named persons, searched as name + company co-occurrence — the same
 	// discipline as company mode's reverse lookups, because a bare person name
 	// matches unrelated people.
 	for _, person := range query.Persons {
@@ -343,7 +362,7 @@ func (la *LegalAgent) ResearchLegal(ctx context.Context, sessionID string, query
 
 	// --- Plan (deterministic; no model call) -------------------------------
 	finishPlan := timer.start("plan")
-	planned := planLegalQueries(query, la.queriesPerRun, la.casemine != nil)
+	planned := planLegalQueries(query, la.queriesPerRun, la.casemine != nil, la.juristway != nil)
 	var companyPlans, operatorPersonPlans []legalPlannedQuery
 	for _, plannedQuery := range planned {
 		if plannedQuery.PartyKind == "person" {
@@ -362,6 +381,9 @@ func (la *LegalAgent) ResearchLegal(ctx context.Context, sessionID string, query
 	sources := map[string]*models.LegalSourceReport{}
 	for _, name := range []string{"indiankanoon", "casemine"} {
 		sources[name] = &models.LegalSourceReport{Name: name}
+	}
+	if la.juristway != nil {
+		sources["juristway"] = &models.LegalSourceReport{Name: "juristway"}
 	}
 	seenDocs := map[string]bool{}
 	budget := newLegalBudget(la.queriesPerRun - len(companyPlans))
@@ -1137,8 +1159,9 @@ func (la *LegalAgent) executeLegalQuery(ctx context.Context, sessionID string, p
 		if page > 1 {
 			// Sources without pagination end the walk before claiming budget
 			// for a page that cannot exist (Casemine, measured: the site
-			// ignores the page parameter).
-			if planned.Source == "casemine" {
+			// ignores the page parameter; Juristway's track is asked for
+			// page 1 only).
+			if planned.Source == "casemine" || planned.Source == "juristway" {
 				break
 			}
 			if !budget.tryTake() {
@@ -1160,6 +1183,11 @@ func (la *LegalAgent) executeLegalQuery(ctx context.Context, sessionID string, p
 				}
 				pageHits, pageErr = la.casemineSnippetSearchCached(ctx, planned.Query)
 			}
+		case "juristway":
+			if la.juristway == nil {
+				return nil, nil, fmt.Errorf("juristway source is not configured")
+			}
+			pageHits, pageErr = la.juristwaySearchCached(ctx, planned.Query)
 		default:
 			return nil, nil, fmt.Errorf("unknown legal source %q", planned.Source)
 		}
@@ -1261,6 +1289,23 @@ func (la *LegalAgent) casemineNativeSearchCached(ctx context.Context, query stri
 	}
 	// Casemine serves twenty results per page; ask for the full page.
 	fresh, err := la.casemine.Search(ctx, query, page, casemineMaxResultsPerQuery)
+	if err != nil {
+		return nil, err
+	}
+	cache.SetJSON(ctx, la.engine.cache, key, fresh, legalSearchTTL)
+	return fresh, nil
+}
+
+// juristwaySearchCached caches one Juristway search under the legal prefix,
+// keyed by the query alone — the track answers page 1 only. The client's own
+// politeness and token lifecycle live behind this call.
+func (la *LegalAgent) juristwaySearchCached(ctx context.Context, query string) ([]tools.LegalSearchHit, error) {
+	key := cache.HashKey("legal_search:", fmt.Sprintf("juristway|%s", query))
+	var hits []tools.LegalSearchHit
+	if cache.GetJSON(ctx, la.engine.cache, key, &hits) {
+		return hits, nil
+	}
+	fresh, err := la.juristway.Search(ctx, query, 1, legalMaxResultsPerQuery)
 	if err != nil {
 		return nil, err
 	}

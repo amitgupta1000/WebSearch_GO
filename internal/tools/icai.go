@@ -71,9 +71,11 @@ func (c *ICAIClient) Category(ctx context.Context, slug string) ([]SourceDoc, er
 		return nil, fmt.Errorf("icai category slug is empty")
 	}
 	categoryURL := c.baseURL + "/category/" + trimmed + "/"
-	if _, err := c.limiter.acquire(ctx, hostOf(categoryURL)); err != nil {
+	release, err := c.limiter.acquire(ctx, hostOf(categoryURL))
+	if err != nil {
 		return nil, err
 	}
+	defer release()
 	body, err := c.fetchHTML(ctx, categoryURL)
 	if err != nil {
 		return nil, err

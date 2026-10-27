@@ -172,9 +172,11 @@ func (c *IndianKanoonClient) fetch(ctx context.Context, target string) ([]byte, 
 			}
 		}
 
-		if _, err := c.limiter.acquire(ctx, hostOf(target)); err != nil {
+		release, err := c.limiter.acquire(ctx, hostOf(target))
+		if err != nil {
 			return nil, err
 		}
+		defer release()
 		body, err := c.attempt(ctx, target)
 		if err == nil {
 			return body, nil

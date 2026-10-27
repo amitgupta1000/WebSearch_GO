@@ -69,10 +69,15 @@ func (c *NFRAClient) Orders(ctx context.Context) ([]SourceDoc, error) {
 		if page > 1 {
 			archiveURL = fmt.Sprintf("%s%s%d/", c.baseURL, defaultNFRAOrdersPath, page)
 		}
-		if _, err := c.limiter.acquire(ctx, hostOf(archiveURL)); err != nil {
+		release, err := c.limiter.acquire(ctx, hostOf(archiveURL))
+		if err != nil {
 			return nil, err
 		}
 		body, err := c.fetchHTML(ctx, archiveURL)
+		// The in-flight slot is released per iteration: a defer here would
+		// hold the limiter's single slot until the whole walk returned and
+		// block page 2's acquire forever.
+		release()
 		if err != nil {
 			if page == 1 {
 				return nil, err
@@ -128,7 +133,7 @@ func parseNFRAOrders(baseURL string, body string) []SourceDoc {
 		}
 	})
 
-	var docs []SourceDoc
+	docs := []SourceDoc{}
 	seen := map[string]bool{}
 	parsed.Find("a").Each(func(_ int, a *goquery.Selection) {
 		href, exists := a.Attr("href")
@@ -151,6 +156,18 @@ func parseNFRAOrders(baseURL string, body string) []SourceDoc {
 		}
 		seen[absolute] = true
 
+		// The live listing renders a Title | Date | View/Download table: the
+		// action anchor's text is generic ("View"), while the row's first
+		// cell carries the order title. When the anchor text is generic, the
+		// containing row supplies the title.
+		if isGenericActionLabel(title) {
+			if row := a.Closest("tr"); row.Length() > 0 {
+				if rowTitle := collapseIndianKanoonSpace(row.Find("td").First().Text()); rowTitle != "" {
+					title = rowTitle
+				}
+			}
+		}
+
 		doc := SourceDoc{Title: title, Source: "nfra", Category: "orders"}
 		if isPDF {
 			doc.PDFURL = absolute
@@ -160,6 +177,17 @@ func parseNFRAOrders(baseURL string, body string) []SourceDoc {
 		docs = append(docs, doc)
 	})
 	return docs
+}
+
+// isGenericActionLabel reports whether an anchor's text is a table action
+// ("View", "Download", "LINK") rather than a document title — the NFRA
+// listing's per-row action links read exactly so.
+func isGenericActionLabel(text string) bool {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "view", "download", "link", "view / download", "click here":
+		return true
+	}
+	return false
 }
 
 // normalizeDocURL resolves a listing href against the site base, so entries

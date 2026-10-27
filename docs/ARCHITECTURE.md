@@ -30,24 +30,25 @@ endpoints and deployment.
 15. [Project health & known issues](#project-health--known-issues)
 16. [Design history & roadmap](#design-history--roadmap)
 
-## The three research modes
+## The four research modes
 
 WebSearch_GO is an **agentic AI research server** written in idiomatic Go (module
 `github.com/amitgupta1000/WebSearch_GO`, Go 1.24). It performs autonomous web research in
-three modes:
+four modes:
 
 | Mode | What it produces | How it works |
 | :--- | :--- | :--- |
 | **Company** (`mode=company`) | A structured `OrgChart`: overview, HQ, leadership, departments, locations, sources | LLM plans a set of Google queries → results are ranked for relevance → the top pages are scraped → Gemini synthesizes the org chart from the collected evidence |
 | **Person** (`mode=person`) | A structured `PersonProfile` dossier: title, company, bio, experiences, education, skills, confidence score | Disambiguated search (name + company + location) → bio-oriented pages are scraped → a secondary career search supplements snippets → Gemini synthesizes the dossier |
 | **Legal** (`mode=legal`) | A structured `LegalReport`: litigation findings on the confirmed company and named persons, plus same-named hits kept for review | The company identity is confirmed as in company mode → a deterministic plan searches IndianKanoon (native client) and Casemine (search snippets) → every hit is tied to the identity by CIN/name/alias → Gemini classifies category/status and writes an exposure summary |
+| **Related entities** (`mode=related_entity`) | A structured `RelatedEntityReport`: direct company relationships plus other companies connected to its directors and senior leaders | Confirm the company → search the usual company sources for explicit group, parent, subsidiary, affiliate, holding, and promoter relationships → identify company-linked leaders → search each leader's other-company involvement with bounded concurrent searches; related entities remain separate from the primary company gate |
 
 The system is built from six cooperating layers:
 
 - **HTTP layer** (`cmd/server`, `internal/web`) — an HTMX-powered single-page console,
   with templates embedded into the binary via `go:embed`.
-- **Agentic orchestration** (`internal/agent`) — a shared *Engine* plus three domain
-  specialists (company / person / legal) that plan, search, rank, scrape and synthesize.
+- **Agentic orchestration** (`internal/agent`) — a shared *Engine* plus four domain
+  specialists (company / person / legal / related entity) that plan, search, rank, scrape and synthesize.
 - **Tooling** (`internal/tools`) — Serper.dev Google-search client, a sanitized HTML
   scraper with an optional Playwright renderer and PDF text extraction,
   browser-cookie import, and the IndianKanoon case-law client.

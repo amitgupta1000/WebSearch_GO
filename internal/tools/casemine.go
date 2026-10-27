@@ -101,9 +101,11 @@ func (c *CasemineClient) Search(ctx context.Context, query string, page, maxResu
 
 	searchURL := c.baseURL + "/search/in?q=" + queryEscape(trimmed)
 
-	if _, err := c.limiter.acquire(ctx, hostOf(searchURL)); err != nil {
+	release, err := c.limiter.acquire(ctx, hostOf(searchURL))
+	if err != nil {
 		return nil, err
 	}
+	defer release()
 
 	// Step 1: plain HTTP with the scraper's browser-like headers and jar.
 	body, fetchErr := c.fetchHTML(ctx, searchURL)

@@ -27,6 +27,44 @@
 	{{end}}
 </div>
 {{end}}
+{{define "related_entity_report"}}
+<div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+	<div class="flex items-start justify-between border-b border-slate-800 pb-4">
+		<div>
+			<h3 class="text-2xl font-bold text-white">Related entities — {{.CompanyName}}</h3>
+			<p class="text-sm text-slate-500 mt-0.5">{{if .Domain}}{{.Domain}} · {{end}}{{if .RegistrationID}}registration {{.RegistrationID}} · {{end}}{{if .EntityConfirmed}}identity anchored{{else}}identity unconfirmed{{end}}</p>
+		</div>
+		<span class="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-3 py-1 rounded-full">{{.QueriesUsed}} search queries</span>
+	</div>
+	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Direct company relationships</h4>
+		{{if .DirectRelationships}}<div class="grid grid-cols-1 md:grid-cols-2 gap-3">{{range .DirectRelationships}}
+			<div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+				<div class="flex items-center justify-between gap-2"><span class="font-medium text-white">{{.Name}}</span><span class="text-[10px] text-indigo-300">{{.Confidence}}</span></div>
+				<div class="text-xs text-indigo-400">{{.Relationship}}{{if .Status}} · {{.Status}}{{end}}</div>
+				{{range .Evidence}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="block text-[11px] text-indigo-400 hover:underline break-all">{{.Title}}</a>{{if .Snippet}}<p class="text-[11px] text-slate-500">{{.Snippet}}</p>{{end}}{{end}}
+			</div>
+		{{end}}</div>{{else}}<p class="text-sm text-slate-500">No explicit group, parent, subsidiary, affiliate, or holding-company relationship was found in the returned sources.</p>{{end}}
+	</div>
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Leadership identified</h4>
+		{{if .Leadership}}<div class="grid grid-cols-1 md:grid-cols-2 gap-3">{{range .Leadership}}
+			<div class="bg-slate-950 border border-slate-800 rounded-xl p-3"><div class="font-medium text-white">{{.Name}}</div><div class="text-xs text-indigo-400">{{.Role}}</div><div class="text-[11px] text-slate-500">confidence {{.Confidence}}</div></div>
+		{{end}}</div>{{else}}<p class="text-sm text-slate-500">No company-linked leadership was identified.</p>{{end}}
+	</div>
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Leadership-derived relationships</h4>
+		{{if .LeadershipRelations}}<div class="grid grid-cols-1 md:grid-cols-2 gap-3">{{range .LeadershipRelations}}
+			<div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+				<div class="flex items-center justify-between gap-2"><span class="font-medium text-white">{{.Name}}</span><span class="text-[10px] text-indigo-300">{{.Confidence}}</span></div>
+				<div class="text-xs text-indigo-400">{{.Person}}{{if .Role}} · {{.Role}}{{end}}{{if .Status}} · {{.Status}}{{end}}</div>
+				{{range .Evidence}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="block text-[11px] text-indigo-400 hover:underline break-all">{{.Title}}</a>{{if .Snippet}}<p class="text-[11px] text-slate-500">{{.Snippet}}</p>{{end}}{{end}}
+			</div>
+		{{end}}</div>{{else}}<p class="text-sm text-slate-500">No additional company involvement was sufficiently supported by the leadership searches.</p>{{end}}
+	</div>
+</div>
+{{end}}
 
 {{define "workflow_console"}}
 <div class="space-y-6">
