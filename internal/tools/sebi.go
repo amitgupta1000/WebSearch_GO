@@ -2,7 +2,11 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -30,6 +34,7 @@ import (
 const (
 	defaultSEBIURL        = "https://www.sebi.gov.in"
 	defaultSEBISitemapURL = "https://www.sebi.gov.in/sitemap.xml"
+	defaultSEBISearchPath = "/sebiweb/ajax/search/section-search.jsp"
 )
 
 // SEBIClient reads SEBI's enforcement-order index.
@@ -37,20 +42,57 @@ type SEBIClient struct {
 	baseURL    string // overridable in tests
 	sitemapURL string
 	fetchHTML  func(ctx context.Context, targetURL string) (string, error)
+	postForm   func(ctx context.Context, targetURL string, form url.Values) (string, error)
 	limiter    *hostLimiter
 }
 
 // NewSEBIClient builds the client on a scraper's plain-HTML fetch.
 func NewSEBIClient(scraper *Scraper) *SEBIClient {
 	if scraper == nil {
-		return &SEBIClient{baseURL: defaultSEBIURL, sitemapURL: defaultSEBISitemapURL, limiter: newHostLimiter(1.0, 1, 1)}
+		return &SEBIClient{baseURL: defaultSEBIURL, sitemapURL: defaultSEBISitemapURL, postForm: postSEBIForm, limiter: newHostLimiter(1.0, 1, 1)}
 	}
 	return &SEBIClient{
 		baseURL:    defaultSEBIURL,
 		sitemapURL: defaultSEBISitemapURL,
 		fetchHTML:  scraper.FetchHTML,
+		postForm:   postSEBIForm,
 		limiter:    newHostLimiter(1.0, 1, 1),
 	}
+}
+
+// SearchOrders uses SEBI's official Orders search endpoint. The browser page
+// is only a form; results are returned by this POST endpoint.
+func (c *SEBIClient) SearchOrders(ctx context.Context, term, fromDate, toDate string, maxResults int) ([]SourceDoc, error) {
+	term = strings.TrimSpace(term)
+	if term == "" {
+		return nil, fmt.Errorf("sebi order search term is empty")
+	}
+	if maxResults <= 0 {
+		maxResults = 20
+	}
+	if c.postForm == nil {
+		return nil, fmt.Errorf("sebi order search is not configured")
+	}
+	release, err := c.limiter.acquire(ctx, hostOf(c.baseURL))
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	body, err := c.postForm(ctx, c.baseURL+defaultSEBISearchPath, url.Values{
+		"next_value": {"1"},
+		"searchval":  {base64.StdEncoding.EncodeToString([]byte(term))},
+		"fromDate":   {strings.TrimSpace(fromDate)},
+		"toDate":     {strings.TrimSpace(toDate)},
+		"fval":       {"Orders"},
+		"typeSearch": {"1"},
+		"next":       {"s"},
+		"doDirect":   {"-1"},
+		"sortby":     {"1"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return parseSEBIOrderSearch(body, maxResults), nil
 }
 
 // OrderIndex returns the enforcement-order entries from the site's sitemap,
@@ -161,4 +203,55 @@ func sebiOrderFromURL(raw string) SourceDoc {
 	}
 	title := strings.Title(strings.ReplaceAll(slug, "-", " "))
 	return SourceDoc{Title: title, URL: raw, Date: date, Source: "sebi", Category: "orders"}
+}
+
+func parseSEBIOrderSearch(body string, maxResults int) []SourceDoc {
+	parsed, err := goquery.NewDocumentFromReader(strings.NewReader(body))
+	if err != nil {
+		return nil
+	}
+	docs := make([]SourceDoc, 0, maxResults)
+	seen := map[string]bool{}
+	parsed.Find("a[href]").EachWithBreak(func(_ int, a *goquery.Selection) bool {
+		href, ok := a.Attr("href")
+		if !ok {
+			return true
+		}
+		absolute := normalizeDocURL(defaultSEBIURL, href)
+		if !strings.Contains(absolute, "/enforcement/orders/") || seen[absolute] {
+			return true
+		}
+		seen[absolute] = true
+		docs = append(docs, SourceDoc{
+			Title:    collapseIndianKanoonSpace(a.Text()),
+			URL:      absolute,
+			Source:   "sebi",
+			Category: "orders",
+		})
+		return len(docs) < maxResults
+	})
+	return docs
+}
+
+func postSEBIForm(ctx context.Context, targetURL string, form url.Values) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html, */*; q=0.01")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("sebi order search returned status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }

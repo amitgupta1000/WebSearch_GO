@@ -13,9 +13,11 @@ import (
 )
 
 const (
-	relatedEntityMaxQueries        = 24
-	relatedEntityMaxLeaders        = 8
-	relatedEntitySearchConcurrency = 4
+	relatedEntityMaxQueries        = 48
+	relatedEntityMaxDirectQueries  = 32
+	relatedEntityMaxLeaderQueries  = 8
+	relatedEntityMaxLeaders        = 16
+	relatedEntitySearchConcurrency = 8
 )
 
 // RelatedEntityAgent discovers direct company relationships and then follows
@@ -39,7 +41,13 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 
 	directQueries := relatedDirectQueries(query)
 	leaderQueries := relatedLeadershipQueries(query)
-	allQueries := append(directQueries, leaderQueries...)
+	if len(directQueries) > relatedEntityMaxDirectQueries {
+		directQueries = directQueries[:relatedEntityMaxDirectQueries]
+	}
+	if len(leaderQueries) > relatedEntityMaxLeaderQueries {
+		leaderQueries = leaderQueries[:relatedEntityMaxLeaderQueries]
+	}
+	allQueries := append(append([]relatedPlannedQuery{}, directQueries...), leaderQueries...)
 	if len(allQueries) > relatedEntityMaxQueries {
 		allQueries = allQueries[:relatedEntityMaxQueries]
 	}

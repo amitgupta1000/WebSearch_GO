@@ -160,54 +160,6 @@ func (e *Engine) EntityGateActive() bool {
 	return e.EntityGateMode() != EntityGateOff
 }
 
-// EntityGateRemoves reports whether off-entity people are removed from the roster
-// rather than only labelled.
-func (e *Engine) EntityGateRemoves() bool {
-	return e.EntityGateMode() == EntityGateEnforce
-}
-
-// EngineOption customizes an Engine after its required dependencies are set.
-type EngineOption func(*Engine)
-
-// WithProfileScraping allows professional-profile sources (for example
-// linkedin.com profiles) to be fetched directly.
-//
-// It is off by default: profile URLs normally contribute only their public search
-// snippet as evidence, which keeps the tool clear of fetching personal-profile
-// pages but limits department-level results for companies whose functional
-// leadership is only visible there.
-func WithProfileScraping(enabled bool) EngineOption {
-	return func(e *Engine) { e.scrapeProfiles = enabled }
-}
-
-// WithScrapeConcurrency sets how many pages may be fetched at once. Values below
-// one restore the default.
-func WithScrapeConcurrency(concurrency int) EngineOption {
-	return func(e *Engine) { e.scrapeConcurrency = concurrency }
-}
-
-// WithScrapeRevalidation sets how long a cached page is served without checking
-// whether it changed. A zero or negative duration disables conditional requests,
-// so every cache hit is served as-is until the entry expires.
-func WithScrapeRevalidation(after time.Duration) EngineOption {
-	return func(e *Engine) { e.scrapeRevalidateAfter = after }
-}
-
-// RunExporter stores the output artifacts of finished runs. *export.Exporter
-// satisfies it; the interface keeps the agent package independent of the storage
-// implementation.
-type RunExporter interface {
-	Enabled() bool
-	ExportCompany(ctx context.Context, chart *models.OrgChart) []models.ExportArtifact
-	ExportPerson(ctx context.Context, profile *models.PersonProfile) []models.ExportArtifact
-	ExportLegal(ctx context.Context, report *models.LegalReport) []models.ExportArtifact
-}
-
-// WithExporter attaches an artifact exporter. Without one, runs are not saved.
-func WithExporter(exporter RunExporter) EngineOption {
-	return func(e *Engine) { e.exporter = exporter }
-}
-
 // NewEngine initializes the agentic ReAct engine.
 func NewEngine(
 	llmClient LLMClient,

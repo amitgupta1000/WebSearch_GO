@@ -301,14 +301,14 @@ nothing. Person mode still has no freshness pass and no image OCR; company mode 
 | `CACHE_MAX_ENTRIES` | `2048` | Max entries in the in-memory TTL cache |
 | `RESEARCH_TIMEOUT_SECONDS` | `180` | Per-request research budget |
 | `BROWSER_RESEARCH_TIMEOUT_SECONDS` | `300` | Per-request research budget when a run renders pages in a real browser (clamped to at least `RESEARCH_TIMEOUT_SECONDS`) |
-| `LEGAL_TIMEOUT_SECONDS` | `120` | Per-request budget for a legal mode run (floored at `RESEARCH_TIMEOUT_SECONDS` so the HTTP write timeout can never cut a legal stream off) |
-| `LEGAL_QUERIES_PER_RUN` | `8` | Max legal searches per run across all sources and parties (company, CIN, aliases, Casemine, persons) |
-| `LEGAL_DOCS_PER_RUN` | `4` | Max IndianKanoon documents fetched in full per legal run; findings otherwise stand on their search-page snippets |
-| `LEGAL_PAGES_PER_QUERY` | `5` | Adaptive legal-source ceiling; the walk stops early on empty/repeated pages or pages with no new entity-relevant hits. IndianKanoon paginates natively (`&pagenum=`); Casemine is a measured single-page source. This does not limit normal company/person domain searches |
-| `LEGAL_CONCURRENCY` | `4` | How many legal searches and document fetches run at once. Each source's own politeness limiter still governs its request rate — the pool is what lets an IndianKanoon wait overlap a Casemine fetch instead of queueing behind it |
-| `MAX_SCRAPES_PER_RUN` | `10` | Max web pages scraped per research session |
-| `MAX_SEARCH_RESULTS` | `12` | Max search results fetched per search query |
-| `MAX_AGENT_STEPS` | `10` | Max agent/tool iterations per research session |
+| `LEGAL_TIMEOUT_SECONDS` | `180` | Per-request budget for a legal mode run (floored at `RESEARCH_TIMEOUT_SECONDS` so the HTTP write timeout can never cut a legal stream off) |
+| `LEGAL_QUERIES_PER_RUN` | `16` | Max legal searches per run across all sources and parties (company, CIN, aliases, Casemine, persons) |
+| `LEGAL_DOCS_PER_RUN` | `8` | Max IndianKanoon documents fetched in full per legal run; findings otherwise stand on their search-page snippets |
+| `LEGAL_PAGES_PER_QUERY` | `8` | Adaptive legal-source ceiling; the walk stops early on empty/repeated pages or pages with no new entity-relevant hits. IndianKanoon paginates natively (`&pagenum=`); Casemine is a measured single-page source. This does not limit normal company/person domain searches |
+| `LEGAL_CONCURRENCY` | `6` | How many legal searches and document fetches run at once. Each source's own politeness limiter still governs its request rate — the pool is what lets an IndianKanoon wait overlap a Casemine fetch instead of queueing behind it |
+| `MAX_SCRAPES_PER_RUN` | `20` | Max web pages scraped per research session |
+| `MAX_SEARCH_RESULTS` | `20` | Max search results fetched per search query |
+| `MAX_AGENT_STEPS` | `20` | Max agent/tool iterations per research session |
 | `ALLOW_BROWSER_TOGGLE` | `true` | Offer a per-run "render pages in a real browser" option in the console. Only shown when Chromium can actually start |
 | `ALLOW_PROFILE_SCRAPING` | `false` | Fetch professional-profile pages (e.g. `linkedin.com`) directly instead of keeping only their public search snippet. Opt-in, because that is a policy decision |
 | `HARD_URL_HANDLER` | `true` | Escalate blocked pages and professional profiles to the bounded hard-URL handler (plain render → cookie-bridged render → extended settle) |

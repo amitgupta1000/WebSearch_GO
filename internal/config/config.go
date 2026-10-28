@@ -147,31 +147,20 @@ const (
 	defaultOutputBucket   = "crystal-crm-store"
 	defaultOutputPrefix   = "WebSearch_GO/"
 	defaultOutputFormats  = "md,pdf"
-	// defaultHardURLsPerRun mirrors the agent's own default for the hard-URL ladder.
-	defaultHardURLsPerRun = 2
-	// defaultValidationLookups, defaultValidationStaleMonths and
-	// defaultValidationRecentMonths mirror the agent's defaults for the freshness
-	// pass: four reverse lookups per run, stale beyond 36 months, current inside
-	// 18 months.
-	defaultValidationLookups      = 10
-	defaultValidationStaleMonths  = 36
-	defaultValidationRecentMonths = 18
-	// defaultEntityGateMode mirrors the agent's default: enforce.
-	defaultEntityGateMode = "enforce"
 	// defaultLegalTimeout, defaultLegalQueriesPerRun and defaultLegalDocsPerRun
-	// are the legal mode budgets: a run bounded to two minutes, eight searches
-	// across all parties and sources, and four full document fetches. A legal
+	// are the legal mode budgets: a run bounded to three minutes, sixteen searches
+	// across all parties and sources, and eight full document fetches. A legal
 	// run is snippet-first; documents are fetched only to firm up identity.
-	defaultLegalTimeout       = 120
-	defaultLegalQueriesPerRun = 8
-	defaultLegalDocsPerRun    = 4
+	defaultLegalTimeout       = 180
+	defaultLegalQueriesPerRun = 16
+	defaultLegalDocsPerRun    = 8
 	// defaultLegalPagesPerQuery is the adaptive-walk ceiling: page 1 plus up
-	// to four continuations, subject to early stopping and the run budget.
-	defaultLegalPagesPerQuery = 5
+	// to seven continuations, subject to early stopping and the run budget.
+	defaultLegalPagesPerQuery = 8
 	// defaultLegalConcurrency mirrors the agent's default: four searches in
 	// flight, with each source's own limiter still governing its politeness.
-	defaultLegalConcurrency      = 4
-	defaultScrapeConcurrency     = 4
+	defaultLegalConcurrency      = 6
+	defaultScrapeConcurrency     = 6
 	defaultScrapeHostRate        = 2
 	defaultScrapeHostBurst       = 3
 	defaultScrapeHostConcurrency = 2
@@ -231,7 +220,6 @@ func Load() *Config {
 		// AllowBrowserToggle lets the console offer a per-run "render with a real
 		// browser" option, which is only shown when Chromium is actually runnable.
 		AllowBrowserToggle:     envBool("ALLOW_BROWSER_TOGGLE", true),
-		AllowProfileScraping:   envBool("ALLOW_PROFILE_SCRAPING", false),
 		CacheMaxEntries:        envInt("CACHE_MAX_ENTRIES", 2048),
 		CacheBackend:           envString("CACHE_BACKEND", defaultCacheBackend),
 		RedisURL:               os.Getenv("REDIS_URL"),
@@ -249,9 +237,9 @@ func Load() *Config {
 		GoogleCredentialsFile:  os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"),
 		ResearchTimeout:        researchTimeout,
 		BrowserResearchTimeout: browserResearchTimeout,
-		MaxScrapesPerRun:       envInt("MAX_SCRAPES_PER_RUN", 10),
-		MaxSearchResults:       envInt("MAX_SEARCH_RESULTS", 12),
-		MaxSteps:               envInt("MAX_AGENT_STEPS", 10),
+		MaxScrapesPerRun:       envInt("MAX_SCRAPES_PER_RUN", 20),
+		MaxSearchResults:       envInt("MAX_SEARCH_RESULTS", 20),
+		MaxSteps:               envInt("MAX_AGENT_STEPS", 20),
 		ScrapeConcurrency:      envInt("SCRAPE_CONCURRENCY", defaultScrapeConcurrency),
 		ScrapeHostRate:         envFloat("SCRAPE_HOST_RATE_PER_SEC", defaultScrapeHostRate),
 		ScrapeHostBurst:        envFloat("SCRAPE_HOST_BURST", defaultScrapeHostBurst),
@@ -262,15 +250,6 @@ func Load() *Config {
 			int(defaultMaxRetryAfter.Seconds()))) * time.Second,
 		DocumentExtractTimeout: time.Duration(envInt("DOCUMENT_EXTRACT_TIMEOUT_SECONDS",
 			int(defaultDocumentExtractTimeout.Seconds()))) * time.Second,
-		HardURLHandler: envBool("HARD_URL_HANDLER", true),
-		HardURLsPerRun: envInt("HARD_URLS_PER_RUN", defaultHardURLsPerRun),
-		HardURLBudget:  time.Duration(envInt("HARD_URL_BUDGET_SECONDS", 0)) * time.Second,
-
-		ValidateEvidence:       envBool("VALIDATE_EVIDENCE", true),
-		ValidationLookups:      envInt("VALIDATION_LOOKUPS_PER_RUN", defaultValidationLookups),
-		ValidationStaleMonths:  envInt("VALIDATION_STALE_AFTER_MONTHS", defaultValidationStaleMonths),
-		ValidationRecentMonths: envInt("VALIDATION_RECENT_WITHIN_MONTHS", defaultValidationRecentMonths),
-		EntityGateMode:         entityGateMode(envString("ENTITY_GATE_MODE", defaultEntityGateMode)),
 
 		LegalTimeout:       time.Duration(envInt("LEGAL_TIMEOUT_SECONDS", defaultLegalTimeout)) * time.Second,
 		LegalQueriesPerRun: envInt("LEGAL_QUERIES_PER_RUN", defaultLegalQueriesPerRun),
@@ -379,14 +358,6 @@ func (c *Config) MaxResearchTimeout() time.Duration {
 
 // entityGateMode validates the configured gate mode. An unrecognised value falls back
 // to the default rather than disabling a correctness gate on a typo.
-func entityGateMode(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "enforce", "report", "off":
-		return strings.ToLower(strings.TrimSpace(value))
-	default:
-		return defaultEntityGateMode
-	}
-}
 
 // envString reads a string environment variable, falling back to def when it is
 // unset or blank.
