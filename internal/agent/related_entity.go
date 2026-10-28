@@ -18,6 +18,9 @@ const (
 	relatedEntityMaxLeaderQueries  = 8
 	relatedEntityMaxLeaders        = 16
 	relatedEntitySearchConcurrency = 8
+	relatedEntityDirectEvidence    = 40
+	relatedEntityLeaderEvidence    = 30
+	relatedEntitySnippetMaxRunes   = 1200
 )
 
 // RelatedEntityAgent discovers direct company relationships and then follows
@@ -88,6 +91,7 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 	if err := a.extract(ctx, query, directHits, leadHits, report); err != nil {
 		return nil, err
 	}
+	report.Graph = relatedEntityGraph(report)
 	if len(report.Leadership) == 0 {
 		report.Warnings = append(report.Warnings, "No company-linked directors or senior executives were identified in the returned snippets.")
 	}
@@ -162,29 +166,124 @@ func flattenTrace(trace *models.SearchTrace, start, end int) []models.SearchResu
 }
 
 func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEntityQuery, directHits, leaderHits []models.SearchResult, report *models.RelatedEntityReport) error {
-	promptData := struct {
+	directPayload, err := json.Marshal(struct {
 		Company string
-		Direct  []models.SearchResult
-		Leaders []models.SearchResult
-	}{query.CompanyName, directHits, leaderHits}
-	payload, err := json.Marshal(promptData)
+		Hits    []models.SearchResult
+	}{query.CompanyName, boundedRelatedEvidence(directHits, relatedEntityDirectEvidence)})
 	if err != nil {
-		return fmt.Errorf("prepare related-entity evidence: %w", err)
+		return fmt.Errorf("prepare direct related-entity evidence: %w", err)
 	}
-	var extracted struct {
-		DirectRelationships []models.RelatedCompany    `json:"direct_relationships"`
-		Leadership          []models.LeadershipSubject `json:"leadership"`
+	var directExtracted struct {
+		DirectRelationships []models.RelatedCompany `json:"direct_relationships"`
 	}
-	err = a.engine.llmClient.GenerateStructured(ctx, `Extract only evidence-supported relationships from the supplied Google-indexed results. Do not infer ownership from a name alone. A direct relationship must be explicitly stated for the primary company. Leadership must name a person and role at the primary company. Return JSON with direct_relationships and leadership.`, string(payload), &extracted)
+	if err := a.engine.llmClient.GenerateStructured(ctx, `Extract only explicitly stated direct corporate relationships for the primary company from the supplied Google-indexed results. Do not infer ownership from a name alone. Return JSON with direct_relationships; return an empty array when evidence is insufficient.`, string(directPayload), &directExtracted); err != nil {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("Direct relationship extraction failed: %v", err))
+	} else {
+		report.DirectRelationships = normalizeRelated(directExtracted.DirectRelationships, query.CompanyName)
+	}
+
+	leaderPayload, err := json.Marshal(struct {
+		Company string
+		Hits    []models.SearchResult
+	}{query.CompanyName, boundedRelatedEvidence(leaderHits, relatedEntityLeaderEvidence)})
 	if err != nil {
-		return fmt.Errorf("extract related-entity evidence: %w", err)
+		return fmt.Errorf("prepare leadership evidence: %w", err)
 	}
-	report.DirectRelationships = normalizeRelated(extracted.DirectRelationships, query.CompanyName)
-	report.Leadership = normalizeLeaders(extracted.Leadership, query.CompanyName, query.MaxLeaders)
+	var leaderExtracted struct {
+		Leadership []models.LeadershipSubject `json:"leadership"`
+	}
+	if err := a.engine.llmClient.GenerateStructured(ctx, `Extract company-linked directors and senior executives from the supplied Google-indexed results. Each person must have an explicit role at the primary company. Do not infer identity from a name alone. Return JSON with leadership; return an empty array when evidence is insufficient.`, string(leaderPayload), &leaderExtracted); err != nil {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("Leadership extraction failed: %v", err))
+		return nil
+	}
+	report.Leadership = normalizeLeaders(leaderExtracted.Leadership, query.CompanyName, query.MaxLeaders)
 	if len(report.Leadership) == 0 {
 		return nil
 	}
 	return a.searchLeadership(ctx, query, report)
+}
+
+func boundedRelatedEvidence(hits []models.SearchResult, limit int) []models.SearchResult {
+	out := make([]models.SearchResult, 0, limit)
+	seen := map[string]bool{}
+	for _, hit := range hits {
+		key := strings.TrimSpace(hit.Link)
+		if key == "" {
+			key = strings.ToLower(strings.TrimSpace(hit.Title + "\x00" + hit.Snippet))
+		}
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		hit.Snippet = truncateRunes(strings.TrimSpace(hit.Snippet), relatedEntitySnippetMaxRunes)
+		out = append(out, hit)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func truncateRunes(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit]) + "..."
+}
+
+func relatedEntityGraph(report *models.RelatedEntityReport) models.RelatedEntityGraph {
+	graph := models.RelatedEntityGraph{
+		Nodes: []models.RelatedEntityNode{{ID: "company:primary", Name: report.CompanyName, Type: "primary_company"}},
+	}
+	nodeIDs := map[string]bool{"company:primary": true}
+	nodeLabels := map[string]string{"company:primary": report.CompanyName}
+	addNode := func(id, name, kind string) {
+		if !nodeIDs[id] {
+			nodeIDs[id] = true
+			nodeLabels[id] = name
+			graph.Nodes = append(graph.Nodes, models.RelatedEntityNode{ID: id, Name: name, Type: kind})
+		}
+	}
+	addCompanyEdge := func(company models.RelatedCompany, from string, relationship string) {
+		name := strings.TrimSpace(company.Name)
+		if name == "" {
+			return
+		}
+		id := "company:" + strings.ToLower(name)
+		addNode(id, name, "related_company")
+		if relationship == "" {
+			relationship = company.Relationship
+		}
+		graph.Edges = append(graph.Edges, models.RelatedEntityEdge{
+			From: from, FromLabel: nodeLabels[from], To: id, ToLabel: name,
+			Relationship: relationship, Status: company.Status, Confidence: company.Confidence,
+			Evidence: company.Evidence,
+		})
+	}
+	for _, company := range report.DirectRelationships {
+		addCompanyEdge(company, "company:primary", company.Relationship)
+	}
+	for _, leader := range report.Leadership {
+		name := strings.TrimSpace(leader.Name)
+		if name == "" {
+			continue
+		}
+		id := "person:" + strings.ToLower(name)
+		addNode(id, name, "leader")
+		graph.Edges = append(graph.Edges, models.RelatedEntityEdge{
+			From: "company:primary", FromLabel: report.CompanyName, To: id, ToLabel: name,
+			Relationship: leader.Role, Confidence: leader.Confidence, Evidence: leader.Evidence,
+		})
+	}
+	for _, company := range report.LeadershipRelations {
+		personID := "person:" + strings.ToLower(strings.TrimSpace(company.Person))
+		if !nodeIDs[personID] {
+			addNode(personID, company.Person, "leader")
+		}
+		addCompanyEdge(company, personID, company.Relationship)
+	}
+	return graph
 }
 
 func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.RelatedEntityQuery, report *models.RelatedEntityReport) error {

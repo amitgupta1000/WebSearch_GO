@@ -41,6 +41,10 @@
 	</div>
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
 	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Evidence graph</h4>
+		{{if .Graph.Edges}}<div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead class="text-slate-500"><tr><th class="p-2">From</th><th class="p-2">Relationship</th><th class="p-2">To</th><th class="p-2">Confidence</th></tr></thead><tbody>{{range .Graph.Edges}}<tr class="border-t border-slate-800"><td class="p-2 text-white">{{.FromLabel}}</td><td class="p-2 text-indigo-400">{{.Relationship}}</td><td class="p-2 text-white">{{.ToLabel}}</td><td class="p-2 text-slate-400">{{.Confidence}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="text-sm text-slate-500">No evidence-backed graph edges were extracted.</p>{{end}}
+	</div>
+	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Direct company relationships</h4>
 		{{if .DirectRelationships}}<div class="grid grid-cols-1 md:grid-cols-2 gap-3">{{range .DirectRelationships}}
 			<div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">

@@ -455,7 +455,7 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	companyBrief := models.CompanyBrief{
 		CompanyName:       query,
 		SourceProfile:     strings.TrimSpace(r.FormValue("source_profile")),
-		RelatedMaxLeaders: parseBoundedInt(r.FormValue("related_max_leaders"), 8, 1, 8),
+		RelatedMaxLeaders: parseBoundedInt(r.FormValue("related_max_leaders"), 16, 1, 16),
 		PersonOfInterest:  strings.TrimSpace(r.FormValue("person_of_interest")),
 		Domain:            entityDomainValue(r),
 		Aliases:           splitFormList(r.FormValue("entity_aliases")),
@@ -519,22 +519,23 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if mode == "related_entity" {
+			related, researchErr := s.relatedAgent.Research(ctx, sessionID, relatedEntityQueryFromBrief(companyBrief), nil)
+			if researchErr != nil {
+				log.Printf("[ERROR] related entity research failed (session %s): %v", sessionID, researchErr)
+				s.renderError(w, "Related entity research failed: "+researchErr.Error())
+				return
+			}
+			s.render(w, "related_entity_report", related)
+			return
+		}
+
 		if mode == "legal" {
 			legalQuery := legalQueryFromForm(r, query)
 			report, researchErr := s.legalAgent.ResearchLegal(ctx, sessionID, legalQuery, nil)
 			if researchErr != nil {
 				log.Printf("[ERROR] legal research failed (session %s): %v", sessionID, researchErr)
 				s.renderError(w, "Legal research failed: "+researchErr.Error())
-				return
-			}
-			if mode == "related_entity" {
-				related, researchErr := s.relatedAgent.Research(ctx, sessionID, relatedEntityQueryFromBrief(companyBrief), nil)
-				if researchErr != nil {
-					log.Printf("[ERROR] related entity research failed (session %s): %v", sessionID, researchErr)
-					s.renderError(w, "Related entity research failed: "+researchErr.Error())
-					return
-				}
-				s.render(w, "related_entity_report", related)
 				return
 			}
 			s.render(w, "legal_report", report)

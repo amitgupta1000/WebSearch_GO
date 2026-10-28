@@ -17,7 +17,7 @@ func TestGeminiExtractsTextFromInlinePDF(t *testing.T) {
 		t.Skip("set GEMINI_INTEGRATION=1 to run the Gemini integration test")
 	}
 
-	client, err := NewGeminiClient(context.Background(), "")
+	client, err := NewGeminiClient(context.Background(), os.Getenv("GEMINI_MODEL"))
 	if err != nil {
 		t.Fatalf("NewGeminiClient: %v", err)
 	}

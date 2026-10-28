@@ -39,6 +39,28 @@ type RelatedCompany struct {
 	Evidence     []RelatedEntityEvidence `json:"evidence,omitempty"`
 }
 
+type RelatedEntityGraph struct {
+	Nodes []RelatedEntityNode `json:"nodes,omitempty"`
+	Edges []RelatedEntityEdge `json:"edges,omitempty"`
+}
+
+type RelatedEntityNode struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+type RelatedEntityEdge struct {
+	From         string                  `json:"from"`
+	FromLabel    string                  `json:"from_label"`
+	To           string                  `json:"to"`
+	ToLabel      string                  `json:"to_label"`
+	Relationship string                  `json:"relationship"`
+	Status       string                  `json:"status,omitempty"`
+	Confidence   float64                 `json:"confidence"`
+	Evidence     []RelatedEntityEvidence `json:"evidence,omitempty"`
+}
+
 // RelatedEntityReport keeps direct company relationships separate from
 // relationships discovered through leadership.
 type RelatedEntityReport struct {
@@ -49,6 +71,7 @@ type RelatedEntityReport struct {
 	DirectRelationships []RelatedCompany        `json:"direct_relationships,omitempty"`
 	Leadership          []LeadershipSubject     `json:"leadership,omitempty"`
 	LeadershipRelations []RelatedCompany        `json:"leadership_relationships,omitempty"`
+	Graph               RelatedEntityGraph      `json:"graph"`
 	QueriesUsed         int                     `json:"queries_used"`
 	QueriesPlanned      int                     `json:"queries_planned"`
 	SearchTrace         *SearchTrace            `json:"search_trace,omitempty"`
