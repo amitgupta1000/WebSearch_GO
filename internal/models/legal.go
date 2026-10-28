@@ -151,8 +151,16 @@ type LegalRiskAssessment struct {
 	Drivers []string `json:"drivers,omitempty"`
 	// Classified reports whether the model wrote this assessment. The fallback
 	// assessment is count-derived and labelled as such.
-	Classified bool   `json:"classified,omitempty"`
-	Note       string `json:"note,omitempty"`
+	Classified         bool   `json:"classified,omitempty"`
+	Note               string `json:"note,omitempty"`
+	OpinionFilter      string `json:"opinion_filter,omitempty"`
+	OpinionCutoff      string `json:"opinion_cutoff,omitempty"`
+	EligibleFindings   int    `json:"eligible_findings"`
+	ExcludedFindings   int    `json:"excluded_findings"`
+	ExcludedOld        int    `json:"excluded_old,omitempty"`
+	ExcludedInitiated  int    `json:"excluded_initiated,omitempty"`
+	ExcludedUndated    int    `json:"excluded_undated,omitempty"`
+	ExcludedNonCompany int    `json:"excluded_non_company,omitempty"`
 }
 
 // LegalReport is the result of a legal mode run: every finding the bounded

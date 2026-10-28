@@ -747,6 +747,7 @@ func TestLegalFallbackRiskLevels(t *testing.T) {
 	if high.Level != "high" {
 		t.Errorf("pending facing criminal: level = %q, want high", high.Level)
 	}
+
 	if len(high.Drivers) == 0 || !strings.Contains(high.Drivers[0], "State vs Acme") {
 		t.Errorf("drivers should name the specific matter: %v", high.Drivers)
 	}
@@ -771,5 +772,22 @@ func TestLegalFallbackRiskLevels(t *testing.T) {
 	// No findings at all: none.
 	if legalFallbackRisk(nil).Level != "none" {
 		t.Error("no findings must assess to none")
+	}
+}
+
+func TestRiskOpinionFindingsKeepsRecentCompanyDefendantsOnly(t *testing.T) {
+	now := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
+	eligible, scope := riskOpinionFindings([]models.LegalFinding{
+		{PartyKind: "company", Role: models.LegalRoleFacing, Date: "2 February, 2021"},
+		{PartyKind: "company", Role: models.LegalRoleInitiated, Date: "3 March, 2024"},
+		{PartyKind: "company", Role: models.LegalRoleFacing, Date: "1 January, 2015"},
+		{PartyKind: "company", Role: models.LegalRoleFacing, Date: ""},
+		{PartyKind: "person", Role: models.LegalRoleFacing, Date: "1 January, 2024"},
+	}, now)
+	if len(eligible) != 1 {
+		t.Fatalf("eligible findings = %d, want 1", len(eligible))
+	}
+	if scope.Excluded != 4 || scope.Old != 1 || scope.Initiated != 1 || scope.Undated != 1 || scope.NonCompany != 1 {
+		t.Fatalf("scope = %+v, want four excluded split by age, role, date, and party", scope)
 	}
 }

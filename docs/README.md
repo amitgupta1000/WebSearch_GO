@@ -111,6 +111,12 @@ A legal run is a bounded litigation-exposure check on the confirmed company and 
 persons. It is deliberately smaller than the other modes: no planning model call, no scrape
 ladder, no QC loop.
 
+The run retains every relevant identity-matched finding for review, but its risk opinion applies
+a post-retrieval filter: only cases dated within the previous ten years where the company is on
+the responding side (defendant/respondent/accused) are sent to the risk assessment. Initiated,
+older, undated, and person-party findings remain visible but are explicitly excluded from the
+opinion.
+
 1. **Identity** — the confirmation step pins the company (domain, aliases, CIN); the form's
    `Directors / key persons` field names the people to check.
 2. **Search** — a deterministic plan spends at most `LEGAL_QUERIES_PER_RUN` searches,

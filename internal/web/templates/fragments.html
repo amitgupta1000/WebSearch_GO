@@ -845,6 +845,7 @@
 			{{if not .Risk.Classified}}<span class="text-[10px] text-slate-500">count-derived fallback — the model was unavailable</span>{{end}}
 		</div>
 		{{if .Risk.Summary}}<p class="text-sm text-slate-300 leading-relaxed">{{.Risk.Summary}}</p>{{end}}
+		{{if .Risk.OpinionFilter}}<p class="text-[11px] text-slate-500 mt-2">Opinion filter: {{.Risk.OpinionFilter}} · cutoff {{.Risk.OpinionCutoff}} · {{.Risk.EligibleFindings}} included, {{.Risk.ExcludedFindings}} excluded from opinion but retained below.</p>{{end}}
 		{{if .Risk.Drivers}}
 		<ul class="mt-2 space-y-1">
 			{{range .Risk.Drivers}}<li class="text-xs text-slate-400">• {{.}}</li>{{end}}

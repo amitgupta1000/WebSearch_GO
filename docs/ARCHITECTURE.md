@@ -1410,6 +1410,12 @@ the two cited sources.
   structured extraction is too conservative, so an empty relationship classification does not
   hide the material the search actually returned.
 
+- **Legal risk opinion is filtered after retrieval.** Legal mode still retains and displays every
+  identity-matched finding, but the risk-assessment model and deterministic fallback receive only
+  findings where the company is the responding-side party (`facing`) and the case date is within
+  the previous ten years. Initiated matters, older matters, undated matters, and person-party
+  findings are counted as excluded from the opinion and remain visible in the findings list.
+
 - **A refused client is reported, not retried.** `isBotDenialStatus` recognizes the non-standard
   code a host uses to refuse a client (LinkedIn answers 999 to a plain client for a person
   profile: 1.5 KB, no content, measured), and `fetchHTTPOnce` returns it immediately with the

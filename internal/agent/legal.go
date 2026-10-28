@@ -1656,18 +1656,31 @@ var legalRiskFacingCategories = map[string]bool{
 // same-named hits are supplied only as context — they are not attributed to
 // the company and must not inflate its risk.
 func (la *LegalAgent) assessRisk(ctx context.Context, sessionID string, identity models.CompanyBrief, findings, sameNamed []models.LegalFinding, eventCh chan<- models.AgentEvent) *models.LegalRiskAssessment {
-	if len(findings) == 0 {
-		return &models.LegalRiskAssessment{
-			Level:   "none",
-			Summary: "No case records matched the confirmed identity, so no litigation exposure was identified for the company itself.",
-		}
+	eligible, scope := riskOpinionFindings(findings, time.Now().UTC())
+	base := &models.LegalRiskAssessment{
+		OpinionFilter:      "company is the responding party (defendant/respondent/accused) and the case date is within the previous 10 years",
+		OpinionCutoff:      scope.Cutoff.Format("2006-01-02"),
+		EligibleFindings:   len(eligible),
+		ExcludedFindings:   scope.Excluded,
+		ExcludedOld:        scope.Old,
+		ExcludedInitiated:  scope.Initiated,
+		ExcludedUndated:    scope.Undated,
+		ExcludedNonCompany: scope.NonCompany,
+	}
+	if len(eligible) == 0 {
+		base.Level = "none"
+		base.Summary = fmt.Sprintf("No qualifying recent defendant/respondent matter was identified. %d collected finding(s) were retained, but excluded from the opinion because they were initiated, older than ten years, undated, or not company-party findings.", len(findings))
+		base.Note = "The opinion filter does not mean the excluded findings are irrelevant; they remain available below."
+		return base
 	}
 	if la.engine == nil {
-		return legalFallbackRisk(findings)
+		assessment := legalFallbackRisk(eligible)
+		*base = *mergeRiskScope(base, assessment)
+		return base
 	}
 
 	var listBuilder strings.Builder
-	for index, finding := range findings {
+	for index, finding := range eligible {
 		fmt.Fprintf(&listBuilder, "%d. [%s|%s] %q | court=%s | date=%s | category=%s | status=%s | match=%s | snippet=%s\n",
 			index, finding.Involvement, finding.Role, finding.CaseTitle, finding.Court,
 			finding.Date, finding.Category, finding.Status, finding.MatchKey, finding.Snippet)
@@ -1687,7 +1700,9 @@ func (la *LegalAgent) assessRisk(ctx context.Context, sessionID string, identity
 	var target legalRiskTarget
 	if err := la.engine.GenerateStructured(ctx, systemPrompt, userPrompt, &target); err != nil {
 		log.Printf("[LEGAL][session %s] risk assessment failed, falling back to counts: %v", sessionID, err)
-		return legalFallbackRisk(findings)
+		assessment := legalFallbackRisk(eligible)
+		*base = *mergeRiskScope(base, assessment)
+		return base
 	}
 
 	level := strings.ToLower(strings.TrimSpace(target.Level))
@@ -1701,8 +1716,9 @@ func (la *LegalAgent) assessRisk(ctx context.Context, sessionID string, identity
 		Classified: true,
 	}
 	if len(assessment.Drivers) == 0 {
-		assessment.Drivers = legalFallbackRisk(findings).Drivers
+		assessment.Drivers = legalFallbackRisk(eligible).Drivers
 	}
+	*base = *mergeRiskScope(base, assessment)
 	Emit(eventCh, models.AgentEvent{
 		SessionID: sessionID,
 		Type:      models.EventToolResult,
@@ -1710,7 +1726,43 @@ func (la *LegalAgent) assessRisk(ctx context.Context, sessionID string, identity
 		ToolName:  "risk_assessment",
 		Content:   fmt.Sprintf("overall risk: %s", assessment.Level),
 	})
-	return assessment
+	return base
+}
+
+type riskOpinionScope struct {
+	Cutoff                   time.Time
+	Excluded, Old, Initiated int
+	Undated, NonCompany      int
+}
+
+func riskOpinionFindings(findings []models.LegalFinding, now time.Time) ([]models.LegalFinding, riskOpinionScope) {
+	scope := riskOpinionScope{Cutoff: now.AddDate(-10, 0, 0)}
+	eligible := make([]models.LegalFinding, 0, len(findings))
+	for _, finding := range findings {
+		when, dated := legalCaseDate(finding)
+		switch {
+		case finding.PartyKind != "company":
+			scope.NonCompany++
+		case finding.Role != models.LegalRoleFacing:
+			scope.Initiated++
+		case !dated:
+			scope.Undated++
+		case when.Before(scope.Cutoff):
+			scope.Old++
+		default:
+			eligible = append(eligible, finding)
+		}
+	}
+	scope.Excluded = len(findings) - len(eligible)
+	return eligible, scope
+}
+
+func mergeRiskScope(scope *models.LegalRiskAssessment, assessment *models.LegalRiskAssessment) *models.LegalRiskAssessment {
+	scope.Level = assessment.Level
+	scope.Summary = assessment.Summary
+	scope.Drivers = assessment.Drivers
+	scope.Classified = assessment.Classified
+	return scope
 }
 
 // legalFallbackRisk derives the risk level from counts when the model is
