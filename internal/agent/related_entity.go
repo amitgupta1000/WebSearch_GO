@@ -283,7 +283,55 @@ func relatedEntityGraph(report *models.RelatedEntityReport) models.RelatedEntity
 		}
 		addCompanyEdge(company, personID, company.Relationship)
 	}
+	layoutRelatedGraph(&graph)
 	return graph
+}
+
+func layoutRelatedGraph(graph *models.RelatedEntityGraph) {
+	if graph == nil {
+		return
+	}
+	positions := map[string][2]int{}
+	positions["company:primary"] = [2]int{500, 70}
+	leaders, companies := []int{}, []int{}
+	for index := range graph.Nodes {
+		node := &graph.Nodes[index]
+		if node.ID == "company:primary" {
+			node.X, node.Y = 500, 70
+			continue
+		}
+		if node.Type == "leader" {
+			leaders = append(leaders, index)
+		} else {
+			companies = append(companies, index)
+		}
+	}
+	place := func(indexes []int, y int) {
+		for position, index := range indexes {
+			x := 500
+			if len(indexes) > 1 {
+				x = 80 + position*840/(len(indexes)-1)
+			}
+			graph.Nodes[index].X, graph.Nodes[index].Y = x, y
+		}
+	}
+	place(leaders, 250)
+	place(companies, 430)
+	for _, node := range graph.Nodes {
+		positions[node.ID] = [2]int{node.X, node.Y}
+	}
+	for index := range graph.Nodes {
+		graph.Nodes[index].LabelY = graph.Nodes[index].Y + 46
+	}
+	for index := range graph.Edges {
+		edge := &graph.Edges[index]
+		from, fromOK := positions[edge.From]
+		to, toOK := positions[edge.To]
+		if fromOK && toOK {
+			edge.X1, edge.Y1 = from[0], from[1]
+			edge.X2, edge.Y2 = to[0], to[1]
+		}
+	}
 }
 
 func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.RelatedEntityQuery, report *models.RelatedEntityReport) error {

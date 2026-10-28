@@ -45,9 +45,12 @@ type RelatedEntityGraph struct {
 }
 
 type RelatedEntityNode struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Type string `json:"type"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	X      int    `json:"x"`
+	Y      int    `json:"y"`
+	LabelY int    `json:"label_y"`
 }
 
 type RelatedEntityEdge struct {
@@ -59,6 +62,10 @@ type RelatedEntityEdge struct {
 	Status       string                  `json:"status,omitempty"`
 	Confidence   float64                 `json:"confidence"`
 	Evidence     []RelatedEntityEvidence `json:"evidence,omitempty"`
+	X1           int                     `json:"x1"`
+	Y1           int                     `json:"y1"`
+	X2           int                     `json:"x2"`
+	Y2           int                     `json:"y2"`
 }
 
 // RelatedEntityReport keeps direct company relationships separate from
