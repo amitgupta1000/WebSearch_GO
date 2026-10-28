@@ -42,15 +42,25 @@ type RelatedCompany struct {
 // RelatedEntityReport keeps direct company relationships separate from
 // relationships discovered through leadership.
 type RelatedEntityReport struct {
-	CompanyName         string              `json:"company_name"`
-	Domain              string              `json:"domain,omitempty"`
-	RegistrationID      string              `json:"registration_id,omitempty"`
-	EntityConfirmed     bool                `json:"entity_confirmed"`
-	DirectRelationships []RelatedCompany    `json:"direct_relationships,omitempty"`
-	Leadership          []LeadershipSubject `json:"leadership,omitempty"`
-	LeadershipRelations []RelatedCompany    `json:"leadership_relationships,omitempty"`
-	QueriesUsed         int                 `json:"queries_used"`
-	QueriesPlanned      int                 `json:"queries_planned"`
-	SearchTrace         *SearchTrace        `json:"search_trace,omitempty"`
-	Warnings            []string            `json:"warnings,omitempty"`
+	CompanyName         string                  `json:"company_name"`
+	Domain              string                  `json:"domain,omitempty"`
+	RegistrationID      string                  `json:"registration_id,omitempty"`
+	EntityConfirmed     bool                    `json:"entity_confirmed"`
+	DirectRelationships []RelatedCompany        `json:"direct_relationships,omitempty"`
+	Leadership          []LeadershipSubject     `json:"leadership,omitempty"`
+	LeadershipRelations []RelatedCompany        `json:"leadership_relationships,omitempty"`
+	QueriesUsed         int                     `json:"queries_used"`
+	QueriesPlanned      int                     `json:"queries_planned"`
+	SearchTrace         *SearchTrace            `json:"search_trace,omitempty"`
+	Warnings            []string                `json:"warnings,omitempty"`
+	Cache               RelatedEntityCache      `json:"cache"`
+	SearchHits          int                     `json:"search_hits"`
+	ReviewEvidence      []RelatedEntityEvidence `json:"review_evidence,omitempty"`
+}
+
+// RelatedEntityCache records the mandatory cache preflight for a run.
+type RelatedEntityCache struct {
+	Checked int `json:"checked"`
+	Hits    int `json:"hits"`
+	Misses  int `json:"misses"`
 }

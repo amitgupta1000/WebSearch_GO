@@ -41,7 +41,7 @@ four modes:
 | **Company** (`mode=company`) | A structured `OrgChart`: overview, HQ, leadership, departments, locations, sources | LLM plans a set of Google queries → results are ranked for relevance → the top pages are scraped → Gemini synthesizes the org chart from the collected evidence |
 | **Person** (`mode=person`) | A structured `PersonProfile` dossier: title, company, bio, experiences, education, skills, confidence score | Disambiguated search (name + company + location) → bio-oriented pages are scraped → a secondary career search supplements snippets → Gemini synthesizes the dossier |
 | **Legal** (`mode=legal`) | A structured `LegalReport`: litigation findings on the confirmed company and named persons, plus same-named hits kept for review | The company identity is confirmed as in company mode → a deterministic plan searches IndianKanoon (native client) and Casemine (search snippets) → every hit is tied to the identity by CIN/name/alias → Gemini classifies category/status and writes an exposure summary |
-| **Related entities** (`mode=related_entity`) | A structured `RelatedEntityReport`: direct company relationships plus other companies connected to its directors and senior leaders | Confirm the company → search the usual company sources for explicit group, parent, subsidiary, affiliate, holding, and promoter relationships → identify company-linked leaders → search each leader's other-company involvement with bounded concurrent searches; related entities remain separate from the primary company gate |
+| **Related entities** (`mode=related_entity`) | A structured `RelatedEntityReport`: direct company relationships plus other companies connected to its directors and senior leaders | Confirm the company → preflight the complete query plan against cache → search the usual source-profile hosts for explicit group, parent, subsidiary, affiliate, holding, and promoter relationships → identify company-linked leaders → search each leader's other-company involvement with bounded concurrent searches; related entities remain separate from the primary company gate |
 
 The system is built from six cooperating layers:
 
@@ -1401,6 +1401,14 @@ the two cited sources.
   `DIRECTORY CLAIMS`, the confirmation step spends an aggregator query only when its two core
   passes come back thin, and `isProfileSourceURL` keeps the fetch priority in step with the query
   builder so a searched domain is not ignored at fetch time.
+
+- **Related-entity mode uses a mandatory cache-first preflight.** It checks every planned
+  direct-relationship and leadership query before search, reuses valid cached results through
+  the shared engine, and reports checked/hit/miss counts and returned-hit counts in the result.
+  The direct branch uses the selected India or Global source-profile hosts rather than relying
+  only on generic company queries. Returned snippets are retained as review evidence even when
+  structured extraction is too conservative, so an empty relationship classification does not
+  hide the material the search actually returned.
 
 - **A refused client is reported, not retried.** `isBotDenialStatus` recognizes the non-standard
   code a host uses to refuse a client (LinkedIn answers 999 to a plain client for a person

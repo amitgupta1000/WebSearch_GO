@@ -100,8 +100,10 @@ match is pre-selected and focused), and never dead-ends:
   [Legal mode](#legal-mode)).
 - **Related entities** (`POST /api/resolve-entity`, `mode=related_entity`): confirms the
   company, searches direct corporate relationships first, then searches up to eight
-  company-linked leaders for external company involvement. Direct and leadership-derived
-  relationships are reported separately and are never folded into the primary company identity.
+  company-linked leaders for external company involvement. It performs a cache-first preflight
+  over the full plan and reports cache/result counts. Direct and leadership-derived
+  relationships are reported separately and are never folded into the primary company identity;
+  returned snippets remain visible for review when classification is inconclusive.
 
 ### Legal mode (Indian case-law check)
 

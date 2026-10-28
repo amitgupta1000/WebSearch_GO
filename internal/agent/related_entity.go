@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
 
@@ -44,7 +45,14 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 	}
 	trace := &models.SearchTrace{}
 	used := 0
+	cacheStatus := models.RelatedEntityCache{Checked: len(allQueries)}
 	for index, planned := range allQueries {
+		var cached []models.SearchResult
+		if cache.GetJSON(ctx, a.engine.cache, cache.HashKey("search", planned.Query), &cached) {
+			cacheStatus.Hits++
+		} else {
+			cacheStatus.Misses++
+		}
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: index + 1, Content: "Searching " + planned.Purpose})
 		hits, err := a.engine.SearchCached(ctx, planned.Query, a.engine.MaxSearchResults())
 		used++
@@ -60,7 +68,15 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 		CompanyName: query.CompanyName, Domain: query.Domain, RegistrationID: query.RegistrationID,
 		EntityConfirmed: strings.TrimSpace(query.Domain) != "" || strings.TrimSpace(query.RegistrationID) != "",
 		QueriesUsed:     used, QueriesPlanned: len(allQueries), SearchTrace: trace,
+		Cache: cacheStatus,
 	}
+	for _, queryTrace := range trace.Queries {
+		report.SearchHits += len(queryTrace.Kept)
+	}
+	if report.SearchHits == 0 {
+		report.Warnings = append(report.Warnings, "The search provider returned no cached or live hits for the planned queries.")
+	}
+	report.ReviewEvidence = reviewEvidence(trace, 50)
 	if err := a.extract(ctx, query, directHits, leadHits, report); err != nil {
 		return nil, err
 	}
@@ -78,18 +94,26 @@ type relatedPlannedQuery struct {
 
 func relatedDirectQueries(query models.RelatedEntityQuery) []relatedPlannedQuery {
 	name := quote(query.CompanyName)
-	anchor := name
-	if query.Domain != "" {
-		anchor += " " + "site:" + query.Domain
+	brief := models.CompanyBrief{
+		CompanyName: query.CompanyName, Domain: query.Domain,
+		RegistrationID: query.RegistrationID, SourceProfile: query.SourceProfile,
+		ResearchPreferences: models.ResearchPreferences{Country: query.Country},
 	}
-	return []relatedPlannedQuery{
-		{anchor + " (group OR subsidiary OR affiliate OR parent)", "direct group, parent, subsidiary, and affiliate relationships"},
-		{name + " (" + "holding company" + " OR " + "promoter group" + " OR " + "sister company" + ")", "holding and promoter-group relationships"},
+	queries := []relatedPlannedQuery{
+		{name + " (group OR subsidiary OR affiliate OR parent)", "direct group, parent, subsidiary, and affiliate relationships"},
+		{name + "(" + "holding company" + " OR " + "promoter group" + " OR " + "sister company" + ")", "holding and promoter-group relationships"},
 		{name + " subsidiaries companies group structure", "company group structure"},
 		{name + " " + "related companies", "related-company disclosures"},
 		{name + " corporate structure annual report", "annual-report corporate structure"},
 		{name + " " + "part of" + " group company", "group membership statements"},
 	}
+	for _, host := range companySourceHosts(brief) {
+		queries = append(queries, relatedPlannedQuery{
+			sourceSiteQuery(name+" (group OR subsidiary OR affiliate OR parent OR director)", []string{host}),
+			"source-profile relationship evidence from " + host,
+		})
+	}
+	return queries
 }
 
 func relatedLeadershipQueries(query models.RelatedEntityQuery) []relatedPlannedQuery {
@@ -253,4 +277,22 @@ func normalizeRelated(items []models.RelatedCompany, primary string) []models.Re
 		out = append(out, item)
 	}
 	return out
+}
+
+func reviewEvidence(trace *models.SearchTrace, limit int) []models.RelatedEntityEvidence {
+	if trace == nil || limit <= 0 {
+		return nil
+	}
+	evidence := make([]models.RelatedEntityEvidence, 0, limit)
+	for _, query := range trace.Queries {
+		for _, hit := range query.Kept {
+			evidence = append(evidence, models.RelatedEntityEvidence{
+				URL: hit.Link, Title: hit.Title, Snippet: hit.Snippet, Source: query.Purpose,
+			})
+			if len(evidence) == limit {
+				return evidence
+			}
+		}
+	}
+	return evidence
 }
