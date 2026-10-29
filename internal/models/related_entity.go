@@ -8,6 +8,8 @@ type RelatedEntityQuery struct {
 	RegistrationID string
 	Country        string
 	SourceProfile  string
+	PersonName     string
+	PersonDomain   string
 	MaxLeaders     int
 }
 
@@ -26,6 +28,15 @@ type LeadershipSubject struct {
 	Company    string                  `json:"company,omitempty"`
 	Confidence float64                 `json:"confidence"`
 	Evidence   []RelatedEntityEvidence `json:"evidence,omitempty"`
+	Identity   *PersonIdentity         `json:"identity,omitempty"`
+}
+
+type PersonIdentity struct {
+	CanonicalName string                  `json:"canonical_name,omitempty"`
+	DIN           string                  `json:"din,omitempty"`
+	Confidence    float64                 `json:"confidence"`
+	Attributes    []string                `json:"attributes,omitempty"`
+	Evidence      []RelatedEntityEvidence `json:"evidence,omitempty"`
 }
 
 // RelatedCompany is a company connected to the primary company or its leaders.
@@ -81,6 +92,8 @@ type RelatedEntityReport struct {
 	Graph               RelatedEntityGraph      `json:"graph"`
 	QueriesUsed         int                     `json:"queries_used"`
 	QueriesPlanned      int                     `json:"queries_planned"`
+	CompanyQueriesUsed  int                     `json:"company_queries_used"`
+	PeopleQueriesUsed   int                     `json:"people_queries_used"`
 	SearchTrace         *SearchTrace            `json:"search_trace,omitempty"`
 	Warnings            []string                `json:"warnings,omitempty"`
 	Cache               RelatedEntityCache      `json:"cache"`

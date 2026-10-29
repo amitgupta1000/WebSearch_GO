@@ -463,23 +463,24 @@ type entityExtraStub struct {
 }
 
 type entityCandidatesStub struct {
-	Query             string
-	Candidates        []entityCandidateStub
-	Industry          string
-	Country           string
-	City              string
-	AreasOfInterest   string
-	DesiredOutput     string
-	TimeScope         string
-	Notes             string
-	UseBrowser        string
-	SourceProfile     string
-	PersonOfInterest  string
-	RelatedMaxLeaders string
-	Mode              string
-	LegalPersons      string
-	IncludeDirectors  string
-	TypedDomain       bool
+	Query               string
+	Candidates          []entityCandidateStub
+	Industry            string
+	Country             string
+	City                string
+	AreasOfInterest     string
+	DesiredOutput       string
+	TimeScope           string
+	Notes               string
+	UseBrowser          string
+	SourceProfile       string
+	PersonOfInterest    string
+	RelatedPersonDomain string
+	RelatedMaxLeaders   string
+	Mode                string
+	LegalPersons        string
+	IncludeDirectors    string
+	TypedDomain         bool
 }
 
 // personCandidateStub and personCandidatesStub mirror the person confirmation step's view,

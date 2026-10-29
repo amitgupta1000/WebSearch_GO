@@ -70,20 +70,21 @@ const entityResolveTimeout = 25 * time.Second
 // entityCandidateView is one candidate identity plus the brief fields, so a card can
 // post a complete research request without any client-side state.
 type entityCandidateView struct {
-	Candidate         models.EntityCandidate
-	Query             string
-	Industry          string
-	Country           string
-	City              string
-	Domain            string
-	AreasOfInterest   string
-	DesiredOutput     string
-	TimeScope         string
-	Notes             string
-	UseBrowser        string
-	SourceProfile     string
-	PersonOfInterest  string
-	RelatedMaxLeaders string
+	Candidate           models.EntityCandidate
+	Query               string
+	Industry            string
+	Country             string
+	City                string
+	Domain              string
+	AreasOfInterest     string
+	DesiredOutput       string
+	TimeScope           string
+	Notes               string
+	UseBrowser          string
+	SourceProfile       string
+	PersonOfInterest    string
+	RelatedPersonDomain string
+	RelatedMaxLeaders   string
 	// Mode is the research mode the confirmation card posts back ("company"
 	// or "legal"), so a legal run survives its own confirmation round trip.
 	Mode string
@@ -116,19 +117,20 @@ type entityExtraView struct {
 
 // entityCandidatesView is the dialogue rendered before a run starts.
 type entityCandidatesView struct {
-	Query             string
-	Candidates        []entityCandidateView
-	Industry          string
-	Country           string
-	City              string
-	AreasOfInterest   string
-	DesiredOutput     string
-	TimeScope         string
-	Notes             string
-	UseBrowser        string
-	SourceProfile     string
-	PersonOfInterest  string
-	RelatedMaxLeaders string
+	Query               string
+	Candidates          []entityCandidateView
+	Industry            string
+	Country             string
+	City                string
+	AreasOfInterest     string
+	DesiredOutput       string
+	TimeScope           string
+	Notes               string
+	UseBrowser          string
+	SourceProfile       string
+	PersonOfInterest    string
+	RelatedPersonDomain string
+	RelatedMaxLeaders   string
 	// Mode and LegalPersons travel the same round trip the card does, so a
 	// legal run's confirmation card posts a legal research request.
 	Mode         string
@@ -453,16 +455,17 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	mode := strings.TrimSpace(r.FormValue("mode"))
 	query := strings.TrimSpace(r.FormValue("query"))
 	companyBrief := models.CompanyBrief{
-		CompanyName:       query,
-		SourceProfile:     strings.TrimSpace(r.FormValue("source_profile")),
-		RelatedMaxLeaders: parseBoundedInt(r.FormValue("related_max_leaders"), 16, 1, 16),
-		PersonOfInterest:  strings.TrimSpace(r.FormValue("person_of_interest")),
-		Domain:            entityDomainValue(r),
-		Aliases:           splitFormList(r.FormValue("entity_aliases")),
-		RegistrationID:    strings.TrimSpace(r.FormValue("entity_reg_id")),
-		EntityConfirmed:   strings.TrimSpace(r.FormValue("entity_confirmed")) == "1",
-		EntitySource:      entitySourceValue(r),
-		Industry:          strings.TrimSpace(r.FormValue("company_industry")),
+		CompanyName:         query,
+		SourceProfile:       strings.TrimSpace(r.FormValue("source_profile")),
+		RelatedMaxLeaders:   parseBoundedInt(r.FormValue("related_max_leaders"), 16, 1, 16),
+		PersonOfInterest:    strings.TrimSpace(r.FormValue("person_of_interest")),
+		RelatedPersonDomain: strings.TrimSpace(r.FormValue("related_person_domain")),
+		Domain:              entityDomainValue(r),
+		Aliases:             splitFormList(r.FormValue("entity_aliases")),
+		RegistrationID:      strings.TrimSpace(r.FormValue("entity_reg_id")),
+		EntityConfirmed:     strings.TrimSpace(r.FormValue("entity_confirmed")) == "1",
+		EntitySource:        entitySourceValue(r),
+		Industry:            strings.TrimSpace(r.FormValue("company_industry")),
 		ResearchPreferences: models.ResearchPreferences{
 			Country:         strings.TrimSpace(r.FormValue("company_country")),
 			City:            strings.TrimSpace(r.FormValue("company_city")),
@@ -577,6 +580,7 @@ func relatedEntityQueryFromBrief(brief models.CompanyBrief) models.RelatedEntity
 		CompanyName: brief.CompanyName, Domain: brief.Domain, Aliases: brief.Aliases,
 		RegistrationID: brief.RegistrationID, Country: brief.Country,
 		SourceProfile: brief.SourceProfile, MaxLeaders: brief.RelatedMaxLeaders,
+		PersonName: brief.PersonOfInterest, PersonDomain: brief.RelatedPersonDomain,
 	}
 }
 
@@ -781,19 +785,20 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	view := entityCandidatesView{
-		Query:             name,
-		Industry:          strings.TrimSpace(r.FormValue("company_industry")),
-		Country:           strings.TrimSpace(r.FormValue("company_country")),
-		City:              strings.TrimSpace(r.FormValue("company_city")),
-		AreasOfInterest:   strings.Join(companyAreasFromForm(r), ", "),
-		DesiredOutput:     strings.TrimSpace(r.FormValue("desired_output")),
-		TimeScope:         strings.TrimSpace(r.FormValue("time_scope")),
-		Notes:             strings.TrimSpace(r.FormValue("research_notes")),
-		UseBrowser:        strings.TrimSpace(r.FormValue("use_browser")),
-		SourceProfile:     strings.TrimSpace(r.FormValue("source_profile")),
-		PersonOfInterest:  strings.TrimSpace(r.FormValue("person_of_interest")),
-		RelatedMaxLeaders: strings.TrimSpace(r.FormValue("related_max_leaders")),
-		LegalPersons:      strings.TrimSpace(r.FormValue("legal_persons")),
+		Query:               name,
+		Industry:            strings.TrimSpace(r.FormValue("company_industry")),
+		Country:             strings.TrimSpace(r.FormValue("company_country")),
+		City:                strings.TrimSpace(r.FormValue("company_city")),
+		AreasOfInterest:     strings.Join(companyAreasFromForm(r), ", "),
+		DesiredOutput:       strings.TrimSpace(r.FormValue("desired_output")),
+		TimeScope:           strings.TrimSpace(r.FormValue("time_scope")),
+		Notes:               strings.TrimSpace(r.FormValue("research_notes")),
+		UseBrowser:          strings.TrimSpace(r.FormValue("use_browser")),
+		SourceProfile:       strings.TrimSpace(r.FormValue("source_profile")),
+		PersonOfInterest:    strings.TrimSpace(r.FormValue("person_of_interest")),
+		RelatedPersonDomain: strings.TrimSpace(r.FormValue("related_person_domain")),
+		RelatedMaxLeaders:   strings.TrimSpace(r.FormValue("related_max_leaders")),
+		LegalPersons:        strings.TrimSpace(r.FormValue("legal_persons")),
 	}
 	// The mode travels with the step: the confirmation card posts it back, so a
 	// legal run's card starts a legal run. Only the modes that share this step
@@ -832,23 +837,24 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 	// company — without re-entering anything.
 	for index, candidate := range candidates {
 		card := entityCandidateView{
-			Candidate:         candidate,
-			Query:             view.Query,
-			Industry:          view.Industry,
-			Country:           view.Country,
-			City:              view.City,
-			AreasOfInterest:   view.AreasOfInterest,
-			DesiredOutput:     view.DesiredOutput,
-			TimeScope:         view.TimeScope,
-			Notes:             view.Notes,
-			UseBrowser:        view.UseBrowser,
-			SourceProfile:     view.SourceProfile,
-			PersonOfInterest:  view.PersonOfInterest,
-			RelatedMaxLeaders: view.RelatedMaxLeaders,
-			Mode:              view.Mode,
-			LegalPersons:      view.LegalPersons,
-			IncludeDirectors:  view.IncludeDirectors,
-			PreSelected:       index == 0,
+			Candidate:           candidate,
+			Query:               view.Query,
+			Industry:            view.Industry,
+			Country:             view.Country,
+			City:                view.City,
+			AreasOfInterest:     view.AreasOfInterest,
+			DesiredOutput:       view.DesiredOutput,
+			TimeScope:           view.TimeScope,
+			Notes:               view.Notes,
+			UseBrowser:          view.UseBrowser,
+			SourceProfile:       view.SourceProfile,
+			PersonOfInterest:    view.PersonOfInterest,
+			RelatedPersonDomain: view.RelatedPersonDomain,
+			RelatedMaxLeaders:   view.RelatedMaxLeaders,
+			Mode:                view.Mode,
+			LegalPersons:        view.LegalPersons,
+			IncludeDirectors:    view.IncludeDirectors,
+			PreSelected:         index == 0,
 		}
 		for otherIndex, other := range candidates {
 			if otherIndex == index {

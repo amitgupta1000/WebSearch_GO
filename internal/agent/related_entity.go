@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -13,15 +14,18 @@ import (
 )
 
 const (
-	relatedEntityMaxQueries        = 48
-	relatedEntityMaxDirectQueries  = 32
-	relatedEntityMaxLeaderQueries  = 8
-	relatedEntityMaxLeaders        = 16
-	relatedEntitySearchConcurrency = 8
-	relatedEntityDirectEvidence    = 40
-	relatedEntityLeaderEvidence    = 30
-	relatedEntitySnippetMaxRunes   = 1200
+	relatedEntityCompanyQueries     = 32
+	relatedEntityPeopleQueries      = 8
+	relatedEntityPersonQueries      = 6
+	relatedEntityMaxLeaders         = 16
+	relatedEntitySearchConcurrency  = 8
+	relatedEntityDirectEvidence     = 40
+	relatedEntityLeaderEvidence     = 30
+	relatedEntitySnippetMaxRunes    = 1200
+	relatedEntityIdentityConfidence = 0.60
 )
+
+var directorIdentificationNumberPattern = regexp.MustCompile(`(?i)\b(?:din|director\s+identification\s+number)\D{0,12}(\d{8})\b`)
 
 // RelatedEntityAgent discovers direct company relationships and then follows
 // confirmed leadership into other companies. It never mutates CompanyBrief.
@@ -42,18 +46,15 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 		query.MaxLeaders = relatedEntityMaxLeaders
 	}
 
-	directQueries := relatedDirectQueries(query)
-	leaderQueries := relatedLeadershipQueries(query)
-	if len(directQueries) > relatedEntityMaxDirectQueries {
-		directQueries = directQueries[:relatedEntityMaxDirectQueries]
+	companyQueries := relatedDirectQueries(query)
+	peopleQueries := relatedLeadershipQueries(query)
+	if len(companyQueries) > relatedEntityCompanyQueries {
+		companyQueries = companyQueries[:relatedEntityCompanyQueries]
 	}
-	if len(leaderQueries) > relatedEntityMaxLeaderQueries {
-		leaderQueries = leaderQueries[:relatedEntityMaxLeaderQueries]
+	if len(peopleQueries) > relatedEntityPeopleQueries {
+		peopleQueries = peopleQueries[:relatedEntityPeopleQueries]
 	}
-	allQueries := append(append([]relatedPlannedQuery{}, directQueries...), leaderQueries...)
-	if len(allQueries) > relatedEntityMaxQueries {
-		allQueries = allQueries[:relatedEntityMaxQueries]
-	}
+	allQueries := append(append([]relatedPlannedQuery{}, companyQueries...), peopleQueries...)
 	trace := &models.SearchTrace{}
 	used := 0
 	cacheStatus := models.RelatedEntityCache{Checked: len(allQueries)}
@@ -73,12 +74,12 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 		}
 	}
 
-	directHits := flattenTrace(trace, 0, len(directQueries))
-	leadHits := flattenTrace(trace, len(directQueries), len(allQueries))
+	directHits := flattenTrace(trace, 0, len(companyQueries))
+	leadHits := flattenTrace(trace, len(companyQueries), len(allQueries))
 	report := &models.RelatedEntityReport{
 		CompanyName: query.CompanyName, Domain: query.Domain, RegistrationID: query.RegistrationID,
 		EntityConfirmed: strings.TrimSpace(query.Domain) != "" || strings.TrimSpace(query.RegistrationID) != "",
-		QueriesUsed:     used, QueriesPlanned: len(allQueries), SearchTrace: trace,
+		QueriesUsed:     used, QueriesPlanned: len(allQueries), CompanyQueriesUsed: len(companyQueries), PeopleQueriesUsed: len(peopleQueries), SearchTrace: trace,
 		Cache: cacheStatus,
 	}
 	for _, queryTrace := range trace.Queries {
@@ -130,11 +131,26 @@ func relatedDirectQueries(query models.RelatedEntityQuery) []relatedPlannedQuery
 
 func relatedLeadershipQueries(query models.RelatedEntityQuery) []relatedPlannedQuery {
 	name := quote(query.CompanyName)
-	return []relatedPlannedQuery{
+	queries := []relatedPlannedQuery{
 		{name + " (director OR founder OR chairman OR CEO OR CFO OR COO OR " + "managing director" + ")", "company-linked leadership"},
 		{(name + " directors executives") + " site:linkedin.com", "LinkedIn-indexed leadership"},
 		{name + " directors executives " + sourceHint(query), "regional leadership directories"},
 	}
+	if person := strings.TrimSpace(query.PersonName); person != "" {
+		personTerm := quote(person)
+		domain := strings.TrimSpace(query.PersonDomain)
+		queries = append([]relatedPlannedQuery{
+			{personTerm + " DIN director identification number", "person identity and DIN"},
+			{personTerm + " " + name + " appointment director", "person-company appointment"},
+			{personTerm + " " + name + " " + sourceHint(query), "person registry and directory identity"},
+		}, queries...)
+		if domain != "" {
+			queries = append([]relatedPlannedQuery{
+				{personTerm + " site:" + domain, "person primary-domain identity"},
+			}, queries...)
+		}
+	}
+	return queries
 }
 
 func sourceHint(query models.RelatedEntityQuery) string {
@@ -336,9 +352,11 @@ func layoutRelatedGraph(graph *models.RelatedEntityGraph) {
 
 func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.RelatedEntityQuery, report *models.RelatedEntityReport) error {
 	type outcome struct {
-		index int
-		items []models.RelatedCompany
-		err   error
+		index    int
+		items    []models.RelatedCompany
+		trace    []models.QueryTrace
+		identity *models.PersonIdentity
+		err      error
 	}
 	jobs := make(chan int)
 	outcomes := make(chan outcome, len(report.Leadership))
@@ -349,30 +367,65 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 			defer wg.Done()
 			for index := range jobs {
 				leader := report.Leadership[index]
-				search := quote(leader.Name) + " (" + "director OR founder OR chairman OR CEO OR CFO OR board" + ") -" + quote(query.CompanyName)
-				hits, err := a.engine.SearchCached(ctx, search, a.engine.MaxSearchResults())
-				if err != nil {
-					outcomes <- outcome{index: index, err: err}
+				identityQueries, affiliationQueries := relatedPersonQueries(query, leader)
+				var personHits []models.SearchResult
+				var traces []models.QueryTrace
+				for _, planned := range identityQueries {
+					hits, err := a.engine.SearchCached(ctx, planned.Query, a.engine.MaxSearchResults())
+					if err != nil {
+						outcomes <- outcome{index: index, trace: traces, err: err}
+						personHits = nil
+						break
+					}
+					personHits = append(personHits, hits...)
+					traces = append(traces, models.QueryTrace{Query: planned.Query, Purpose: planned.Purpose, Kept: hits})
+				}
+				if personHits == nil && len(traces) < len(identityQueries) {
 					continue
 				}
-				var extracted []models.RelatedCompany
+				identity := resolvePersonIdentity(leader, query, personHits)
+				if identity.Confidence < relatedEntityIdentityConfidence {
+					outcomes <- outcome{index: index, trace: traces, identity: identity,
+						err: fmt.Errorf("identity confidence %.2f is below the %.2f threshold", identity.Confidence, relatedEntityIdentityConfidence)}
+					continue
+				}
+				for _, planned := range affiliationQueries {
+					hits, err := a.engine.SearchCached(ctx, planned.Query, a.engine.MaxSearchResults())
+					if err != nil {
+						outcomes <- outcome{index: index, trace: traces, identity: identity, err: err}
+						personHits = nil
+						break
+					}
+					personHits = append(personHits, hits...)
+					traces = append(traces, models.QueryTrace{Query: planned.Query, Purpose: planned.Purpose, Kept: hits})
+				}
+				if personHits == nil && len(traces) < len(identityQueries)+len(affiliationQueries) {
+					continue
+				}
+				var extracted struct {
+					Companies []relatedCompanyExtraction `json:"companies"`
+				}
 				payload, marshalErr := json.Marshal(struct {
 					Person string
 					Hits   []models.SearchResult
-				}{leader.Name, hits})
+				}{leader.Name, boundedRelatedEvidence(personHits, relatedEntityLeaderEvidence)})
 				if marshalErr == nil {
-					prompt := `Extract companies other than the primary company that this person is explicitly connected to in the snippets. Return an empty JSON array when evidence is insufficient. Include relationship, role, current/former status, confidence, and evidence. Do not report name-only matches.`
+					prompt := `Extract companies other than the primary company that this person is explicitly connected to in the snippets. Return JSON with a companies array; return {"companies":[]} when evidence is insufficient. Include relationship, role, current/former status, confidence, and evidence. Do not report name-only matches.`
 					marshalErr = a.engine.llmClient.GenerateStructured(ctx, prompt, string(payload), &extracted)
 				}
 				if marshalErr != nil {
-					outcomes <- outcome{index: index, err: marshalErr}
+					outcomes <- outcome{index: index, trace: traces, identity: identity, err: marshalErr}
 					continue
 				}
-				for i := range extracted {
-					extracted[i].Person = leader.Name
+				companies := make([]models.RelatedCompany, 0, len(extracted.Companies))
+				for _, item := range extracted.Companies {
+					company := item.RelatedCompany()
+					company.Person = leader.Name
+					companies = append(companies, company)
 				}
-				outcomes <- outcome{index: index, items: extracted}
+				outcomes <- outcome{index: index, items: companies, trace: traces, identity: identity}
 			}
+
 		}()
 	}
 	go func() {
@@ -384,6 +437,13 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 		close(outcomes)
 	}()
 	for result := range outcomes {
+		report.Leadership[result.index].Identity = result.identity
+		report.SearchTrace.Queries = append(report.SearchTrace.Queries, result.trace...)
+		report.QueriesUsed += len(result.trace)
+		report.QueriesPlanned += len(result.trace)
+		for _, trace := range result.trace {
+			report.SearchHits += len(trace.Kept)
+		}
 		if result.err != nil {
 			report.Warnings = append(report.Warnings, fmt.Sprintf("Leadership search for %s failed: %v", report.Leadership[result.index].Name, result.err))
 			continue
@@ -393,6 +453,105 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 	sort.SliceStable(report.LeadershipRelations, func(i, j int) bool {
 		return report.LeadershipRelations[i].Confidence > report.LeadershipRelations[j].Confidence
 	})
+	return nil
+}
+
+func relatedPersonQueries(query models.RelatedEntityQuery, leader models.LeadershipSubject) ([]relatedPlannedQuery, []relatedPlannedQuery) {
+	person := quote(leader.Name)
+	company := quote(query.CompanyName)
+	identity := []relatedPlannedQuery{
+		{person + " DIN director identification number", "person DIN identity"},
+		{person + " " + company + " appointment director", "person-company appointment"},
+		{person + " " + sourceHint(query), "person registry and directory records"},
+	}
+	affiliation := []relatedPlannedQuery{
+		{person + " (director OR founder OR chairman OR CEO OR CFO OR board) -" + company, "person other-company involvement"},
+		{person + " career profile current former company", "person career identity"},
+		{person + " " + company + " site:linkedin.com", "person LinkedIn-indexed identity"},
+	}
+	if strings.TrimSpace(query.PersonDomain) != "" {
+		affiliation[2] = relatedPlannedQuery{person + " site:" + strings.TrimSpace(query.PersonDomain), "person primary-domain identity"}
+	}
+	return identity, affiliation
+}
+
+func resolvePersonIdentity(leader models.LeadershipSubject, query models.RelatedEntityQuery, hits []models.SearchResult) *models.PersonIdentity {
+	identity := &models.PersonIdentity{CanonicalName: leader.Name, Confidence: 0.35}
+	seen := map[string]bool{}
+	for _, hit := range hits {
+		text := hit.Title + " " + hit.Snippet
+		if strings.Contains(strings.ToLower(text), strings.ToLower(query.CompanyName)) {
+			identity.Confidence = maxFloat(identity.Confidence, 0.60)
+			identity.Attributes = appendUnique(identity.Attributes, "company-linked evidence")
+		}
+		if match := directorIdentificationNumberPattern.FindStringSubmatch(text); len(match) == 2 {
+			identity.DIN = match[1]
+			identity.Confidence = 1.0
+			identity.Attributes = appendUnique(identity.Attributes, "DIN")
+		}
+		if strings.TrimSpace(hit.Link) != "" && !seen[hit.Link] {
+			seen[hit.Link] = true
+			identity.Evidence = append(identity.Evidence, models.RelatedEntityEvidence{
+				URL: hit.Link, Title: hit.Title, Snippet: truncateRunes(hit.Snippet, relatedEntitySnippetMaxRunes),
+			})
+		}
+	}
+	if len(identity.Evidence) >= 2 {
+		identity.Confidence = maxFloat(identity.Confidence, 0.70)
+		identity.Attributes = appendUnique(identity.Attributes, "corroborated public sources")
+	}
+	return identity
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func maxFloat(left, right float64) float64 {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+type relatedCompanyExtraction struct {
+	Name          string          `json:"name"`
+	Relationship  string          `json:"relationship"`
+	Status        string          `json:"status"`
+	CurrentFormer string          `json:"current_former"`
+	Role          string          `json:"role"`
+	Confidence    float64         `json:"confidence"`
+	Evidence      json.RawMessage `json:"evidence"`
+}
+
+func (item relatedCompanyExtraction) RelatedCompany() models.RelatedCompany {
+	status := item.Status
+	if status == "" {
+		status = item.CurrentFormer
+	}
+	return models.RelatedCompany{
+		Name: item.Name, Relationship: item.Relationship, Status: status,
+		Role: item.Role, Confidence: item.Confidence, Evidence: parseRelatedEvidence(item.Evidence),
+	}
+}
+
+func parseRelatedEvidence(raw json.RawMessage) []models.RelatedEntityEvidence {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var evidence []models.RelatedEntityEvidence
+	if json.Unmarshal(raw, &evidence) == nil {
+		return evidence
+	}
+	var snippet string
+	if json.Unmarshal(raw, &snippet) == nil && strings.TrimSpace(snippet) != "" {
+		return []models.RelatedEntityEvidence{{Snippet: strings.TrimSpace(snippet)}}
+	}
 	return nil
 }
 

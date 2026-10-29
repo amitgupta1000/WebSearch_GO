@@ -110,8 +110,18 @@
                         <input type="number" name="related_max_leaders" value="16" min="1" max="16"
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
                     </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Person name (optional)</label>
+                        <input type="text" name="person_of_interest" placeholder="e.g. Sameer Jayavelu"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Person domain (optional)</label>
+                        <input type="text" name="related_person_domain" placeholder="e.g. kljresources.com"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
                     <div class="text-[11px] text-slate-500 self-end pb-2">
-                        Checks direct group/subsidiary relationships first, then follows directors and C-suite leaders into other companies. Related companies remain separate from the primary company identity.
+                        Company and People searches use separate budgets. People searches resolve DINs, appointments, domains, and other public identity signals before company relationships are followed.
                     </div>
                 </div>
 
