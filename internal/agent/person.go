@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -13,12 +14,17 @@ import (
 
 // PersonAgent conducts disambiguation, online footprint analysis, and dossier compilation.
 type PersonAgent struct {
-	engine *Engine
+	engine      *Engine
+	rocketReach *tools.RocketReachClient
 }
 
 // NewPersonAgent initializes the person research specialist agent.
-func NewPersonAgent(engine *Engine) *PersonAgent {
-	return &PersonAgent{engine: engine}
+func NewPersonAgent(engine *Engine, rocketReach ...*tools.RocketReachClient) *PersonAgent {
+	var client *tools.RocketReachClient
+	if len(rocketReach) > 0 {
+		client = rocketReach[0]
+	}
+	return &PersonAgent{engine: engine, rocketReach: client}
 }
 
 // ResearchPerson conducts deep multi-source research to construct a professional dossier.
@@ -564,6 +570,7 @@ Rules:
 	// the employer each source states — instead of discarding them.
 	profile.SameNamed = gate.sameNamedGroups(dedupeResults(gateExcluded))
 	profile.SearchTrace = searchTrace
+	pa.enrichContact(ctx, sessionID, query, &profile, eventCh)
 
 	profile.Sources = sources
 	profile.PersonGate = &models.PersonGate{
@@ -597,4 +604,62 @@ Rules:
 	})
 
 	return &profile, nil
+}
+
+func (pa *PersonAgent) enrichContact(ctx context.Context, sessionID string, query models.PersonQuery, profile *models.PersonProfile, eventCh chan<- models.AgentEvent) {
+	if pa.rocketReach == nil || !pa.rocketReach.Enabled() {
+		return
+	}
+	linkedinURL := strings.TrimSpace(query.SeedURL)
+	if linkedinURL == "" {
+		linkedinURL = strings.TrimSpace(profile.OnlinePresence["linkedin"])
+	}
+	Emit(eventCh, models.AgentEvent{
+		SessionID: sessionID,
+		Type:      models.EventToolCall,
+		Step:      9,
+		ToolName:  "rocketreach_lookup",
+		Content:   "Retrieving contact details for the explicitly requested person...",
+	})
+	result, err := pa.rocketReach.Lookup(ctx, firstNonEmpty(profile.FullName, query.Name), firstNonEmpty(profile.CurrentCompany, query.Company), linkedinURL)
+	if err != nil {
+		log.Printf("[PERSON][session %s] RocketReach lookup unavailable: %v", sessionID, err)
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID,
+			Type:      models.EventToolResult,
+			Step:      9,
+			ToolName:  "rocketreach_lookup",
+			Content:   fmt.Sprintf("unavailable: %v", err),
+		})
+		return
+	}
+	if result == nil {
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID,
+			Type:      models.EventToolResult,
+			Step:      9,
+			ToolName:  "rocketreach_lookup",
+			Content:   "no matching contact found; no lookup credit charged",
+		})
+		return
+	}
+	enrichment := &models.PersonContactEnrichment{Source: "RocketReach"}
+	for _, email := range result.Emails {
+		enrichment.Emails = append(enrichment.Emails, models.PersonContactEmail{
+			Email: email.Email, Type: email.Type, Grade: email.Grade,
+		})
+	}
+	for _, phone := range result.Phones {
+		enrichment.Phones = append(enrichment.Phones, models.PersonContactPhone{
+			Number: phone.Number, Type: phone.Type,
+		})
+	}
+	profile.ContactEnrichment = enrichment
+	Emit(eventCh, models.AgentEvent{
+		SessionID: sessionID,
+		Type:      models.EventToolResult,
+		Step:      9,
+		ToolName:  "rocketreach_lookup",
+		Content:   fmt.Sprintf("retrieved %d email(s), %d phone number(s)", len(enrichment.Emails), len(enrichment.Phones)),
+	})
 }

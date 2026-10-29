@@ -11,12 +11,13 @@ import (
 
 // Config stores application runtime settings and API credentials.
 type Config struct {
-	Port         string
-	GCPProjectID string
-	GCPRegion    string
-	SerperAPIKey string
-	GeminiModel  string
-	CookieFile   string
+	Port              string
+	GCPProjectID      string
+	GCPRegion         string
+	SerperAPIKey      string
+	RocketReachAPIKey string
+	GeminiModel       string
+	CookieFile        string
 	// JuristwayEmail and JuristwayPassword are the juristway.com account the
 	// legal mode's Juristway track authenticates as when configured. The
 	// case-law metadata search works anonymously either way; credentials
@@ -212,6 +213,7 @@ func Load() *Config {
 		GCPProjectID:          os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		GCPRegion:             region,
 		SerperAPIKey:          os.Getenv("SERPER_API_KEY"),
+		RocketReachAPIKey:     os.Getenv("ROCKETREACH_API_KEY"),
 		GeminiModel:           model,
 		CookieFile:            os.Getenv("COOKIE_FILE_PATH"),
 		JuristwayEmail:        envString("JURISTWAY_EMAIL", ""),

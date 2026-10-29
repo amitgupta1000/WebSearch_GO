@@ -439,6 +439,28 @@ func renderPersonMarkdown(profile *models.PersonProfile) string {
 		builder.WriteString(summary)
 		builder.WriteString("\n\n")
 	}
+	if contact := profile.ContactEnrichment; contact != nil {
+		builder.WriteString("## Contact details\n\n")
+		for _, email := range contact.Emails {
+			fmt.Fprintf(&builder, "- Email: %s", markdownCell(email.Email))
+			if email.Type != "" {
+				fmt.Fprintf(&builder, " (%s", markdownCell(email.Type))
+				if email.Grade != "" {
+					fmt.Fprintf(&builder, ", grade %s", markdownCell(email.Grade))
+				}
+				builder.WriteString(")")
+			}
+			builder.WriteString("\n")
+		}
+		for _, phone := range contact.Phones {
+			fmt.Fprintf(&builder, "- Phone: %s", markdownCell(phone.Number))
+			if phone.Type != "" {
+				fmt.Fprintf(&builder, " (%s)", markdownCell(phone.Type))
+			}
+			builder.WriteString("\n")
+		}
+		builder.WriteString("\n")
+	}
 
 	if len(profile.Experiences) > 0 {
 		builder.WriteString("## Experience\n\n")

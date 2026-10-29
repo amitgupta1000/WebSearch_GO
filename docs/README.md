@@ -103,7 +103,16 @@ match is pre-selected and focused), and never dead-ends:
   company-linked leaders for external company involvement. It performs a cache-first preflight
   over the full plan and reports cache/result counts. Direct and leadership-derived
   relationships are reported separately and are never folded into the primary company identity;
-  returned snippets remain visible for review when classification is inconclusive.
+  returned snippets remain visible for review when classification is inconclusive. When
+  `ROCKETREACH_API_KEY` is configured, this mode also makes a bounded set of RocketReach
+  discovery searches across leadership, procurement, finance, legal, operations, and founder
+  title groups. These results nominate candidates and retain query provenance, but never
+  request contact details.
+
+RocketReach is a paid enrichment provider and is intentionally split by operation: related
+entity/company runs use search discovery only, while email and phone lookup is performed only
+for an explicitly requested person dossier. Search and lookup failures are non-fatal and are
+reported as run warnings.
 
 ### Legal mode (Indian case-law check)
 

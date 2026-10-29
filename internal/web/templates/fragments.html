@@ -483,6 +483,18 @@
 		<p class="text-sm text-slate-400 leading-relaxed">{{.ExecutiveSummary}}</p>
 	</div>
 
+	{{if .ContactEnrichment}}
+	<div class="rounded-xl border border-amber-900/50 bg-amber-950/20 p-4">
+		<div class="flex items-center justify-between gap-2 mb-2">
+			<h4 class="text-sm font-semibold text-amber-200">Contact details</h4>
+			<span class="text-[10px] text-slate-500">Retrieved on explicit person search</span>
+		</div>
+		{{range .ContactEnrichment.Emails}}<div class="text-sm text-slate-300">{{.Email}}{{if .Type}} <span class="text-xs text-slate-500">({{.Type}}{{if .Grade}}, grade {{.Grade}}{{end}})</span>{{end}}</div>{{end}}
+		{{range .ContactEnrichment.Phones}}<div class="text-sm text-slate-300">{{.Number}}{{if .Type}} <span class="text-xs text-slate-500">({{.Type}})</span>{{end}}</div>{{end}}
+		{{if and (not .ContactEnrichment.Emails) (not .ContactEnrichment.Phones)}}<p class="text-xs text-slate-500">No verified contact details were returned.</p>{{end}}
+	</div>
+	{{end}}
+
 	<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 		<div>
 			<h4 class="text-sm font-semibold text-slate-300 mb-3">Career History</h4>

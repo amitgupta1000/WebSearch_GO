@@ -40,12 +40,32 @@ type PersonProfile struct {
 	// its kept and excluded hits — behind the Search results tab and the searches.json
 	// artifact. Attached by the agent.
 	SearchTrace *SearchTrace `json:"search_trace,omitempty"`
+	// ContactEnrichment is populated only for an explicitly requested person
+	// dossier/search; company and related-entity discovery never requests it.
+	ContactEnrichment *PersonContactEnrichment `json:"contact_enrichment,omitempty"`
 	// SameNamed is the multilateral view: the most relevant snippets for the other people who
 	// share the confirmed name, grouped by the employer each source states, plus the material
 	// that names the person but states no employer. Attached by the agent, never by the
 	// model, because a person search answers with several people and the operator should see
 	// all of them.
 	SameNamed []PersonEvidenceGroup `json:"same_named,omitempty"`
+}
+
+type PersonContactEnrichment struct {
+	Emails []PersonContactEmail `json:"emails,omitempty"`
+	Phones []PersonContactPhone `json:"phones,omitempty"`
+	Source string               `json:"source,omitempty"`
+}
+
+type PersonContactEmail struct {
+	Email string `json:"email"`
+	Type  string `json:"type,omitempty"`
+	Grade string `json:"grade,omitempty"`
+}
+
+type PersonContactPhone struct {
+	Number string `json:"number"`
+	Type   string `json:"type,omitempty"`
 }
 
 // PublicAccount is a social account discovered from public indexed evidence. It is

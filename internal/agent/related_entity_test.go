@@ -20,11 +20,21 @@ func TestResolvePersonIdentityExtractsDINAndEvidence(t *testing.T) {
 	if identity.DIN != "01234567" {
 		t.Fatalf("DIN = %q, want 01234567", identity.DIN)
 	}
+
 	if identity.Confidence < relatedEntityIdentityConfidence {
 		t.Fatalf("confidence = %v, want at least %v", identity.Confidence, relatedEntityIdentityConfidence)
 	}
 	if len(identity.Evidence) != 2 || !strings.Contains(identity.Attributes[0], "company") {
 		t.Fatalf("identity evidence/attributes = %+v", identity)
+	}
+}
+
+func TestRocketReachEmployerMatchesRejectsFuzzyUnrelatedEmployer(t *testing.T) {
+	if !rocketReachEmployerMatches("KLJ Resources", "KLJ Resources Limited") {
+		t.Fatal("expected abbreviated legal suffix to match")
+	}
+	if rocketReachEmployerMatches("Fasaol Resources Limited", "KLJ Resources Limited") {
+		t.Fatal("expected unrelated fuzzy employer to be rejected")
 	}
 }
 

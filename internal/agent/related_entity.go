@@ -11,6 +11,7 @@ import (
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 const (
@@ -23,6 +24,7 @@ const (
 	relatedEntityLeaderEvidence     = 30
 	relatedEntitySnippetMaxRunes    = 1200
 	relatedEntityIdentityConfidence = 0.60
+	relatedEntityRocketReachQueries = 4
 )
 
 var directorIdentificationNumberPattern = regexp.MustCompile(`(?i)\b(?:din|director\s+identification\s+number)\D{0,12}(\d{8})\b`)
@@ -30,11 +32,16 @@ var directorIdentificationNumberPattern = regexp.MustCompile(`(?i)\b(?:din|direc
 // RelatedEntityAgent discovers direct company relationships and then follows
 // confirmed leadership into other companies. It never mutates CompanyBrief.
 type RelatedEntityAgent struct {
-	engine *Engine
+	engine      *Engine
+	rocketReach *tools.RocketReachClient
 }
 
-func NewRelatedEntityAgent(engine *Engine) *RelatedEntityAgent {
-	return &RelatedEntityAgent{engine: engine}
+func NewRelatedEntityAgent(engine *Engine, rocketReach ...*tools.RocketReachClient) *RelatedEntityAgent {
+	agent := &RelatedEntityAgent{engine: engine}
+	if len(rocketReach) > 0 {
+		agent.rocketReach = rocketReach[0]
+	}
+	return agent
 }
 
 func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, query models.RelatedEntityQuery, eventCh chan<- models.AgentEvent) (*models.RelatedEntityReport, error) {
@@ -89,7 +96,8 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 		report.Warnings = append(report.Warnings, "The search provider returned no cached or live hits for the planned queries.")
 	}
 	report.ReviewEvidence = reviewEvidence(trace, 50)
-	if err := a.extract(ctx, query, directHits, leadHits, report); err != nil {
+	rrLeaders := a.discoverRocketReach(ctx, query, report)
+	if err := a.extract(ctx, query, directHits, leadHits, rrLeaders, report); err != nil {
 		return nil, err
 	}
 	report.Graph = relatedEntityGraph(report)
@@ -181,7 +189,7 @@ func flattenTrace(trace *models.SearchTrace, start, end int) []models.SearchResu
 	return hits
 }
 
-func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEntityQuery, directHits, leaderHits []models.SearchResult, report *models.RelatedEntityReport) error {
+func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEntityQuery, directHits, leaderHits []models.SearchResult, rrLeaders []models.LeadershipSubject, report *models.RelatedEntityReport) error {
 	directPayload, err := json.Marshal(struct {
 		Company string
 		Hits    []models.SearchResult
@@ -212,11 +220,90 @@ func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEn
 		report.Warnings = append(report.Warnings, fmt.Sprintf("Leadership extraction failed: %v", err))
 		return nil
 	}
-	report.Leadership = normalizeLeaders(leaderExtracted.Leadership, query.CompanyName, query.MaxLeaders)
+	report.Leadership = normalizeLeaders(append(leaderExtracted.Leadership, rrLeaders...), query.CompanyName, query.MaxLeaders)
 	if len(report.Leadership) == 0 {
 		return nil
 	}
 	return a.searchLeadership(ctx, query, report)
+}
+
+func (a *RelatedEntityAgent) discoverRocketReach(ctx context.Context, query models.RelatedEntityQuery, report *models.RelatedEntityReport) []models.LeadershipSubject {
+	if a.rocketReach == nil || !a.rocketReach.Enabled() {
+		return nil
+	}
+	titleGroups := [][]string{
+		{"director", "chief executive officer", "chief financial officer", "chief operating officer", "managing director"},
+		{"procurement", "purchasing", "supply chain"},
+		{"finance", "legal", "operations"},
+		{"founder", "chairman", "president", "vice president"},
+	}
+	var leaders []models.LeadershipSubject
+	seen := map[string]bool{}
+	for _, titles := range titleGroups[:relatedEntityRocketReachQueries] {
+		rrQuery := map[string][]string{
+			"current_employer": {query.CompanyName},
+			"current_title":    titles,
+		}
+		profiles, err := a.rocketReach.Search(ctx, rrQuery)
+		if err != nil {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("RocketReach discovery failed for title group %q: %v", titles, err))
+			continue
+		}
+		queryLabel := query.CompanyName + " / " + strings.Join(titles, ", ")
+		for _, profile := range profiles {
+			name := strings.TrimSpace(profile.Name)
+			if name == "" || !rocketReachEmployerMatches(profile.CurrentEmployer, query.CompanyName) {
+				continue
+			}
+			key := strings.ToLower(name + "\x00" + strings.TrimSpace(profile.CurrentEmployer))
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			report.RocketReachDiscovery = append(report.RocketReachDiscovery, models.RocketReachDiscovery{
+				ProfileID: profile.ID, Name: name, Title: profile.CurrentTitle,
+				Employer: profile.CurrentEmployer, LinkedInURL: profile.LinkedInURL, Query: queryLabel,
+			})
+			leaders = append(leaders, models.LeadershipSubject{
+				Name: name, Role: profile.CurrentTitle, Company: profile.CurrentEmployer,
+				Confidence: 0.75, Evidence: []models.RelatedEntityEvidence{{
+					URL: profile.LinkedInURL, Title: name + " - " + profile.CurrentTitle,
+					Snippet: name + " is listed at " + profile.CurrentEmployer + " as " + profile.CurrentTitle,
+					Source:  "rocketreach",
+				}},
+			})
+		}
+	}
+	return leaders
+}
+
+func rocketReachEmployerMatches(employer, company string) bool {
+	employerTokens := strings.Fields(strings.ToLower(strings.TrimSpace(employer)))
+	companyTokens := strings.Fields(strings.ToLower(strings.TrimSpace(company)))
+	generic := map[string]bool{"limited": true, "ltd": true, "private": true, "pvt": true, "company": true, "inc": true, "llc": true}
+	distinctive := make([]string, 0, len(companyTokens))
+	for _, token := range companyTokens {
+		token = strings.Trim(token, ".,()")
+		if token != "" && !generic[token] {
+			distinctive = append(distinctive, token)
+		}
+	}
+	if len(distinctive) == 0 {
+		return false
+	}
+	for _, wanted := range distinctive {
+		found := false
+		for _, actual := range employerTokens {
+			if strings.Trim(actual, ".,()") == wanted {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 func boundedRelatedEvidence(hits []models.SearchResult, limit int) []models.SearchResult {

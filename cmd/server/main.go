@@ -251,7 +251,7 @@ func main() {
 		cfg.ValidateEvidence, cfg.ValidationLookups, cfg.ValidationStaleMonths, cfg.ValidationRecentMonths)
 	log.Printf("Entity gate: %s (sources must name the company, its domain, an alias or its registration id)", cfg.EntityGateMode)
 	compAgent := agent.NewCompanyAgent(eng)
-	persAgent := agent.NewPersonAgent(eng)
+	persAgent := agent.NewPersonAgent(eng, tools.NewRocketReachClient(cfg.RocketReachAPIKey))
 	// Legal mode rides the same engine (cached search, LLM, budgets) plus the
 	// case-law clients: IndianKanoon with its own politeness and robots guard,
 	// Casemine with its measured fetch ladder (plain fetch first, cookie-bridged
@@ -259,7 +259,7 @@ func main() {
 	// authenticates when JURISTWAY_EMAIL/JURISTWAY_PASSWORD are configured.
 	juristwayClient := tools.NewJuristwayClient(cfg.JuristwayEmail, cfg.JuristwayPassword)
 	legalAgent := agent.NewLegalAgent(eng, tools.NewIndianKanoonClient(), tools.NewCasemineClient(scraper), juristwayClient, cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery, cfg.LegalConcurrency)
-	relatedAgent := agent.NewRelatedEntityAgent(eng)
+	relatedAgent := agent.NewRelatedEntityAgent(eng, tools.NewRocketReachClient(cfg.RocketReachAPIKey))
 	juristwayNote := " (anonymous)"
 	if cfg.JuristwayEmail != "" {
 		juristwayNote = " (authenticated)"
