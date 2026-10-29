@@ -91,9 +91,12 @@ match is pre-selected and focused), and never dead-ends:
   and place pre-filled from the profile the operator picks. That pinned context is what the
   run searches with — `"Name" Company Location` — so a dossier is about the right Sanjay
   Gupta rather than whichever one ranked highest, and the confirmed profile is read first as
-  a seed source. A people-directory hit (RocketReach, ZoomInfo, SignalHire…) is offered but
-  flagged as a claim rather than a profile, and if no profile is found the name-alone path
-  is right there.
+  a seed source. A people-directory hit (RocketReach, ZoomInfo, SignalHire…) is offered but flagged as a
+  claim rather than a profile, and if no profile is found the name-alone path is right there.
+  After the dossier is synthesized and quality-checked, an explicit person run may perform
+  one RocketReach lookup using the confirmed LinkedIn URL or name plus current employer.
+  Returned verified email/phone fields are rendered in the dossier and exports; company and
+  related-entity runs never request those fields.
 - **Legal** (`POST /api/resolve-entity`, `mode=legal`): the same company-identity confirmation
   a company run uses — a legal check needs exactly the same "which company is this"
   discipline — plus an optional list of directors or key persons to check alongside it (see
@@ -297,6 +300,7 @@ nothing. Person mode still has no freshness pass and no image OCR; company mode 
 | `PORT` | `8080` | HTTP listen port |
 | `GEMINI_MODEL` | `gemini-2.5-flash-lite` | Gemini model name |
 | `SERPER_API_KEY` | — (required for search) | Serper.dev API key |
+| `ROCKETREACH_API_KEY` | — (optional) | Enables bounded company/related-entity profile discovery and explicit person-dossier contact enrichment. Search discovery does not request contact details; lookup failures are non-fatal. |
 | `GOOGLE_API_KEY` | — | Gemini API key (AI Studio) |
 | `GOOGLE_GENAI_USE_VERTEXAI` | unset | Set to `true` to use Vertex AI backend |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | — | Vertex AI project & region |

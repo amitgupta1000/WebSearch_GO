@@ -96,7 +96,7 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 		report.Warnings = append(report.Warnings, "The search provider returned no cached or live hits for the planned queries.")
 	}
 	report.ReviewEvidence = reviewEvidence(trace, 50)
-	rrLeaders := a.discoverRocketReach(ctx, query, report)
+	rrLeaders := a.discoverRocketReach(ctx, sessionID, query, eventCh, report)
 	if err := a.extract(ctx, query, directHits, leadHits, rrLeaders, report); err != nil {
 		return nil, err
 	}
@@ -227,7 +227,7 @@ func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEn
 	return a.searchLeadership(ctx, query, report)
 }
 
-func (a *RelatedEntityAgent) discoverRocketReach(ctx context.Context, query models.RelatedEntityQuery, report *models.RelatedEntityReport) []models.LeadershipSubject {
+func (a *RelatedEntityAgent) discoverRocketReach(ctx context.Context, sessionID string, query models.RelatedEntityQuery, eventCh chan<- models.AgentEvent, report *models.RelatedEntityReport) []models.LeadershipSubject {
 	if a.rocketReach == nil || !a.rocketReach.Enabled() {
 		return nil
 	}
@@ -244,12 +244,27 @@ func (a *RelatedEntityAgent) discoverRocketReach(ctx context.Context, query mode
 			"current_employer": {query.CompanyName},
 			"current_title":    titles,
 		}
+		titleLabel := strings.Join(titles, ", ")
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID,
+			Type:      models.EventToolCall,
+			ToolName:  "rocketreach_search",
+			Content:   "Searching RocketReach discovery for " + query.CompanyName + " (" + titleLabel + ")",
+		})
 		profiles, err := a.rocketReach.Search(ctx, rrQuery)
 		if err != nil {
-			report.Warnings = append(report.Warnings, fmt.Sprintf("RocketReach discovery failed for title group %q: %v", titles, err))
+			message := fmt.Sprintf("RocketReach discovery failed for title group %q: %v", titles, err)
+			report.Warnings = append(report.Warnings, message)
+			Emit(eventCh, models.AgentEvent{
+				SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_search", Content: message,
+			})
 			continue
 		}
 		queryLabel := query.CompanyName + " / " + strings.Join(titles, ", ")
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_search",
+			Content: fmt.Sprintf("RocketReach discovery returned %d profile(s) for %s", len(profiles), query.CompanyName),
+		})
 		for _, profile := range profiles {
 			name := strings.TrimSpace(profile.Name)
 			if name == "" || !rocketReachEmployerMatches(profile.CurrentEmployer, query.CompanyName) {
