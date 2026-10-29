@@ -40,7 +40,7 @@ four modes:
 | :--- | :--- | :--- |
 | **Company** (`mode=company`) | A structured `OrgChart`: overview, HQ, leadership, departments, locations, sources | LLM plans a set of Google queries → results are ranked for relevance → the top pages are scraped → Gemini synthesizes the org chart from the collected evidence |
 | **Person** (`mode=person`) | A structured `PersonProfile` dossier: title, company, bio, experiences, education, skills, confidence score | Disambiguated search (name + company + location) → bio-oriented pages are scraped → a secondary career search supplements snippets → Gemini synthesizes the dossier |
-| **Legal** (`mode=legal`) | A structured `LegalReport`: litigation findings on the confirmed company and named persons, plus same-named hits kept for review | The company identity is confirmed as in company mode → a deterministic plan searches IndianKanoon (native client) and Casemine (search snippets) → every hit is tied to the identity by CIN/name/alias → Gemini classifies category/status and writes an exposure summary |
+| **Legal** (`mode=legal`) | A structured `LegalReport`: docketed litigation findings on the confirmed company and named persons, deterministic risk position, plus same-named hits kept for review | The company identity is confirmed as in company mode → bounded case-law and regulatory searches run → every hit is tied to the identity by CIN/name/alias → Gemini classifies category/status → deterministic dockets and risk position are assembled |
 | **Related entities** (`mode=related_entity`) | A graph-first `RelatedEntityReport`: evidence-backed company and person nodes connected by labelled relationships, with raw snippets retained for review | Separate company search (32-query budget) from people discovery (8-query budget) → launch a six-query identity/affiliation trajectory for each resolved leader, concurrently up to eight people → resolve DIN, appointment, domain, and registry signals → search other-company involvement; Gemini labels bounded evidence slices, but the report preserves the graph and raw evidence rather than depending on one monolithic extraction |
 
 The system is built from six cooperating layers:
@@ -471,7 +471,9 @@ two modes (no planning model call, no scrape ladder, no QC loop):
    `LEGAL_QUERIES_PER_RUN`: the company name, the CIN (a registration id cannot
    belong to a same-named company), confirmed aliases, a Casemine snippet track
    (`site:casemine.com "Company"` through `SearchCached`), then each named person
-   as `"Name" "Company"` co-occurrence. *(Step 40)*
+   as `"Name" "Company"` co-occurrence. Juristway receives a reserved slot when
+   enabled so aliases and person searches cannot starve that complementary
+   source. *(Step 40)*
 2. **Search (`executeLegalQuery`)** — IndianKanoon searches go through the native
    client (`legal_search:<sha256(query)>`, TTL 48 h) and always carry
    `doctype=judgments`; statute sections land in the trace's excluded list rather
@@ -494,9 +496,8 @@ two modes (no planning model call, no scrape ladder, no QC loop):
    `initiated` (petitioner/complainant/appellant), the right side `facing`
    (respondent/defendant/accused), a match outside the sides is `mentioned` — the
    distinction that changes a risk reading, and it survives model outages. A
-   Gemini pass then adds category, status and an exposure summary keyed by index;
-   on failure the findings stay deterministic and the summary falls back to a
-   count line. *(Step 44)*
+   Gemini pass then adds category and status keyed by index;
+   on failure the findings stay deterministic. *(Step 44)*
 4. **Fold iterations (`foldCaseIterations`)** — records are grouped by case key
    (the title with its trailing `on <date>` stripped, so the trial order and the
    appeal judgment fold together) and the **latest dated record wins the row**:
@@ -509,17 +510,13 @@ two modes (no planning model call, no scrape ladder, no QC loop):
    documents are fetched in full (TTL 7 d), weakest identity first; a CIN or full
    name in a judgment body upgrades a name-only match and re-grades it out of the
    same-named bucket.
-6. **Assess risk (`assessRisk`)** — every matched finding's snippet, side,
-   category and status feed one model call returning `LegalRiskAssessment`
-   (level on the none/low/moderate/high/critical scale, narrative, drivers).
-   Responding-side pending matters weigh most; same-named records are context
-   only. The fallback (`legalFallbackRisk`) derives the level from documented
-   count rules — pending responding-side criminal/insolvency/sebi → high, any
-   pending responding-side → moderate, otherwise low — and names the pending
-   matters as drivers, so even a model outage leaves an honest baseline. The
-   assessment is attached as `report.Risk` and rendered first in the console
-   panel, the Markdown and the PDF. *(Step 47)*
-7. **Report (`assembleLegalReport`)** — matched findings, same-named hits,
+6. **Group and assess risk (`buildDockets`, `buildRiskPosition`)** — classified
+   findings are grouped deterministically into company-law, criminal, tax and
+   other dockets. Only recent company-law matters where the company is clearly
+   responding contribute to the risk level; the dockets retain all matched
+   findings and expose pending/respondent counts. No model narrative can
+   override this evidence-based position. *(Step 45)*
+7. **Report (`assembleLegalReport`)** — dockets, matched findings, same-named hits,
    per-person results in request order (an unbudgeted person is named as
    *not searched* rather than silently missing), and per-source honesty
    (`LegalSourceReport.Unavailable`), so "no findings" is never ambiguous between
@@ -1410,11 +1407,11 @@ the two cited sources.
   structured extraction is too conservative, so an empty relationship classification does not
   hide the material the search actually returned.
 
-- **Legal risk opinion is filtered after retrieval.** Legal mode still retains and displays every
-  identity-matched finding, but the risk-assessment model and deterministic fallback receive only
-  findings where the company is the responding-side party (`facing`) and the case date is within
-  the previous ten years. Initiated matters, older matters, undated matters, and person-party
-  findings are counted as excluded from the opinion and remain visible in the findings list.
+- **Legal risk is derived after retrieval.** Legal mode still retains and displays every
+  identity-matched finding, groups findings into deterministic dockets, and derives the risk
+  position only from recent company-law matters where the company is the responding-side party
+  (`facing`). Criminal, tax, initiated, stale, undated, and person-party findings remain visible
+  in their appropriate review sections without inflating the company risk position.
 
 - **A refused client is reported, not retried.** `isBotDenialStatus` recognizes the non-standard
   code a host uses to refuse a client (LinkedIn answers 999 to a plain client for a person

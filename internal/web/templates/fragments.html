@@ -881,6 +881,41 @@
 	</div>
 	{{end}}
 
+	{{if .Dockets}}
+	<div>
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Matter dockets</h4>
+		<div class="space-y-4">
+			{{range .Dockets}}
+			<div class="rounded-xl border border-slate-800 bg-slate-900/50 p-3 space-y-3">
+				<div class="flex items-center justify-between gap-2">
+					<h5 class="text-sm font-semibold text-white">{{.Name}}</h5>
+					<div class="flex flex-wrap gap-1.5 text-[11px]">
+						<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">{{len .Matters}} matter(s)</span>
+						{{if .Pending}}<span class="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20">{{.Pending}} pending</span>{{end}}
+						{{if and (eq .Category "company-law") .Defendant}}<span class="px-2 py-0.5 rounded-full bg-red-500/10 text-red-300 border border-red-500/20">{{.Defendant}} with the company as respondent</span>{{end}}
+					</div>
+				</div>
+				<div class="space-y-3">
+					{{range .Matters}}
+					<div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+						<a href="{{if .URL}}{{if not (hasScheme .URL)}}https://indiankanoon.org{{.URL}}{{else}}{{.URL}}{{end}}{{end}}" target="_blank" rel="noreferrer" class="text-sm font-medium text-white hover:text-teal-300 break-all">{{if .CaseTitle}}{{.CaseTitle}}{{else}}(untitled record){{end}}</a>
+						<div class="flex flex-wrap gap-1.5 text-[11px]">
+							{{if .Court}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">{{.Court}}</span>{{end}}
+							{{if .Date}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">{{.Date}}</span>{{end}}
+							{{if .Role}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">{{.Role}}</span>{{end}}
+							{{if .Category}}<span class="px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-300">{{.Category}}</span>{{end}}
+							{{if .Status}}<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">{{.Status}}</span>{{end}}
+						</div>
+						{{if .Snippet}}<p class="text-xs text-slate-500 leading-relaxed">{{.Snippet}}</p>{{end}}
+					</div>
+					{{end}}
+				</div>
+			</div>
+			{{end}}
+		</div>
+	</div>
+	{{end}}
+
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Matched findings</h4>
 		{{if .Findings}}

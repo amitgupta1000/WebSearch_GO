@@ -331,14 +331,21 @@ func TestResearchLegalClassifiesAndBuckets(t *testing.T) {
 		t.Errorf("same-named MatchKey = %q, want name-only", report.SameNamed[0].MatchKey)
 	}
 
-	// Classification ran: the model's category and summary are in the report.
+	// Classification supplies the docket labels; the summary and risk position
+	// are deterministic so a model narrative cannot override the evidence.
 	for _, finding := range report.Findings {
 		if !finding.Classified || finding.Category != "insolvency" || finding.Status != "pending" {
 			t.Errorf("finding %q not classified: %+v", finding.CaseTitle, finding)
 		}
 	}
-	if !strings.Contains(report.Summary, "pending insolvency") {
-		t.Errorf("summary = %q, want the model narrative", report.Summary)
+	if !strings.Contains(report.Summary, "Company law") {
+		t.Errorf("summary = %q, want the company-law docket", report.Summary)
+	}
+	if len(report.Dockets) != 1 || report.Dockets[0].Category != "company-law" {
+		t.Fatalf("dockets = %+v, want one company-law docket", report.Dockets)
+	}
+	if report.Risk == nil || report.Risk.Level != "none" {
+		t.Errorf("risk = %+v, want no responding-side risk", report.Risk)
 	}
 
 	// Statute entries are excluded from the trace's kept hits but recorded.
@@ -739,55 +746,47 @@ func TestLegalPartyRoleReadsSides(t *testing.T) {
 	}
 }
 
-func TestLegalFallbackRiskLevels(t *testing.T) {
-	// A pending responding-side criminal matter escalates to high.
-	high := legalFallbackRisk([]models.LegalFinding{
-		{CaseTitle: "State vs Acme Robotics Pvt Ltd", Role: models.LegalRoleFacing, Status: "pending", Category: "criminal"},
-	})
-	if high.Level != "high" {
-		t.Errorf("pending facing criminal: level = %q, want high", high.Level)
+func TestLegalFamilyRoutesMatters(t *testing.T) {
+	tests := []struct {
+		finding models.LegalFinding
+		want    string
+	}{
+		{models.LegalFinding{CaseTitle: "Criminal complaint against X", Court: "Delhi High Court"}, docketCriminal},
+		{models.LegalFinding{CaseTitle: "Acme v. Somebody", Court: "National Company Law Tribunal"}, docketCompanyLaw},
+		{models.LegalFinding{CaseTitle: "Winding up petition of Acme"}, docketCompanyLaw},
+		{models.LegalFinding{CaseTitle: "Acme v. Income Tax Officer", Court: "Delhi High Court"}, docketTax},
+		{models.LegalFinding{CaseTitle: "Acme v. Somebody", Court: "Income Tax Appellate Tribunal"}, docketTax},
+		{models.LegalFinding{CaseTitle: "Acme v. Buyer", Court: "Delhi High Court", Category: "civil"}, docketOther},
 	}
-
-	if len(high.Drivers) == 0 || !strings.Contains(high.Drivers[0], "State vs Acme") {
-		t.Errorf("drivers should name the specific matter: %v", high.Drivers)
-	}
-
-	// A pending responding-side civil matter is moderate.
-	moderate := legalFallbackRisk([]models.LegalFinding{
-		{CaseTitle: "Creditor vs Acme Robotics Pvt Ltd", Role: models.LegalRoleFacing, Status: "pending", Category: "civil"},
-	})
-	if moderate.Level != "moderate" {
-		t.Errorf("pending facing civil: level = %q, want moderate", moderate.Level)
-	}
-
-	// Only decided responding-side matters stay low, but are counted.
-	low := legalFallbackRisk([]models.LegalFinding{
-		{CaseTitle: "Creditor vs Acme Robotics Pvt Ltd", Role: models.LegalRoleFacing, Status: "decided"},
-		{CaseTitle: "Acme Robotics Pvt Ltd vs Defaulting Vendor", Role: models.LegalRoleInitiated, Status: "pending"},
-	})
-	if low.Level != "low" {
-		t.Errorf("decided facing + initiated: level = %q, want low", low.Level)
-	}
-
-	// No findings at all: none.
-	if legalFallbackRisk(nil).Level != "none" {
-		t.Error("no findings must assess to none")
+	for _, testCase := range tests {
+		if got := legalFamily(testCase.finding); got != testCase.want {
+			t.Errorf("legalFamily(%q) = %q, want %q", testCase.finding.CaseTitle, got, testCase.want)
+		}
 	}
 }
 
-func TestRiskOpinionFindingsKeepsRecentCompanyDefendantsOnly(t *testing.T) {
-	now := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
-	eligible, scope := riskOpinionFindings([]models.LegalFinding{
-		{PartyKind: "company", Role: models.LegalRoleFacing, Date: "2 February, 2021"},
-		{PartyKind: "company", Role: models.LegalRoleInitiated, Date: "3 March, 2024"},
-		{PartyKind: "company", Role: models.LegalRoleFacing, Date: "1 January, 2015"},
-		{PartyKind: "company", Role: models.LegalRoleFacing, Date: ""},
-		{PartyKind: "person", Role: models.LegalRoleFacing, Date: "1 January, 2024"},
-	}, now)
-	if len(eligible) != 1 {
-		t.Fatalf("eligible findings = %d, want 1", len(eligible))
+func TestBuildRiskPositionUsesCompanyLawRespondingMatters(t *testing.T) {
+	dockets := buildDockets([]models.LegalFinding{
+		{CaseTitle: "Criminal complaint against X", Court: "Delhi High Court", Status: "pending", Role: models.LegalRoleFacing, PartyKind: "person", Party: "X"},
+		{CaseTitle: "Acme v. Income Tax Officer", Court: "Delhi High Court", Status: "pending", Role: models.LegalRoleInitiated, PartyKind: "company", Party: "Acme"},
+		{CaseTitle: "CIRP petition against Acme", Court: "NCLT Mumbai", Status: "pending", Role: models.LegalRoleFacing, PartyKind: "company", Party: "Acme", Category: "insolvency"},
+	})
+	risk := buildRiskPosition(dockets, time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+	if risk.Level != "high" {
+		t.Fatalf("level = %s, want high", risk.Level)
 	}
-	if scope.Excluded != 4 || scope.Old != 1 || scope.Initiated != 1 || scope.Undated != 1 || scope.NonCompany != 1 {
-		t.Fatalf("scope = %+v, want four excluded split by age, role, date, and party", scope)
+	if len(risk.Drivers) != 1 || !strings.Contains(risk.Drivers[0], "CIRP petition against Acme") {
+		t.Errorf("drivers = %v, want only the company-law matter", risk.Drivers)
+	}
+}
+
+func TestBuildRiskPositionIgnoresCriminalAndTax(t *testing.T) {
+	dockets := buildDockets([]models.LegalFinding{
+		{CaseTitle: "Criminal complaint against X", Court: "Delhi High Court", Status: "pending", Role: models.LegalRoleFacing, PartyKind: "person", Party: "X"},
+		{CaseTitle: "Acme v. Income Tax Officer", Court: "Delhi High Court", Status: "pending", Role: models.LegalRoleInitiated, PartyKind: "company", Party: "Acme"},
+	})
+	risk := buildRiskPosition(dockets, time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+	if risk.Level != "none" || len(risk.Drivers) != 0 {
+		t.Errorf("risk = %+v, want no company-law responding-side exposure", risk)
 	}
 }

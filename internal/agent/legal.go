@@ -58,7 +58,8 @@ const (
 	// after page 1 regardless of this knob.
 	defaultLegalPagesPerQuery = 5
 	// legalSnippetCap bounds the snippet text carried per finding.
-	legalSnippetCap = 600
+	legalSnippetCap        = 600
+	analysisRelevanceYears = 10
 )
 
 // legalSource is the case-law search surface the agent needs. *tools.IndianKanoonClient
@@ -230,9 +231,13 @@ type legalParty struct {
 func planLegalQueries(query models.LegalQuery, budget int, casemineNative, juristwayNative bool) []legalPlannedQuery {
 	companyName := strings.TrimSpace(query.CompanyName)
 	var planned []legalPlannedQuery
+	companyCap := budget
+	if juristwayNative && companyCap > 1 {
+		companyCap--
+	}
 
 	add := func(q legalPlannedQuery) {
-		if len(planned) >= budget || strings.TrimSpace(q.Query) == "" {
+		if len(planned) >= companyCap || strings.TrimSpace(q.Query) == "" {
 			return
 		}
 		planned = append(planned, q)
@@ -292,13 +297,16 @@ func planLegalQueries(query models.LegalQuery, budget int, casemineNative, juris
 	// query is the party name itself: the API matches a regex term, not a
 	// quoted phrase, and answers one page.
 	if juristwayNative {
-		add(legalPlannedQuery{
+		juristwayQuery := legalPlannedQuery{
 			Query:     companyName,
 			Purpose:   "company — juristway records",
 			Source:    "juristway",
 			Party:     companyName,
 			PartyKind: "company",
-		})
+		}
+		if len(planned) < budget && strings.TrimSpace(juristwayQuery.Query) != "" {
+			planned = append(planned, juristwayQuery)
+		}
 	}
 	// 6. Named persons, searched as name + company co-occurrence — the same
 	// discipline as company mode's reverse lookups, because a bare person name
@@ -427,6 +435,17 @@ func (la *LegalAgent) ResearchLegal(ctx context.Context, sessionID string, query
 	}
 	finishSearch(fmt.Sprintf("%d matched, %d same-named across %d company-track queries", len(findings), len(sameNamed), len(companyPlans)))
 
+	// Reserved authority searches complement the case-law sources without
+	// consuming the bounded IndianKanoon/Casemine/Juristway plan.
+	if la.engine != nil {
+		finishRegulatory := timer.start("regulatory")
+		regulatoryReport := &models.LegalSourceReport{Name: "regulatory"}
+		sources["regulatory"] = regulatoryReport
+		regulatoryFindings := la.regulatoryOrdersScan(ctx, sessionID, identity, regulatoryReport, trace, eventCh)
+		findings = append(findings, regulatoryFindings...)
+		finishRegulatory(fmt.Sprintf("%d regulatory order(s) matched", len(regulatoryFindings)))
+	}
+
 	// --- Directors discovery (toggle-driven, company-linked) ----------------
 	discoveredVia := map[string]string{}
 	var discovered []discoveredPerson
@@ -547,7 +566,7 @@ func (la *LegalAgent) ResearchLegal(ctx context.Context, sessionID string, query
 
 	// --- Classify with the model (deterministic fallback) -------------------
 	finishClassify := timer.start("classify")
-	classified, modelSummary := la.classifyFindings(ctx, sessionID, identity, pointers, eventCh)
+	classified, _ := la.classifyFindings(ctx, sessionID, identity, pointers, eventCh)
 
 	// Person seeds: operator-named first, then the discovered directors, each
 	// with how they entered the run. The seeds come from what was *asked*, not
@@ -565,18 +584,21 @@ func (la *LegalAgent) ResearchLegal(ctx context.Context, sessionID string, query
 		seeds = append(seeds, personSeed{name: person, via: via})
 	}
 
-	summary := la.summarize(identity, classified, modelSummary, findings, sameNamed, len(uniquePersonPlans)-executedPersons)
 	finishClassify(map[bool]string{true: "model classification applied", false: "model classification unavailable; findings keep identity labels only"}[classified])
 
-	// --- Overall risk assessment (snippets assembled for the model) ---------
+	// --- Dockets and deterministic risk assessment ---------------------------
 	finishRisk := timer.start("risk")
 	report := assembleLegalReport(query, identity, findings, sameNamed, seeds, sources, trace, timer)
-	report.Summary = summary
-	report.Risk = la.assessRisk(ctx, sessionID, identity, findings, sameNamed, eventCh)
-	if !report.Risk.Classified {
-		report.Risk.Note = "count-derived fallback: the model was unavailable for this run"
+	report.Dockets = buildDockets(findings)
+	report.Summary = reportSummary(report.Dockets, len(findings), len(sameNamed), len(uniquePersonPlans)-executedPersons, classified)
+	report.Risk = buildRiskPosition(report.Dockets, time.Now())
+	facingCount := 0
+	for _, docket := range report.Dockets {
+		if docket.Category == docketCompanyLaw {
+			facingCount += docket.Defendant
+		}
 	}
-	finishRisk(fmt.Sprintf("level %s (%s)", report.Risk.Level, map[bool]string{true: "model", false: "count fallback"}[report.Risk.Classified]))
+	finishRisk(fmt.Sprintf("level %s (deterministic; %d company-law matter(s) on the responding side)", report.Risk.Level, facingCount))
 
 	// A person whose planned query never executed (budget) is named as such.
 	for i := range report.Persons {
@@ -1624,236 +1646,6 @@ func (la *LegalAgent) classifyFindings(ctx context.Context, sessionID string, id
 		Content:   fmt.Sprintf("%d finding(s) classified", len(pointers)),
 	})
 	return true, target.Summary
-}
-
-// legalRiskTarget is the shape the risk-assessment call returns.
-type legalRiskTarget struct {
-	Level   string   `json:"level"`
-	Summary string   `json:"summary"`
-	Drivers []string `json:"drivers"`
-}
-
-// legalRiskLevels is the whitelist the model's level is checked against; an
-// unknown word degrades to the deterministic level rather than being printed.
-var legalRiskLevels = map[string]bool{
-	"none": true, "low": true, "moderate": true, "high": true, "critical": true,
-}
-
-// legalRiskFacingCategories are the matter types that weigh most when the
-// company is on the responding side — the deterministic fallback's escalation
-// triggers and the prompt's emphasis agree on this list.
-var legalRiskFacingCategories = map[string]bool{
-	"criminal": true, "insolvency": true, "sebi": true,
-}
-
-// assessRisk assembles every finding's snippet and classification into one
-// model call that reads the company's overall litigation exposure: a level on
-// the none/low/moderate/high/critical scale, a narrative, and the specific
-// matters that drive it.
-//
-// The prompt carries the deterministic role parse (initiated vs facing) so the
-// model weighs responding-side matters the way the fallback does, and the
-// same-named hits are supplied only as context — they are not attributed to
-// the company and must not inflate its risk.
-func (la *LegalAgent) assessRisk(ctx context.Context, sessionID string, identity models.CompanyBrief, findings, sameNamed []models.LegalFinding, eventCh chan<- models.AgentEvent) *models.LegalRiskAssessment {
-	eligible, scope := riskOpinionFindings(findings, time.Now().UTC())
-	base := &models.LegalRiskAssessment{
-		OpinionFilter:      "company is the responding party (defendant/respondent/accused) and the case date is within the previous 10 years",
-		OpinionCutoff:      scope.Cutoff.Format("2006-01-02"),
-		EligibleFindings:   len(eligible),
-		ExcludedFindings:   scope.Excluded,
-		ExcludedOld:        scope.Old,
-		ExcludedInitiated:  scope.Initiated,
-		ExcludedUndated:    scope.Undated,
-		ExcludedNonCompany: scope.NonCompany,
-	}
-	if len(eligible) == 0 {
-		base.Level = "none"
-		base.Summary = fmt.Sprintf("No qualifying recent defendant/respondent matter was identified. %d collected finding(s) were retained, but excluded from the opinion because they were initiated, older than ten years, undated, or not company-party findings.", len(findings))
-		base.Note = "The opinion filter does not mean the excluded findings are irrelevant; they remain available below."
-		return base
-	}
-	if la.engine == nil {
-		assessment := legalFallbackRisk(eligible)
-		*base = *mergeRiskScope(base, assessment)
-		return base
-	}
-
-	var listBuilder strings.Builder
-	for index, finding := range eligible {
-		fmt.Fprintf(&listBuilder, "%d. [%s|%s] %q | court=%s | date=%s | category=%s | status=%s | match=%s | snippet=%s\n",
-			index, finding.Involvement, finding.Role, finding.CaseTitle, finding.Court,
-			finding.Date, finding.Category, finding.Status, finding.MatchKey, finding.Snippet)
-	}
-
-	systemPrompt := "You are an Indian legal risk analyst assessing a company's litigation exposure for a business dossier. " +
-		"Weigh responding-side matters (role=facing: the company is respondent, defendant or accused) above initiated-side ones (role=initiated: the company is the petitioner or complainant pursuing its rights). " +
-		"Weigh pending above decided, and criminal, insolvency and regulatory (sebi) matters above civil, tax or arbitration. " +
-		"Base the assessment only on the listed findings. " +
-		"level: one of none, low, moderate, high, critical. " +
-		"drivers: short phrases naming the specific matters that move the level, each with its court or date. Respond ONLY with valid JSON."
-	userPrompt := fmt.Sprintf("Company: %q (aliases: %v, registration id: %s).\n\nFindings about the company:\n%s\n"+
-		"(Context only — %d further record(s) share a similar party name but are not attributed to this company; do not count them as the company's exposure.)\n\n"+
-		"Return JSON: {\"level\": \"...\", \"summary\": \"<3-5 sentence overall assessment>\", \"drivers\": [\"...\"]}",
-		identity.CompanyName, identity.Aliases, identity.RegistrationID, listBuilder.String(), len(sameNamed))
-
-	var target legalRiskTarget
-	if err := la.engine.GenerateStructured(ctx, systemPrompt, userPrompt, &target); err != nil {
-		log.Printf("[LEGAL][session %s] risk assessment failed, falling back to counts: %v", sessionID, err)
-		assessment := legalFallbackRisk(eligible)
-		*base = *mergeRiskScope(base, assessment)
-		return base
-	}
-
-	level := strings.ToLower(strings.TrimSpace(target.Level))
-	if !legalRiskLevels[level] {
-		level = legalFallbackRisk(findings).Level
-	}
-	assessment := &models.LegalRiskAssessment{
-		Level:      level,
-		Summary:    strings.TrimSpace(target.Summary),
-		Drivers:    target.Drivers,
-		Classified: true,
-	}
-	if len(assessment.Drivers) == 0 {
-		assessment.Drivers = legalFallbackRisk(eligible).Drivers
-	}
-	*base = *mergeRiskScope(base, assessment)
-	Emit(eventCh, models.AgentEvent{
-		SessionID: sessionID,
-		Type:      models.EventToolResult,
-		Step:      47,
-		ToolName:  "risk_assessment",
-		Content:   fmt.Sprintf("overall risk: %s", assessment.Level),
-	})
-	return base
-}
-
-type riskOpinionScope struct {
-	Cutoff                   time.Time
-	Excluded, Old, Initiated int
-	Undated, NonCompany      int
-}
-
-func riskOpinionFindings(findings []models.LegalFinding, now time.Time) ([]models.LegalFinding, riskOpinionScope) {
-	scope := riskOpinionScope{Cutoff: now.AddDate(-10, 0, 0)}
-	eligible := make([]models.LegalFinding, 0, len(findings))
-	for _, finding := range findings {
-		when, dated := legalCaseDate(finding)
-		switch {
-		case finding.PartyKind != "company":
-			scope.NonCompany++
-		case finding.Role != models.LegalRoleFacing:
-			scope.Initiated++
-		case !dated:
-			scope.Undated++
-		case when.Before(scope.Cutoff):
-			scope.Old++
-		default:
-			eligible = append(eligible, finding)
-		}
-	}
-	scope.Excluded = len(findings) - len(eligible)
-	return eligible, scope
-}
-
-func mergeRiskScope(scope *models.LegalRiskAssessment, assessment *models.LegalRiskAssessment) *models.LegalRiskAssessment {
-	scope.Level = assessment.Level
-	scope.Summary = assessment.Summary
-	scope.Drivers = assessment.Drivers
-	scope.Classified = assessment.Classified
-	return scope
-}
-
-// legalFallbackRisk derives the risk level from counts when the model is
-// unavailable — documented rules, applied to the deterministic role parse:
-//
-//   - no matched findings → none;
-//   - a pending responding-side matter in criminal, insolvency or regulatory
-//     (sebi) class → high;
-//   - any pending responding-side matter → moderate;
-//   - responding-side matters at all → low;
-//   - only initiated-side matters → low.
-//
-// The drivers name the pending responding-side matters, so even the fallback
-// points a reader at specific cases rather than a bare label.
-func legalFallbackRisk(findings []models.LegalFinding) *models.LegalRiskAssessment {
-	if len(findings) == 0 {
-		return &models.LegalRiskAssessment{Level: "none", Summary: "No matched findings."}
-	}
-
-	facing, facingPending, facingPendingHighImpact, initiated := 0, 0, 0, 0
-	var pendingFacing []string
-	for _, finding := range findings {
-		switch finding.Role {
-		case models.LegalRoleFacing:
-			facing++
-			if strings.EqualFold(finding.Status, "pending") {
-				facingPending++
-				label := finding.CaseTitle
-				if finding.Court != "" {
-					label += " (" + finding.Court
-					if finding.Date != "" {
-						label += ", " + finding.Date
-					}
-					label += ")"
-				}
-				pendingFacing = append(pendingFacing, label)
-				if legalRiskFacingCategories[strings.ToLower(finding.Category)] {
-					facingPendingHighImpact++
-				}
-			}
-		case models.LegalRoleInitiated:
-			initiated++
-		}
-	}
-
-	assessment := &models.LegalRiskAssessment{Classified: false}
-	switch {
-	case facingPendingHighImpact > 0:
-		assessment.Level = "high"
-	case facingPending > 0:
-		assessment.Level = "moderate"
-	case facing > 0, initiated > 0:
-		assessment.Level = "low"
-	default:
-		assessment.Level = "low"
-	}
-
-	if len(pendingFacing) > 0 {
-		if len(pendingFacing) > 3 {
-			pendingFacing = pendingFacing[:3]
-		}
-		assessment.Drivers = pendingFacing
-	} else {
-		assessment.Drivers = []string{fmt.Sprintf("%d matched matter(s), none pending on the responding side", len(findings))}
-	}
-	assessment.Summary = fmt.Sprintf("%d matched record(s): %d on the responding side (%d pending), %d initiated by the company. Classification was unavailable for this run, so the level is derived from counts and the pending responding-side matters above.", len(findings), facing, facingPending, initiated)
-	return assessment
-}
-
-// summarize writes the report summary: the model's exposure narrative when
-// classification ran, otherwise a deterministic count line that names what was
-// and was not checked.
-func (la *LegalAgent) summarize(identity models.CompanyBrief, classified bool, modelSummary string, findings, sameNamed []models.LegalFinding, uncheckedPersons int) string {
-	if classified && strings.TrimSpace(modelSummary) != "" {
-		return strings.TrimSpace(modelSummary)
-	}
-	pending := 0
-	for _, finding := range findings {
-		if strings.EqualFold(finding.Status, "pending") {
-			pending++
-		}
-	}
-	summary := fmt.Sprintf("%d finding(s) tied to %s, %d same-named hit(s) kept for review", len(findings), identity.CompanyName, len(sameNamed))
-	if pending > 0 {
-		summary += fmt.Sprintf(", %d pending", pending)
-	}
-	if uncheckedPersons > 0 {
-		summary += fmt.Sprintf("; %d person(s) left unchecked by the query budget", uncheckedPersons)
-	}
-	summary += ". Classification was unavailable for this run, so findings carry identity labels only."
-	return summary
 }
 
 // personSeed is one person the report carries results for: the operator-named

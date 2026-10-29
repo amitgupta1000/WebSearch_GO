@@ -138,9 +138,8 @@ opinion.
    **responding** (respondent, defendant, accused) — the distinction that changes the risk
    reading, and it survives model outages because it never depended on the model. A Gemini
    pass then adds category (insolvency, sebi, tax, criminal, civil, arbitration, consumer,
-   labour, other), status (decided/pending) and an exposure summary; if the model is
-   unavailable the findings keep their identity labels and a deterministic summary line —
-   evidence is never lost for want of a classification.
+   labour, other) and status (decided/pending); evidence is never lost for want of a
+   classification. Reserved searches also scan SEBI, NCLT, NCLAT and IBBI order results.
 4. **Fold case iterations** — the same matter travels through stages (trial, appeal,
    revision) and each stage is its own document. Records are grouped by case title with
    the date stripped, and the **latest dated record wins the row** — it is the matter's
@@ -149,14 +148,11 @@ opinion.
 5. **Confirm** — up to `LEGAL_DOCS_PER_RUN` IndianKanoon documents are fetched in full to
    firm up the weakest matches (a CIN or full name in a judgment body upgrades a
    name-only guess) and to fill in missing court/date.
-6. **Assess risk** — every matched finding's snippet, side, category and status are
-   assembled into one Gemini call that reads the company's **overall legal risk**: a level
-   on the none/low/moderate/high/critical scale, a narrative, and the specific matters
-   that drive it (responding-side pending matters weigh most; same-named records are
-   context only and must not inflate the level). The fallback derives the level from
-   documented count rules when the model is unavailable, so the report always carries an
-   honest baseline.
-7. **Report** — matched findings, same-named hits *kept and labelled* rather than dropped
+6. **Group and assess risk** — classified findings are grouped into deterministic
+   company-law, criminal, tax and other dockets. Only recent company-law matters where
+   the company is clearly responding contribute to the overall risk level; all findings
+   remain visible in their dockets, with pending and respondent counts.
+7. **Report** — dockets, matched findings, same-named hits *kept and labelled* rather than dropped
    (a legal check must not silently discard a hit that merely shares a name), per-person
    results, and a source line that names what each source actually answered, so "no
    findings" is never ambiguous between "none exist" and "we could not look".

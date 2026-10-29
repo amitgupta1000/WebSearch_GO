@@ -188,6 +188,10 @@ type LegalReport struct {
 	// Persons holds one result per requested person, in request order.
 	Persons []LegalPersonResult `json:"persons,omitempty"`
 
+	// Dockets are deterministic legal-family groupings of the classified
+	// findings. Same-named records remain separate and are not attributed.
+	Dockets []LegalDocket `json:"dockets,omitempty"`
+
 	// Summary is the model-written exposure narrative when the classification
 	// pass ran; the fallback summary is a deterministic count line.
 	Summary string `json:"summary,omitempty"`
@@ -214,4 +218,15 @@ type LegalReport struct {
 // groups, for summaries and the console badge.
 func (r *LegalReport) FindingCount() int {
 	return len(r.Findings) + len(r.SameNamed)
+}
+
+// LegalDocket is one classified legal-family bucket. Defendant counts are
+// limited to company-law matters where the company is clearly on the
+// responding side and therefore eligible for the overall risk position.
+type LegalDocket struct {
+	Name      string         `json:"name"`
+	Category  string         `json:"category"`
+	Matters   []LegalFinding `json:"matters"`
+	Pending   int            `json:"pending"`
+	Defendant int            `json:"defendant"`
 }

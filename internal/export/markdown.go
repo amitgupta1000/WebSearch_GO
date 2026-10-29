@@ -311,7 +311,37 @@ func renderLegalMarkdown(report *models.LegalReport) string {
 		builder.WriteString("\n")
 	}
 
-	if len(report.Findings) > 0 {
+	if len(report.Dockets) > 0 {
+		builder.WriteString("## Matter dockets\n\n")
+		for _, docket := range report.Dockets {
+			fmt.Fprintf(&builder, "### %s\n\n", docket.Name)
+			counts := fmt.Sprintf("%d matter(s)", len(docket.Matters))
+			if docket.Pending > 0 {
+				counts += fmt.Sprintf(", %d pending", docket.Pending)
+			}
+			if docket.Defendant > 0 {
+				counts += fmt.Sprintf(", %d with the company as respondent", docket.Defendant)
+			}
+			fmt.Fprintf(&builder, "_%s._\n\n", counts)
+			for _, finding := range docket.Matters {
+				fmt.Fprintf(&builder, "- **%s**", markdownCell(finding.CaseTitle))
+				if finding.Court != "" {
+					fmt.Fprintf(&builder, " — %s", markdownCell(finding.Court))
+				}
+				if finding.Date != "" {
+					fmt.Fprintf(&builder, " (%s)", markdownCell(finding.Date))
+				}
+				if finding.Role != "" {
+					fmt.Fprintf(&builder, " — %s", markdownCell(finding.Role))
+				}
+				builder.WriteString("\n")
+				if finding.Snippet != "" {
+					fmt.Fprintf(&builder, "  - %s\n", markdownCell(finding.Snippet))
+				}
+			}
+			builder.WriteString("\n")
+		}
+	} else if len(report.Findings) > 0 {
 		builder.WriteString("## Matched findings\n\n")
 		builder.WriteString("| Case | Court | Date | Side | Category | Status | Records |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
 		for _, finding := range report.Findings {
