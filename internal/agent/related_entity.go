@@ -126,13 +126,19 @@ func relatedDirectQueries(query models.RelatedEntityQuery) []relatedPlannedQuery
 			"source-profile relationship evidence from " + host,
 		})
 	}
+	if companySourceProfile(brief) == SourceProfileIndia {
+		queries = append(queries,
+			relatedPlannedQuery{name + ` ("related companies" OR subsidiary OR associate OR group) site:weedoo.in`, "WeeDoo related-company evidence"},
+			relatedPlannedQuery{name + ` director DIN appointment site:weedoo.in`, "WeeDoo director and appointment evidence"},
+		)
+	}
 	return queries
 }
 
 func relatedLeadershipQueries(query models.RelatedEntityQuery) []relatedPlannedQuery {
 	name := quote(query.CompanyName)
 	queries := []relatedPlannedQuery{
-		{name + " (director OR founder OR chairman OR CEO OR CFO OR COO OR " + "managing director" + ")", "company-linked leadership"},
+		{name + ` (director OR "managing director" OR "executive director" OR promoter OR founder OR CEO OR CFO OR COO OR partner OR "managing partner")`, "company-linked leadership"},
 		{(name + " directors executives") + " site:linkedin.com", "LinkedIn-indexed leadership"},
 		{name + " directors executives " + sourceHint(query), "regional leadership directories"},
 	}
@@ -208,7 +214,7 @@ func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEn
 	var leaderExtracted struct {
 		Leadership []models.LeadershipSubject `json:"leadership"`
 	}
-	if err := a.engine.llmClient.GenerateStructured(ctx, `Extract company-linked directors and senior executives from the supplied Google-indexed results. Each person must have an explicit role at the primary company. Do not infer identity from a name alone. Return JSON with leadership; return an empty array when evidence is insufficient.`, string(leaderPayload), &leaderExtracted); err != nil {
+	if err := a.engine.llmClient.GenerateStructured(ctx, `Extract company-linked leadership from the supplied Google-indexed results. Include only named people with an explicit role at the primary company. Prioritize director, managing director, executive director, promoter, founder, CEO, CFO, COO, partner, and managing partner. Do not infer identity from a name alone. Return JSON with leadership; return an empty array when evidence is insufficient.`, string(leaderPayload), &leaderExtracted); err != nil {
 		report.Warnings = append(report.Warnings, fmt.Sprintf("Leadership extraction failed: %v", err))
 		return nil
 	}
@@ -418,6 +424,19 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 						err: fmt.Errorf("identity confidence %.2f is below the %.2f threshold", identity.Confidence, relatedEntityIdentityConfidence)}
 					continue
 				}
+				if identity.DIN != "" {
+					dinQuery := relatedPlannedQuery{
+						quote(identity.DIN) + " (director OR company OR appointment)",
+						"DIN-linked company appointments",
+					}
+					hits, err := a.engine.SearchCached(ctx, dinQuery.Query, a.engine.MaxSearchResults())
+					if err != nil {
+						outcomes <- outcome{index: index, trace: traces, identity: identity, err: err}
+						continue
+					}
+					personHits = append(personHits, hits...)
+					traces = append(traces, models.QueryTrace{Query: dinQuery.Query, Purpose: dinQuery.Purpose, Kept: hits})
+				}
 				for _, planned := range affiliationQueries {
 					hits, err := a.engine.SearchCached(ctx, planned.Query, a.engine.MaxSearchResults())
 					if err != nil {
@@ -493,6 +512,12 @@ func relatedPersonQueries(query models.RelatedEntityQuery, leader models.Leaders
 		{person + " " + company + " appointment director", "person-company appointment"},
 		{person + " " + sourceHint(query), "person registry and directory records"},
 	}
+	if strings.Contains(strings.ToLower(query.Country), "india") || strings.EqualFold(query.SourceProfile, "india") {
+		identity = append(identity,
+			relatedPlannedQuery{person + " " + company + " site:weedoo.in", "WeeDoo company and leadership identity"},
+			relatedPlannedQuery{person + " " + company + " DIN site:zaubacorp.com", "Indian director identity"},
+		)
+	}
 	affiliation := []relatedPlannedQuery{
 		{person + " (director OR founder OR chairman OR CEO OR CFO OR board) -" + company, "person other-company involvement"},
 		{person + " career profile current former company", "person career identity"},
@@ -509,10 +534,11 @@ func resolvePersonIdentity(leader models.LeadershipSubject, query models.Related
 	seen := map[string]bool{}
 	for _, hit := range hits {
 		text := hit.Title + " " + hit.Snippet
-		if strings.Contains(strings.ToLower(text), strings.ToLower(query.CompanyName)) {
+		if containsCompanyIdentity(text, query) {
 			identity.Confidence = maxFloat(identity.Confidence, 0.60)
 			identity.Attributes = appendUnique(identity.Attributes, "company-linked evidence")
 		}
+
 		if match := directorIdentificationNumberPattern.FindStringSubmatch(text); len(match) == 2 {
 			identity.DIN = match[1]
 			identity.Confidence = 1.0
@@ -530,6 +556,17 @@ func resolvePersonIdentity(leader models.LeadershipSubject, query models.Related
 		identity.Attributes = appendUnique(identity.Attributes, "corroborated public sources")
 	}
 	return identity
+}
+
+func containsCompanyIdentity(text string, query models.RelatedEntityQuery) bool {
+	lowerText := strings.ToLower(text)
+	identities := append([]string{query.CompanyName}, query.Aliases...)
+	for _, identity := range identities {
+		if value := strings.TrimSpace(identity); value != "" && strings.Contains(lowerText, strings.ToLower(value)) {
+			return true
+		}
+	}
+	return false
 }
 
 func appendUnique(values []string, value string) []string {

@@ -38,6 +38,7 @@ var promotedCompanyAggregators = []string{
 	"zaubacorp.com",
 	"thecompanycheck.com",
 	"tracxn.com",
+	"weedoo.in",
 }
 
 // globalCompanySources are reserved for the global source profile. They are not
