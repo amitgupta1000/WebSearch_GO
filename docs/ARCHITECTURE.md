@@ -39,7 +39,7 @@ four modes:
 | Mode | What it produces | How it works |
 | :--- | :--- | :--- |
 | **Company** (`mode=company`) | A structured `OrgChart`: overview, HQ, leadership, departments, locations, sources, and optional RR discovery provenance | LLM plans a set of Google queries → results are ranked for relevance → bounded RocketReach title-group searches nominate strictly employer-matched key persons → Google/registry entity filtering and Gemini validate/synthesize the org chart from the combined evidence |
-| **Person** (`mode=person`) | A structured `PersonProfile` dossier: title, company, bio, experiences, education, skills, confidence score, and optional RocketReach contact enrichment | Disambiguated search (name + company + location) → bio-oriented pages are scraped → a secondary career search supplements snippets → Gemini synthesizes/QCs the dossier → explicit person runs may perform one RocketReach contact lookup |
+| **Person** (`mode=person`) | A structured `PersonProfile` dossier: title, company, bio, experiences, education, skills, confidence score, and optional RocketReach contact enrichment | Priority RocketReach profile/contact lookup → disambiguated search (name + company + location) → bio-oriented pages are scraped → a secondary career search supplements snippets → Gemini synthesizes/QCs the dossier |
 | **Legal** (`mode=legal`) | A structured `LegalReport`: docketed litigation findings on the confirmed company and named persons, deterministic risk position, plus same-named hits kept for review | The company identity is confirmed as in company mode → bounded case-law and regulatory searches run → every hit is tied to the identity by CIN/name/alias → Gemini classifies category/status → deterministic dockets and risk position are assembled |
 | **Related entities** (`mode=related_entity`) | A graph-first `RelatedEntityReport`: evidence-backed company and person nodes connected by labelled relationships, with raw snippets retained for review and optional RocketReach discovery provenance | Separate company search (32-query budget) from people discovery (8-query budget) → run up to four bounded RocketReach title-group searches when configured → merge strictly employer-matched candidates → launch a six-query identity/affiliation trajectory for each resolved leader, concurrently up to eight people → resolve DIN, appointment, domain, and registry signals → search other-company involvement; Gemini labels bounded evidence slices, but the report preserves the graph and raw evidence rather than depending on one monolithic extraction |
 
@@ -224,7 +224,7 @@ chart + CompanyResearchContext ──► SSE result ──► HTMX UI
 ```
 
 Person mode runs a bounded identity-aware plan: professional and regional/global directory
-searches feed employment evidence, while separate Facebook, Instagram, and X/Twitter searches
+searches feed employment evidence, while a separate X/Twitter search
 feed optional public personalization context and deterministic public-account candidates →
 scrape top bio pages → synthesis/QC → `PersonProfile`.
 
@@ -1387,8 +1387,9 @@ the two cited sources.
   discovery adds functional seniority terms (Manager, General Manager, Deputy General Manager,
   Vice-President, Additional Director, and Executive Director) without increasing the call
   count, and explicit
-  person research performs one structured profile/contact lookup after synthesis and before
-  the normal dossier QC; RR facts are additive, provenance-tagged, and do not replace indexed
+  person research performs one structured profile/contact lookup before web research and
+  synthesis; the lookup is the first workflow operation and RR facts are additive,
+  provenance-tagged, and do not replace indexed
   evidence already present.
   Company mode also exposes default-on Leadership, Marketing, and Procurement / Supply Chain
   interests, plus an optional person-of-interest field. A supplied person receives three
@@ -1864,7 +1865,7 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 | # | Stage | What happens | Bound | On failure |
 | :--- | :--- | :--- | :--- | :--- |
 | 1 | Confirmation step | 2 core searches, candidates parsed from headlines, top match pre-selected | *budget*: 2 queries + **1 aggregator pass only when < 2 candidates**; company **and** place typed ⇒ 0 searches; no pre-selection when nothing names the typed company | 0 candidates ⇒ the step still renders the name-alone card |
-| 2 | Plan | 8–11 anchored searches — profile, role and position, appointments and news, career and education, regional/global aggregator `site:`, plus Facebook, Instagram, and X/Twitter personalization searches — deduped, capped 12 | one failed search is skipped | all planned searches fail ⇒ run fails |
+| 2 | Plan | 6–9 anchored searches — profile, role and position, appointments and news, career and education, regional/global aggregator `site:`, plus one X/Twitter personalization search — deduped, capped 12 | one failed search is skipped | all planned searches fail ⇒ run fails |
 | 3 | Search phase | every planned query through `SearchCached` with four bounded workers; results are processed back in plan order; employment snippets are identity-gated, while social snippets are kept in a separate public-personalization context | concurrency 4; cache, cancellation, and provider limits still apply | employment exclusions listed in the **Identity check**; social exclusions remain in the trace |
 | 4 | Fetch targets | confirmed seed first; profile URLs from *every* planned search, then any gate-matched page, up to `MaxScrapes` 10; directory results are snippets-only | cap `MaxScrapes` 10 | non-matching hits stay snippets |
 | 5 | Profile URL | **session for the host** ⇒ one cookie-authenticated `ScrapeCached`; otherwise ⇒ the ladder | usable = unblocked ∧ > 80 chars; ladder: 2/run, 55 s, needs budget + 20 s | cheap fetch ⇒ ladder ⇒ snippet; a redirect loop with a session ⇒ `session-rejected` |
@@ -1873,7 +1874,7 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 | 8 | Synthesis | dossier from gated employment snippets/pages plus labelled public-personalization snippets, deterministic public-account candidates, and the confirmed-profile block; social context cannot establish identity or employment | — | run fails |
 | 9 | **Dossier QC** | every synthesised experience row held to the confirmed employer; a non-matching row survives only when a bounded reverse lookup (`"Name" "That employer"`) ties them; the headline employer is corrected to the confirmed one; identical repeated rows collapse to one; two rows at different employers overlapping by more than a handover year are **both flagged** on the row (concurrent roles or a blended row) | lookups ≤ `VALIDATION_LOOKUPS_PER_RUN`, gated by `VALIDATE_EVIDENCE`, ≥ 15 s of run budget each; overlap threshold 2 shared years | dropped / corrected rows are listed in the **Identity check**; flags render on the rows |
 | 10 | **Same-named people** | the excluded evidence is regrouped multilaterally — one group per employer a same-named person's source states, plus unattributed name-only material — ordered strongest-first, most relevant snippets per group | caps: 8 groups × 4 snippets (`person_gate.go`) | rendered in the dossier (console, md, pdf); the console offers a re-run per employer |
-| 11 | RocketReach enrichment | When the operator explicitly runs a person dossier, use the confirmed LinkedIn URL when available, otherwise name + current employer; merge only returned contact fields | one lookup per explicit person run; no lookup from company/related-entity discovery | provider failure is a warning; the dossier remains usable |
+| 1 | RocketReach enrichment | When the operator explicitly runs a person dossier, use the confirmed LinkedIn URL when available, otherwise name + current employer; retrieve the structured profile, LinkedIn URL, and contact fields before web research and feed them into synthesis | one lookup per explicit person run; no lookup from company/related-entity discovery | provider failure is a warning; the dossier remains usable |
 | 12 | Export | md + pdf, with **Identity check**, **Same-named people**, optional **Contact enrichment**, and **Research trace** sections; experience rows carry their source; plus `-searches.json` — every planned query with its kept and excluded hits, linked from the **Search results** tab | — | written on a detached context |
 
 Not present in person mode: the freshness pass and image OCR, and the 55 s scrape reserve (its

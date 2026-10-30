@@ -1165,6 +1165,12 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return buf.String()
 	}
 
+	// Replay events already consumed by a previous connection so late or
+	// reconnecting browsers do not miss the discovery phase.
+	for _, event := range session.GetHistory() {
+		sendSSE("log", renderFragment("log_entry", event))
+	}
+
 	for {
 		select {
 		case <-r.Context().Done():

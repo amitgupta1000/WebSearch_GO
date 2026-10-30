@@ -12,7 +12,7 @@ import (
 	"github.com/amitgupta1000/WebSearch_GO/internal/web"
 )
 
-func TestHandleEventsDoesNotReplayHistoryOnReconnect(t *testing.T) {
+func TestHandleEventsReplaysHistoryButNotTerminalResultOnReconnect(t *testing.T) {
 	templates, err := web.Templates()
 	if err != nil {
 		t.Fatalf("load templates: %v", err)
@@ -28,8 +28,8 @@ func TestHandleEventsDoesNotReplayHistoryOnReconnect(t *testing.T) {
 	second := httptest.NewRecorder()
 	server.handleEvents(second, httptest.NewRequest("GET", "/api/events?session_id=reconnect-session", nil))
 
-	if strings.Contains(second.Body.String(), "one-time event") {
-		t.Fatalf("reconnected SSE stream replayed prior history: %q", second.Body.String())
+	if !strings.Contains(second.Body.String(), "one-time event") {
+		t.Fatalf("reconnected SSE stream did not replay prior history: %q", second.Body.String())
 	}
 	if !strings.Contains(first.Body.String(), "event: result") {
 		t.Fatal("expected first connection to receive the terminal result")

@@ -69,8 +69,6 @@ func publicPersonalizationQueries(name, company, location string) []personPlanEn
 	base := strings.TrimSpace(strings.Join([]string{name, context}, " "))
 	recent := time.Now().AddDate(-2, 0, 0).Format("2006-01-02")
 	return []personPlanEntry{
-		{section: "PUBLIC PERSONALIZATION — FACEBOOK", query: "site:facebook.com " + base + " (interest OR conference OR volunteer OR speaker) after:" + recent, snippetsOnly: true, personalization: true},
-		{section: "PUBLIC PERSONALIZATION — INSTAGRAM", query: "site:instagram.com " + base + " (project OR event OR travel OR food OR book) after:" + recent, snippetsOnly: true, personalization: true},
 		{section: "PUBLIC PERSONALIZATION — X/TWITTER", query: "(site:x.com OR site:twitter.com) " + base + " (interest OR opinion OR conference OR industry) after:" + recent, snippetsOnly: true, personalization: true},
 	}
 }

@@ -99,11 +99,12 @@ match is pre-selected and focused), and never dead-ends:
   Gupta rather than whichever one ranked highest, and the confirmed profile is read first as
   a seed source. A people-directory hit (RocketReach, ZoomInfo, SignalHire…) is offered but flagged as a
   claim rather than a profile, and if no profile is found the name-alone path is right there.
-  After the dossier is synthesized and quality-checked, an explicit person run may perform
-  one RocketReach lookup using the confirmed LinkedIn URL or name plus current employer.
-  Returned structured profile facts (current role, employer, location, career history,
-  education, and skills) are merged only when the dossier lacks that fact, then pass through
-  the normal identity QC; verified email/phone fields are rendered in the dossier and exports.
+  At the start of the dossier workflow, an explicit person run performs one priority
+  RocketReach lookup using the confirmed LinkedIn URL or name plus current employer.
+  Its structured profile facts (current role, employer, location, career history, education,
+  skills, LinkedIn URL, and contact details) are shown in the workflow, supplied to synthesis,
+  and then merged through the normal identity QC; verified email/phone fields are rendered
+  in the dossier and exports.
   Company and related-entity runs never request those fields.
 - **Legal** (`POST /api/resolve-entity`, `mode=legal`): the same company-identity confirmation
   a company run uses — a legal check needs exactly the same "which company is this"
@@ -272,7 +273,7 @@ Compactly:
 | Stage | Gate | Fallback |
 | :--- | :--- | :--- |
 | Confirmation | 2 searches + 1 aggregator pass only when <2 candidates | name-alone card |
-| Plan | 8–11 anchored searches — profile, role, appointments, career/education, regional/global aggregator `site:`, plus Facebook, Instagram, and X/Twitter personalization searches, capped at 12 | a failed search is skipped; the run fails only when every one does |
+| Plan | 6–9 anchored searches — profile, role, appointments, career/education, regional/global aggregator `site:`, plus one X/Twitter personalization search, capped at 12 | a failed search is skipped; the run fails only when every one does |
 | Snippets | **identity gate**: a snippet must name the person *and* the confirmed company or location | excluded — listed in the dossier's **Identity check** |
 | Fetch targets | identity gate first: profile URLs from *every* planned search, then any gate-matched page, up to `MaxScrapes` 10 | excluded, with the stated employer in the reason |
 | Profile URL | session ⇒ **one cookie-authenticated fetch**; otherwise the ladder (2/run, 55 s) | ladder ⇒ snippet |
@@ -286,7 +287,7 @@ The identity gate is person mode's counterpart of the company entity gate: the c
 location confirmed on the card are acceptance rules, not just search terms — that is what keeps
 a same-named person at another employer out of the dossier. The plan replaced three hardcoded
 searches with eight anchored ones (nine cap), including separate public-personalization
-searches for Facebook, Instagram, and X/Twitter, because the old budget bought one broad
+searches for X/Twitter, because the old budget bought one broad
 question and two afterthoughts. A snippet is held harder than a fetched page (a snippet that names the
 person but states no employer is dropped; a fetched page that does is kept but counted as
 *name-only*), because a career history legitimately lists past employers in its body while a

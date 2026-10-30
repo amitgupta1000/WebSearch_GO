@@ -219,8 +219,8 @@ func TestPersonResearchDropsTheSameNamedPersonAtAnotherEmployer(t *testing.T) {
 
 	// The search trace is the data behind the Search results tab: every planned query with
 	// its kept and excluded hits, recorded per query before cross-query dedupe.
-	if profile.SearchTrace == nil || len(profile.SearchTrace.Queries) != 8 {
-		t.Fatalf("expected the eight planned searches traced, got %+v", profile.SearchTrace)
+	if profile.SearchTrace == nil || len(profile.SearchTrace.Queries) != 6 {
+		t.Fatalf("expected the six planned searches traced, got %+v", profile.SearchTrace)
 	}
 	first := profile.SearchTrace.Queries[0]
 	if len(first.Kept) != 1 || first.Kept[0].Link != target {
@@ -235,8 +235,8 @@ func TestPersonResearchDropsTheSameNamedPersonAtAnotherEmployer(t *testing.T) {
 	}
 
 	// The operating results the report also asked for: queries, timings, and every fetch.
-	if len(profile.SearchQueries) != 8 {
-		t.Errorf("expected the eight planned searches recorded, got %v", profile.SearchQueries)
+	if len(profile.SearchQueries) != 6 {
+		t.Errorf("expected the six planned searches recorded, got %v", profile.SearchQueries)
 	}
 	if len(profile.Timings) == 0 {
 		t.Errorf("expected phase timings on the dossier")

@@ -54,6 +54,9 @@ func (pa *PersonAgent) ResearchPerson(
 		Step:      1,
 		Content:   fmt.Sprintf("Initiating background dossier compilation for '%s'...", personName),
 	})
+	// RocketReach is the highest-priority person source: it can provide the
+	// structured profile and contact details before LinkedIn-resistant web research.
+	rocketReachProfile := pa.lookupRocketReach(ctx, sessionID, query, eventCh)
 
 	// The plan asks the confirmed identity from several directions instead of one broad
 	// question and two afterthoughts: profile, role, appointments, career history, and the
@@ -515,7 +518,7 @@ Synthesize the provided web search and scraped profiles into a PersonProfile JSO
   "recent_themes": ["string"],
   "public_accounts": [
     {
-      "platform": "Facebook | Instagram | X/Twitter",
+      "platform": "X/Twitter",
       "url": "string",
       "identity_basis": "string",
       "confidence": 0.0
@@ -523,7 +526,7 @@ Synthesize the provided web search and scraped profiles into a PersonProfile JSO
   ],
   "personalization_evidence": [
     {
-      "platform": "facebook | instagram | x",
+      "platform": "X/Twitter",
       "url": "string",
       "summary": "string",
       "identity_basis": "company/location match | name-only possible account",
@@ -542,14 +545,21 @@ Rules:
   personalization context. Mark name-only social matches as possible accounts with low confidence.`
 
 	var profile models.PersonProfile
-	if err := pa.engine.SynthesizeJSON(ctx, systemPrompt, gatheredContext.String(), &profile); err != nil {
+	evidenceContext := gatheredContext.String()
+	if rocketReachProfile != nil {
+		evidenceContext = "=== PRIORITY ROCKETREACH PROFILE ===\n" + formatRocketReachProfile(rocketReachProfile) + "\n\n" + evidenceContext
+	}
+	if err := pa.engine.SynthesizeJSON(ctx, systemPrompt, evidenceContext, &profile); err != nil {
 		return nil, fmt.Errorf("person synthesis failed: %w", err)
 	}
 	profile.PublicAccounts = personalizationAccounts
 
 	finishSynthesis("dossier synthesised")
 	profile.Sources = sources
-	pa.enrichContact(ctx, sessionID, query, &profile, eventCh)
+	if rocketReachProfile != nil {
+		mergeRocketReachProfile(&profile, rocketReachProfile)
+		applyRocketReachContact(&profile, rocketReachProfile)
+	}
 
 	// QC holds the model's output to the same identity the gate held the evidence to: a
 	// synthesised row whose employer is not the confirmed one survives only when a reverse
@@ -606,45 +616,58 @@ Rules:
 	return &profile, nil
 }
 
-func (pa *PersonAgent) enrichContact(ctx context.Context, sessionID string, query models.PersonQuery, profile *models.PersonProfile, eventCh chan<- models.AgentEvent) {
+func (pa *PersonAgent) lookupRocketReach(ctx context.Context, sessionID string, query models.PersonQuery, eventCh chan<- models.AgentEvent) *tools.RocketReachProfile {
 	if pa.rocketReach == nil || !pa.rocketReach.Enabled() {
-		return
-	}
-	linkedinURL := strings.TrimSpace(query.SeedURL)
-	if linkedinURL == "" {
-		linkedinURL = strings.TrimSpace(profile.OnlinePresence["linkedin"])
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID, Type: models.EventToolResult, Step: 1,
+			ToolName: "rocketreach_lookup", Content: "skipped: RocketReach is not configured",
+		})
+		return nil
 	}
 	Emit(eventCh, models.AgentEvent{
 		SessionID: sessionID,
 		Type:      models.EventToolCall,
-		Step:      9,
+		Step:      1,
 		ToolName:  "rocketreach_lookup",
-		Content:   "Retrieving contact details for the explicitly requested person...",
+		ToolInput: fmt.Sprintf("%s | %s | %s", query.Name, query.Company, query.SeedURL),
+		Content:   "Priority enrichment: retrieving the structured profile, LinkedIn URL, and contact details...",
 	})
-	result, err := pa.rocketReach.Lookup(ctx, firstNonEmpty(profile.FullName, query.Name), firstNonEmpty(profile.CurrentCompany, query.Company), linkedinURL)
+	result, err := pa.rocketReach.Lookup(ctx, query.Name, query.Company, query.SeedURL)
 	if err != nil {
 		log.Printf("[PERSON][session %s] RocketReach lookup unavailable: %v", sessionID, err)
 		Emit(eventCh, models.AgentEvent{
 			SessionID: sessionID,
 			Type:      models.EventToolResult,
-			Step:      9,
+			Step:      1,
 			ToolName:  "rocketreach_lookup",
 			Content:   fmt.Sprintf("unavailable: %v", err),
 		})
-		return
+		return nil
 	}
 	if result == nil {
 		Emit(eventCh, models.AgentEvent{
 			SessionID: sessionID,
 			Type:      models.EventToolResult,
-			Step:      9,
+			Step:      1,
 			ToolName:  "rocketreach_lookup",
 			Content:   "no matching contact found; no lookup credit charged",
 		})
+		return nil
+	}
+	Emit(eventCh, models.AgentEvent{
+		SessionID: sessionID, Type: models.EventToolResult, Step: 1,
+		ToolName: "rocketreach_lookup",
+		Content: fmt.Sprintf("priority profile retrieved: LinkedIn=%t, %d job(s), %d education record(s), %d skill(s), %d email(s), %d phone number(s)",
+			result.LinkedInURL != "", len(result.JobHistory), len(result.Education), len(result.Skills), len(result.Emails), len(result.Phones)),
+	})
+	return result
+}
+
+func applyRocketReachContact(profile *models.PersonProfile, result *tools.RocketReachProfile) {
+	if result == nil {
 		return
 	}
 	enrichment := &models.PersonContactEnrichment{Source: "RocketReach", LinkedInURL: result.LinkedInURL}
-	mergeRocketReachProfile(profile, result)
 	for _, email := range result.Emails {
 		enrichment.Emails = append(enrichment.Emails, models.PersonContactEmail{
 			Email: email.Email, Type: email.Type, Grade: email.Grade,
@@ -656,13 +679,33 @@ func (pa *PersonAgent) enrichContact(ctx context.Context, sessionID string, quer
 		})
 	}
 	profile.ContactEnrichment = enrichment
-	Emit(eventCh, models.AgentEvent{
-		SessionID: sessionID,
-		Type:      models.EventToolResult,
-		Step:      9,
-		ToolName:  "rocketreach_lookup",
-		Content:   fmt.Sprintf("retrieved %d email(s), %d phone number(s)", len(enrichment.Emails), len(enrichment.Phones)),
-	})
+}
+
+func formatRocketReachProfile(result *tools.RocketReachProfile) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Name: %s\nCurrent title: %s\nCurrent employer: %s\nLocation: %s\nLinkedIn: %s\n",
+		result.Name, result.CurrentTitle, result.CurrentEmployer,
+		firstNonEmpty(result.Location, joinNonEmpty(", ", result.City, result.Region, result.Country)),
+		result.LinkedInURL)
+	if len(result.JobHistory) > 0 {
+		builder.WriteString("Job history:\n")
+		for _, job := range result.JobHistory {
+			fmt.Fprintf(&builder, "- %s at %s (%s - %s), %s\n", job.Title, job.Company, job.StartDate, job.EndDate, job.Location)
+		}
+	}
+	if len(result.Education) > 0 {
+		builder.WriteString("Education:\n")
+		for _, education := range result.Education {
+			fmt.Fprintf(&builder, "- %s, %s, %s\n", firstNonEmpty(education.Institution, education.School), education.Degree, firstNonEmpty(education.Field, education.Major))
+		}
+	}
+	if len(result.Skills) > 0 {
+		fmt.Fprintf(&builder, "Skills: %s\n", strings.Join(result.Skills, ", "))
+	}
+	if len(result.Emails) > 0 || len(result.Phones) > 0 {
+		fmt.Fprintf(&builder, "Contact details: %d email(s), %d phone number(s) retrieved from RocketReach.\n", len(result.Emails), len(result.Phones))
+	}
+	return builder.String()
 }
 
 func mergeRocketReachProfile(profile *models.PersonProfile, result *tools.RocketReachProfile) {
