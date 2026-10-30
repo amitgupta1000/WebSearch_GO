@@ -41,12 +41,8 @@
 	</div>
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
 	<div>
-		<h4 class="text-sm font-semibold text-slate-300 mb-3">Evidence graph</h4>
-		{{if .Graph.Edges}}<div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950 p-2"><svg viewBox="0 0 1000 520" class="w-full min-w-[720px] h-[360px]" role="img" aria-label="Related entity evidence graph">
-			{{range .Graph.Edges}}<line x1="{{.X1}}" y1="{{.Y1}}" x2="{{.X2}}" y2="{{.Y2}}" stroke="#64748b" stroke-width="2"></line>{{end}}
-			{{range .Graph.Nodes}}<g><circle cx="{{.X}}" cy="{{.Y}}" r="28" fill="{{if eq .Type "primary_company"}}#4f46e5{{else if eq .Type "leader"}}#0f766e{{else}}#7c3aed{{end}}" stroke="#cbd5e1" stroke-width="1"></circle><text x="{{.X}}" y="{{.LabelY}}" text-anchor="middle" fill="#e2e8f0" font-size="13">{{.Name}}</text></g>{{end}}
-		</svg></div>
-		<div class="overflow-x-auto mt-3"><table class="w-full text-left text-xs"><thead class="text-slate-500"><tr><th class="p-2">From</th><th class="p-2">Relationship</th><th class="p-2">To</th><th class="p-2">Confidence</th></tr></thead><tbody>{{range .Graph.Edges}}<tr class="border-t border-slate-800"><td class="p-2 text-white">{{.FromLabel}}</td><td class="p-2 text-indigo-400">{{.Relationship}}</td><td class="p-2 text-white">{{.ToLabel}}</td><td class="p-2 text-slate-400">{{.Confidence}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="text-sm text-slate-500">No evidence-backed graph edges were extracted.</p>{{end}}
+		<h4 class="text-sm font-semibold text-slate-300 mb-3">Relationship evidence</h4>
+		{{if .Graph.Edges}}<div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead class="text-slate-500"><tr><th class="p-2">From</th><th class="p-2">Relationship</th><th class="p-2">To</th><th class="p-2">Confidence</th></tr></thead><tbody>{{range .Graph.Edges}}<tr class="border-t border-slate-800"><td class="p-2 text-white">{{.FromLabel}}</td><td class="p-2 text-indigo-400">{{.Relationship}}</td><td class="p-2 text-white">{{.ToLabel}}</td><td class="p-2 text-slate-400">{{.Confidence}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="text-sm text-slate-500">No evidence-backed relationships were extracted.</p>{{end}}
 	</div>
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Direct company relationships</h4>
