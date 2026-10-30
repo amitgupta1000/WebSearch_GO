@@ -424,6 +424,8 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 					continue
 				}
 				identity := resolvePersonIdentity(leader, query, personHits)
+				personHits = append(personHits, a.fetchWeeDooEvidence(ctx, personHits)...)
+				identity = resolvePersonIdentity(leader, query, personHits)
 				if identity.Confidence < relatedEntityIdentityConfidence {
 					outcomes <- outcome{index: index, trace: traces, identity: identity,
 						err: fmt.Errorf("identity confidence %.2f is below the %.2f threshold", identity.Confidence, relatedEntityIdentityConfidence)}
@@ -509,6 +511,31 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 	return nil
 }
 
+func (a *RelatedEntityAgent) fetchWeeDooEvidence(ctx context.Context, hits []models.SearchResult) []models.SearchResult {
+	const maxPages = 3
+	var enriched []models.SearchResult
+	seen := map[string]bool{}
+	for _, hit := range hits {
+		link := strings.TrimSpace(hit.Link)
+		if !strings.Contains(strings.ToLower(link), "weedoo.in/") || seen[link] {
+			continue
+		}
+		seen[link] = true
+		page, err := a.engine.ScrapeCached(ctx, link)
+		if err != nil || page == nil || strings.TrimSpace(page.Content) == "" {
+			continue
+		}
+		content := truncateRunes(strings.TrimSpace(page.Content), relatedEntitySnippetMaxRunes)
+		enriched = append(enriched, models.SearchResult{
+			Title: page.Title, Link: link, Snippet: content, Position: hit.Position,
+		})
+		if len(enriched) >= maxPages {
+			break
+		}
+	}
+	return enriched
+}
+
 func relatedPersonQueries(query models.RelatedEntityQuery, leader models.LeadershipSubject) ([]relatedPlannedQuery, []relatedPlannedQuery) {
 	person := quote(leader.Name)
 	company := quote(query.CompanyName)
@@ -591,13 +618,14 @@ func maxFloat(left, right float64) float64 {
 }
 
 type relatedCompanyExtraction struct {
-	Name          string          `json:"name"`
-	Relationship  string          `json:"relationship"`
-	Status        string          `json:"status"`
-	CurrentFormer string          `json:"current_former"`
-	Role          string          `json:"role"`
-	Confidence    float64         `json:"confidence"`
-	Evidence      json.RawMessage `json:"evidence"`
+	Name          string             `json:"name"`
+	Company       string             `json:"company"`
+	Relationship  string             `json:"relationship"`
+	Status        string             `json:"status"`
+	CurrentFormer string             `json:"current_former"`
+	Role          string             `json:"role"`
+	Confidence    flexibleConfidence `json:"confidence"`
+	Evidence      json.RawMessage    `json:"evidence"`
 }
 
 type relatedLeadershipExtraction struct {
@@ -623,10 +651,40 @@ func (item relatedCompanyExtraction) RelatedCompany() models.RelatedCompany {
 	if status == "" {
 		status = item.CurrentFormer
 	}
-	return models.RelatedCompany{
-		Name: item.Name, Relationship: item.Relationship, Status: status,
-		Role: item.Role, Confidence: item.Confidence, Evidence: parseRelatedEvidence(item.Evidence),
+	name := item.Name
+	if name == "" {
+		name = item.Company
 	}
+	return models.RelatedCompany{
+		Name: name, Relationship: item.Relationship, Status: status,
+		Role: item.Role, Confidence: float64(item.Confidence), Evidence: parseRelatedEvidence(item.Evidence),
+	}
+}
+
+type flexibleConfidence float64
+
+func (c *flexibleConfidence) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	var numeric float64
+	if err := json.Unmarshal(data, &numeric); err == nil {
+		*c = flexibleConfidence(numeric)
+		return nil
+	}
+	var label string
+	if err := json.Unmarshal(data, &label); err != nil {
+		return err
+	}
+	switch strings.ToLower(strings.TrimSpace(label)) {
+	case "high":
+		*c = 0.9
+	case "medium", "moderate":
+		*c = 0.6
+	case "low":
+		*c = 0.3
+	default:
+		*c = 0.5
+	}
+	return nil
 }
 
 func parseRelatedEvidence(raw json.RawMessage) []models.RelatedEntityEvidence {
