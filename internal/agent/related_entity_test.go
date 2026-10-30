@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -26,6 +27,16 @@ func TestResolvePersonIdentityExtractsDINAndEvidence(t *testing.T) {
 	}
 	if len(identity.Evidence) != 2 || !strings.Contains(identity.Attributes[0], "company") {
 		t.Fatalf("identity evidence/attributes = %+v", identity)
+	}
+}
+
+func TestRelatedLeadershipExtractionAcceptsArray(t *testing.T) {
+	var extraction relatedLeadershipExtraction
+	if err := json.Unmarshal([]byte(`[{"name":"Hemant Jain","role":"Managing Director"}]`), &extraction); err != nil {
+		t.Fatalf("unmarshal leadership array: %v", err)
+	}
+	if len(extraction.Leadership) != 1 || extraction.Leadership[0].Name != "Hemant Jain" {
+		t.Fatalf("leadership = %+v", extraction.Leadership)
 	}
 }
 

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -120,17 +121,17 @@ func relatedDirectQueries(query models.RelatedEntityQuery) []relatedPlannedQuery
 		{name + " corporate structure annual report", "annual-report corporate structure"},
 		{name + " " + "part of" + " group company", "group membership statements"},
 	}
+	if companySourceProfile(brief) == SourceProfileIndia {
+		queries = append([]relatedPlannedQuery{
+			relatedPlannedQuery{name + ` ("related companies" OR subsidiary OR associate OR group) site:weedoo.in`, "WeeDoo related-company evidence"},
+			relatedPlannedQuery{name + ` director DIN appointment site:weedoo.in`, "WeeDoo director and appointment evidence"},
+		}, queries...)
+	}
 	for _, host := range companySourceHosts(brief) {
 		queries = append(queries, relatedPlannedQuery{
 			sourceSiteQuery(name+" (group OR subsidiary OR affiliate OR parent OR director)", []string{host}),
 			"source-profile relationship evidence from " + host,
 		})
-	}
-	if companySourceProfile(brief) == SourceProfileIndia {
-		queries = append(queries,
-			relatedPlannedQuery{name + ` ("related companies" OR subsidiary OR associate OR group) site:weedoo.in`, "WeeDoo related-company evidence"},
-			relatedPlannedQuery{name + ` director DIN appointment site:weedoo.in`, "WeeDoo director and appointment evidence"},
-		)
 	}
 	return queries
 }
@@ -141,6 +142,12 @@ func relatedLeadershipQueries(query models.RelatedEntityQuery) []relatedPlannedQ
 		{name + ` (director OR "managing director" OR "executive director" OR promoter OR founder OR CEO OR CFO OR COO OR partner OR "managing partner")`, "company-linked leadership"},
 		{(name + " directors executives") + " site:linkedin.com", "LinkedIn-indexed leadership"},
 		{name + " directors executives " + sourceHint(query), "regional leadership directories"},
+	}
+	if strings.Contains(strings.ToLower(query.Country), "india") || strings.EqualFold(query.SourceProfile, "india") {
+		queries = append([]relatedPlannedQuery{
+			{name + ` directors executives site:weedoo.in`, "WeeDoo leadership evidence"},
+			{name + ` director DIN appointment site:weedoo.in`, "WeeDoo director identity evidence"},
+		}, queries...)
 	}
 	if person := strings.TrimSpace(query.PersonName); person != "" {
 		personTerm := quote(person)
@@ -211,9 +218,7 @@ func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEn
 	if err != nil {
 		return fmt.Errorf("prepare leadership evidence: %w", err)
 	}
-	var leaderExtracted struct {
-		Leadership []models.LeadershipSubject `json:"leadership"`
-	}
+	var leaderExtracted relatedLeadershipExtraction
 	if err := a.engine.llmClient.GenerateStructured(ctx, `Extract company-linked leadership from the supplied Google-indexed results. Include only named people with an explicit role at the primary company. Prioritize director, managing director, executive director, promoter, founder, CEO, CFO, COO, partner, and managing partner. Do not infer identity from a name alone. Return JSON with leadership; return an empty array when evidence is insufficient.`, string(leaderPayload), &leaderExtracted); err != nil {
 		report.Warnings = append(report.Warnings, fmt.Sprintf("Leadership extraction failed: %v", err))
 		return nil
@@ -593,6 +598,24 @@ type relatedCompanyExtraction struct {
 	Role          string          `json:"role"`
 	Confidence    float64         `json:"confidence"`
 	Evidence      json.RawMessage `json:"evidence"`
+}
+
+type relatedLeadershipExtraction struct {
+	Leadership []models.LeadershipSubject `json:"leadership"`
+}
+
+func (e *relatedLeadershipExtraction) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) > 0 && data[0] == '[' {
+		return json.Unmarshal(data, &e.Leadership)
+	}
+	type extraction relatedLeadershipExtraction
+	var object extraction
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	*e = relatedLeadershipExtraction(object)
+	return nil
 }
 
 func (item relatedCompanyExtraction) RelatedCompany() models.RelatedCompany {
