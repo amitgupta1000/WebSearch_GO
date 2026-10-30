@@ -175,6 +175,10 @@ const (
 	// otherwise holds the whole run: the extractor is model-backed and the local fallback
 	// walks the PDF page by page.
 	defaultDocumentExtractTimeout = 60 * time.Second
+	defaultHardURLsPerRun         = 2
+	defaultValidationLookups      = 10
+	defaultValidationStaleMonths  = 36
+	defaultValidationRecentMonths = 18
 )
 
 // Load loads configuration from environment variables with sensible defaults.
@@ -213,7 +217,7 @@ func Load() *Config {
 		GCPProjectID:          os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		GCPRegion:             region,
 		SerperAPIKey:          os.Getenv("SERPER_API_KEY"),
-		RocketReachAPIKey:     os.Getenv("ROCKETREACH_API_KEY"),
+		RocketReachAPIKey:     systemEnvironmentValue("ROCKETREACH_API_KEY"),
 		GeminiModel:           model,
 		CookieFile:            os.Getenv("COOKIE_FILE_PATH"),
 		JuristwayEmail:        envString("JURISTWAY_EMAIL", ""),
@@ -222,6 +226,7 @@ func Load() *Config {
 		// AllowBrowserToggle lets the console offer a per-run "render with a real
 		// browser" option, which is only shown when Chromium is actually runnable.
 		AllowBrowserToggle:     envBool("ALLOW_BROWSER_TOGGLE", true),
+		AllowProfileScraping:   envBool("ALLOW_PROFILE_SCRAPING", false),
 		CacheMaxEntries:        envInt("CACHE_MAX_ENTRIES", 2048),
 		CacheBackend:           envString("CACHE_BACKEND", defaultCacheBackend),
 		RedisURL:               os.Getenv("REDIS_URL"),
@@ -242,6 +247,13 @@ func Load() *Config {
 		MaxScrapesPerRun:       envInt("MAX_SCRAPES_PER_RUN", 20),
 		MaxSearchResults:       envInt("MAX_SEARCH_RESULTS", 20),
 		MaxSteps:               envInt("MAX_AGENT_STEPS", 20),
+		HardURLHandler:         envBool("HARD_URL_HANDLER", true),
+		HardURLsPerRun:         envInt("HARD_URLS_PER_RUN", defaultHardURLsPerRun),
+		HardURLBudget:          time.Duration(envInt("HARD_URL_BUDGET_SECONDS", 0)) * time.Second,
+		ValidateEvidence:       envBool("VALIDATE_EVIDENCE", true),
+		ValidationLookups:      envInt("VALIDATION_LOOKUPS_PER_RUN", defaultValidationLookups),
+		ValidationStaleMonths:  envInt("VALIDATION_STALE_AFTER_MONTHS", defaultValidationStaleMonths),
+		ValidationRecentMonths: envInt("VALIDATION_RECENT_WITHIN_MONTHS", defaultValidationRecentMonths),
 		ScrapeConcurrency:      envInt("SCRAPE_CONCURRENCY", defaultScrapeConcurrency),
 		ScrapeHostRate:         envFloat("SCRAPE_HOST_RATE_PER_SEC", defaultScrapeHostRate),
 		ScrapeHostBurst:        envFloat("SCRAPE_HOST_BURST", defaultScrapeHostBurst),

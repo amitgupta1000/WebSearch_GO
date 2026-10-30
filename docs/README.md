@@ -42,6 +42,11 @@ go run ./cmd/server
 # open http://localhost:8080
 ```
 
+On Windows, `ROCKETREACH_API_KEY` is read from the process environment first and
+then from the User and Machine environment scopes when the process environment
+does not contain it. Cloud Run continues to use the Secret Manager-injected
+process environment value.
+
 Tests that need external resources are skipped unless their gate is set, so the default
 suite runs offline: `PLAYWRIGHT_INTEGRATION=1` enables the real-Chromium tests
 (interstitial cookie reuse, and parsing a real generated PDF) and
@@ -59,6 +64,9 @@ restarts `go run ./cmd/server` after changes. The same watcher is available in
 VS Code as the `Go: Watch Server` task. Because it restarts on *every* change, a
 running research or question is cut off when you save a file — let a run finish,
 or expect it to start over.
+The watcher also refreshes `ROCKETREACH_API_KEY` from the Windows User or Machine
+environment scope before starting Go, which handles terminals opened before the
+key was added.
 
 If the server exits immediately after printing its startup line, the port is
 almost always taken by a previous instance:
@@ -115,15 +123,11 @@ match is pre-selected and focused), and never dead-ends:
   company-linked leaders for external company involvement. It performs a cache-first preflight
   over the full plan and reports cache/result counts. Direct and leadership-derived
   relationships are reported separately and are never folded into the primary company identity;
-  returned snippets remain visible for review when classification is inconclusive. When
-  `ROCKETREACH_API_KEY` is configured, this mode also makes a bounded set of RocketReach
-  discovery searches across leadership, procurement, finance, legal, operations, and founder
-  title groups. These results nominate candidates and retain query provenance, but never
-  request contact details.
+  returned snippets remain visible for review when classification is inconclusive. This mode
+  does not call RocketReach.
 
-RocketReach is a paid enrichment provider and is intentionally split by operation: related
-entity/company runs use search discovery only, while email and phone lookup is performed only
-for an explicitly requested person dossier. Search and lookup failures are non-fatal and are
+RocketReach is a paid enrichment provider and is intentionally limited to company discovery
+and explicitly requested person dossiers. Search and lookup failures are non-fatal and are
 reported as run warnings.
 
 ### Legal mode (Indian case-law check)

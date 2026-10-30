@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -89,6 +90,38 @@ func TestRocketReachSearchSendsStructuredDiscoveryQuery(t *testing.T) {
 	}
 	if len(profiles) != 1 || profiles[0].ID != 7 {
 		t.Fatalf("profiles = %+v", profiles)
+	}
+}
+
+func TestRocketReachSearchFetchesThreePages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Start int `json:"start"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body.Start == 0 {
+			body.Start = 1
+		}
+		page := (body.Start-1)/10 + 1
+		next := body.Start + 10
+		if page == 3 {
+			next = 0
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"pagination":{"start":%d,"next":%d,"total":30},"profiles":[{"id":%d}]}`, body.Start, next, page)
+	}))
+	defer server.Close()
+
+	client := NewRocketReachClient("test-key")
+	client.searchURL = server.URL
+	profiles, err := client.Search(context.Background(), map[string][]string{"current_employer": {"Acme"}})
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(profiles) != 3 {
+		t.Fatalf("profiles = %d, want 3", len(profiles))
 	}
 }
 

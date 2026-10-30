@@ -35,14 +35,14 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ResearchTimeout != 180*time.Second {
 		t.Errorf("expected default timeout 180s, got %v", cfg.ResearchTimeout)
 	}
-	if cfg.MaxScrapesPerRun != 10 {
-		t.Errorf("expected default max scrapes 10, got %d", cfg.MaxScrapesPerRun)
+	if cfg.MaxScrapesPerRun != 20 {
+		t.Errorf("expected default max scrapes 20, got %d", cfg.MaxScrapesPerRun)
 	}
-	if cfg.MaxSearchResults != 12 {
-		t.Errorf("expected default max search results 12, got %d", cfg.MaxSearchResults)
+	if cfg.MaxSearchResults != 20 {
+		t.Errorf("expected default max search results 20, got %d", cfg.MaxSearchResults)
 	}
-	if cfg.MaxSteps != 10 {
-		t.Errorf("expected default max steps 10, got %d", cfg.MaxSteps)
+	if cfg.MaxSteps != 20 {
+		t.Errorf("expected default max steps 20, got %d", cfg.MaxSteps)
 	}
 	if cfg.EnableBrowserFallback {
 		t.Error("browser fallback should be disabled by default")

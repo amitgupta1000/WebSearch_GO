@@ -260,7 +260,7 @@ func main() {
 	// authenticates when JURISTWAY_EMAIL/JURISTWAY_PASSWORD are configured.
 	juristwayClient := tools.NewJuristwayClient(cfg.JuristwayEmail, cfg.JuristwayPassword)
 	legalAgent := agent.NewLegalAgent(eng, tools.NewIndianKanoonClient(), tools.NewCasemineClient(scraper), juristwayClient, cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery, cfg.LegalConcurrency)
-	relatedAgent := agent.NewRelatedEntityAgent(eng, rocketReachClient)
+	relatedAgent := agent.NewRelatedEntityAgent(eng)
 	juristwayNote := " (anonymous)"
 	if cfg.JuristwayEmail != "" {
 		juristwayNote = " (authenticated)"

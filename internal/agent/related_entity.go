@@ -11,7 +11,6 @@ import (
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
-	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 const (
@@ -24,7 +23,6 @@ const (
 	relatedEntityLeaderEvidence     = 30
 	relatedEntitySnippetMaxRunes    = 1200
 	relatedEntityIdentityConfidence = 0.60
-	relatedEntityRocketReachQueries = 4
 )
 
 var directorIdentificationNumberPattern = regexp.MustCompile(`(?i)\b(?:din|director\s+identification\s+number)\D{0,12}(\d{8})\b`)
@@ -32,16 +30,11 @@ var directorIdentificationNumberPattern = regexp.MustCompile(`(?i)\b(?:din|direc
 // RelatedEntityAgent discovers direct company relationships and then follows
 // confirmed leadership into other companies. It never mutates CompanyBrief.
 type RelatedEntityAgent struct {
-	engine      *Engine
-	rocketReach *tools.RocketReachClient
+	engine *Engine
 }
 
-func NewRelatedEntityAgent(engine *Engine, rocketReach ...*tools.RocketReachClient) *RelatedEntityAgent {
-	agent := &RelatedEntityAgent{engine: engine}
-	if len(rocketReach) > 0 {
-		agent.rocketReach = rocketReach[0]
-	}
-	return agent
+func NewRelatedEntityAgent(engine *Engine) *RelatedEntityAgent {
+	return &RelatedEntityAgent{engine: engine}
 }
 
 func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, query models.RelatedEntityQuery, eventCh chan<- models.AgentEvent) (*models.RelatedEntityReport, error) {
@@ -96,8 +89,7 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 		report.Warnings = append(report.Warnings, "The search provider returned no cached or live hits for the planned queries.")
 	}
 	report.ReviewEvidence = reviewEvidence(trace, 50)
-	rrLeaders := a.discoverRocketReach(ctx, sessionID, query, eventCh, report)
-	if err := a.extract(ctx, query, directHits, leadHits, rrLeaders, report); err != nil {
+	if err := a.extract(ctx, query, directHits, leadHits, report); err != nil {
 		return nil, err
 	}
 	report.Graph = relatedEntityGraph(report)
@@ -165,7 +157,7 @@ func sourceHint(query models.RelatedEntityQuery) string {
 	if strings.Contains(strings.ToLower(query.Country), "india") || strings.EqualFold(query.SourceProfile, "india") {
 		return "zaubacorp OR thecompanycheck OR tracxn"
 	}
-	return "zoominfo OR apollo OR rocketreach OR theorg"
+	return "zoominfo OR apollo OR theorg"
 }
 
 func quote(value string) string {
@@ -189,7 +181,7 @@ func flattenTrace(trace *models.SearchTrace, start, end int) []models.SearchResu
 	return hits
 }
 
-func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEntityQuery, directHits, leaderHits []models.SearchResult, rrLeaders []models.LeadershipSubject, report *models.RelatedEntityReport) error {
+func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEntityQuery, directHits, leaderHits []models.SearchResult, report *models.RelatedEntityReport) error {
 	directPayload, err := json.Marshal(struct {
 		Company string
 		Hits    []models.SearchResult
@@ -220,76 +212,11 @@ func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEn
 		report.Warnings = append(report.Warnings, fmt.Sprintf("Leadership extraction failed: %v", err))
 		return nil
 	}
-	report.Leadership = normalizeLeaders(append(leaderExtracted.Leadership, rrLeaders...), query.CompanyName, query.MaxLeaders)
+	report.Leadership = normalizeLeaders(leaderExtracted.Leadership, query.CompanyName, query.MaxLeaders)
 	if len(report.Leadership) == 0 {
 		return nil
 	}
 	return a.searchLeadership(ctx, query, report)
-}
-
-func (a *RelatedEntityAgent) discoverRocketReach(ctx context.Context, sessionID string, query models.RelatedEntityQuery, eventCh chan<- models.AgentEvent, report *models.RelatedEntityReport) []models.LeadershipSubject {
-	if a.rocketReach == nil || !a.rocketReach.Enabled() {
-		return nil
-	}
-	titleGroups := [][]string{
-		{"director", "chief executive officer", "chief financial officer", "chief operating officer", "managing director"},
-		{"procurement", "purchasing", "supply chain"},
-		{"finance", "legal", "operations"},
-		{"founder", "chairman", "president", "vice president"},
-	}
-	var leaders []models.LeadershipSubject
-	seen := map[string]bool{}
-	for _, titles := range titleGroups[:relatedEntityRocketReachQueries] {
-		rrQuery := map[string][]string{
-			"current_employer": {query.CompanyName},
-			"current_title":    titles,
-		}
-		titleLabel := strings.Join(titles, ", ")
-		Emit(eventCh, models.AgentEvent{
-			SessionID: sessionID,
-			Type:      models.EventToolCall,
-			ToolName:  "rocketreach_search",
-			Content:   "Searching RocketReach discovery for " + query.CompanyName + " (" + titleLabel + ")",
-		})
-		profiles, err := a.rocketReach.Search(ctx, rrQuery)
-		if err != nil {
-			message := fmt.Sprintf("RocketReach discovery failed for title group %q: %v", titles, err)
-			report.Warnings = append(report.Warnings, message)
-			Emit(eventCh, models.AgentEvent{
-				SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_search", Content: message,
-			})
-			continue
-		}
-		queryLabel := query.CompanyName + " / " + strings.Join(titles, ", ")
-		Emit(eventCh, models.AgentEvent{
-			SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_search",
-			Content: fmt.Sprintf("RocketReach discovery returned %d profile(s) for %s", len(profiles), query.CompanyName),
-		})
-		for _, profile := range profiles {
-			name := strings.TrimSpace(profile.Name)
-			if name == "" || !rocketReachEmployerMatches(profile.CurrentEmployer, query.CompanyName) {
-				continue
-			}
-			key := strings.ToLower(name + "\x00" + strings.TrimSpace(profile.CurrentEmployer))
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			report.RocketReachDiscovery = append(report.RocketReachDiscovery, models.RocketReachDiscovery{
-				ProfileID: profile.ID, Name: name, Title: profile.CurrentTitle,
-				Employer: profile.CurrentEmployer, LinkedInURL: profile.LinkedInURL, Query: queryLabel,
-			})
-			leaders = append(leaders, models.LeadershipSubject{
-				Name: name, Role: profile.CurrentTitle, Company: profile.CurrentEmployer,
-				Confidence: 0.75, Evidence: []models.RelatedEntityEvidence{{
-					URL: profile.LinkedInURL, Title: name + " - " + profile.CurrentTitle,
-					Snippet: name + " is listed at " + profile.CurrentEmployer + " as " + profile.CurrentTitle,
-					Source:  "rocketreach",
-				}},
-			})
-		}
-	}
-	return leaders
 }
 
 func rocketReachEmployerMatches(employer, company string) bool {

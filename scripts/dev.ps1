@@ -18,6 +18,27 @@ if ([string]::IsNullOrWhiteSpace($go)) {
 
 $server = $null
 
+# A VS Code terminal can retain the environment it inherited before a User or
+# Machine environment variable was added. Refresh the local RR credential before
+# launching Go so the child process sees the same value as Windows.
+function Import-EnvironmentVariable {
+    param([string]$Name)
+
+    if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($Name, 'Process'))) {
+        return
+    }
+
+    foreach ($scope in @('User', 'Machine')) {
+        $value = [Environment]::GetEnvironmentVariable($Name, $scope)
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            [Environment]::SetEnvironmentVariable($Name, $value, 'Process')
+            return
+        }
+    }
+}
+
+Import-EnvironmentVariable -Name 'ROCKETREACH_API_KEY'
+
 # The server exits immediately when it cannot bind its port, and that one fatal
 # line is easy to miss when the watcher restarts in the background, so the port
 # is resolved and cleared around every restart.

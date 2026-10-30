@@ -13,6 +13,7 @@ import (
 const (
 	rocketReachLookupURL = "https://api.rocketreach.co/api/v2/person/lookup"
 	rocketReachSearchURL = "https://api.rocketreach.co/api/v2/person/search"
+	rocketReachMaxPages  = 3
 )
 
 // RocketReachClient performs explicitly requested contact lookups. Search
@@ -88,9 +89,27 @@ func (c *RocketReachClient) Search(ctx context.Context, query map[string][]strin
 	if !c.Enabled() {
 		return nil, fmt.Errorf("RocketReach is not configured")
 	}
+	start := 1
+	var profiles []RocketReachProfile
+	for page := 0; page < rocketReachMaxPages; page++ {
+		result, err := c.searchPage(ctx, query, start)
+		if err != nil {
+			return nil, err
+		}
+		profiles = append(profiles, result.Profiles...)
+		if result.Pagination.Next <= start || result.Pagination.Next == 0 {
+			break
+		}
+		start = result.Pagination.Next
+	}
+	return profiles, nil
+}
+
+func (c *RocketReachClient) searchPage(ctx context.Context, query map[string][]string, start int) (*rocketReachSearchResponse, error) {
 	body, err := json.Marshal(struct {
 		Query map[string][]string `json:"query"`
-	}{Query: query})
+		Start int                 `json:"start,omitempty"`
+	}{Query: query, Start: start})
 	if err != nil {
 		return nil, fmt.Errorf("encode RocketReach search request: %w", err)
 	}
@@ -109,13 +128,20 @@ func (c *RocketReachClient) Search(ctx context.Context, query map[string][]strin
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("RocketReach search returned HTTP %d", resp.StatusCode)
 	}
-	var result struct {
-		Profiles []RocketReachProfile `json:"profiles"`
-	}
+	var result rocketReachSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode RocketReach search response: %w", err)
 	}
-	return result.Profiles, nil
+	return &result, nil
+}
+
+type rocketReachSearchResponse struct {
+	Profiles   []RocketReachProfile `json:"profiles"`
+	Pagination struct {
+		Start int `json:"start"`
+		Next  int `json:"next"`
+		Total int `json:"total"`
+	} `json:"pagination"`
 }
 
 func (c *RocketReachClient) Enabled() bool {
