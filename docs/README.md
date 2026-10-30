@@ -86,6 +86,12 @@ match is pre-selected and focused), and never dead-ends:
 - **Company** (`POST /api/resolve-entity`): candidate identities with domain, evidence and a
   registration id, plus the other candidates as *also part of this company* for a company
   that answers to several names or domains (see [Entity gate](#entity-gate--what-the-chart-is-held-to)).
+  With `ROCKETREACH_API_KEY`, the company run makes a bounded set of RR title-group searches
+  for key-person candidates across leadership and functional seniority lanes (including
+  Manager, General Manager, Deputy General Manager, Vice-President, Additional Director, and
+  Executive Director). It keeps only strict employer matches, adds those candidates to
+  the existing company evidence gate, and exposes their query provenance; it does not request
+  contact details.
 - **Person** (`POST /api/resolve-person`): the people who share the typed name, read out of
   the `<name> - <role> - <employer>` headlines professional networks use, with the employer
   and place pre-filled from the profile the operator picks. That pinned context is what the
@@ -95,8 +101,10 @@ match is pre-selected and focused), and never dead-ends:
   claim rather than a profile, and if no profile is found the name-alone path is right there.
   After the dossier is synthesized and quality-checked, an explicit person run may perform
   one RocketReach lookup using the confirmed LinkedIn URL or name plus current employer.
-  Returned verified email/phone fields are rendered in the dossier and exports; company and
-  related-entity runs never request those fields.
+  Returned structured profile facts (current role, employer, location, career history,
+  education, and skills) are merged only when the dossier lacks that fact, then pass through
+  the normal identity QC; verified email/phone fields are rendered in the dossier and exports.
+  Company and related-entity runs never request those fields.
 - **Legal** (`POST /api/resolve-entity`, `mode=legal`): the same company-identity confirmation
   a company run uses — a legal check needs exactly the same "which company is this"
   discipline — plus an optional list of directors or key persons to check alongside it (see

@@ -489,6 +489,7 @@
 			<h4 class="text-sm font-semibold text-amber-200">Contact details</h4>
 			<span class="text-[10px] text-slate-500">Retrieved on explicit person search</span>
 		</div>
+		{{if .ContactEnrichment.LinkedInURL}}<div class="text-sm text-slate-300 mb-2"><a class="text-cyan-300 hover:text-cyan-200 underline" href="{{.ContactEnrichment.LinkedInURL}}" target="_blank" rel="noreferrer">RocketReach LinkedIn profile</a></div>{{end}}
 		{{range .ContactEnrichment.Emails}}<div class="text-sm text-slate-300">{{.Email}}{{if .Type}} <span class="text-xs text-slate-500">({{.Type}}{{if .Grade}}, grade {{.Grade}}{{end}})</span>{{end}}</div>{{end}}
 		{{range .ContactEnrichment.Phones}}<div class="text-sm text-slate-300">{{.Number}}{{if .Type}} <span class="text-xs text-slate-500">({{.Type}})</span>{{end}}</div>{{end}}
 		{{if and (not .ContactEnrichment.Emails) (not .ContactEnrichment.Phones)}}<p class="text-xs text-slate-500">No verified contact details were returned.</p>{{end}}

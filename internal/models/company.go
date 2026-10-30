@@ -29,6 +29,9 @@ type OrgChart struct {
 	// its kept and excluded hits — behind the Search results tab and the searches.json
 	// artifact. Attached by the agent.
 	SearchTrace *SearchTrace `json:"search_trace,omitempty"`
+	// RocketReachDiscovery records strictly employer-matched RR candidates that
+	// were supplied to company leadership validation.
+	RocketReachDiscovery []RocketReachDiscovery `json:"rocketreach_discovery,omitempty"`
 	// Validation is the freshness pass over the roster: per-row dates and
 	// verdicts, plus what the bounded reverse lookups changed. Attached by the
 	// agent like ScrapeReport and Timings.

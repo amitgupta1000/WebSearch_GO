@@ -52,9 +52,10 @@ type PersonProfile struct {
 }
 
 type PersonContactEnrichment struct {
-	Emails []PersonContactEmail `json:"emails,omitempty"`
-	Phones []PersonContactPhone `json:"phones,omitempty"`
-	Source string               `json:"source,omitempty"`
+	Emails      []PersonContactEmail `json:"emails,omitempty"`
+	Phones      []PersonContactPhone `json:"phones,omitempty"`
+	LinkedInURL string               `json:"linkedin_url,omitempty"`
+	Source      string               `json:"source,omitempty"`
 }
 
 type PersonContactEmail struct {
@@ -193,4 +194,5 @@ type Education struct {
 	Degree      string `json:"degree"`
 	Field       string `json:"field,omitempty"`
 	Year        string `json:"year,omitempty"`
+	Source      string `json:"source,omitempty"`
 }

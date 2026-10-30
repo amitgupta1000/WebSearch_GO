@@ -548,6 +548,8 @@ Rules:
 	profile.PublicAccounts = personalizationAccounts
 
 	finishSynthesis("dossier synthesised")
+	profile.Sources = sources
+	pa.enrichContact(ctx, sessionID, query, &profile, eventCh)
 
 	// QC holds the model's output to the same identity the gate held the evidence to: a
 	// synthesised row whose employer is not the confirmed one survives only when a reverse
@@ -570,9 +572,7 @@ Rules:
 	// the employer each source states — instead of discarding them.
 	profile.SameNamed = gate.sameNamedGroups(dedupeResults(gateExcluded))
 	profile.SearchTrace = searchTrace
-	pa.enrichContact(ctx, sessionID, query, &profile, eventCh)
 
-	profile.Sources = sources
 	profile.PersonGate = &models.PersonGate{
 		Name:     gate.name,
 		Company:  gate.company,
@@ -643,7 +643,8 @@ func (pa *PersonAgent) enrichContact(ctx context.Context, sessionID string, quer
 		})
 		return
 	}
-	enrichment := &models.PersonContactEnrichment{Source: "RocketReach"}
+	enrichment := &models.PersonContactEnrichment{Source: "RocketReach", LinkedInURL: result.LinkedInURL}
+	mergeRocketReachProfile(profile, result)
 	for _, email := range result.Emails {
 		enrichment.Emails = append(enrichment.Emails, models.PersonContactEmail{
 			Email: email.Email, Type: email.Type, Grade: email.Grade,
@@ -662,4 +663,110 @@ func (pa *PersonAgent) enrichContact(ctx context.Context, sessionID string, quer
 		ToolName:  "rocketreach_lookup",
 		Content:   fmt.Sprintf("retrieved %d email(s), %d phone number(s)", len(enrichment.Emails), len(enrichment.Phones)),
 	})
+}
+
+func mergeRocketReachProfile(profile *models.PersonProfile, result *tools.RocketReachProfile) {
+	if result == nil {
+		return
+	}
+	source := strings.TrimSpace(result.LinkedInURL)
+	if source == "" {
+		source = "RocketReach"
+	}
+	if profile.CurrentTitle == "" {
+		profile.CurrentTitle = result.CurrentTitle
+	}
+	if profile.CurrentCompany == "" {
+		profile.CurrentCompany = result.CurrentEmployer
+	}
+	if profile.Location == "" {
+		profile.Location = firstNonEmpty(result.Location, joinNonEmpty(", ", result.City, result.Region, result.Country))
+	}
+	if profile.OnlinePresence == nil {
+		profile.OnlinePresence = map[string]string{}
+	}
+	if profile.OnlinePresence["linkedin"] == "" && result.LinkedInURL != "" {
+		profile.OnlinePresence["linkedin"] = result.LinkedInURL
+	}
+	for _, job := range result.JobHistory {
+		role := strings.TrimSpace(job.Title)
+		company := strings.TrimSpace(job.Company)
+		if role == "" && company == "" {
+			continue
+		}
+		experience := models.Experience{
+			Role: role, Company: company, Location: job.Location,
+			Period: joinNonEmpty(" - ", job.StartDate, job.EndDate),
+			Source: source,
+		}
+		if job.Description != "" {
+			experience.Highlights = []string{job.Description}
+		}
+		if !containsExperience(profile.Experiences, experience) {
+			profile.Experiences = append(profile.Experiences, experience)
+		}
+	}
+	for _, education := range result.Education {
+		institution := firstNonEmpty(education.Institution, education.School)
+		degree := education.Degree
+		field := firstNonEmpty(education.Field, education.Major)
+		year := firstNonEmpty(education.Year, joinNonEmpty(" - ", education.StartYear, education.EndYear))
+		if institution == "" && degree == "" && field == "" {
+			continue
+		}
+		item := models.Education{Institution: institution, Degree: degree, Field: field, Year: year, Source: source}
+		if !containsEducation(profile.Education, item) {
+			profile.Education = append(profile.Education, item)
+		}
+	}
+	for _, skill := range result.Skills {
+		skill = strings.TrimSpace(skill)
+		if skill != "" && !containsString(profile.KeySkills, skill) {
+			profile.KeySkills = append(profile.KeySkills, skill)
+		}
+	}
+	if result.LinkedInURL != "" && !containsString(profile.Sources, result.LinkedInURL) {
+		profile.Sources = append(profile.Sources, result.LinkedInURL)
+	}
+}
+
+func joinNonEmpty(separator string, values ...string) string {
+	var nonEmpty []string
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			nonEmpty = append(nonEmpty, strings.TrimSpace(value))
+		}
+	}
+	return strings.Join(nonEmpty, separator)
+}
+
+func containsExperience(items []models.Experience, candidate models.Experience) bool {
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.Role), strings.TrimSpace(candidate.Role)) &&
+			strings.EqualFold(strings.TrimSpace(item.Company), strings.TrimSpace(candidate.Company)) &&
+			strings.EqualFold(strings.TrimSpace(item.Period), strings.TrimSpace(candidate.Period)) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEducation(items []models.Education, candidate models.Education) bool {
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.Institution), strings.TrimSpace(candidate.Institution)) &&
+			strings.EqualFold(strings.TrimSpace(item.Degree), strings.TrimSpace(candidate.Degree)) &&
+			strings.EqualFold(strings.TrimSpace(item.Field), strings.TrimSpace(candidate.Field)) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(items []string, candidate string) bool {
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item), strings.TrimSpace(candidate)) {
+			return true
+		}
+	}
+	return false
 }

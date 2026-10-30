@@ -13,6 +13,21 @@ import (
 	"github.com/amitgupta1000/WebSearch_GO/internal/testutil"
 )
 
+func TestRocketReachCandidateRequiresIndexedCompanyEvidence(t *testing.T) {
+	hits := []models.SearchResult{{
+		Title:   "Ashish Gupta - KLJ Resources Limited",
+		Snippet: "Ashish Gupta is a director at KLJ Resources Limited",
+	}}
+	if !hasRocketReachCandidateEvidence("Ashish Gupta", "KLJ Resources Limited", hits) {
+		t.Fatal("expected matching indexed evidence")
+	}
+	if hasRocketReachCandidateEvidence("Ashish Gupta", "KLJ Resources Limited", []models.SearchResult{{
+		Title: "Ashish Gupta profile", Snippet: "Ashish Gupta is a director at another company",
+	}}) {
+		t.Fatal("accepted name-only evidence")
+	}
+}
+
 type qcMockLLM struct {
 	reviewCalls int
 }

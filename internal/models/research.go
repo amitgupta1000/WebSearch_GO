@@ -360,7 +360,8 @@ type CompanyResearchContext struct {
 	EntityGate *EntityGate
 	// SearchTrace is the raw search evidence: every planned query with its kept and
 	// excluded hits, per query. Attached by the agent.
-	SearchTrace *SearchTrace
+	SearchTrace          *SearchTrace
+	RocketReachDiscovery []RocketReachDiscovery
 	// Timings is the per-phase breakdown of the run, in completion order.
 	Timings []PhaseTiming
 }

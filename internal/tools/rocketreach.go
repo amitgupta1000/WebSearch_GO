@@ -36,14 +36,41 @@ type RocketReachPhone struct {
 	Type   string `json:"type,omitempty"`
 }
 
+type RocketReachJob struct {
+	Title       string `json:"title,omitempty"`
+	Company     string `json:"company,omitempty"`
+	Location    string `json:"location,omitempty"`
+	StartDate   string `json:"start_date,omitempty"`
+	EndDate     string `json:"end_date,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+type RocketReachEducation struct {
+	Institution string `json:"institution,omitempty"`
+	School      string `json:"school,omitempty"`
+	Degree      string `json:"degree,omitempty"`
+	Field       string `json:"field,omitempty"`
+	Major       string `json:"major,omitempty"`
+	StartYear   string `json:"start_year,omitempty"`
+	EndYear     string `json:"end_year,omitempty"`
+	Year        string `json:"year,omitempty"`
+}
+
 type RocketReachProfile struct {
-	ID              int                  `json:"id,omitempty"`
-	Name            string               `json:"name,omitempty"`
-	CurrentTitle    string               `json:"current_title,omitempty"`
-	CurrentEmployer string               `json:"current_employer,omitempty"`
-	LinkedInURL     string               `json:"linkedin_url,omitempty"`
-	Emails          []RocketReachContact `json:"emails,omitempty"`
-	Phones          []RocketReachPhone   `json:"phones,omitempty"`
+	ID              int                    `json:"id,omitempty"`
+	Name            string                 `json:"name,omitempty"`
+	CurrentTitle    string                 `json:"current_title,omitempty"`
+	CurrentEmployer string                 `json:"current_employer,omitempty"`
+	LinkedInURL     string                 `json:"linkedin_url,omitempty"`
+	Location        string                 `json:"location,omitempty"`
+	City            string                 `json:"city,omitempty"`
+	Region          string                 `json:"region,omitempty"`
+	Country         string                 `json:"country,omitempty"`
+	JobHistory      []RocketReachJob       `json:"job_history,omitempty"`
+	Education       []RocketReachEducation `json:"education,omitempty"`
+	Skills          []string               `json:"skills,omitempty"`
+	Emails          []RocketReachContact   `json:"emails,omitempty"`
+	Phones          []RocketReachPhone     `json:"phones,omitempty"`
 }
 
 func NewRocketReachClient(apiKey string) *RocketReachClient {

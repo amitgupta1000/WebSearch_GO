@@ -38,7 +38,7 @@ four modes:
 
 | Mode | What it produces | How it works |
 | :--- | :--- | :--- |
-| **Company** (`mode=company`) | A structured `OrgChart`: overview, HQ, leadership, departments, locations, sources | LLM plans a set of Google queries → results are ranked for relevance → the top pages are scraped → Gemini synthesizes the org chart from the collected evidence |
+| **Company** (`mode=company`) | A structured `OrgChart`: overview, HQ, leadership, departments, locations, sources, and optional RR discovery provenance | LLM plans a set of Google queries → results are ranked for relevance → bounded RocketReach title-group searches nominate strictly employer-matched key persons → Google/registry entity filtering and Gemini validate/synthesize the org chart from the combined evidence |
 | **Person** (`mode=person`) | A structured `PersonProfile` dossier: title, company, bio, experiences, education, skills, confidence score, and optional RocketReach contact enrichment | Disambiguated search (name + company + location) → bio-oriented pages are scraped → a secondary career search supplements snippets → Gemini synthesizes/QCs the dossier → explicit person runs may perform one RocketReach contact lookup |
 | **Legal** (`mode=legal`) | A structured `LegalReport`: docketed litigation findings on the confirmed company and named persons, deterministic risk position, plus same-named hits kept for review | The company identity is confirmed as in company mode → bounded case-law and regulatory searches run → every hit is tied to the identity by CIN/name/alias → Gemini classifies category/status → deterministic dockets and risk position are assembled |
 | **Related entities** (`mode=related_entity`) | A graph-first `RelatedEntityReport`: evidence-backed company and person nodes connected by labelled relationships, with raw snippets retained for review and optional RocketReach discovery provenance | Separate company search (32-query budget) from people discovery (8-query budget) → run up to four bounded RocketReach title-group searches when configured → merge strictly employer-matched candidates → launch a six-query identity/affiliation trajectory for each resolved leader, concurrently up to eight people → resolve DIN, appointment, domain, and registry signals → search other-company involvement; Gemini labels bounded evidence slices, but the report preserves the graph and raw evidence rather than depending on one monolithic extraction |
@@ -1383,8 +1383,13 @@ the two cited sources.
   source-profile toggle. Auto preserves the established India-focused default unless the
   operator explicitly selects Global.
   RocketReach is wired into the live pipeline as a separate provider: related-entity discovery
-  uses at most four bounded title-group searches and retains query provenance, while explicit
-  person research performs one contact lookup after synthesis and QC.
+  uses at most four bounded title-group searches and retains query provenance, while company
+  discovery adds functional seniority terms (Manager, General Manager, Deputy General Manager,
+  Vice-President, Additional Director, and Executive Director) without increasing the call
+  count, and explicit
+  person research performs one structured profile/contact lookup after synthesis and before
+  the normal dossier QC; RR facts are additive, provenance-tagged, and do not replace indexed
+  evidence already present.
   Company mode also exposes default-on Leadership, Marketing, and Procurement / Supply Chain
   interests, plus an optional person-of-interest field. A supplied person receives three
   reserved company-anchored searches, including a LinkedIn-index query, before general
@@ -1405,7 +1410,9 @@ the two cited sources.
   Returned profiles are filtered by strict company-token matching before they can branch into
   person-affiliation research. Explicit person dossier enrichment uses
   `GET /api/v2/person/lookup` once, preferring the confirmed LinkedIn URL and otherwise using
-  name plus current employer; only that path can populate email or phone fields.
+  name plus current employer. The lookup can contribute missing role, employer, location,
+  career-history, education, skills, and LinkedIn fields; career rows are then included in
+  the normal identity QC. Only this explicit person path can populate email or phone fields.
 
 - **Related-entity mode uses a mandatory cache-first preflight.** It checks every planned
   direct-relationship and leadership query before search, reuses valid cached results through

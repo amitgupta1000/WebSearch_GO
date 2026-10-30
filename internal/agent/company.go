@@ -21,7 +21,8 @@ import (
 
 // CompanyAgent conducts multi-phase organizational discovery and hierarchy mapping.
 type CompanyAgent struct {
-	engine *Engine
+	engine      *Engine
+	rocketReach *tools.RocketReachClient
 }
 
 const maxCompanyReviewIterations = 3
@@ -100,8 +101,12 @@ const (
 )
 
 // NewCompanyAgent initializes the company research specialist agent.
-func NewCompanyAgent(engine *Engine) *CompanyAgent {
-	return &CompanyAgent{engine: engine}
+func NewCompanyAgent(engine *Engine, rocketReach ...*tools.RocketReachClient) *CompanyAgent {
+	agent := &CompanyAgent{engine: engine}
+	if len(rocketReach) > 0 {
+		agent.rocketReach = rocketReach[0]
+	}
+	return agent
 }
 
 // ResearchCompany preserves the original company-only entry point.
@@ -243,6 +248,23 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		// exist; this is what gives a thin roster something to be built from, and its
 		// queries name the company, so no unanchored snippet can enter here.
 		ca.fillEntityGaps(ctx, sessionID, brief, state, eventCh, matcher, gate)
+		if iteration == 0 {
+			rrResults, rrDiscovery, rrValidationEvidence, rrValidationTrace := ca.discoverRocketReach(ctx, sessionID, brief, eventCh)
+			if len(rrResults) > 0 {
+				state.SearchResults = appendUniqueSearchResults(state.SearchResults, rrResults)
+				state.Evidence = appendUniqueEvidence(state.Evidence, rrValidationEvidence)
+				state.Evidence = appendUniqueEvidence(state.Evidence, rocketReachEvidence(rrResults))
+				state.RocketReachDiscovery = append(state.RocketReachDiscovery, rrDiscovery...)
+				if state.SearchTrace != nil {
+					state.SearchTrace.Queries = append(state.SearchTrace.Queries, models.QueryTrace{
+						Query:   "RocketReach discovery: " + brief.CompanyName,
+						Purpose: "RocketReach key-person discovery candidates",
+						Kept:    rrResults,
+					})
+					state.SearchTrace.Queries = append(state.SearchTrace.Queries, rrValidationTrace...)
+				}
+			}
+		}
 		// Only snippets that name the company reach the synthesiser. A snippet is a
 		// name and a title, and without this filter the results of every planned
 		// query are fair game for the roster.
@@ -256,6 +278,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		}
 		chart.ScrapeReport = state.ScrapeReport
 		chart.SearchTrace = state.SearchTrace
+		chart.RocketReachDiscovery = state.RocketReachDiscovery
 		finishReview := timer.start("review (QC)")
 		review := ca.reviewChart(ctx, brief, chart, state.Evidence, sessionID, eventCh)
 		finishReview(review.Verdict)
@@ -275,6 +298,136 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 	}
 
 	return chart, state, nil
+}
+
+func (ca *CompanyAgent) discoverRocketReach(ctx context.Context, sessionID string, brief models.CompanyBrief, eventCh chan<- models.AgentEvent) ([]models.SearchResult, []models.RocketReachDiscovery, []models.Evidence, []models.QueryTrace) {
+	if ca.rocketReach == nil || !ca.rocketReach.Enabled() {
+		return nil, nil, nil, nil
+	}
+	titleGroups := [][]string{
+		{"director", "chief executive officer", "chief financial officer", "chief operating officer", "managing director"},
+		{"procurement", "purchasing", "supply chain", "manager", "general manager", "deputy general manager", "vice president", "vice-president", "additional director", "executive director"},
+		{"finance", "legal", "operations", "manager", "general manager", "deputy general manager", "vice president", "vice-president", "additional director", "executive director"},
+		{"founder", "chairman", "president", "vice president"},
+	}
+	var results []models.SearchResult
+	var discovery []models.RocketReachDiscovery
+	var validationEvidence []models.Evidence
+	var validationTrace []models.QueryTrace
+	seen := map[string]bool{}
+	validated := 0
+	const maxValidationCandidates = 8
+	for _, titles := range titleGroups {
+		titleLabel := strings.Join(titles, ", ")
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID, Type: models.EventToolCall, ToolName: "rocketreach_search",
+			Content: "Searching RocketReach key persons for " + brief.CompanyName + " (" + titleLabel + ")",
+		})
+		profiles, err := ca.rocketReach.Search(ctx, map[string][]string{
+			"current_employer": {brief.CompanyName},
+			"current_title":    titles,
+		})
+		if err != nil {
+			Emit(eventCh, models.AgentEvent{
+				SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_search",
+				Content: fmt.Sprintf("RocketReach company discovery unavailable: %v", err),
+			})
+			continue
+		}
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_search",
+			Content: fmt.Sprintf("RocketReach returned %d profile(s) for %s", len(profiles), brief.CompanyName),
+		})
+		for _, profile := range profiles {
+			name := strings.TrimSpace(profile.Name)
+			employer := strings.TrimSpace(profile.CurrentEmployer)
+			if name == "" || !rocketReachEmployerMatches(employer, brief.CompanyName) {
+				continue
+			}
+			key := strings.ToLower(name + "\x00" + employer)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if validated >= maxValidationCandidates {
+				continue
+			}
+			validationQuery := fmt.Sprintf("%q %q", name, brief.CompanyName)
+			Emit(eventCh, models.AgentEvent{
+				SessionID: sessionID, Type: models.EventToolCall, ToolName: "rocketreach_candidate_validation",
+				Content: "Validating RocketReach candidate with indexed search: " + name,
+			})
+			validationHits, validationErr := ca.engine.SearchCached(ctx, validationQuery, ca.engine.MaxSearchResults())
+			validationTrace = append(validationTrace, models.QueryTrace{
+				Query: validationQuery, Purpose: "indexed validation of RocketReach candidate", Kept: validationHits,
+			})
+			if validationErr != nil {
+				Emit(eventCh, models.AgentEvent{
+					SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_candidate_validation",
+					Content: fmt.Sprintf("Validation unavailable for %s: %v", name, validationErr),
+				})
+				continue
+			}
+			if !hasRocketReachCandidateEvidence(name, brief.CompanyName, validationHits) {
+				Emit(eventCh, models.AgentEvent{
+					SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_candidate_validation",
+					Content: "Rejected RocketReach candidate without corroborating indexed evidence: " + name,
+				})
+				continue
+			}
+			validated++
+			for _, hit := range validationHits {
+				validationEvidence = append(validationEvidence, models.Evidence{
+					URL: hit.Link, Title: hit.Title, Content: hit.Snippet,
+					EvidenceType: "indexed_candidate_validation", SourceType: "google",
+					Score: 0.8, QualityScore: 0.8,
+				})
+			}
+			Emit(eventCh, models.AgentEvent{
+				SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_candidate_validation",
+				Content: fmt.Sprintf("Validated RocketReach candidate %s with %d indexed hit(s)", name, len(validationHits)),
+			})
+			link := strings.TrimSpace(profile.LinkedInURL)
+			snippet := fmt.Sprintf("%s is listed at %s as %s", name, employer, strings.TrimSpace(profile.CurrentTitle))
+			results = append(results, models.SearchResult{
+				Title: name + " - " + strings.TrimSpace(profile.CurrentTitle),
+				Link:  link, Snippet: snippet,
+			})
+			discovery = append(discovery, models.RocketReachDiscovery{
+				ProfileID: profile.ID, Name: name, Title: profile.CurrentTitle,
+				Employer: employer, LinkedInURL: link,
+				Query: brief.CompanyName + " / " + titleLabel,
+			})
+		}
+	}
+	return results, discovery, validationEvidence, validationTrace
+}
+
+func hasRocketReachCandidateEvidence(name, company string, hits []models.SearchResult) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	company = strings.ToLower(strings.TrimSpace(company))
+	if name == "" || company == "" {
+		return false
+	}
+	for _, hit := range hits {
+		text := strings.ToLower(hit.Title + " " + hit.Snippet)
+		if strings.Contains(text, name) && strings.Contains(text, company) {
+			return true
+		}
+	}
+	return false
+}
+
+func rocketReachEvidence(results []models.SearchResult) []models.Evidence {
+	evidence := make([]models.Evidence, 0, len(results))
+	for _, result := range results {
+		evidence = append(evidence, models.Evidence{
+			URL: result.Link, Title: result.Title, Content: result.Snippet,
+			EvidenceType: "rocketreach_profile", SourceType: "rocketreach",
+			Score: 0.7, QualityScore: 0.7,
+		})
+	}
+	return evidence
 }
 
 func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.CompanyBrief, evidence []models.Evidence, results []models.SearchResult, sessionID string, eventCh chan<- models.AgentEvent) (*models.OrgChart, error) {

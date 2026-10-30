@@ -63,6 +63,7 @@ func TestRocketReachSearchSendsStructuredDiscoveryQuery(t *testing.T) {
 		if r.Method != http.MethodPost || r.Header.Get("Api-Key") != "test-key" {
 			t.Errorf("request = %s, Api-Key=%q", r.Method, r.Header.Get("Api-Key"))
 		}
+
 		var body struct {
 			Query map[string][]string `json:"query"`
 		}
@@ -88,5 +89,30 @@ func TestRocketReachSearchSendsStructuredDiscoveryQuery(t *testing.T) {
 	}
 	if len(profiles) != 1 || profiles[0].ID != 7 {
 		t.Fatalf("profiles = %+v", profiles)
+	}
+}
+
+func TestRocketReachLookupDecodesStructuredProfileFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"linkedin_url":"https://www.linkedin.com/in/jane-doe",
+			"location":"New Delhi",
+			"job_history":[{"title":"Director","company":"Acme","start_date":"2020","end_date":"2023"}],
+			"education":[{"school":"Example University","degree":"MBA","major":"Finance","year":"2019"}],
+			"skills":["Strategy","Procurement"]
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewRocketReachClient("test-key")
+	client.baseURL = server.URL
+	profile, err := client.Lookup(context.Background(), "Jane Doe", "Acme", "")
+	if err != nil {
+		t.Fatalf("Lookup failed: %v", err)
+	}
+	if profile.Location != "New Delhi" || len(profile.JobHistory) != 1 ||
+		len(profile.Education) != 1 || len(profile.Skills) != 2 {
+		t.Fatalf("structured profile = %+v", profile)
 	}
 }

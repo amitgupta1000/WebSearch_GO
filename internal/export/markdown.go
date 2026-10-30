@@ -441,6 +441,9 @@ func renderPersonMarkdown(profile *models.PersonProfile) string {
 	}
 	if contact := profile.ContactEnrichment; contact != nil {
 		builder.WriteString("## Contact details\n\n")
+		if contact.LinkedInURL != "" {
+			fmt.Fprintf(&builder, "- LinkedIn profile (RocketReach): %s\n", markdownCell(contact.LinkedInURL))
+		}
 		for _, email := range contact.Emails {
 			fmt.Fprintf(&builder, "- Email: %s", markdownCell(email.Email))
 			if email.Type != "" {
