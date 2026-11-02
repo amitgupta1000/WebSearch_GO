@@ -9,6 +9,15 @@
     <!-- HTMX CDN -->
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
+    <style>
+        body { background: radial-gradient(circle at 15% 0%, rgba(30, 64, 175, .18), transparent 34rem), #020617; }
+        .brand-mark { box-shadow: 0 0 32px rgba(56, 189, 248, .24); }
+        .mode-card input:checked + span { border-color: rgb(99 102 241); background: rgba(79, 70, 229, .18); color: white; box-shadow: inset 0 0 0 1px rgba(129, 140, 248, .25); }
+        .mode-card span { transition: border-color .2s, background .2s, transform .2s; }
+        .mode-card:hover span { transform: translateY(-1px); border-color: rgb(71 85 105); }
+        .field { transition: border-color .2s, box-shadow .2s; }
+        .field:focus { box-shadow: 0 0 0 3px rgba(99, 102, 241, .14); }
+    </style>
 </head>
 <body class="h-full flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
 
@@ -16,16 +25,16 @@
     <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-sky-400 flex items-center justify-center font-bold text-slate-950 shadow-lg shadow-indigo-500/20">
-                    G
+                <div class="brand-mark w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-500 via-violet-500 to-sky-400 flex items-center justify-center font-black text-white tracking-tight">
+                    WS
                 </div>
                 <div>
-                    <span class="font-bold tracking-tight text-white">WebSearch_GO</span>
-                    <span class="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full ml-2">Gemini 2.5 Flash Lite</span>
+                    <span class="font-bold tracking-tight text-white text-lg">WebSearch<span class="text-sky-400">_GO</span></span>
+                    <span class="block text-[10px] uppercase tracking-[.22em] text-slate-500">Research intelligence</span>
                 </div>
             </div>
             <div class="text-xs text-slate-400">
-                GCP Cloud Native • Serper API • HTMX
+                <span class="text-slate-500">Powered by</span> Gemini · Serper · verified sources
             </div>
         </div>
     </header>
@@ -34,31 +43,45 @@
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
 
         <!-- Search Console Form -->
-        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-            <h2 class="text-lg font-semibold text-white mb-2">Agentic Web Research Console</h2>
-            <p class="text-sm text-slate-400 mb-6">Choose an autonomous research mode and specify your query.</p>
+        <section class="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-slate-950/50">
+            <div class="max-w-2xl mb-7">
+                <p class="text-[11px] uppercase tracking-[.24em] text-indigo-400 font-semibold mb-2">Research workspace</p>
+                <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-white">Turn a question into an evidence-backed brief.</h1>
+                <p class="text-sm text-slate-400 mt-2">Choose a mode, confirm the identity, and let the research agents assemble the answer.</p>
+            </div>
 
             <form id="research-form" hx-post="/api/resolve-entity" hx-target="#confirmation-step" hx-swap="innerHTML" hx-indicator="#resolve-spinner" class="space-y-4">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 gap-4">
                     <!-- Mode Radio Selection -->
                     <div class="space-y-2">
-                        <label class="text-xs font-medium text-slate-300">Research Target</label>
-                        <div class="flex items-center gap-4 bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                            <label class="flex items-center gap-2 cursor-pointer text-sm">
-                                <input type="radio" name="mode" value="company" checked class="accent-indigo-500" onclick="toggleFields('company')">
-                                <span>Company / Org</span>
+                        <div class="flex items-center justify-between">
+                            <label class="text-xs font-medium text-slate-300">What are you researching?</label>
+                            <span class="text-[11px] text-slate-500">One focused mode per run</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <label class="mode-card cursor-pointer">
+                                <input type="radio" name="mode" value="company" checked class="sr-only" onclick="toggleFields('company')">
+                                <span class="block rounded-2xl border border-indigo-500/60 bg-indigo-500/15 p-4">
+                                    <strong class="block text-sm text-white">Company brief</strong><small class="block text-xs text-slate-400 mt-1">Structure, leaders, locations</small>
+                                </span>
                             </label>
-                            <label class="flex items-center gap-2 cursor-pointer text-sm">
-                                <input type="radio" name="mode" value="person" class="accent-indigo-500" onclick="toggleFields('person')">
-                                <span>Person Dossier</span>
+                            <label class="mode-card cursor-pointer">
+                                <input type="radio" name="mode" value="person" class="sr-only" onclick="toggleFields('person')">
+                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                                    <strong class="block text-sm text-white">Person dossier</strong><small class="block text-xs text-slate-400 mt-1">Identity, career, contacts</small>
+                                </span>
                             </label>
-                            <label class="flex items-center gap-2 cursor-pointer text-sm">
-                                <input type="radio" name="mode" value="legal" class="accent-indigo-500" onclick="toggleFields('legal')">
-                                <span>Legal Check</span>
+                            <label class="mode-card cursor-pointer">
+                                <input type="radio" name="mode" value="legal" class="sr-only" onclick="toggleFields('legal')">
+                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                                    <strong class="block text-sm text-white">Legal check</strong><small class="block text-xs text-slate-400 mt-1">Case law and exposure</small>
+                                </span>
                             </label>
-                            <label class="flex items-center gap-2 cursor-pointer text-sm">
-                                <input type="radio" name="mode" value="related_entity" class="accent-indigo-500" onclick="toggleFields('related_entity')">
-                                <span>Related Entities</span>
+                            <label class="mode-card cursor-pointer">
+                                <input type="radio" name="mode" value="related_entity" class="sr-only" onclick="toggleFields('related_entity')">
+                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                                    <strong class="block text-sm text-white">Related entities</strong><small class="block text-xs text-slate-400 mt-1">Groups, affiliations, links</small>
+                                </span>
                             </label>
                         </div>
                     </div>
@@ -67,7 +90,7 @@
                     <div class="space-y-2 md:col-span-2">
                         <label id="query-label" class="text-xs font-medium text-slate-300">Company Name / Domain</label>
                         <input id="primary-query" type="text" name="query" required autocomplete="organization" spellcheck="false" placeholder="e.g. Anthropic, Stripe, Datadog..."
-                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                               class="field w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 text-sm">
                     </div>
                 </div>
 
@@ -110,18 +133,8 @@
                         <input type="number" name="related_max_leaders" value="16" min="1" max="16"
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
                     </div>
-                    <div>
-                        <label class="text-xs font-medium text-slate-400">Person name (optional)</label>
-                        <input type="text" name="person_of_interest" placeholder="e.g. Sameer Jayavelu"
-                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
-                    </div>
-                    <div>
-                        <label class="text-xs font-medium text-slate-400">Person domain (optional)</label>
-                        <input type="text" name="related_person_domain" placeholder="e.g. kljresources.com"
-                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
-                    </div>
                     <div class="text-[11px] text-slate-500 self-end pb-2">
-                        Company and People searches use separate budgets. People searches resolve DINs, appointments, domains, and other public identity signals before company relationships are followed.
+                        Leadership is discovered automatically. The agent resolves DINs, appointments, domains, and other public identity signals before following relationships.
                     </div>
                 </div>
 
@@ -142,11 +155,6 @@
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
                     </div>
                     <div>
-                        <label class="text-xs font-medium text-slate-400">Industry (Optional)</label>
-                        <input type="text" name="company_industry" placeholder="e.g. software"
-                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
-                    </div>
-                    <div>
                         <label class="text-xs font-medium text-slate-400">Source profile</label>
                         <select name="source_profile" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
                             <option value="auto" selected>Auto (recommended)</option>
@@ -155,36 +163,10 @@
                         </select>
                         <span class="block text-[11px] text-slate-500 mt-1">Controls which company directories and publishers receive dedicated searches.</span>
                     </div>
-                    <div class="sm:col-span-2">
-                        <label class="text-xs font-medium text-slate-400">Areas of Interest</label>
-                        <div class="flex flex-wrap gap-3 mt-2 text-xs text-slate-300">
-                            <label class="flex items-center gap-1.5"><input type="checkbox" name="company_area" value="leadership" checked class="accent-indigo-500"> Leadership</label>
-                            <label class="flex items-center gap-1.5"><input type="checkbox" name="company_area" value="marketing" checked class="accent-indigo-500"> Marketing</label>
-                            <label class="flex items-center gap-1.5"><input type="checkbox" name="company_area" value="procurement supply chain management" checked class="accent-indigo-500"> Procurement / supply chain</label>
-                        </div>
-                        <input type="text" name="areas_of_interest" placeholder="Additional areas, comma-separated (optional)"
-                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-2">
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="text-xs font-medium text-slate-400">Person of interest (optional)</label>
-                        <input type="text" name="person_of_interest" placeholder="e.g. Jane Doe"
-                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
-                        <span class="block text-[11px] text-slate-500 mt-1">Adds reserved company-and-person searches, including LinkedIn-index lookup.</span>
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="text-xs font-medium text-slate-400">Desired Output (comma-separated)</label>
-                        <input type="text" name="desired_output" placeholder="org chart, department heads, offices"
-                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
-                    </div>
-                    <div>
-                        <label class="text-xs font-medium text-slate-400">Time Scope</label>
-                        <input type="text" name="time_scope" placeholder="e.g. current, 2024-2026"
-                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
-                    </div>
-                    <div class="sm:col-span-2 lg:col-span-3">
-                        <label class="text-xs font-medium text-slate-400">Research Notes (Optional)</label>
-                        <input type="text" name="research_notes" placeholder="Clarify the questions you want answered"
-                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    <div class="sm:col-span-2 lg:col-span-4">
+                        <label class="text-xs font-medium text-slate-400">Focus areas <span class="font-normal text-slate-500">(optional)</span></label>
+                        <input type="text" name="areas_of_interest" placeholder="e.g. procurement, offices, board structure"
+                               class="field w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 text-sm mt-1">
                     </div>
                 </div>
 
@@ -225,6 +207,21 @@
         </div>
 
     </main>
+    <footer class="border-t border-slate-800/80 bg-slate-950/70">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="grid gap-6 md:grid-cols-[1.2fr_2fr] items-start">
+                <div>
+                    <div class="text-sm font-semibold text-white">How WebSearch<span class="text-sky-400">_GO</span> works</div>
+                    <p class="text-xs text-slate-500 mt-2 leading-relaxed">A confirmation-first research workspace that combines web search, source extraction, identity checks, and structured synthesis.</p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                    <div><span class="text-indigo-300 font-semibold">1 · Confirm</span><p class="text-slate-500 mt-1">Choose the right company or person before research begins.</p></div>
+                    <div><span class="text-indigo-300 font-semibold">2 · Investigate</span><p class="text-slate-500 mt-1">Specialized agents search, compare, and verify public evidence.</p></div>
+                    <div><span class="text-indigo-300 font-semibold">3 · Deliver</span><p class="text-slate-500 mt-1">Review the concise result first, with trace data in the appendix.</p></div>
+                </div>
+            </div>
+        </div>
+    </footer>
 
     <script>
         async function submitDossier(event, form) {

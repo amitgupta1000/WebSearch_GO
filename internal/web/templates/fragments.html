@@ -40,6 +40,10 @@
 		</div>
 	</div>
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
+	<div class="border-l-2 border-indigo-500 pl-3">
+		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Results</div>
+		<p class="text-xs text-slate-500 mt-1">Verified relationships and leadership findings are shown first.</p>
+	</div>
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Relationship evidence</h4>
 		{{if .Graph.Edges}}<div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead class="text-slate-500"><tr><th class="p-2">From</th><th class="p-2">Relationship</th><th class="p-2">To</th><th class="p-2">Confidence</th></tr></thead><tbody>{{range .Graph.Edges}}<tr class="border-t border-slate-800"><td class="p-2 text-white">{{.FromLabel}}</td><td class="p-2 text-indigo-400">{{.Relationship}}</td><td class="p-2 text-white">{{.ToLabel}}</td><td class="p-2 text-slate-400">{{.Confidence}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="text-sm text-slate-500">No evidence-backed relationships were extracted.</p>{{end}}
@@ -70,7 +74,11 @@
 			</div>
 		{{end}}</div>{{else}}<p class="text-sm text-slate-500">No additional company involvement was sufficiently supported by the leadership searches.</p>{{end}}
 	</div>
-	{{if .ReviewEvidence}}
+		<div class="border-t border-slate-800 pt-5">
+			<div class="text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Appendix</div>
+			<p class="text-xs text-slate-600 mt-1">Returned evidence and search diagnostics are retained here for review.</p>
+		</div>
+		{{if .ReviewEvidence}}
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Returned search evidence requiring review</h4>
 		<div class="space-y-2">{{range .ReviewEvidence}}
@@ -145,6 +153,10 @@
 		<h4 class="text-sm font-semibold text-slate-300 mb-1">Company Overview</h4>
 		<p class="text-sm text-slate-400 leading-relaxed">{{.Overview}}</p>
 	</div>
+	<div class="border-l-2 border-indigo-500 pl-3">
+		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Results</div>
+		<p class="text-xs text-slate-500 mt-1">The concise, evidence-backed findings from this research run.</p>
+	</div>
 	{{if .Images}}
 	<details class="group">
 		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
@@ -187,6 +199,10 @@
 		</div>
 	</div>
 	<div id="company-drilldown-result" aria-live="polite" class="border-t border-slate-800/60 pt-5"></div>
+	<div class="border-t border-slate-800 pt-5">
+		<div class="text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Appendix</div>
+		<p class="text-xs text-slate-600 mt-1">Validation details, source diagnostics, timings, and workflow records.</p>
+	</div>
 	{{if .EntityGate}}
 	<details class="group">
 		<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
