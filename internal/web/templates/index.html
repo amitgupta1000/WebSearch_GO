@@ -58,7 +58,7 @@
                             <label class="text-xs font-medium text-slate-300">What are you researching?</label>
                             <span class="text-[11px] text-slate-500">One focused mode per run</span>
                         </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                             <label class="mode-card cursor-pointer">
                                 <input type="radio" name="mode" value="company" checked class="sr-only" onclick="toggleFields('company')">
                                 <span class="block rounded-2xl border border-indigo-500/60 bg-indigo-500/15 p-4">
@@ -81,6 +81,12 @@
                                 <input type="radio" name="mode" value="related_entity" class="sr-only" onclick="toggleFields('related_entity')">
                                 <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
                                     <strong class="block text-sm text-white">Related entities</strong><small class="block text-xs text-slate-400 mt-1">Groups, affiliations, links</small>
+                                </span>
+                            </label>
+                            <label class="mode-card cursor-pointer">
+                                <input type="radio" name="mode" value="market_landscape" class="sr-only" onclick="toggleFields('market_landscape')">
+                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                                    <strong class="block text-sm text-white">Market landscape</strong><small class="block text-xs text-slate-400 mt-1">Companies, regions, contacts</small>
                                 </span>
                             </label>
                         </div>
@@ -132,6 +138,39 @@
                         <label class="text-xs font-medium text-slate-400">Maximum leaders to follow</label>
                         <input type="number" name="related_max_leaders" value="16" min="1" max="16"
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
+                    </div>
+
+                    <div id="market-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
+                        <div class="sm:col-span-2">
+                            <label class="text-xs font-medium text-slate-400">Research objective (Optional)</label>
+                            <input type="text" name="market_objective" placeholder="e.g. Find active operators and their commercial contacts"
+                                   class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-slate-400">Regions (Optional, comma separated)</label>
+                            <input type="text" name="market_regions" placeholder="e.g. Southeast Asia, Middle East"
+                                   class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-slate-400">Countries (Optional, comma separated)</label>
+                            <input type="text" name="market_countries" placeholder="e.g. Singapore, UAE, Indonesia"
+                                   class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-slate-400">Maximum companies</label>
+                            <input type="number" name="market_max_companies" value="20" min="1" max="50"
+                                   class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-slate-400">Exclude (Optional, comma separated)</label>
+                            <input type="text" name="market_exclusions" placeholder="e.g. brokers, logistics-only firms"
+                                   class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                        </div>
+                        <div class="sm:col-span-2 flex flex-wrap gap-4 text-xs text-slate-300">
+                            <label><input type="checkbox" name="market_contacts" value="1" class="mr-1 accent-indigo-500"> Collect public business contacts</label>
+                            <label><input type="checkbox" name="market_people" value="1" class="mr-1 accent-indigo-500"> Identify key people</label>
+                        </div>
+                        <p class="sm:col-span-2 text-[11px] text-slate-500">This additive mode uses a tagged, vector-free research corpus and does not change existing workflows.</p>
                     </div>
                     <div class="text-[11px] text-slate-500 self-end pb-2">
                         Leadership is discovered automatically. The agent resolves DINs, appointments, domains, and other public identity signals before following relationships.
@@ -260,6 +299,7 @@
             const cf = document.getElementById('company-fields');
             const lf = document.getElementById('legal-fields');
             const rf = document.getElementById('related-fields');
+            const mf = document.getElementById('market-fields');
             const ql = document.getElementById('query-label');
             const qi = document.getElementById('primary-query');
             const companySubmit = document.getElementById('company-submit');
@@ -270,14 +310,29 @@
             cf.classList.add('hidden');
             lf.classList.add('hidden');
             rf.classList.add('hidden');
-            if (mode === 'person') {
+            if (mf) mf.classList.add('hidden');
+            if (mode === 'market_landscape') {
+                if (mf) mf.classList.remove('hidden');
+                ql.innerText = 'Activity / market question';
+                qi.placeholder = 'e.g. oil blending (crude oil + fuel oil)';
+                if (companySubmit) companySubmit.classList.remove('hidden');
+                if (personSubmit) personSubmit.classList.add('hidden');
+                if (spinner) spinner.innerText = 'Building the market research plan…';
+                if (form) {
+                    form.setAttribute('hx-post', '/api/research');
+                    form.setAttribute('hx-target', '#results-container');
+                }
+            } else if (mode === 'person') {
                 pf.classList.remove('hidden');
                 ql.innerText = 'Person Full Name';
                 qi.placeholder = 'e.g. Demis Hassabis, Ilya Sutskever...';
                 if (companySubmit) companySubmit.classList.add('hidden');
                 if (personSubmit) personSubmit.classList.remove('hidden');
                 if (spinner) spinner.innerText = 'Looking up matching profiles…';
-                if (form) form.setAttribute('hx-post', '/api/resolve-person');
+                if (form) {
+                    form.setAttribute('hx-post', '/api/resolve-person');
+                    form.setAttribute('hx-target', '#confirmation-step');
+                }
             } else if (mode === 'legal') {
                 lf.classList.remove('hidden');
                 ql.innerText = 'Company Name';
@@ -285,7 +340,10 @@
                 if (companySubmit) companySubmit.classList.remove('hidden');
                 if (personSubmit) personSubmit.classList.add('hidden');
                 if (spinner) spinner.innerText = 'Confirming the company identity…';
-                if (form) form.setAttribute('hx-post', '/api/resolve-entity');
+                if (form) {
+                    form.setAttribute('hx-post', '/api/resolve-entity');
+                    form.setAttribute('hx-target', '#confirmation-step');
+                }
             } else if (mode === 'related_entity') {
                 cf.classList.remove('hidden');
                 rf.classList.remove('hidden');
@@ -294,7 +352,10 @@
                 if (personSubmit) personSubmit.classList.add('hidden');
                 if (companySubmit) companySubmit.classList.remove('hidden');
                 if (spinner) spinner.innerText = 'Confirming the company identity…';
-                if (form) form.setAttribute('hx-post', '/api/resolve-entity');
+                if (form) {
+                    form.setAttribute('hx-post', '/api/resolve-entity');
+                    form.setAttribute('hx-target', '#confirmation-step');
+                }
             } else {
                 cf.classList.remove('hidden');
                 ql.innerText = 'Company Name / Domain';
@@ -302,7 +363,10 @@
                 if (personSubmit) personSubmit.classList.add('hidden');
                 if (companySubmit) companySubmit.classList.remove('hidden');
                 if (spinner) spinner.innerText = 'Looking up the company and its domains…';
-                if (form) form.setAttribute('hx-post', '/api/resolve-entity');
+                if (form) {
+                    form.setAttribute('hx-post', '/api/resolve-entity');
+                    form.setAttribute('hx-target', '#confirmation-step');
+                }
             }
             // The form's own submit is what Enter triggers, so its destination has to follow
             // the mode; HTMX caches attributes, hence the re-process.

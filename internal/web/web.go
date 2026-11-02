@@ -19,6 +19,9 @@ var funcs = template.FuncMap{
 		lowered := strings.ToLower(strings.TrimSpace(value))
 		return strings.HasPrefix(lowered, "http://") || strings.HasPrefix(lowered, "https://")
 	},
+	"mul": func(value float64, multiplier float64) float64 {
+		return value * multiplier
+	},
 }
 
 // Templates parses all embedded templates into a single set. The full page is

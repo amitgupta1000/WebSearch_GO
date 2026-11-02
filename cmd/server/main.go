@@ -36,6 +36,7 @@ type Server struct {
 	personAgent  *agent.PersonAgent
 	legalAgent   *agent.LegalAgent
 	relatedAgent *agent.RelatedEntityAgent
+	marketAgent  *agent.MarketLandscapeAgent
 	hub          *agent.SessionHub
 	tmpl         *template.Template
 	// browserAvailable is probed once at startup so the console never offers a
@@ -261,6 +262,7 @@ func main() {
 	juristwayClient := tools.NewJuristwayClient(cfg.JuristwayEmail, cfg.JuristwayPassword)
 	legalAgent := agent.NewLegalAgent(eng, tools.NewIndianKanoonClient(), tools.NewCasemineClient(scraper), juristwayClient, cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery, cfg.LegalConcurrency)
 	relatedAgent := agent.NewRelatedEntityAgent(eng)
+	marketAgent := agent.NewMarketLandscapeAgent(eng)
 	juristwayNote := " (anonymous)"
 	if cfg.JuristwayEmail != "" {
 		juristwayNote = " (authenticated)"
@@ -294,6 +296,7 @@ func main() {
 		personAgent:        persAgent,
 		legalAgent:         legalAgent,
 		relatedAgent:       relatedAgent,
+		marketAgent:        marketAgent,
 		hub:                sessionHub,
 		tmpl:               tmpl,
 		browserAvailable:   browserAvailable,
@@ -481,6 +484,10 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, "Please provide a non-empty query.")
 		return
 	}
+	if mode == "market_landscape" {
+		s.startMarketLandscape(w, r, query)
+		return
+	}
 
 	// The confirmation step is where the operator can fold a second name into the same
 	// identity. Those picks arrive here, and a contradictory registration id is refused:
@@ -492,6 +499,7 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 			s.renderError(w, err.Error())
 			return
 		}
+
 		companyBrief = confirmed
 		log.Printf("[ENTITY] confirmed %q with %d additional name(s): domains=%v aliases=%v",
 			companyBrief.CompanyName, len(extras), companyBrief.Domains, companyBrief.Aliases)
@@ -557,6 +565,102 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.startRun(w, sessionID, mode, query, personQueryFromForm(r, query), companyBrief, legalQueryFromForm(r, query), browserEnabled, browserExplicit)
+}
+
+func marketLandscapeQueryFromForm(r *http.Request, activity string) models.MarketLandscapeQuery {
+	objective := strings.TrimSpace(activity)
+	normalizedActivity, promptRegions := normalizeMarketPrompt(activity)
+	regions := splitFormList(r.FormValue("market_regions"))
+	if len(regions) == 0 {
+		regions = promptRegions
+	}
+	return models.MarketLandscapeQuery{
+		Objective:       firstNonEmpty(strings.TrimSpace(r.FormValue("market_objective")), objective),
+		Activity:        normalizedActivity,
+		Regions:         regions,
+		Countries:       splitFormList(r.FormValue("market_countries")),
+		Exclusions:      splitFormList(r.FormValue("market_exclusions")),
+		MaxCompanies:    parseBoundedInt(r.FormValue("market_max_companies"), 20, 1, 50),
+		IncludeContacts: r.FormValue("market_contacts") == "1",
+		IncludePeople:   r.FormValue("market_people") == "1",
+	}
+}
+
+func normalizeMarketPrompt(value string) (string, []string) {
+	value = strings.TrimSpace(value)
+	lower := strings.ToLower(value)
+	for _, prefix := range []string{
+		"give me the names of companies engaged in",
+		"find companies engaged in",
+		"identify companies engaged in",
+		"list companies engaged in",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			value = strings.TrimSpace(value[len(prefix):])
+			lower = strings.ToLower(value)
+			break
+		}
+	}
+	regions := make([]string, 0, 2)
+	if index := strings.Index(strings.ToLower(value), "focusing on "); index >= 0 {
+		focus := strings.TrimSpace(value[index+len("focusing on "):])
+		value = strings.TrimSpace(value[:index])
+		for _, region := range strings.Split(focus, " and ") {
+			region = strings.TrimSpace(strings.Trim(region, ".,"))
+			if region != "" {
+				regions = append(regions, region)
+			}
+		}
+	}
+	value = strings.Trim(value, " .,:;")
+	if value == "" {
+		value = "companies"
+	}
+	return value, regions
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func (s *Server) startMarketLandscape(w http.ResponseWriter, r *http.Request, activity string) {
+	query := marketLandscapeQueryFromForm(r, activity)
+	sessionID := newSessionID()
+	if r.URL.Query().Get("sync") == "1" {
+		ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ResearchTimeoutFor(false))
+		defer cancel()
+		report, err := s.marketAgent.Research(ctx, sessionID, query, nil)
+		if err != nil {
+			s.renderError(w, "Market landscape research failed: "+err.Error())
+			return
+		}
+		s.render(w, "market_landscape_report", report)
+		return
+	}
+
+	session := s.hub.Create(sessionID, "market_landscape", activity)
+	timeout := s.cfg.ResearchTimeoutFor(false)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("[ERROR][session %s] market landscape panicked: %v\n%s", sessionID, recovered, debug.Stack())
+				session.Complete(nil, fmt.Errorf("research panicked: %v", recovered))
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		report, err := s.marketAgent.Research(ctx, sessionID, query, session.EventCh)
+		session.Complete(report, err)
+	}()
+	s.render(w, "workflow_console", map[string]string{
+		"SessionID": sessionID, "Mode": "Market Landscape", "Query": activity,
+		"Budget": fmt.Sprintf("%ds", int(timeout.Seconds())),
+	})
 }
 
 // legalQueryFromForm reads the identity a legal run starts from. The company
@@ -1216,6 +1320,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				} else if session.Mode == "related_entity" {
 					if report, ok := result.(*models.RelatedEntityReport); ok {
 						sendSSE("result", renderFragment("related_entity_report", report))
+					}
+					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
+				} else if session.Mode == "market_landscape" {
+					if report, ok := result.(*models.MarketLandscapeReport); ok {
+						sendSSE("result", renderFragment("market_landscape_report", report))
 					}
 					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 				} else {
