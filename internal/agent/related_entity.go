@@ -710,6 +710,9 @@ func normalizeLeaders(leaders []models.LeadershipSubject, company string, limit 
 		if leader.Name == "" || seen[strings.ToLower(leader.Name)] {
 			continue
 		}
+		if !hasRelatedEvidenceURL(leader.Evidence) {
+			continue
+		}
 		leader.Company = company
 		if leader.Confidence <= 0 {
 			leader.Confidence = 0.5
@@ -731,6 +734,9 @@ func normalizeRelated(items []models.RelatedCompany, primary string) []models.Re
 		if item.Name == "" || strings.EqualFold(item.Name, primary) || seen[strings.ToLower(item.Name)] {
 			continue
 		}
+		if !hasRelatedEvidenceURL(item.Evidence) {
+			continue
+		}
 		if item.Confidence <= 0 {
 			item.Confidence = 0.5
 		}
@@ -738,6 +744,15 @@ func normalizeRelated(items []models.RelatedCompany, primary string) []models.Re
 		out = append(out, item)
 	}
 	return out
+}
+
+func hasRelatedEvidenceURL(evidence []models.RelatedEntityEvidence) bool {
+	for _, item := range evidence {
+		if strings.TrimSpace(item.URL) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func reviewEvidence(trace *models.SearchTrace, limit int) []models.RelatedEntityEvidence {

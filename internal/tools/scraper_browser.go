@@ -98,6 +98,14 @@ type documentPrinter interface {
 	RenderHTMLToPDF(ctx context.Context, html string) ([]byte, error)
 }
 
+// footeredDocumentPrinter is the optional running-footer counterpart of
+// documentPrinter: printing a document with a footer on every page (the branded
+// page numbers a document's own footer element cannot provide). Also
+// type-asserted, so a renderer without it degrades to the plain print.
+type footeredDocumentPrinter interface {
+	RenderHTMLToPDFFootered(ctx context.Context, html, footerHTML string) ([]byte, error)
+}
+
 // playwrightRenderer keeps one shared browser context so cookies earned by
 // passing a JavaScript interstitial (for example a clearance cookie) are reused
 // by later renders instead of being discarded after every page. A fresh page is
@@ -335,6 +343,19 @@ func visibleTextLength(page playwright.Page) int {
 // context blocks image/font/stylesheet requests, so anything linked would be
 // missing from the printed page.
 func (r *playwrightRenderer) RenderHTMLToPDF(ctx context.Context, html string) ([]byte, error) {
+	return r.printDocument(ctx, html, "")
+}
+
+// RenderHTMLToPDFFootered prints a self-contained HTML document with a running
+// footer on every page. Chromium renders the footer template in the bottom page
+// margin — outside the document's own @page box — which is how a report gets
+// its brand line and page numbers on every page rather than only at the end.
+func (r *playwrightRenderer) RenderHTMLToPDFFootered(ctx context.Context, html, footerHTML string) ([]byte, error) {
+	return r.printDocument(ctx, html, footerHTML)
+}
+
+// printDocument is the shared print path: load, settle, print.
+func (r *playwrightRenderer) printDocument(ctx context.Context, html, footerHTML string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -362,10 +383,29 @@ func (r *playwrightRenderer) RenderHTMLToPDF(ctx context.Context, html string) (
 		page.WaitForTimeout(wait)
 	}
 
-	pdf, err := page.PDF(playwright.PagePdfOptions{
+	// Page geometry lives here rather than in the document's @page rule:
+	// Chromium draws the running footer inside these print margins, and a CSS
+	// @page margin would override them and drop the footer. The same margins
+	// apply without a footer, so both paths print identical pages.
+	options := playwright.PagePdfOptions{
 		Format:          playwright.String("A4"),
 		PrintBackground: playwright.Bool(true),
-	})
+		Margin: &playwright.Margin{
+			Top:    playwright.String("16mm"),
+			Bottom: playwright.String("18mm"),
+			Left:   playwright.String("14mm"),
+			Right:  playwright.String("14mm"),
+		},
+	}
+	if strings.TrimSpace(footerHTML) != "" {
+		options.DisplayHeaderFooter = playwright.Bool(true)
+		options.FooterTemplate = playwright.String(footerHTML)
+		// DisplayHeaderFooter turns on Chromium's stock header too (date and
+		// document title); an empty header template keeps the pages clean.
+		options.HeaderTemplate = playwright.String(`<div></div>`)
+	}
+
+	pdf, err := page.PDF(options)
 	if err != nil {
 		return nil, fmt.Errorf("print document to PDF: %w", err)
 	}

@@ -871,6 +871,15 @@ directory.
   the browser the scraper already manages, taking one of the same render slots. The
   document carries inline styling and no remote assets, because the shared browser context
   aborts image/font/stylesheet requests.
+- **Branded reports.** `brand.go` carries the Crystal AI identity — the palette, serif/sans
+  type stacks, the scope kickers and the cover photograph, embedded in the binary
+  (`go:embed`) and inlined as a `template.URL` data URI so html/template cannot percent-encode
+  the payload. Every PDF opens with the deck's cover — teal band, wordmark, kicker, serif
+  title, summary, checked stamp, photograph — and prints a running footer through
+  `RenderHTMLToPDFFootered`, an optional renderer capability the exporter degrades gracefully
+  without (the document's own end footer is the fallback branding). Page geometry lives in the
+  print call rather than the document's `@page` rule: Chromium draws the running footer inside
+  the print margins only when `@page` leaves them unset.
 - **One artifact per attempt.** A run reports a Markdown artifact and a PDF artifact
   separately: if printing fails, the PDF artifact carries the reason while the stored
   Markdown stands, and neither failure fails the research.
@@ -1003,11 +1012,12 @@ WebSearch_GO/
 │   ├── export/
 │   │   ├── export.go            # Artifact/Destination types, exporter wiring, Cloud Storage
 │   │   │                        #   and filesystem destinations, format selection
+│   │   ├── brand.go             # Crystal AI identity: palette, type stacks, embedded cover photo
 │   │   ├── run.go               # ExportCompany / ExportPerson / ExportLegal, object naming, slugify
 │   │   ├── markdown.go          # Markdown documents for all research modes
-│   │   ├── html.go              # Self-contained printable documents for the PDF
+│   │   ├── html.go              # Self-contained branded printable documents for the PDF
 │   │   ├── util.go              # Small rendering helpers
-│   │   └── export_test.go / render_test.go / export_integration_test.go
+│   │   └── export_test.go / render_test.go / brand_test.go / export_integration_test.go
 │   ├── gcs/
 │   │   ├── client.go            # Cloud Storage JSON API client (upload/download/delete)
 │   │   └── client_integration_test.go

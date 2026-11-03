@@ -139,17 +139,24 @@
                         <input type="number" name="related_max_leaders" value="16" min="1" max="16"
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
                     </div>
+                </div>
 
-                    <div id="market-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
+                <div id="market-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
                         <div class="sm:col-span-2">
                             <label class="text-xs font-medium text-slate-400">Research objective (Optional)</label>
                             <input type="text" name="market_objective" placeholder="e.g. Find active operators and their commercial contacts"
                                    class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
                         </div>
-                        <div>
-                            <label class="text-xs font-medium text-slate-400">Regions (Optional, comma separated)</label>
-                            <input type="text" name="market_regions" placeholder="e.g. Southeast Asia, Middle East"
-                                   class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                        <div class="sm:col-span-2">
+                            <label class="text-xs font-medium text-slate-400">Research region</label>
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1">
+                                <label class="cursor-pointer"><input type="radio" name="market_region_scope" value="global" checked class="sr-only peer"><span class="block text-center rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-400 peer-checked:border-indigo-500 peer-checked:text-indigo-300">Global</span></label>
+                                <label class="cursor-pointer"><input type="radio" name="market_region_scope" value="asia" class="sr-only peer"><span class="block text-center rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-400 peer-checked:border-indigo-500 peer-checked:text-indigo-300">Asia</span></label>
+                                <label class="cursor-pointer"><input type="radio" name="market_region_scope" value="mea" class="sr-only peer"><span class="block text-center rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-400 peer-checked:border-indigo-500 peer-checked:text-indigo-300">Middle East &amp; Africa</span></label>
+                                <label class="cursor-pointer"><input type="radio" name="market_region_scope" value="india" class="sr-only peer"><span class="block text-center rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-400 peer-checked:border-indigo-500 peer-checked:text-indigo-300">India</span></label>
+                            </div>
+                            <input type="text" name="market_regions" placeholder="Optional additional regions, comma separated"
+                                   class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-2">
                         </div>
                         <div>
                             <label class="text-xs font-medium text-slate-400">Countries (Optional, comma separated)</label>
@@ -171,9 +178,6 @@
                             <label><input type="checkbox" name="market_people" value="1" class="mr-1 accent-indigo-500"> Identify key people</label>
                         </div>
                         <p class="sm:col-span-2 text-[11px] text-slate-500">This additive mode uses a tagged, vector-free research corpus and does not change existing workflows.</p>
-                    </div>
-                    <div class="text-[11px] text-slate-500 self-end pb-2">
-                        Leadership is discovered automatically. The agent resolves DINs, appointments, domains, and other public identity signals before following relationships.
                     </div>
                 </div>
 

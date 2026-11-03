@@ -669,6 +669,11 @@ func applyRocketReachContact(profile *models.PersonProfile, result *tools.Rocket
 	}
 	enrichment := &models.PersonContactEnrichment{Source: "RocketReach", LinkedInURL: result.LinkedInURL}
 	for _, email := range result.Emails {
+		// RocketReach grades F contacts as inferred patterns rather than
+		// sufficiently verified addresses. Do not present them as contacts.
+		if strings.EqualFold(strings.TrimSpace(email.Grade), "F") {
+			continue
+		}
 		enrichment.Emails = append(enrichment.Emails, models.PersonContactEmail{
 			Email: email.Email, Type: email.Type, Grade: email.Grade,
 		})

@@ -1,0 +1,204 @@
+package export
+
+import (
+	"context"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+)
+
+// capabilityPrinter records both print paths, so a test can pin which one the
+// exporter chose for a renderer that carries the optional footer capability.
+type capabilityPrinter struct {
+	mu       sync.Mutex
+	plain    []string
+	footered []string
+}
+
+func (p *capabilityPrinter) RenderHTMLToPDF(_ context.Context, html string) ([]byte, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.plain = append(p.plain, html)
+	return []byte("%PDF-1.4 fake"), nil
+}
+
+func (p *capabilityPrinter) RenderHTMLToPDFFootered(_ context.Context, html, footer string) ([]byte, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.footered = append(p.footered, footer)
+	return []byte("%PDF-1.4 fake"), nil
+}
+
+func (p *capabilityPrinter) stats() (plain, footered []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.plain...), append([]string(nil), p.footered...)
+}
+
+// TestCompanyCoverCarriesTheCrystalBrand pins the branded shell every report is
+// built on: wordmark, kicker, serif title, the checked stamp, and the embedded
+// photograph with its honest caption.
+func TestCompanyCoverCarriesTheCrystalBrand(t *testing.T) {
+	html := renderCompanyHTML(sampleChart())
+	for _, expected := range []string{
+		`<section class="cover">`,
+		`<p class="wordmark">Crystal AI</p>`,
+		`<p class="kicker">` + kickerCompany + `</p>`,
+		`<h1 class="cover-title">KLJ Resources Limited</h1>`,
+		`<p class="checked">Checked 2026-09-22 10:30 UTC</p>`,
+		`src="data:image/jpeg;base64,`,
+		`<figcaption>` + coverPhotoCaption + `</figcaption>`,
+		// The palette travels in the document, not a linked stylesheet.
+		brandAccent, brandAccentSoft, brandCream,
+	} {
+		if !strings.Contains(html, expected) {
+			t.Errorf("branded company HTML is missing %q", expected)
+		}
+	}
+}
+
+// TestPersonCoverCarriesConfidencePill keeps the confidence verdict on the
+// cover — and off it when the run has no confidence to claim.
+func TestPersonCoverCarriesConfidencePill(t *testing.T) {
+	bare := renderPersonHTML(sampleProfile())
+	if strings.Contains(bare, `class="pill"`) {
+		t.Error("a profile without a confidence score must not show a pill")
+	}
+
+	profile := sampleProfile()
+	profile.ConfidenceScore = 0.82
+	html := renderPersonHTML(profile)
+	if !strings.Contains(html, `<span class="pill">Confidence 82%</span>`) {
+		t.Error("expected a confidence pill on the cover")
+	}
+}
+
+// TestLegalCoverCarriesIdentityAndRiskPills keeps the two verdicts a legal
+// report is about — identity and exposure — on the cover.
+func TestLegalCoverCarriesIdentityAndRiskPills(t *testing.T) {
+	report := &models.LegalReport{
+		CompanyName:     "Acme Robotics Pvt Ltd",
+		Domain:          "acmerobotics.in",
+		EntityConfirmed: false,
+		Summary:         "No case records matched the confirmed identity.",
+		Risk:            &models.LegalRiskAssessment{Level: "low", Summary: "Two stale matters, no pending exposure."},
+	}
+	html := renderLegalHTML(report)
+	for _, expected := range []string{
+		`<span class="pill">Identity unconfirmed</span>`,
+		`<span class="pill">Legal risk — low</span>`,
+		`<section class="card">`,
+		"Two stale matters, no pending exposure.",
+	} {
+		if !strings.Contains(html, expected) {
+			t.Errorf("branded legal HTML is missing %q", expected)
+		}
+	}
+}
+
+// TestCoverSummaryStopsAtASentence keeps the cover paragraph quiet: it cuts on
+// a sentence boundary inside the window rather than mid-word, and an incomplete
+// cut says so with an ellipsis.
+func TestCoverSummaryStopsAtASentence(t *testing.T) {
+	sentence := "A specialty chemicals and mining group with plants in three states. "
+	summary := coverSummary(strings.Repeat(sentence, 12), coverSummaryLimit)
+	if len([]rune(summary)) > coverSummaryLimit {
+		t.Errorf("summary = %d runes, want at most %d", len([]rune(summary)), coverSummaryLimit)
+	}
+	if !strings.HasSuffix(summary, ".") || strings.Contains(summary, "…") {
+		t.Errorf("expected a complete sentence without an ellipsis, got %q", summary)
+	}
+
+	truncated := coverSummary(strings.Repeat("word ", 200), 40)
+	if !strings.HasSuffix(truncated, "…") {
+		t.Errorf("expected an ellipsis on a word-boundary cut, got %q", truncated)
+	}
+}
+
+// TestReportFooterCarriesBrandAndPageNumbers pins the running footer: the brand
+// line with the report title and the checked stamp on the left, Chromium's page
+// number placeholders on the right, and hostile titles escaped.
+func TestReportFooterCarriesBrandAndPageNumbers(t *testing.T) {
+	footer := reportFooter("KLJ Resources Limited — Org Chart", "2026-11-01 10:30 UTC")
+	for _, expected := range []string{
+		BrandName + " · KLJ Resources Limited — Org Chart · checked 2026-11-01 10:30 UTC",
+		`class="pageNumber"`,
+		`class="totalPages"`,
+	} {
+		if !strings.Contains(footer, expected) {
+			t.Errorf("running footer is missing %q: %q", expected, footer)
+		}
+	}
+
+	if escaped := reportFooter(`<b>Acme</b> & Sons`, "2026-11-01 10:30 UTC"); strings.Contains(escaped, "<b>") {
+		t.Errorf("the footer template must escape the title, got %q", escaped)
+	}
+}
+
+// TestExporterPrefersTheFooteredRenderer proves the branded running footer is
+// used whenever the renderer can print one — and that the plain path is still
+// there for renderers without the capability.
+func TestExporterPrefersTheFooteredRenderer(t *testing.T) {
+	printer := &capabilityPrinter{}
+	exporter := New(newRecordingDestination(), printer, "WebSearch_GO/", nil)
+	exporter.now = func() time.Time { return time.Date(2026, 9, 22, 11, 23, 19, 0, time.UTC) }
+
+	artifacts := exporter.ExportCompany(context.Background(), sampleChart())
+	if len(artifacts) != 2 || artifacts[1].Failed() {
+		t.Fatalf("artifacts = %+v, want markdown and a stored pdf", artifacts)
+	}
+
+	plain, footered := printer.stats()
+	if len(footered) != 1 || len(plain) != 0 {
+		t.Fatalf("print calls: plain=%d footered=%d, want footered only", len(plain), len(footered))
+	}
+	for _, expected := range []string{
+		BrandName + " · KLJ Resources Limited — Org Chart · checked 2026-09-22 10:30 UTC",
+		`class="pageNumber"`,
+	} {
+		if !strings.Contains(footered[0], expected) {
+			t.Errorf("the footer passed to the renderer is missing %q: %q", expected, footered[0])
+		}
+	}
+}
+
+// TestMarketCoverRenders keeps the fourth scope honest: a market landscape
+// gets the same branded cover, with its objective as the summary paragraph.
+func TestMarketCoverRenders(t *testing.T) {
+	report := &models.MarketLandscapeReport{
+		Activity:    "Crude oil trading",
+		Objective:   "Map the active counterparties in the crude trading desk's patch.",
+		CompletedAt: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC),
+	}
+	html := renderMarketLandscapeHTML(report)
+	for _, expected := range []string{
+		`<p class="kicker">` + kickerMarket + `</p>`,
+		`<h1 class="cover-title">Crude oil trading</h1>`,
+		"Map the active counterparties",
+		`<p class="checked">Checked 2026-11-01 09:00 UTC</p>`,
+		`src="data:image/jpeg;base64,`,
+	} {
+		if !strings.Contains(html, expected) {
+			t.Errorf("branded market HTML is missing %q", expected)
+		}
+	}
+}
+
+// TestPlainRendererStillPrints keeps the fallback honest: a renderer without
+// the footer capability is still used, and the export still succeeds.
+func TestPlainRendererStillPrints(t *testing.T) {
+	printer := &fakePrinter{}
+	exporter := New(newRecordingDestination(), printer, "WebSearch_GO/", []string{FormatPDF})
+	exporter.now = func() time.Time { return time.Date(2026, 9, 22, 11, 23, 19, 0, time.UTC) }
+
+	artifacts := exporter.ExportCompany(context.Background(), sampleChart())
+	if len(artifacts) != 1 || artifacts[0].Failed() {
+		t.Fatalf("artifacts = %+v, want one stored pdf", artifacts)
+	}
+	if calls, _ := printer.stats(); calls != 1 {
+		t.Errorf("printer called %d times, want 1", calls)
+	}
+}

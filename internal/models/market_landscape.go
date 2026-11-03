@@ -31,10 +31,11 @@ type MarketLandscapeEvidence struct {
 // MarketLandscapeLeadCandidate is a company name extracted from a discovery
 // lead and queued for company-specific verification.
 type MarketLandscapeLeadCandidate struct {
-	Name        string `json:"name"`
-	Country     string `json:"country,omitempty"`
-	Reason      string `json:"reason,omitempty"`
-	EvidenceURL string `json:"evidence_url,omitempty"`
+	Name        string   `json:"name"`
+	Country     string   `json:"country,omitempty"`
+	Reason      string   `json:"reason,omitempty"`
+	EvidenceURL string   `json:"evidence_url,omitempty"`
+	KeyPeople   []string `json:"key_people,omitempty"`
 }
 
 // MarketLandscapeCompany is a normalized company candidate or result.
@@ -51,6 +52,10 @@ type MarketLandscapeCompany struct {
 	BusinessContact []string                  `json:"business_contact,omitempty"`
 	KeyPeople       []string                  `json:"key_people,omitempty"`
 	Evidence        []MarketLandscapeEvidence `json:"evidence,omitempty"`
+}
+
+type MarketLandscapePersonCandidate struct {
+	Name string `json:"name"`
 }
 
 // MarketLandscapeReport separates verified results from the auditable corpus.
@@ -73,4 +78,5 @@ type MarketLandscapeReport struct {
 	Warnings        []string                  `json:"warnings,omitempty"`
 	StartedAt       time.Time                 `json:"started_at"`
 	CompletedAt     time.Time                 `json:"completed_at"`
+	Exports         []ExportArtifact          `json:"exports,omitempty"`
 }

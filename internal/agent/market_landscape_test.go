@@ -12,7 +12,7 @@ func TestMarketLanesIncludeRequestedGeography(t *testing.T) {
 		Regions:   []string{"Southeast Asia", "Middle East"},
 		Countries: []string{"Singapore"},
 	})
-	for _, expected := range []string{"company operator manufacturer", "Singapore oil blending", "Southeast Asia oil blending", "Middle East oil blending"} {
+	for _, expected := range []string{"company operator manufacturer", "Singapore company operator manufacturer", "Southeast Asia company operator manufacturer", "Middle East company operator manufacturer", "blending plant facility"} {
 		found := false
 		for _, lane := range lanes {
 			if lane == expected {
@@ -22,6 +22,15 @@ func TestMarketLanesIncludeRequestedGeography(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("expected lane %q in %v", expected, lanes)
+		}
+	}
+}
+
+func TestMarketLanesFollowActivity(t *testing.T) {
+	lanes := marketLanes(models.MarketLandscapeQuery{Activity: "drone manufacturing"})
+	for _, lane := range lanes {
+		if lane == "blending plant facility" || lane == "industrial oil blending" || lane == "fuel oil blending plant" {
+			t.Fatalf("oil-blending lane leaked into drone research: %v", lanes)
 		}
 	}
 }

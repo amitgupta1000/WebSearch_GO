@@ -1,5 +1,5 @@
-// Package export renders finished research into durable output files (Markdown and
-// PDF) and stores them where they can be found later.
+// Package export renders finished research into branded, durable output files
+// (Markdown and PDF) and stores them where they can be found later.
 //
 // Rendering is deterministic and local — the Markdown and HTML are built from the
 // research models, and the PDF is printed by the same Chromium that the scraper
@@ -122,6 +122,15 @@ func (d *FilesystemDestination) Describe() string { return "directory " + d.dir 
 // already runs rather than on an extra dependency.
 type PDFRenderer interface {
 	RenderHTMLToPDF(ctx context.Context, html string) ([]byte, error)
+}
+
+// FooteredPDFRenderer is an optional capability of a PDF renderer: printing a
+// running footer on every page (Chromium's footerTemplate), which carries the
+// brand line and the page numbers a document's own footer element cannot. An
+// exporter uses it when available and degrades to the plain render otherwise,
+// the same way a scraper treats its own optional capabilities.
+type FooteredPDFRenderer interface {
+	RenderHTMLToPDFFootered(ctx context.Context, html, footerHTML string) ([]byte, error)
 }
 
 // Exporter renders and stores the artifacts for finished runs.

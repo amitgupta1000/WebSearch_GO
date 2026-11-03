@@ -45,8 +45,8 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 		ResearchID: researchID, Objective: query.Objective, Activity: query.Activity,
 		Lanes: marketLanes(query), Iterations: 2, StartedAt: time.Now(),
 	}
-	if query.IncludeContacts || query.IncludePeople {
-		report.Warnings = append(report.Warnings, "Contact and key-person enrichment is reserved for a later bounded pass; this run verifies company activity.")
+	if query.IncludeContacts {
+		report.Warnings = append(report.Warnings, "Public business-contact collection is reserved for a later bounded pass; use the per-person Fetch contact details action for RocketReach enrichment.")
 	}
 
 	companies := make(map[string]*models.MarketLandscapeCompany)
@@ -143,17 +143,26 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 		report.Warnings = append(report.Warnings, "No company met the verification threshold; discovery leads remain in the appendix.")
 	}
 	report.CompletedAt = time.Now()
+	if exports := a.engine.ExportMarketLandscape(ctx, report); len(exports) > 0 {
+		report.Exports = exports
+	}
 	emitAgentEvent(eventCh, models.EventComplete, fmt.Sprintf("Market landscape complete: %d verified result(s), %d candidate(s)", len(report.Results), report.CandidatesFound), "", "")
 	return report, nil
 }
 
 func marketLanes(query models.MarketLandscapeQuery) []string {
-	lanes := []string{"company operator manufacturer", "blending plant facility", "industrial oil blending", "fuel oil blending plant", "official company"}
+	activity := strings.ToLower(strings.TrimSpace(query.Activity))
+	lanes := []string{"company operator manufacturer", "facility operator", "official company"}
+	if strings.Contains(activity, "blend") {
+		lanes = append(lanes, "blending plant facility", "industrial oil blending", "fuel oil blending plant")
+	} else {
+		lanes = append(lanes, "manufacturer facility", "operator site", "industry directory trade association")
+	}
 	for _, country := range query.Countries {
-		lanes = append(lanes, strings.TrimSpace(country)+" "+query.Activity)
+		lanes = append(lanes, strings.TrimSpace(country)+" company operator manufacturer")
 	}
 	for _, region := range query.Regions {
-		lanes = append(lanes, strings.TrimSpace(region)+" "+query.Activity)
+		lanes = append(lanes, strings.TrimSpace(region)+" company operator manufacturer")
 	}
 	return uniqueStrings(lanes)
 }
@@ -221,7 +230,7 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 			leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 		}
 		var batch []models.MarketLandscapeLeadCandidate
-		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. Exclude publishers, list titles, regions, projects, and generic categories. Return a JSON array with name, country, reason, and evidence_url as a string.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
+		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. Exclude publishers, list titles, regions, projects, and generic categories. If a lead explicitly names a relevant sales, marketing, commercial, or business-development person, include the person's name in key_people; never infer people. Return a JSON array with name, country, reason, evidence_url as a string, and key_people as an array of strings.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
 		if err := a.engine.GenerateStructured(ctx, "You extract company names for a market research verification queue. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
 			rejected += end - start
 			extractionErrors = append(extractionErrors, err.Error())
@@ -270,6 +279,7 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 					company = &models.MarketLandscapeCompany{
 						EntityKey: "company:name:" + normalizeMarketName(lead.Name), Name: lead.Name,
 						Country: lead.Country, Activity: query.Activity, EvidenceType: "company-page", Confidence: 0.62,
+						KeyPeople: append([]string(nil), lead.KeyPeople...),
 					}
 					verified = append(verified, company)
 				}
@@ -281,6 +291,9 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 			}
 		}
 	}
+	if query.IncludePeople {
+		queriesUsed += a.discoverMarketPeople(ctx, verified, query, marketMaxVerificationQueries-queriesUsed, eventCh)
+	}
 	for _, company := range verified {
 		company.Status = marketStatus(company)
 	}
@@ -289,6 +302,56 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 		extractionErr = fmt.Errorf("%d lead extraction batch(es) failed: %s", len(extractionErrors), extractionErrors[0])
 	}
 	return verified, queriesUsed, len(uniqueExtracted), rejected, pagesEnriched, extractionErr
+}
+
+func (a *MarketLandscapeAgent) discoverMarketPeople(ctx context.Context, companies []*models.MarketLandscapeCompany, query models.MarketLandscapeQuery, budget int, eventCh chan<- models.AgentEvent) int {
+	used := 0
+	for _, company := range companies {
+		if used >= budget {
+			break
+		}
+		searchQuery := fmt.Sprintf("\"%s\" (sales OR marketing OR commercial OR \"business development\") (director OR head OR manager OR VP OR chief)", company.Name)
+		emitAgentEvent(eventCh, models.EventToolCall, "Discovering key people at "+company.Name, "search", searchQuery)
+		hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+		used++
+		if err != nil {
+			continue
+		}
+		evidence := make([]string, 0, len(hits))
+		companyName := strings.ToLower(company.Name)
+		for _, hit := range hits {
+			text := strings.ToLower(hit.Title + " " + hit.Snippet)
+			if strings.Contains(text, companyName) && strings.TrimSpace(hit.Link) != "" {
+				evidence = append(evidence, fmt.Sprintf("%s — %s (%s)", hit.Title, hit.Snippet, hit.Link))
+			}
+		}
+		if len(evidence) == 0 {
+			continue
+		}
+		var people []models.MarketLandscapePersonCandidate
+		prompt := fmt.Sprintf("Extract only named people whose sales, marketing, commercial, or business-development role is explicitly associated with %q. Exclude job vacancies, generic titles, publishers, and people whose employer is not stated. Return a JSON array with name only. Evidence:\n%s", company.Name, strings.Join(evidence, "\n"))
+		if err := a.engine.GenerateStructured(ctx, "You identify explicitly named current commercial employees from anchored company evidence. Never invent names.", prompt, &people); err != nil {
+			continue
+		}
+		seen := make(map[string]bool)
+		for _, existing := range company.KeyPeople {
+			seen[strings.ToLower(strings.TrimSpace(existing))] = true
+		}
+		for _, person := range people {
+			name := strings.TrimSpace(person.Name)
+			key := strings.ToLower(name)
+			if name != "" && !seen[key] && isPlausiblePersonName(name) {
+				company.KeyPeople = append(company.KeyPeople, name)
+				seen[key] = true
+			}
+		}
+	}
+	return used
+}
+
+func isPlausiblePersonName(name string) bool {
+	parts := strings.Fields(strings.TrimSpace(name))
+	return len(parts) >= 2 && len(name) <= 120
 }
 
 func isPlausibleMarketLeadName(name string) bool {

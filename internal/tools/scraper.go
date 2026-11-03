@@ -577,6 +577,23 @@ func (s *Scraper) BrowserAvailable() bool {
 // error when the browser is unavailable — the caller is expected to store the
 // Markdown anyway rather than fail the run.
 func (s *Scraper) RenderHTMLToPDF(ctx context.Context, html string) ([]byte, error) {
+	return s.printThroughBrowser(ctx, html, "")
+}
+
+// RenderHTMLToPDFFootered prints a self-contained HTML document with a running
+// footer on every page, the branded counterpart of RenderHTMLToPDF. It is
+// forwarded so the exporter can detect the capability on the scraper rather
+// than on the browser behind it; a browser that cannot print running footers
+// degrades to the plain document, whose own end footer is the only branding the
+// pages carry.
+func (s *Scraper) RenderHTMLToPDFFootered(ctx context.Context, html, footerHTML string) ([]byte, error) {
+	return s.printThroughBrowser(ctx, html, footerHTML)
+}
+
+// printThroughBrowser resolves the browser's printing capability — running
+// footer when the renderer has one, plain document otherwise — and prints under
+// the render semaphore and print budget every browser job is bounded by.
+func (s *Scraper) printThroughBrowser(ctx context.Context, html, footerHTML string) ([]byte, error) {
 	if strings.TrimSpace(html) == "" {
 		return nil, fmt.Errorf("nothing to print")
 	}
@@ -588,9 +605,15 @@ func (s *Scraper) RenderHTMLToPDF(ctx context.Context, html string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("browser rendering is unavailable: %w", err)
 	}
-	printer, ok := browser.(documentPrinter)
-	if !ok {
-		return nil, fmt.Errorf("the configured browser renderer cannot print documents")
+	print := func(printCtx context.Context) ([]byte, error) {
+		if footered, ok := browser.(footeredDocumentPrinter); ok {
+			return footered.RenderHTMLToPDFFootered(printCtx, html, footerHTML)
+		}
+		plain, ok := browser.(documentPrinter)
+		if !ok {
+			return nil, fmt.Errorf("the configured browser renderer cannot print documents")
+		}
+		return plain.RenderHTMLToPDF(printCtx, html)
 	}
 
 	if s.renderSem != nil {
@@ -604,7 +627,7 @@ func (s *Scraper) RenderHTMLToPDF(ctx context.Context, html string) ([]byte, err
 
 	printCtx, cancel := context.WithTimeout(ctx, browserPrintTimeout)
 	defer cancel()
-	return printer.RenderHTMLToPDF(printCtx, html)
+	return print(printCtx)
 }
 
 // DocumentPrinter reports whether the scraper can print documents to PDF, which is

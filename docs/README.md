@@ -440,6 +440,12 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
 - **Markdown** is rendered from the research models — org chart, departments and members,
   locations, sources, and the run's phase timings. Person runs produce the dossier equivalent
   under `person/`.
+- **PDF** is the same report as a Crystal AI branded document: a cover page carrying the
+  wordmark, a kicker naming the report kind ("Company research - Org chart", "Professional
+  dossier", "Legal and regulatory check", "Market landscape research"), the serif title, the
+  run's own summary, the checked stamp and an illustrative photograph — followed by the report
+  body in the brand's sage-teal palette. Chromium prints a running footer on every page: the
+  brand line with the report title and checked stamp on the left, page numbers on the right.
 - **Search results** (`<run>-searches.json`) accompany every run: every query it issued, with
   each hit split into what the identity/entity gate kept and what it excluded. The console's
   **Search results** panel previews it per query and links the download; the file is written

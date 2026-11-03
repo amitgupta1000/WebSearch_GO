@@ -196,6 +196,7 @@ type RunExporter interface {
 	ExportCompany(ctx context.Context, chart *models.OrgChart) []models.ExportArtifact
 	ExportPerson(ctx context.Context, profile *models.PersonProfile) []models.ExportArtifact
 	ExportLegal(ctx context.Context, report *models.LegalReport) []models.ExportArtifact
+	ExportMarketLandscape(ctx context.Context, report *models.MarketLandscapeReport) []models.ExportArtifact
 }
 
 // WithExporter attaches an artifact exporter.
@@ -689,6 +690,15 @@ func (e *Engine) ExportLegal(ctx context.Context, report *models.LegalReport) []
 	exportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exportTimeout)
 	defer cancel()
 	return e.exporter.ExportLegal(exportCtx, report)
+}
+
+func (e *Engine) ExportMarketLandscape(ctx context.Context, report *models.MarketLandscapeReport) []models.ExportArtifact {
+	if e == nil || e.exporter == nil || report == nil || !e.exporter.Enabled() {
+		return nil
+	}
+	exportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exportTimeout)
+	defer cancel()
+	return e.exporter.ExportMarketLandscape(exportCtx, report)
 }
 
 // exportSummary describes a run's artifacts for the agent log, and returns "" when

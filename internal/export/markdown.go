@@ -14,7 +14,7 @@ import (
 func renderCompanyMarkdown(chart *models.OrgChart) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "# %s — Company Org Chart\n\n", nonEmpty(chart.CompanyName, "Company"))
-	fmt.Fprintf(&builder, "_Generated %s by WebSearch_GO_\n\n", generatedStamp(chart.LastUpdated))
+	fmt.Fprintf(&builder, "_%s · generated %s_\n\n", BrandName, generatedStamp(chart.LastUpdated))
 
 	builder.WriteString("| Field | Value |\n| :--- | :--- |\n")
 	builder.WriteString(markdownRow("Domain", chart.Domain))
@@ -262,7 +262,7 @@ func generatedStamp(updated time.Time) string {
 func renderLegalMarkdown(report *models.LegalReport) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "# %s — Legal Check\n\n", nonEmpty(report.CompanyName, "Company"))
-	fmt.Fprintf(&builder, "_Generated %s by WebSearch_GO_\n\n", generatedStamp(report.LastUpdated))
+	fmt.Fprintf(&builder, "_%s · generated %s_\n\n", BrandName, generatedStamp(report.LastUpdated))
 
 	identity := "not confirmed"
 	if report.EntityConfirmed {
@@ -422,7 +422,7 @@ func renderLegalMarkdown(report *models.LegalReport) string {
 func renderPersonMarkdown(profile *models.PersonProfile) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "# %s — Professional Dossier\n\n", nonEmpty(profile.FullName, "Person"))
-	fmt.Fprintf(&builder, "_Generated %s by WebSearch_GO_\n\n", generatedStamp(profile.LastUpdated))
+	fmt.Fprintf(&builder, "_%s · generated %s_\n\n", BrandName, generatedStamp(profile.LastUpdated))
 
 	headline := strings.Trim(strings.Join([]string{
 		trimmed(profile.CurrentTitle),

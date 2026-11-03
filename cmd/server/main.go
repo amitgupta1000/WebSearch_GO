@@ -37,6 +37,7 @@ type Server struct {
 	legalAgent   *agent.LegalAgent
 	relatedAgent *agent.RelatedEntityAgent
 	marketAgent  *agent.MarketLandscapeAgent
+	rocketReach  *tools.RocketReachClient
 	hub          *agent.SessionHub
 	tmpl         *template.Template
 	// browserAvailable is probed once at startup so the console never offers a
@@ -297,6 +298,7 @@ func main() {
 		legalAgent:         legalAgent,
 		relatedAgent:       relatedAgent,
 		marketAgent:        marketAgent,
+		rocketReach:        rocketReachClient,
 		hub:                sessionHub,
 		tmpl:               tmpl,
 		browserAvailable:   browserAvailable,
@@ -309,6 +311,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", srv.handleIndex)
 	mux.HandleFunc("POST /api/research", srv.handleResearch)
+	mux.HandleFunc("POST /api/market-landscape/rocketreach", srv.handleMarketRocketReach)
 	mux.HandleFunc("POST /api/resolve-entity", srv.handleResolveEntity)
 	mux.HandleFunc("POST /api/resolve-person", srv.handleResolvePerson)
 	mux.HandleFunc("POST /api/rerun", srv.handleRerun)
@@ -571,7 +574,17 @@ func marketLandscapeQueryFromForm(r *http.Request, activity string) models.Marke
 	objective := strings.TrimSpace(activity)
 	normalizedActivity, promptRegions := normalizeMarketPrompt(activity)
 	regions := splitFormList(r.FormValue("market_regions"))
-	if len(regions) == 0 {
+	scope := strings.ToLower(strings.TrimSpace(r.FormValue("market_region_scope")))
+	switch scope {
+	case "asia":
+		regions = append([]string{"Asia"}, regions...)
+	case "mea":
+		regions = append([]string{"Middle East", "Africa"}, regions...)
+	case "india":
+		regions = append([]string{"India"}, regions...)
+	}
+	regions = uniqueMarketRegions(regions)
+	if len(regions) == 0 && scope != "global" {
 		regions = promptRegions
 	}
 	return models.MarketLandscapeQuery{
@@ -586,14 +599,63 @@ func marketLandscapeQueryFromForm(r *http.Request, activity string) models.Marke
 	}
 }
 
+func uniqueMarketRegions(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		key := strings.ToLower(value)
+		if value == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+type marketRocketReachView struct {
+	Name    string
+	Company string
+	Profile *tools.RocketReachProfile
+	Error   string
+}
+
+func (s *Server) handleMarketRocketReach(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.FormValue("person_name"))
+	company := strings.TrimSpace(r.FormValue("company_name"))
+	if name == "" || company == "" {
+		s.render(w, "market_rocketreach_result", marketRocketReachView{Error: "A person name and company are required."})
+		return
+	}
+	if s.rocketReach == nil || !s.rocketReach.Enabled() {
+		s.render(w, "market_rocketreach_result", marketRocketReachView{Name: name, Company: company, Error: "RocketReach is not configured."})
+		return
+	}
+	profile, err := s.rocketReach.Lookup(r.Context(), name, company, "")
+	if err != nil || profile == nil {
+		message := "No RocketReach profile matched this person and company."
+		if err != nil {
+			message = "RocketReach lookup failed: " + err.Error()
+		}
+		s.render(w, "market_rocketreach_result", marketRocketReachView{Name: name, Company: company, Error: message})
+		return
+	}
+	s.render(w, "market_rocketreach_result", marketRocketReachView{Name: name, Company: company, Profile: profile})
+}
+
 func normalizeMarketPrompt(value string) (string, []string) {
 	value = strings.TrimSpace(value)
 	lower := strings.ToLower(value)
 	for _, prefix := range []string{
 		"give me the names of companies engaged in",
+		"give me the names of comapnies engaged in",
 		"find companies engaged in",
+		"find comapnies engaged in",
 		"identify companies engaged in",
+		"identify comapnies engaged in",
 		"list companies engaged in",
+		"list comapnies engaged in",
 	} {
 		if strings.HasPrefix(lower, prefix) {
 			value = strings.TrimSpace(value[len(prefix):])

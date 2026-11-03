@@ -44,8 +44,19 @@ func TestRocketReachEmployerMatchesRejectsFuzzyUnrelatedEmployer(t *testing.T) {
 	if !rocketReachEmployerMatches("KLJ Resources", "KLJ Resources Limited") {
 		t.Fatal("expected abbreviated legal suffix to match")
 	}
+
 	if rocketReachEmployerMatches("Fasaol Resources Limited", "KLJ Resources Limited") {
 		t.Fatal("expected unrelated fuzzy employer to be rejected")
+	}
+}
+
+func TestNormalizeRelatedRequiresEvidenceURL(t *testing.T) {
+	items := normalizeRelated([]models.RelatedCompany{
+		{Name: "No Source Co", Confidence: 0.9},
+		{Name: "Sourced Co", Confidence: 0.8, Evidence: []models.RelatedEntityEvidence{{URL: "https://example.com"}}},
+	}, "Primary Co")
+	if len(items) != 1 || items[0].Name != "Sourced Co" {
+		t.Fatalf("expected only URL-backed relationship, got %+v", items)
 	}
 }
 

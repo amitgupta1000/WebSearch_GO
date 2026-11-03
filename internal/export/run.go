@@ -16,7 +16,10 @@ func (e *Exporter) ExportCompany(ctx context.Context, chart *models.OrgChart) []
 	if !e.Enabled() || chart == nil {
 		return nil
 	}
-	return e.exportRun(ctx, "company", chart.CompanyName, renderCompanyMarkdown(chart), renderCompanyHTML(chart), chart.SearchTrace)
+	stamp := generatedStamp(chart.LastUpdated)
+	return e.exportRun(ctx, "company", chart.CompanyName,
+		renderCompanyMarkdown(chart), renderCompanyHTML(chart),
+		reportFooter(companyReportTitle(chart), stamp), chart.SearchTrace)
 }
 
 // ExportPerson renders and stores a finished person run's artifacts.
@@ -24,7 +27,10 @@ func (e *Exporter) ExportPerson(ctx context.Context, profile *models.PersonProfi
 	if !e.Enabled() || profile == nil {
 		return nil
 	}
-	return e.exportRun(ctx, "person", profile.FullName, renderPersonMarkdown(profile), renderPersonHTML(profile), profile.SearchTrace)
+	stamp := generatedStamp(profile.LastUpdated)
+	return e.exportRun(ctx, "person", profile.FullName,
+		renderPersonMarkdown(profile), renderPersonHTML(profile),
+		reportFooter(personReportTitle(profile), stamp), profile.SearchTrace)
 }
 
 // ExportLegal renders and stores a finished legal run's artifacts.
@@ -32,15 +38,28 @@ func (e *Exporter) ExportLegal(ctx context.Context, report *models.LegalReport) 
 	if !e.Enabled() || report == nil {
 		return nil
 	}
-	return e.exportRun(ctx, "legal", report.CompanyName, renderLegalMarkdown(report), renderLegalHTML(report), report.SearchTrace)
+	stamp := generatedStamp(report.LastUpdated)
+	return e.exportRun(ctx, "legal", report.CompanyName,
+		renderLegalMarkdown(report), renderLegalHTML(report),
+		reportFooter(legalReportTitle(report), stamp), report.SearchTrace)
+}
+
+func (e *Exporter) ExportMarketLandscape(ctx context.Context, report *models.MarketLandscapeReport) []models.ExportArtifact {
+	if !e.Enabled() || report == nil {
+		return nil
+	}
+	return e.exportRun(ctx, "market-landscape", report.Activity,
+		renderMarketLandscapeMarkdown(report), renderMarketLandscapeHTML(report),
+		reportFooter(marketReportTitle(report), generatedStamp(report.CompletedAt)), nil)
 }
 
 // exportRun writes every enabled format, reporting one artifact per attempt: a
 // failed PDF must not hide the Markdown that was stored successfully. The search
 // trace — every query with its kept and excluded hits — is stored alongside them
 // whenever the run recorded one, because the rendered artifacts quote the findings
-// while the trace carries the findings themselves.
-func (e *Exporter) exportRun(ctx context.Context, scope, subject, markdown, html string, searches *models.SearchTrace) []models.ExportArtifact {
+// while the trace carries the findings themselves. The footer is the branded
+// running footer Chromium prints on every PDF page when the renderer supports it.
+func (e *Exporter) exportRun(ctx context.Context, scope, subject, markdown, html, footer string, searches *models.SearchTrace) []models.ExportArtifact {
 	base := fmt.Sprintf("%s%s/%s-%s", e.prefix, scope, e.now().UTC().Format("20060102-150405"), slugify(subject))
 
 	artifacts := make([]models.ExportArtifact, 0, 3)
@@ -48,7 +67,7 @@ func (e *Exporter) exportRun(ctx context.Context, scope, subject, markdown, html
 		artifacts = append(artifacts, e.write(ctx, FormatMarkdown, base+".md", markdownContentType, []byte(markdown)))
 	}
 	if e.formats[FormatPDF] {
-		artifacts = append(artifacts, e.writePDF(ctx, base+".pdf", html))
+		artifacts = append(artifacts, e.writePDF(ctx, base+".pdf", html, footer))
 	}
 	if searches != nil && len(searches.Queries) > 0 {
 		data, err := json.MarshalIndent(searches, "", "  ")
@@ -62,7 +81,10 @@ func (e *Exporter) exportRun(ctx context.Context, scope, subject, markdown, html
 }
 
 // writePDF prints the HTML document and then stores it like any other artifact.
-func (e *Exporter) writePDF(ctx context.Context, objectName, html string) models.ExportArtifact {
+// When the renderer can print a running footer, the branded footer (page
+// numbers included) rides along; otherwise the document's own end footer is the
+// only branding the pages carry.
+func (e *Exporter) writePDF(ctx context.Context, objectName, html, footer string) models.ExportArtifact {
 	if e.pdf == nil {
 		// Markdown is still written; only the PDF needs a browser.
 		return models.ExportArtifact{
@@ -72,7 +94,12 @@ func (e *Exporter) writePDF(ctx context.Context, objectName, html string) models
 			Format: FormatPDF,
 		}
 	}
-	data, err := e.pdf.RenderHTMLToPDF(ctx, html)
+	data, err := func() ([]byte, error) {
+		if footered, ok := e.pdf.(FooteredPDFRenderer); ok {
+			return footered.RenderHTMLToPDFFootered(ctx, html, footer)
+		}
+		return e.pdf.RenderHTMLToPDF(ctx, html)
+	}()
 	if err != nil {
 		log.Printf("[WARN] printing %s failed: %v", objectName, err)
 		return models.ExportArtifact{Role: FormatPDF, Name: objectName, Error: err.Error(), Format: FormatPDF}

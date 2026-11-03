@@ -14,6 +14,7 @@ func TestMergeRocketReachProfileAddsStructuredEvidenceWithoutReplacingDossierFac
 		KeySkills:      []string{"Strategy"},
 		Sources:        []string{"https://example.test/source"},
 	}
+
 	mergeRocketReachProfile(profile, &tools.RocketReachProfile{
 		CurrentTitle:    "Director",
 		CurrentEmployer: "Other Acme",
@@ -38,5 +39,21 @@ func TestMergeRocketReachProfileAddsStructuredEvidenceWithoutReplacingDossierFac
 	}
 	if len(profile.Sources) != 2 {
 		t.Fatalf("RR source not retained: %+v", profile.Sources)
+	}
+}
+
+func TestApplyRocketReachContactDropsInferredGradeFEmails(t *testing.T) {
+	profile := &models.PersonProfile{}
+	applyRocketReachContact(profile, &tools.RocketReachProfile{
+		Emails: []tools.RocketReachContact{
+			{Email: "pattern@example.com", Grade: "F"},
+			{Email: "verified@example.com", Grade: "B"},
+		},
+	})
+	if profile.ContactEnrichment == nil || len(profile.ContactEnrichment.Emails) != 1 {
+		t.Fatalf("expected only non-inferred email, got %+v", profile.ContactEnrichment)
+	}
+	if profile.ContactEnrichment.Emails[0].Email != "verified@example.com" {
+		t.Fatalf("unexpected retained email: %+v", profile.ContactEnrichment.Emails)
 	}
 }
