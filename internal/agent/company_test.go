@@ -145,6 +145,33 @@ func TestFallbackQueryPlanUsesCompanyScope(t *testing.T) {
 	}
 }
 
+func TestFallbackQueryPlanDefaultsToLeadershipOnly(t *testing.T) {
+	plan := fallbackQueryPlan(models.CompanyBrief{CompanyName: "Acme"})
+	text := make([]string, 0, len(plan.Queries))
+	for _, query := range plan.Queries {
+		text = append(text, strings.ToLower(query.Query))
+	}
+	joined := strings.Join(text, "\n")
+	for _, excluded := range []string{"procurement", "marketing", "finance", "engineering", "department leaders"} {
+		if strings.Contains(joined, excluded) {
+			t.Errorf("default plan unexpectedly included %q: %s", excluded, joined)
+		}
+	}
+}
+
+func TestFallbackQueryPlanAddsExplicitFocusArea(t *testing.T) {
+	plan := fallbackQueryPlan(models.CompanyBrief{
+		CompanyName:         "Acme",
+		ResearchPreferences: models.ResearchPreferences{AreasOfInterest: []string{"procurement"}},
+	})
+	for _, query := range plan.Queries {
+		if strings.Contains(strings.ToLower(query.Query), "procurement") {
+			return
+		}
+	}
+	t.Fatal("expected explicitly requested procurement focus area")
+}
+
 func TestDeterministicRankPrefersOfficialDomain(t *testing.T) {
 	brief := models.CompanyBrief{CompanyName: "Acme", Domain: "acme.com"}
 	result := deterministicRank(brief, models.SearchResult{

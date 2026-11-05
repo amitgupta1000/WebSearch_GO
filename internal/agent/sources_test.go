@@ -31,7 +31,7 @@ func TestAlternativeProfileSourcesRespectTheCompanyDenyList(t *testing.T) {
 	}
 }
 
-func TestIndexedProfileQueriesUseCompanyOnlyAggregatorSlotsAndLinkedInRoleSlots(t *testing.T) {
+func TestIndexedProfileQueriesUseCompanyOnlyAggregatorSlotsAndLeadershipSlot(t *testing.T) {
 	queries := indexedProfileQueries(models.CompanyBrief{CompanyName: "Sanjay Chemicals"})
 	text := make([]string, 0, len(queries))
 	for _, query := range queries {
@@ -46,9 +46,6 @@ func TestIndexedProfileQueriesUseCompanyOnlyAggregatorSlotsAndLinkedInRoleSlots(
 		"site:tracxn.com",
 	} {
 		want := 1
-		if host == "site:linkedin.com/in/" {
-			want = 3
-		}
 		if strings.Count(joined, host) != want {
 			t.Errorf("expected %d dedicated queries for %s, got %d", want, host, strings.Count(joined, host))
 		}
