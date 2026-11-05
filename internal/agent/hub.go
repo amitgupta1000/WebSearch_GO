@@ -84,6 +84,14 @@ func (s *Session) ClaimFinalEvent() bool {
 	return true
 }
 
+// FinalEventSent reports whether a terminal SSE connection already delivered
+// the result. Reconnecting clients must not replay the full event history.
+func (s *Session) FinalEventSent() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.finalSent
+}
+
 // SessionHub provides thread-safe lifecycle tracking for active SSE research sessions.
 type SessionHub struct {
 	mu       sync.RWMutex

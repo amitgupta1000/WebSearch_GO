@@ -188,6 +188,24 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 
 	state = &models.CompanyResearchContext{Brief: brief}
 	state.EntityGate = gate
+	var rocketReachValidationTrace []models.QueryTrace
+	if brief.UseRocketReachDiscovery {
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID, Type: models.EventThinking, ToolName: "rocketreach_search",
+			Content: "RocketReach discovery enabled; starting before company web research.",
+		})
+		rrResults, rrDiscovery, rrValidationEvidence, rrTrace := ca.discoverRocketReach(ctx, sessionID, brief, eventCh)
+		state.SearchResults = appendUniqueSearchResults(state.SearchResults, rrResults)
+		state.Evidence = appendUniqueEvidence(state.Evidence, rrValidationEvidence)
+		state.Evidence = appendUniqueEvidence(state.Evidence, rocketReachEvidence(rrResults))
+		state.RocketReachDiscovery = append(state.RocketReachDiscovery, rrDiscovery...)
+		rocketReachValidationTrace = rrTrace
+	} else {
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID, Type: models.EventThinking, ToolName: "rocketreach_search",
+			Content: "RocketReach discovery disabled for this Company-mode run.",
+		})
+	}
 
 	finishPlan := timer.start("plan queries")
 	plan, droppedQueries := ca.planQueries(ctx, brief)
@@ -211,6 +229,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		// their own queries, which the validation report already accounts for.
 		if state.SearchTrace == nil {
 			state.SearchTrace = searchTrace
+			state.SearchTrace.Queries = append(state.SearchTrace.Queries, rocketReachValidationTrace...)
 		}
 		state.SearchResults = appendUniqueSearchResults(state.SearchResults, results)
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventThinking, Step: 7, Content: fmt.Sprintf("Evaluating relevance of %d search results...", len(state.SearchResults))})
@@ -248,23 +267,6 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		// exist; this is what gives a thin roster something to be built from, and its
 		// queries name the company, so no unanchored snippet can enter here.
 		ca.fillEntityGaps(ctx, sessionID, brief, state, eventCh, matcher, gate)
-		if iteration == 0 && brief.UseRocketReachDiscovery {
-			rrResults, rrDiscovery, rrValidationEvidence, rrValidationTrace := ca.discoverRocketReach(ctx, sessionID, brief, eventCh)
-			if len(rrResults) > 0 {
-				state.SearchResults = appendUniqueSearchResults(state.SearchResults, rrResults)
-				state.Evidence = appendUniqueEvidence(state.Evidence, rrValidationEvidence)
-				state.Evidence = appendUniqueEvidence(state.Evidence, rocketReachEvidence(rrResults))
-				state.RocketReachDiscovery = append(state.RocketReachDiscovery, rrDiscovery...)
-				if state.SearchTrace != nil {
-					state.SearchTrace.Queries = append(state.SearchTrace.Queries, models.QueryTrace{
-						Query:   "RocketReach discovery: " + brief.CompanyName,
-						Purpose: "RocketReach key-person discovery candidates",
-						Kept:    rrResults,
-					})
-					state.SearchTrace.Queries = append(state.SearchTrace.Queries, rrValidationTrace...)
-				}
-			}
-		}
 		// Only snippets that name the company reach the synthesiser. A snippet is a
 		// name and a title, and without this filter the results of every planned
 		// query are fair game for the roster.

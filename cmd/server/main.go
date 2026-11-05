@@ -83,6 +83,7 @@ type entityCandidateView struct {
 	TimeScope           string
 	Notes               string
 	UseBrowser          string
+	UseRocketReach      string
 	SourceProfile       string
 	PersonOfInterest    string
 	RelatedPersonDomain string
@@ -129,6 +130,7 @@ type entityCandidatesView struct {
 	TimeScope           string
 	Notes               string
 	UseBrowser          string
+	UseRocketReach      string
 	SourceProfile       string
 	PersonOfInterest    string
 	RelatedPersonDomain string
@@ -963,6 +965,7 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 		TimeScope:           strings.TrimSpace(r.FormValue("time_scope")),
 		Notes:               strings.TrimSpace(r.FormValue("research_notes")),
 		UseBrowser:          strings.TrimSpace(r.FormValue("use_browser")),
+		UseRocketReach:      strings.TrimSpace(r.FormValue("use_rocketreach_discovery")),
 		SourceProfile:       strings.TrimSpace(r.FormValue("source_profile")),
 		PersonOfInterest:    strings.TrimSpace(r.FormValue("person_of_interest")),
 		RelatedPersonDomain: strings.TrimSpace(r.FormValue("related_person_domain")),
@@ -1322,6 +1325,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		sb.WriteString("\n")
 		_, _ = w.Write([]byte(sb.String()))
 		flusher.Flush()
+	}
+
+	if session.FinalEventSent() {
+		sendSSE("close", "done")
+		return
 	}
 
 	renderFragment := func(name string, data any) string {

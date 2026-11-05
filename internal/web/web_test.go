@@ -516,6 +516,7 @@ type entityCandidatesStub struct {
 	TimeScope           string
 	Notes               string
 	UseBrowser          string
+	UseRocketReach      string
 	SourceProfile       string
 	PersonOfInterest    string
 	RelatedPersonDomain string
