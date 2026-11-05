@@ -12,9 +12,52 @@ func TestTemplatesParseAndLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Templates(): %v", err)
 	}
-	for _, name := range []string{"index.html", "company_chart", "company_result", "question_answer", "person_dossier", "error_box", "workflow_console", "log_entry"} {
+	for _, name := range []string{"index.html", "company_chart", "company_result", "question_answer", "person_dossier", "error_box", "workflow_console", "log_entry", "market_landscape_report", "market_rocketreach_result"} {
 		if tmpl.Lookup(name) == nil {
 			t.Errorf("template %q not found", name)
+		}
+	}
+}
+
+// TestMarketLandscapeReportRendersKeyPeople keeps the RocketReach form honest:
+// the hidden company_name must carry the result card's company. It once read
+// the root data instead ($ is the report in this fragment), and any result
+// with key people failed the whole fragment with "can't evaluate field Name
+// in type *models.MarketLandscapeReport".
+func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := &models.MarketLandscapeReport{
+		Activity:  "oil blending",
+		Objective: "Find active blenders and their commercial contacts",
+		Results: []models.MarketLandscapeCompany{{
+			Name:      "Peninsula",
+			Status:    "verified",
+			Activity:  "Fuel oil blending",
+			KeyPeople: []string{"Jeroen De Vos", "Victor Morales"},
+			Evidence: []models.MarketLandscapeEvidence{{
+				Title: "Storage and blending", URL: "https://example.com/peninsula",
+				Lane: "company", ClaimType: "capability", SourceTier: "primary", Status: "kept",
+			}},
+		}},
+	}
+
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "market_landscape_report", report); err != nil {
+		t.Fatalf("execute market_landscape_report: %v", err)
+	}
+	rendered := out.String()
+	for _, expected := range []string{
+		`name="company_name" value="Peninsula"`,
+		`name="person_name" value="Jeroen De Vos"`,
+		`name="person_name" value="Victor Morales"`,
+		"Storage and blending",
+	} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("market_landscape_report is missing %q", expected)
 		}
 	}
 }

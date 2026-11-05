@@ -176,6 +176,7 @@
                         <div class="sm:col-span-2 flex flex-wrap gap-4 text-xs text-slate-300">
                             <label><input type="checkbox" name="market_contacts" value="1" class="mr-1 accent-indigo-500"> Collect public business contacts</label>
                             <label><input type="checkbox" name="market_people" value="1" class="mr-1 accent-indigo-500"> Identify key people</label>
+                            <label><input type="checkbox" name="market_rocketreach_discovery" value="1" class="mr-1 accent-indigo-500"> Use RocketReach for key-person discovery</label>
                         </div>
                         <p class="sm:col-span-2 text-[11px] text-slate-500">This additive mode uses a tagged, vector-free research corpus and does not change existing workflows.</p>
                     </div>
@@ -211,6 +212,10 @@
                         <input type="text" name="areas_of_interest" placeholder="e.g. procurement, offices, board structure"
                                class="field w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 text-sm mt-1">
                     </div>
+                    <label class="sm:col-span-2 lg:col-span-4 flex items-start gap-2 text-xs text-slate-300">
+                        <input type="checkbox" name="use_rocketreach_discovery" value="1" class="mt-0.5 accent-indigo-500">
+                        <span><strong>Use RocketReach for key-person discovery</strong><br><span class="text-[11px] text-slate-500">Opt in to RocketReach profile discovery for employer-matched leadership candidates. Contact details are not fetched automatically.</span></span>
+                    </label>
                 </div>
 
                 {{if .BrowserToggle}}

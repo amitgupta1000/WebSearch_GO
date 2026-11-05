@@ -20,6 +20,7 @@ type ResearchPreferences struct {
 // CompanyBrief identifies a company and the user's research scope.
 type CompanyBrief struct {
 	CompanyName         string `json:"company_name"`
+	UseRocketReachDiscovery bool `json:"use_rocketreach_discovery,omitempty"`
 	SourceProfile       string `json:"source_profile,omitempty"`
 	PersonOfInterest    string `json:"person_of_interest,omitempty"`
 	RelatedPersonDomain string `json:"related_person_domain,omitempty"`

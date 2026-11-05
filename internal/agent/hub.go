@@ -108,7 +108,7 @@ func (h *SessionHub) Create(id, mode, query string) *Session {
 		ID:        id,
 		Mode:      mode,
 		Query:     query,
-		EventCh:   make(chan models.AgentEvent, 256),
+		EventCh:   make(chan models.AgentEvent, 1024),
 		Done:      make(chan struct{}),
 		CreatedAt: time.Now(),
 	}

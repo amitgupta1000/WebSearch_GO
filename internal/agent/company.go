@@ -248,7 +248,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 		// exist; this is what gives a thin roster something to be built from, and its
 		// queries name the company, so no unanchored snippet can enter here.
 		ca.fillEntityGaps(ctx, sessionID, brief, state, eventCh, matcher, gate)
-		if iteration == 0 {
+		if iteration == 0 && brief.UseRocketReachDiscovery {
 			rrResults, rrDiscovery, rrValidationEvidence, rrValidationTrace := ca.discoverRocketReach(ctx, sessionID, brief, eventCh)
 			if len(rrResults) > 0 {
 				state.SearchResults = appendUniqueSearchResults(state.SearchResults, rrResults)

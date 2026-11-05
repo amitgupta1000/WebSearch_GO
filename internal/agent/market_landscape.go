@@ -9,22 +9,31 @@ import (
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 const (
 	marketMaxDiscoveryQueries    = 18
-	marketMaxVerificationQueries = 30
+	// Company verification gets 30 searches. Web key-person discovery and the
+	// optional RocketReach discovery each get their own 20-search budget.
+	marketMaxVerificationQueries = 70
+	marketPeopleQueryReserve     = 40
 	marketMaxResults             = 10
 	marketMaxCandidates          = 40
 )
 
 // MarketLandscapeAgent owns the additive, vector-free market workflow.
 type MarketLandscapeAgent struct {
-	engine *Engine
+	engine      *Engine
+	rocketReach *tools.RocketReachClient
 }
 
-func NewMarketLandscapeAgent(engine *Engine) *MarketLandscapeAgent {
-	return &MarketLandscapeAgent{engine: engine}
+func NewMarketLandscapeAgent(engine *Engine, rocketReach ...*tools.RocketReachClient) *MarketLandscapeAgent {
+	var client *tools.RocketReachClient
+	if len(rocketReach) > 0 {
+		client = rocketReach[0]
+	}
+	return &MarketLandscapeAgent{engine: engine, rocketReach: client}
 }
 
 // Research performs broad discovery, lead extraction, bounded verification, and
@@ -44,6 +53,10 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	report := &models.MarketLandscapeReport{
 		ResearchID: researchID, Objective: query.Objective, Activity: query.Activity,
 		Lanes: marketLanes(query), Iterations: 2, StartedAt: time.Now(),
+		RocketReachDiscoveryEnabled: query.UseRocketReachDiscovery,
+	}
+	if query.UseRocketReachDiscovery && (a.rocketReach == nil || !a.rocketReach.Enabled()) {
+		report.Warnings = append(report.Warnings, "RocketReach discovery was selected but RocketReach is not configured; no RocketReach profiles were searched.")
 	}
 	if query.IncludeContacts {
 		report.Warnings = append(report.Warnings, "Public business-contact collection is reserved for a later bounded pass; use the per-person Fetch contact details action for RocketReach enrichment.")
@@ -104,7 +117,7 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	report.LeadsReviewed = len(leads)
 	report.QueriesUsed = queriesUsed
 	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Extracting companies from %d discovery lead(s)", len(leads)), "", "")
-	resolved, verificationQueries, extracted, rejected, enriched, err := a.verifyMarketLeads(ctx, leads, query, eventCh)
+	resolved, verificationQueries, extracted, rejected, enriched, _, _, _, err := a.verifyMarketLeads(ctx, leads, query, eventCh)
 	report.QueriesUsed += verificationQueries
 	report.LeadsExtracted = extracted
 	report.LeadsRejected = rejected
@@ -117,6 +130,35 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 			mergeMarketCompany(companies, company)
 		}
 	}
+
+	rrCalls, rrProfiles, rrPromoted := 0, 0, 0
+	if query.UseRocketReachDiscovery {
+		candidates := make([]*models.MarketLandscapeCompany, 0, len(companies))
+		for _, company := range companies {
+			candidates = append(candidates, company)
+		}
+		emitAgentEvent(eventCh, models.EventThinking, "Running RocketReach discovery before web key-person searches", "rocketreach_search", "")
+		if len(candidates) == 0 {
+			emitAgentEvent(eventCh, models.EventToolResult, "RocketReach discovery skipped: no company candidates were produced by market discovery", "rocketreach_search", "")
+		} else {
+			rrCalls, rrProfiles, rrPromoted = a.discoverMarketRocketReach(ctx, candidates, marketPeopleQueryReserve/2, eventCh)
+			emitAgentEvent(eventCh, models.EventToolResult,
+				fmt.Sprintf("RocketReach discovery complete: %d call(s), %d profile(s) returned, %d candidate(s) promoted", rrCalls, rrProfiles, rrPromoted),
+				"rocketreach_search", "")
+		}
+	}
+	peopleQueries := 0
+	if query.IncludePeople {
+		candidates := make([]*models.MarketLandscapeCompany, 0, len(companies))
+		for _, company := range companies {
+			candidates = append(candidates, company)
+		}
+		peopleQueries = a.discoverMarketPeople(ctx, candidates, query, marketPeopleQueryReserve/2, eventCh)
+	}
+	report.QueriesUsed += rrCalls + peopleQueries
+	report.RocketReachDiscoveryCalls = rrCalls
+	report.RocketReachProfilesFound = rrProfiles
+	report.RocketReachCandidatesPromoted = rrPromoted
 
 	report.CandidatesFound = len(companies)
 	for _, company := range companies {
@@ -192,9 +234,9 @@ func marketCandidate(hit models.SearchResult, lane string, query models.MarketLa
 	}
 }
 
-func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []models.MarketLandscapeEvidence, query models.MarketLandscapeQuery, eventCh chan<- models.AgentEvent) ([]*models.MarketLandscapeCompany, int, int, int, int, error) {
+func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []models.MarketLandscapeEvidence, query models.MarketLandscapeQuery, eventCh chan<- models.AgentEvent) ([]*models.MarketLandscapeCompany, int, int, int, int, int, int, int, error) {
 	if len(leads) == 0 {
-		return nil, 0, 0, 0, 0, nil
+		return nil, 0, 0, 0, 0, 0, 0, 0, nil
 	}
 	enrichedLeads := make([]models.MarketLandscapeEvidence, 0, len(leads))
 	pagesEnriched := 0
@@ -254,12 +296,16 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 
 	verified := make([]*models.MarketLandscapeCompany, 0, len(uniqueExtracted))
 	queriesUsed := 0
+	verificationBudget := marketMaxVerificationQueries
+	if query.IncludePeople || query.UseRocketReachDiscovery {
+		verificationBudget -= marketPeopleQueryReserve
+	}
 	for index, lead := range uniqueExtracted {
-		if index >= 10 || queriesUsed >= marketMaxVerificationQueries {
+		if index >= 10 || queriesUsed >= verificationBudget {
 			break
 		}
 		for _, purpose := range []string{"official site", "facility operator", "registry trade source"} {
-			if queriesUsed >= marketMaxVerificationQueries {
+			if queriesUsed >= verificationBudget {
 				break
 			}
 			searchQuery := fmt.Sprintf("\"%s\" %s %s", strings.TrimSpace(lead.Name), query.Activity, purpose)
@@ -284,15 +330,15 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 					verified = append(verified, company)
 				}
 				company.Evidence = append(company.Evidence, evidence)
+				if company.EvidenceSummary == "" {
+					company.EvidenceSummary = strings.TrimSpace(evidence.Snippet)
+				}
 				company.Confidence = minFloat(0.98, company.Confidence+0.08)
 				if company.Domain == "" {
 					company.Domain = strings.TrimPrefix(strings.ToLower(hostname(hit.Link)), "www.")
 				}
 			}
 		}
-	}
-	if query.IncludePeople {
-		queriesUsed += a.discoverMarketPeople(ctx, verified, query, marketMaxVerificationQueries-queriesUsed, eventCh)
 	}
 	for _, company := range verified {
 		company.Status = marketStatus(company)
@@ -301,7 +347,64 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 	if len(extractionErrors) > 0 {
 		extractionErr = fmt.Errorf("%d lead extraction batch(es) failed: %s", len(extractionErrors), extractionErrors[0])
 	}
-	return verified, queriesUsed, len(uniqueExtracted), rejected, pagesEnriched, extractionErr
+	return verified, queriesUsed, len(uniqueExtracted), rejected, pagesEnriched, 0, 0, 0, extractionErr
+}
+
+func (a *MarketLandscapeAgent) discoverMarketRocketReach(ctx context.Context, companies []*models.MarketLandscapeCompany, budget int, eventCh chan<- models.AgentEvent) (int, int, int) {
+	if a.rocketReach == nil || !a.rocketReach.Enabled() {
+		return 0, 0, 0
+	}
+	used, profilesFound, promoted := 0, 0, 0
+	for _, company := range companies {
+		if used >= budget {
+			break
+		}
+		emitAgentEvent(eventCh, models.EventToolCall, "Discovering RocketReach key people at "+company.Name, "rocketreach_search", company.Name)
+		searchFilters := map[string][]string{
+			"current_employer": []string{company.Name},
+			"current_title":    []string{"sales", "marketing", "commercial", "business development"},
+		}
+		emitAgentEvent(eventCh, models.EventThinking,
+			fmt.Sprintf("RocketReach filters: current employer=%q; titles=sales, marketing, commercial, business development", company.Name),
+			"rocketreach_search", "")
+		profiles, err := a.rocketReach.Search(ctx, searchFilters)
+		used++
+		if err != nil {
+			emitAgentEvent(eventCh, models.EventError, "RocketReach search failed for "+company.Name+": "+err.Error(), "rocketreach_search", company.Name)
+			continue
+		}
+		profilesFound += len(profiles)
+		emitAgentEvent(eventCh, models.EventToolResult,
+			fmt.Sprintf("RocketReach returned %d profile(s) for %s; validating current-employer matches", len(profiles), company.Name),
+			"rocketreach_search", company.Name)
+		seen := make(map[string]bool)
+		for _, existing := range company.KeyPeople {
+			seen[strings.ToLower(strings.TrimSpace(existing))] = true
+		}
+		for _, profile := range profiles {
+			if !strings.EqualFold(strings.TrimSpace(profile.CurrentEmployer), strings.TrimSpace(company.Name)) {
+				emitAgentEvent(eventCh, models.EventThinking,
+					fmt.Sprintf("RocketReach candidate %q not promoted: employer %q does not match %q", profile.Name, profile.CurrentEmployer, company.Name),
+					"rocketreach_search", "")
+				continue
+			}
+			name := strings.TrimSpace(profile.Name)
+			key := strings.ToLower(name)
+			if name != "" && !seen[key] && isPlausiblePersonName(name) {
+				company.KeyPeople = append(company.KeyPeople, name)
+				if company.KeyPeopleSources == nil {
+					company.KeyPeopleSources = make(map[string]string)
+				}
+				company.KeyPeopleSources[name] = "RocketReach"
+				seen[key] = true
+				promoted++
+				emitAgentEvent(eventCh, models.EventToolResult,
+					fmt.Sprintf("Promoted RocketReach candidate %s for %s (current employer matched)", name, company.Name),
+					"rocketreach_search", "")
+			}
+		}
+	}
+	return used, profilesFound, promoted
 }
 
 func (a *MarketLandscapeAgent) discoverMarketPeople(ctx context.Context, companies []*models.MarketLandscapeCompany, query models.MarketLandscapeQuery, budget int, eventCh chan<- models.AgentEvent) int {
@@ -342,6 +445,10 @@ func (a *MarketLandscapeAgent) discoverMarketPeople(ctx context.Context, compani
 			key := strings.ToLower(name)
 			if name != "" && !seen[key] && isPlausiblePersonName(name) {
 				company.KeyPeople = append(company.KeyPeople, name)
+				if company.KeyPeopleSources == nil {
+					company.KeyPeopleSources = make(map[string]string)
+				}
+				company.KeyPeopleSources[name] = "web search"
 				seen[key] = true
 			}
 		}
@@ -558,6 +665,7 @@ func uniqueStrings(values []string) []string {
 			seen[strings.ToLower(value)] = true
 			result = append(result, value)
 		}
+
 	}
 	return result
 }

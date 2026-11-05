@@ -32,8 +32,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.CacheMaxEntries != 2048 {
 		t.Errorf("expected default cache entries 2048, got %d", cfg.CacheMaxEntries)
 	}
-	if cfg.ResearchTimeout != 180*time.Second {
-		t.Errorf("expected default timeout 180s, got %v", cfg.ResearchTimeout)
+	if cfg.ResearchTimeout != 240*time.Second {
+		t.Errorf("expected default timeout 240s, got %v", cfg.ResearchTimeout)
 	}
 	if cfg.MaxScrapesPerRun != 20 {
 		t.Errorf("expected default max scrapes 20, got %d", cfg.MaxScrapesPerRun)
@@ -97,7 +97,7 @@ func TestBrowserResearchTimeoutSelection(t *testing.T) {
 	if got := cfg.ResearchTimeoutFor(true); got != 300*time.Second {
 		t.Errorf("a rendered run should get the larger budget, got %v", got)
 	}
-	if got := cfg.ResearchTimeoutFor(false); got != 180*time.Second {
+	if got := cfg.ResearchTimeoutFor(false); got != 240*time.Second {
 		t.Errorf("an HTTP-only run should get the default budget, got %v", got)
 	}
 	if got := cfg.MaxResearchTimeout(); got != 300*time.Second {

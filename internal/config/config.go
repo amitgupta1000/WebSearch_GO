@@ -152,7 +152,7 @@ const (
 	// are the legal mode budgets: a run bounded to three minutes, sixteen searches
 	// across all parties and sources, and eight full document fetches. A legal
 	// run is snippet-first; documents are fetched only to firm up identity.
-	defaultLegalTimeout       = 180
+	defaultLegalTimeout       = 240
 	defaultLegalQueriesPerRun = 16
 	defaultLegalDocsPerRun    = 8
 	// defaultLegalPagesPerQuery is the adaptive-walk ceiling: page 1 plus up
@@ -198,7 +198,7 @@ func Load() *Config {
 		region = "us-central1"
 	}
 
-	researchTimeout := time.Duration(envInt("RESEARCH_TIMEOUT_SECONDS", 180)) * time.Second
+	researchTimeout := time.Duration(envInt("RESEARCH_TIMEOUT_SECONDS", 240)) * time.Second
 	browserResearchTimeout := time.Duration(envInt("BROWSER_RESEARCH_TIMEOUT_SECONDS", 300)) * time.Second
 	if browserResearchTimeout < researchTimeout {
 		// Opting into rendering must never leave a run less time than the default.
