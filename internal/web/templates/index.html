@@ -58,7 +58,7 @@
                             <label class="text-xs font-medium text-slate-300">What are you researching?</label>
                             <span class="text-[11px] text-slate-500">One focused mode per run</span>
                         </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
                             <label class="mode-card cursor-pointer">
                                 <input type="radio" name="mode" value="company" checked class="sr-only" onclick="toggleFields('company')">
                                 <span class="block rounded-2xl border border-indigo-500/60 bg-indigo-500/15 p-4">
@@ -95,6 +95,12 @@
                                     <strong class="block text-sm text-white">Buyer landscape</strong><small class="block text-xs text-slate-400 mt-1">Who consumes it, demand signals</small>
                                 </span>
                             </label>
+                            <label class="mode-card cursor-pointer">
+                                <input type="radio" name="mode" value="news" class="sr-only" onclick="toggleFields('news')">
+                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                                    <strong class="block text-sm text-white">News brief</strong><small class="block text-xs text-slate-400 mt-1">Current reporting and sentiment</small>
+                                </span>
+                            </label>
                         </div>
                     </div>
 
@@ -104,6 +110,26 @@
                         <input id="primary-query" type="text" name="query" required autocomplete="organization" spellcheck="false" placeholder="e.g. Anthropic, Stripe, Datadog..."
                                class="field w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 text-sm">
                     </div>
+                </div>
+
+                <div id="news-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Maximum articles</label>
+                        <input type="number" name="news_max_articles" value="20" min="1" max="30"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Results per source query</label>
+                        <input type="number" name="news_max_results" value="10" min="1" max="10"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="text-xs font-medium text-slate-400">Allowed news hosts (Optional)</label>
+                        <input type="text" name="news_allowed_hosts" placeholder="Leave blank for the configured whitelist; e.g. reuters.com, bbc.com"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <label class="sm:col-span-2 text-xs text-slate-300"><input type="checkbox" name="news_include_undated" value="1" class="mr-1 accent-indigo-500"> Include scraped articles with no verifiable publication timestamp</label>
+                    <p class="sm:col-span-2 text-[11px] text-slate-500">Only articles published within the last 24 hours are selected by default. Conflicting reports are attributed and resolved chronologically where evidence supports an update.</p>
                 </div>
 
                 <!-- Disambiguation fields for Person Mode -->
@@ -361,6 +387,7 @@
             const rf = document.getElementById('related-fields');
             const mf = document.getElementById('market-fields');
             const bf = document.getElementById('demand-fields');
+            const nf = document.getElementById('news-fields');
             const ql = document.getElementById('query-label');
             const qi = document.getElementById('primary-query');
             const companySubmit = document.getElementById('company-submit');
@@ -373,6 +400,7 @@
             rf.classList.add('hidden');
             if (mf) mf.classList.add('hidden');
             if (bf) bf.classList.add('hidden');
+            if (nf) nf.classList.add('hidden');
             if (mode === 'demand_chain') {
                 if (bf) bf.classList.remove('hidden');
                 ql.innerText = 'Product / commodity';
@@ -391,6 +419,17 @@
                 if (companySubmit) companySubmit.classList.remove('hidden');
                 if (personSubmit) personSubmit.classList.add('hidden');
                 if (spinner) spinner.innerText = 'Building the market research plan…';
+                if (form) {
+                    form.setAttribute('hx-post', '/api/research');
+                    form.setAttribute('hx-target', '#results-container');
+                }
+            } else if (mode === 'news') {
+                if (nf) nf.classList.remove('hidden');
+                ql.innerText = 'News question';
+                qi.placeholder = 'e.g. What is the current status of the US-Iran conflict?';
+                if (companySubmit) companySubmit.classList.remove('hidden');
+                if (personSubmit) personSubmit.classList.add('hidden');
+                if (spinner) spinner.innerText = 'Collecting current reporting…';
                 if (form) {
                     form.setAttribute('hx-post', '/api/research');
                     form.setAttribute('hx-target', '#results-container');

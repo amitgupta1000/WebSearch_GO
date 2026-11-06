@@ -15,8 +15,9 @@ import (
 	"encoding/base64"
 	"html"
 	"html/template"
-	"path"
+	"sort"
 	"strings"
+	"sync/atomic"
 )
 
 // BrandName is the wordmark shown on the cover and in the running footer.
@@ -58,51 +59,47 @@ const coverPhotoCaption = "Illustrative image, not a specific facility."
 // quiet lines, not a wall of text.
 const coverSummaryLimit = 320
 
-// coverPhotoName is the file name every scope folder uses for its front-page
-// photograph, so adding a per-mode cover is a file drop, not a code change.
-const coverPhotoName = "cover-oil-terminal.jpg"
-
-// assetsFS is the per-search-mode photo library: assets/<mode folder>/cover-….
-// The folders are named for the modes ("buyer search", "company research",
-// "legal search", "person research", "producer seller search", "related entity
-// search").
+// assetsFS is the bundled cover-photo library. The images are deliberately
+// shared across modes and selected in rotation so repeated reports do not all
+// carry the same cover.
 //
 //go:embed assets
 var assetsFS embed.FS
 
-// coverPhotoForScope returns the embedded photograph for a report scope,
-// matching the scope keyword against the folder names ("buyer" → buyer search)
-// and falling back to the first folder that carries a cover photo, so a
-// missing per-mode image degrades instead of breaking the report.
+var coverPhotoIndex uint64
+
+// coverPhotoForScope returns the next embedded photograph in deterministic
+// filename order. scopeKeyword remains part of the signature because callers
+// render different report scopes, but the library is intentionally shared.
 func coverPhotoForScope(scopeKeyword string) template.URL {
-	keyword := strings.ToLower(strings.TrimSpace(scopeKeyword))
+	_ = scopeKeyword
 	entries, err := assetsFS.ReadDir("assets")
 	if err != nil {
 		return ""
 	}
-	fallback := ""
+	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.IsDir() {
 			continue
 		}
-		dir := path.Join("assets", entry.Name())
-		data, err := assetsFS.ReadFile(path.Join(dir, coverPhotoName))
-		if err != nil {
+		lower := strings.ToLower(entry.Name())
+		if !strings.HasPrefix(lower, "cover-research-") ||
+			(!strings.HasSuffix(lower, ".jpg") && !strings.HasSuffix(lower, ".jpeg")) {
 			continue
 		}
-		if keyword != "" && strings.Contains(strings.ToLower(entry.Name()), keyword) {
-			return photoDataURI(data)
-		}
-		if fallback == "" {
-			fallback = dir
-		}
+		names = append(names, entry.Name())
 	}
-	if fallback != "" {
-		if data, err := assetsFS.ReadFile(path.Join(fallback, coverPhotoName)); err == nil {
-			return photoDataURI(data)
-		}
+	if len(names) == 0 {
+		return ""
 	}
-	return ""
+	sort.Strings(names)
+	index := atomic.AddUint64(&coverPhotoIndex, 1) - 1
+	name := names[index%uint64(len(names))]
+	data, err := assetsFS.ReadFile("assets/" + name)
+	if err != nil {
+		return ""
+	}
+	return photoDataURI(data)
 }
 
 // photoDataURI inlines photograph bytes as a data URI, typed as template.URL

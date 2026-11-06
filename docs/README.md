@@ -11,6 +11,10 @@ tracks and synthesizes structured results with Gemini:
   constraints and compiles a professional dossier.
 - **Related Entity mode** — confirms a company, checks the usual sources for direct group or
   subsidiary relationships, then follows directors and C-suite leaders into other companies.
+- **Market Landscape mode** — discovers and verifies producer/seller companies by activity and geography.
+- **Buyer Landscape mode** — finds public consumers and demand signals through value-chain stages.
+- **News mode** — assembles a whitelist-only, last-24-hours news brief with citations, conflict handling,
+  and structured sentiment.
 
 The HTTP layer serves an HTMX UI from templates embedded in the binary
 (`internal/web`); the agents stream-step through search (Serper API) → scrape →
@@ -313,6 +317,7 @@ nothing. Person mode still has no freshness pass and no image OCR; company mode 
 | `PORT` | `8080` | HTTP listen port |
 | `GEMINI_MODEL` | `gemini-2.5-flash-lite` | Gemini model name |
 | `SERPER_API_KEY` | — (required for search) | Serper.dev API key |
+| `NEWS_ALLOWED_HOSTS` | Built-in reputable publisher list | Comma-separated News Agent whitelist. Per-run host selections can only narrow this configured list. News searches bypass the normal search cache so newly published articles are not hidden by cached results. |
 | `ROCKETREACH_API_KEY` | — (optional) | Enables bounded company/related-entity profile discovery and explicit person-dossier contact enrichment. Search discovery does not request contact details; lookup failures are non-fatal. |
 | `GOOGLE_API_KEY` | — | Gemini API key (AI Studio) |
 | `GOOGLE_GENAI_USE_VERTEXAI` | unset | Set to `true` to use Vertex AI backend |

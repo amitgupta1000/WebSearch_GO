@@ -429,15 +429,10 @@ func (e *Engine) SearchCached(ctx context.Context, query string, maxResults int)
 
 // SearchFresh bypasses the search cache for an explicitly requested fresh lookup.
 func (e *Engine) SearchFresh(ctx context.Context, query string, maxResults int) ([]models.SearchResult, error) {
-	if e.serperClient == nil {
+	if e == nil || e.serperClient == nil {
 		return nil, fmt.Errorf("search client is not configured")
 	}
-	results, err := e.serperClient.Search(ctx, query, maxResults)
-	if err != nil {
-		return nil, err
-	}
-	cache.SetJSON(ctx, e.cache, cache.HashKey("search", query), results, searchResultsTTL)
-	return results, nil
+	return e.serperClient.Search(ctx, query, maxResults)
 }
 
 // sessionScraper is the slice of the scraper the engine needs to reason about the exported

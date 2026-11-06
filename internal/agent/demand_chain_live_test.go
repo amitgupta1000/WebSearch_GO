@@ -51,6 +51,18 @@ func TestDemandChainLive(t *testing.T) {
 	exporter := export.New(export.NewFilesystemDestination(outDir), scraper, "live/", nil)
 	eng := NewEngine(gemini, serper, scraper, cache.NewMemoryCache(200), 40, 10, 20, WithExporter(exporter))
 
+	// The event channel is drained exactly like the SSE console does, so the
+	// RocketReach discovery calls are observable in the test output.
+	eventCh := make(chan models.AgentEvent, 256)
+	var events []models.AgentEvent
+	eventsDone := make(chan struct{})
+	go func() {
+		for event := range eventCh {
+			events = append(events, event)
+		}
+		close(eventsDone)
+	}()
+
 	agent := NewDemandChainAgent(eng, rocketReach)
 	report, err := agent.Research(ctx, "live-nbutanol-india", models.DemandChainQuery{
 		Activity:     "N-Butanol",
@@ -64,9 +76,16 @@ func TestDemandChainLive(t *testing.T) {
 		MaxLeadsEnriched:        60,
 		IncludePeople:           true,
 		UseRocketReachDiscovery: true,
-	}, nil)
+	}, eventCh)
+	close(eventCh)
+	<-eventsDone
 	if err != nil {
 		t.Fatalf("Research: %v", err)
+	}
+	for _, event := range events {
+		if strings.Contains(event.Content, "RocketReach") || strings.Contains(event.Content, "procurement") {
+			t.Logf("[event] %s: %s", event.Type, event.Content)
+		}
 	}
 
 	t.Logf("geography: %q; chain inferred: %v", report.Geography, report.ChainInferred)

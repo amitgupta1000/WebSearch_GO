@@ -200,6 +200,34 @@
 </div>
 {{end}}
 
+{{define "news_report"}}
+<div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+	<div class="flex items-start justify-between border-b border-slate-800 pb-4 gap-4">
+		<div>
+			<h3 class="text-2xl font-bold text-white">{{.Synthesis.Headline}}</h3>
+			<p class="text-sm text-slate-400 mt-1">{{.Query}}</p>
+			<p class="text-xs text-slate-500 mt-1">Current as of {{.AsOf}} · 24-hour window · {{.ArticlesSelected}} article(s) · {{.ChunksCollected}} evidence chunk(s)</p>
+		</div>
+		<div class="text-right text-xs text-slate-500">{{.QueriesUsed}} queries · {{.SearchHits}} hits · {{.ArticlesScraped}} scraped</div>
+	</div>
+	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
+	<div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+		<div class="lg:col-span-2 bg-slate-950 border border-slate-800 rounded-xl p-4 prose prose-invert max-w-none"><h4 class="text-sm font-semibold text-slate-300">Synthesized report</h4><p class="text-sm text-slate-300 whitespace-pre-line leading-relaxed mt-2">{{.Synthesis.Article}}</p></div>
+		<div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+			<h4 class="text-sm font-semibold text-slate-300">Sentiment</h4>
+			<div class="text-xl font-semibold text-indigo-300">{{.Synthesis.Sentiment.Label}}</div>
+			<div class="text-xs text-slate-400">Score {{printf "%.2f" .Synthesis.Sentiment.Score}} · confidence {{printf "%.0f" (mul .Synthesis.Sentiment.Confidence 100)}}%</div>
+			<p class="text-xs text-slate-400 leading-relaxed">{{.Synthesis.Sentiment.Rationale}}</p>
+			<h4 class="text-sm font-semibold text-slate-300 pt-3">Summary</h4>
+			<p class="text-xs text-slate-400 leading-relaxed">{{.Synthesis.Summary}}</p>
+		</div>
+	</div>
+	{{if .Synthesis.KeyDevelopments}}<div><h4 class="text-sm font-semibold text-slate-300 mb-2">Key developments</h4><ul class="list-disc pl-5 text-sm text-slate-400 space-y-1">{{range .Synthesis.KeyDevelopments}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
+	{{if .Synthesis.Conflicts}}<div><h4 class="text-sm font-semibold text-slate-300 mb-2">Conflicting reporting</h4><div class="space-y-2">{{range .Synthesis.Conflicts}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-3"><div class="text-xs text-white">{{.Claim}}</div><div class="text-[11px] text-indigo-300 mt-1">{{.Resolution}}</div><p class="text-xs text-slate-400 mt-1">{{.Explanation}}</p></div>{{end}}</div></div>{{end}}
+	{{if .Articles}}<details class="border-t border-slate-800 pt-5"><summary class="cursor-pointer text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Sources and evidence</summary><div class="mt-3 space-y-3">{{range .Articles}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-3"><a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-xs text-indigo-400 hover:underline">{{.Title}}</a><div class="text-[11px] text-slate-500 mt-1">{{.Source}} · {{.PublishedAt}} · {{len .Chunks}} chunk(s)</div><p class="text-[11px] text-slate-500 mt-1">{{.Snippet}}</p></div>{{end}}</div></details>{{end}}
+</div>
+{{end}}
+
 {{define "market_rocketreach_result"}}
 {{if .Error}}<div class="text-[11px] text-amber-300">{{.Error}}</div>{{else if .Profile}}<div class="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-2 text-[11px] text-slate-300"><div class="text-emerald-300 font-medium">{{.Profile.Name}}</div>{{if .Profile.CurrentTitle}}<div>{{.Profile.CurrentTitle}} · {{.Profile.CurrentEmployer}}</div>{{end}}{{range .Profile.Emails}}{{if ne .Grade "F"}}<div>{{.Email}} <span class="text-slate-500">({{.Grade}})</span></div>{{end}}{{end}}{{range .Profile.Phones}}<div>{{.Number}}</div>{{end}}{{if .Profile.LinkedInURL}}<a class="text-indigo-300 hover:underline" href="{{.Profile.LinkedInURL}}" target="_blank" rel="noreferrer">LinkedIn</a>{{end}}</div>{{end}}
 {{end}}

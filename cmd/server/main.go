@@ -38,6 +38,7 @@ type Server struct {
 	relatedAgent *agent.RelatedEntityAgent
 	marketAgent  *agent.MarketLandscapeAgent
 	demandAgent  *agent.DemandChainAgent
+	newsAgent    *agent.NewsAgent
 	rocketReach  *tools.RocketReachClient
 	hub          *agent.SessionHub
 	tmpl         *template.Template
@@ -272,6 +273,7 @@ func main() {
 	// engine and the market mode's evidence vocabulary, and RocketReach for
 	// procurement-contact discovery when the operator asks for it.
 	demandAgent := agent.NewDemandChainAgent(eng, rocketReachClient)
+	newsAgent := agent.NewNewsAgent(eng)
 	juristwayNote := " (anonymous)"
 	if cfg.JuristwayEmail != "" {
 		juristwayNote = " (authenticated)"
@@ -307,6 +309,7 @@ func main() {
 		relatedAgent:       relatedAgent,
 		marketAgent:        marketAgent,
 		demandAgent:        demandAgent,
+		newsAgent:          newsAgent,
 		rocketReach:        rocketReachClient,
 		hub:                sessionHub,
 		tmpl:               tmpl,
@@ -503,6 +506,10 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	}
 	if mode == "demand_chain" {
 		s.startDemandChain(w, r, query)
+		return
+	}
+	if mode == "news" {
+		s.startNews(w, r, query)
 		return
 	}
 
@@ -756,6 +763,7 @@ func demandChainQueryFromForm(r *http.Request, activity string) models.DemandCha
 	case "india":
 		regions = append([]string{"India"}, regions...)
 	}
+
 	regions = uniqueMarketRegions(regions)
 	// A geography typed into the query itself ("... focusing on India") is
 	// explicit user input: honour it even when the scope radio says Global.
@@ -774,6 +782,52 @@ func demandChainQueryFromForm(r *http.Request, activity string) models.DemandCha
 		IncludePeople:           r.FormValue("demand_people") == "1",
 		UseRocketReachDiscovery: r.FormValue("demand_rocketreach_discovery") == "1",
 	}
+}
+
+func newsQueryFromForm(r *http.Request, query string) models.NewsQuery {
+	return models.NewsQuery{
+		Query:            strings.TrimSpace(query),
+		MaxArticles:      parseBoundedInt(r.FormValue("news_max_articles"), 20, 1, 30),
+		MaxSearchResults: parseBoundedInt(r.FormValue("news_max_results"), 10, 1, 10),
+		AllowedHosts:     splitFormList(r.FormValue("news_allowed_hosts")),
+		IncludeUndated:   r.FormValue("news_include_undated") == "1",
+		ForceFreshSearch: true,
+	}
+}
+
+func (s *Server) startNews(w http.ResponseWriter, r *http.Request, query string) {
+	newsQuery := newsQueryFromForm(r, query)
+	sessionID := newSessionID()
+	if r.URL.Query().Get("sync") == "1" {
+		ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ResearchTimeoutFor(false))
+		defer cancel()
+		report, err := s.newsAgent.Research(ctx, sessionID, newsQuery, nil)
+		if err != nil {
+			s.renderError(w, "News research failed: "+err.Error())
+			return
+		}
+		s.render(w, "news_report", report)
+		return
+	}
+
+	session := s.hub.Create(sessionID, "news", query)
+	timeout := s.cfg.ResearchTimeoutFor(false)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("[ERROR][session %s] news research panicked: %v\n%s", sessionID, recovered, debug.Stack())
+				session.Complete(nil, fmt.Errorf("research panicked: %v", recovered))
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		report, err := s.newsAgent.Research(ctx, sessionID, newsQuery, session.EventCh)
+		session.Complete(report, err)
+	}()
+	s.render(w, "workflow_console", map[string]string{
+		"SessionID": sessionID, "Mode": "News", "Query": query,
+		"Budget": fmt.Sprintf("%ds", int(timeout.Seconds())),
+	})
 }
 
 // startDemandChain mirrors startMarketLandscape: a synchronous render when the
@@ -1487,6 +1541,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				} else if session.Mode == "demand_chain" {
 					if report, ok := result.(*models.DemandChainReport); ok {
 						sendSSE("result", renderFragment("demand_chain_report", report))
+					}
+					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
+				} else if session.Mode == "news" {
+					if report, ok := result.(*models.NewsReport); ok {
+						sendSSE("result", renderFragment("news_report", report))
 					}
 					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 				} else {

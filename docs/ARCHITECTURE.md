@@ -13,7 +13,7 @@ endpoints and deployment.
 
 ## Contents
 
-1. [The two research modes](#the-two-research-modes)
+1. [The research modes](#the-research-modes)
 2. [System architecture](#system-architecture)
 3. [Component map](#component-map)
 4. [Engineering principles at a glance](#engineering-principles-at-a-glance)
@@ -30,11 +30,11 @@ endpoints and deployment.
 15. [Project health & known issues](#project-health--known-issues)
 16. [Design history & roadmap](#design-history--roadmap)
 
-## The four research modes
+## The research modes
 
 WebSearch_GO is an **agentic AI research server** written in idiomatic Go (module
 `github.com/amitgupta1000/WebSearch_GO`, Go 1.24). It performs autonomous web research in
-four modes:
+six modes:
 
 | Mode | What it produces | How it works |
 | :--- | :--- | :--- |
@@ -42,13 +42,16 @@ four modes:
 | **Person** (`mode=person`) | A structured `PersonProfile` dossier: title, company, bio, experiences, education, skills, confidence score, and optional RocketReach contact enrichment | Priority RocketReach profile/contact lookup → disambiguated search (name + company + location) → bio-oriented pages are scraped → a secondary career search supplements snippets → Gemini synthesizes/QCs the dossier |
 | **Legal** (`mode=legal`) | A structured `LegalReport`: docketed litigation findings on the confirmed company and named persons, deterministic risk position, plus same-named hits kept for review | The company identity is confirmed as in company mode → bounded case-law and regulatory searches run → every hit is tied to the identity by CIN/name/alias → Gemini classifies category/status → deterministic dockets and risk position are assembled |
 | **Related entities** (`mode=related_entity`) | A graph-first `RelatedEntityReport`: evidence-backed company and person nodes connected by labelled relationships, with raw snippets retained for review and optional RocketReach discovery provenance | Separate company search (32-query budget) from people discovery (8-query budget) → run up to four bounded RocketReach title-group searches when configured → merge strictly employer-matched candidates → launch a six-query identity/affiliation trajectory for each resolved leader, concurrently up to eight people → resolve DIN, appointment, domain, and registry signals → search other-company involvement; Gemini labels bounded evidence slices, but the report preserves the graph and raw evidence rather than depending on one monolithic extraction |
+| **Market landscape** (`mode=market_landscape`) | A verified producer/seller landscape with evidence and optional contact discovery | Bounded activity/geography lanes → discovery leads → company extraction and verification → deterministic confidence/status assembly |
+| **Buyer landscape** (`mode=demand_chain`) | A verified demand-chain report identifying public consumers and buying signals | Infer or accept consuming stages → search operator and demand lanes → scrape and verify buyer evidence → deterministic assembly with stage attribution |
+| **News brief** (`mode=news`) | A current-news article, summary, chronology, conflict register, citations, and structured sentiment | Search configured whitelist hosts → bypass search cache for freshness → scrape and date articles from search metadata/JSON-LD → keep only verifiable articles from the last 24 hours → chunk and label evidence → Gemini structured synthesis with temporal conflict handling |
 
 The system is built from six cooperating layers:
 
 - **HTTP layer** (`cmd/server`, `internal/web`) — an HTMX-powered single-page console,
   with templates embedded into the binary via `go:embed`.
-- **Agentic orchestration** (`internal/agent`) — a shared *Engine* plus four domain
-  specialists (company / person / legal / related entity) that plan, search, rank, scrape and synthesize.
+- **Agentic orchestration** (`internal/agent`) — a shared *Engine* plus six domain
+  specialists (company / person / legal / related entity / market / news) that plan, search, rank, scrape and synthesize.
 - **Tooling** (`internal/tools`) — Serper.dev Google-search client, a sanitized HTML
   scraper with an optional Playwright renderer and PDF text extraction,
   browser-cookie import, and the IndianKanoon case-law client.
