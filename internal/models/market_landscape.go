@@ -41,20 +41,23 @@ type MarketLandscapeLeadCandidate struct {
 
 // MarketLandscapeCompany is a normalized company candidate or result.
 type MarketLandscapeCompany struct {
-	EntityKey       string                    `json:"entity_key"`
-	Name            string                    `json:"name"`
-	Domain          string                    `json:"domain,omitempty"`
-	Country         string                    `json:"country,omitempty"`
-	Region          string                    `json:"region,omitempty"`
-	Activity        string                    `json:"activity,omitempty"`
-	Status          string                    `json:"status"`
-	Confidence      float64                   `json:"confidence"`
-	EvidenceType    string                    `json:"evidence_type,omitempty"`
-	EvidenceSummary string                    `json:"evidence_summary,omitempty"`
-	BusinessContact []string                  `json:"business_contact,omitempty"`
-	KeyPeople       []string                  `json:"key_people,omitempty"`
-	KeyPeopleSources map[string]string       `json:"key_people_sources,omitempty"`
-	Evidence        []MarketLandscapeEvidence `json:"evidence,omitempty"`
+	EntityKey  string  `json:"entity_key"`
+	Name       string  `json:"name"`
+	Domain     string  `json:"domain,omitempty"`
+	Country    string  `json:"country,omitempty"`
+	Region     string  `json:"region,omitempty"`
+	Activity   string  `json:"activity,omitempty"`
+	Status     string  `json:"status"`
+	Confidence float64 `json:"confidence"`
+	// Stage names the consuming stage a buyer-side (demand chain) run tied the
+	// company to; empty on supplier-side runs.
+	Stage            string                    `json:"stage,omitempty"`
+	EvidenceType     string                    `json:"evidence_type,omitempty"`
+	EvidenceSummary  string                    `json:"evidence_summary,omitempty"`
+	BusinessContact  []string                  `json:"business_contact,omitempty"`
+	KeyPeople        []string                  `json:"key_people,omitempty"`
+	KeyPeopleSources map[string]string         `json:"key_people_sources,omitempty"`
+	Evidence         []MarketLandscapeEvidence `json:"evidence,omitempty"`
 }
 
 type MarketLandscapePersonCandidate struct {
@@ -63,27 +66,27 @@ type MarketLandscapePersonCandidate struct {
 
 // MarketLandscapeReport separates verified results from the auditable corpus.
 type MarketLandscapeReport struct {
-	ResearchID      string                    `json:"research_id"`
-	Objective       string                    `json:"objective"`
-	Activity        string                    `json:"activity"`
-	Results         []MarketLandscapeCompany  `json:"results,omitempty"`
-	Appendix        []MarketLandscapeEvidence `json:"appendix,omitempty"`
-	Lanes           []string                  `json:"lanes,omitempty"`
-	Iterations      int                       `json:"iterations"`
-	QueriesUsed     int                       `json:"queries_used"`
-	CandidatesFound int                       `json:"candidates_found"`
-	LeadsReviewed   int                       `json:"leads_reviewed"`
-	LeadsResolved   int                       `json:"leads_resolved"`
-	SearchHits      int                       `json:"search_hits"`
-	LeadsExtracted  int                       `json:"leads_extracted"`
-	LeadsRejected   int                       `json:"leads_rejected"`
-	PagesEnriched   int                       `json:"pages_enriched"`
-	RocketReachDiscoveryCalls int             `json:"rocketreach_discovery_calls,omitempty"`
-	RocketReachProfilesFound int              `json:"rocketreach_profiles_found,omitempty"`
-	RocketReachCandidatesPromoted int        `json:"rocketreach_candidates_promoted,omitempty"`
-	RocketReachDiscoveryEnabled bool          `json:"rocketreach_discovery_enabled,omitempty"`
-	Warnings        []string                  `json:"warnings,omitempty"`
-	StartedAt       time.Time                 `json:"started_at"`
-	CompletedAt     time.Time                 `json:"completed_at"`
-	Exports         []ExportArtifact          `json:"exports,omitempty"`
+	ResearchID                    string                    `json:"research_id"`
+	Objective                     string                    `json:"objective"`
+	Activity                      string                    `json:"activity"`
+	Results                       []MarketLandscapeCompany  `json:"results,omitempty"`
+	Appendix                      []MarketLandscapeEvidence `json:"appendix,omitempty"`
+	Lanes                         []string                  `json:"lanes,omitempty"`
+	Iterations                    int                       `json:"iterations"`
+	QueriesUsed                   int                       `json:"queries_used"`
+	CandidatesFound               int                       `json:"candidates_found"`
+	LeadsReviewed                 int                       `json:"leads_reviewed"`
+	LeadsResolved                 int                       `json:"leads_resolved"`
+	SearchHits                    int                       `json:"search_hits"`
+	LeadsExtracted                int                       `json:"leads_extracted"`
+	LeadsRejected                 int                       `json:"leads_rejected"`
+	PagesEnriched                 int                       `json:"pages_enriched"`
+	RocketReachDiscoveryCalls     int                       `json:"rocketreach_discovery_calls,omitempty"`
+	RocketReachProfilesFound      int                       `json:"rocketreach_profiles_found,omitempty"`
+	RocketReachCandidatesPromoted int                       `json:"rocketreach_candidates_promoted,omitempty"`
+	RocketReachDiscoveryEnabled   bool                      `json:"rocketreach_discovery_enabled,omitempty"`
+	Warnings                      []string                  `json:"warnings,omitempty"`
+	StartedAt                     time.Time                 `json:"started_at"`
+	CompletedAt                   time.Time                 `json:"completed_at"`
+	Exports                       []ExportArtifact          `json:"exports,omitempty"`
 }

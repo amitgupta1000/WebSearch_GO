@@ -12,7 +12,7 @@ func TestTemplatesParseAndLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Templates(): %v", err)
 	}
-	for _, name := range []string{"index.html", "company_chart", "company_result", "question_answer", "person_dossier", "error_box", "workflow_console", "log_entry", "market_landscape_report", "market_rocketreach_result"} {
+	for _, name := range []string{"index.html", "company_chart", "company_result", "question_answer", "person_dossier", "error_box", "workflow_console", "log_entry", "market_landscape_report", "market_rocketreach_result", "demand_chain_report"} {
 		if tmpl.Lookup(name) == nil {
 			t.Errorf("template %q not found", name)
 		}
@@ -234,6 +234,57 @@ func TestCompanyResultOffersBrowserRerun(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "/api/rerun") {
 		t.Error("no re-run control should be rendered when Chromium is unavailable")
+	}
+}
+
+// TestDemandChainReportFragmentRenders keeps the buyer console fragment honest:
+// the value chain panel, the stage-tagged result cards, and the honesty
+// warnings all render, and key-people forms carry the company (the same
+// root-dot trap the market fragment once had).
+func TestDemandChainReportFragmentRenders(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := &models.DemandChainReport{
+		Activity: "used cooking oil", Objective: "Find refiners that buy UCO.",
+		Geography: "India",
+		ChainInferred: true,
+		Chain: []models.ValueChainStage{{
+			Name: "biodiesel production", Rationale: "Biodiesel is produced from UCO.",
+			Operators: []string{"biodiesel plant"}, Source: "model",
+		}},
+		QueriesUsed: 12, SearchHits: 31, VerificationQueries: 6,
+		Results: []models.MarketLandscapeCompany{{
+			Name: "GreenDiesel Sdn Bhd", Domain: "greendiesel.com.my", Status: "verified",
+			Stage: "biodiesel production", Confidence: 0.86,
+			KeyPeople: []string{"Asha Rao"},
+			Evidence: []models.MarketLandscapeEvidence{{
+				Title: "GreenDiesel wins state tender", URL: "https://tenderportal.example.com/uco-tender",
+				Lane: "demand verification", ClaimType: "demand-tender",
+			}},
+		}},
+		Warnings: []string{"Private procurement is invisible to web research."},
+	}
+
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "demand_chain_report", report); err != nil {
+		t.Fatalf("execute demand_chain_report: %v", err)
+	}
+	rendered := out.String()
+	for _, expected := range []string{
+		"Buyer landscape",
+		"Geography: India",
+		"biodiesel production", "Biodiesel is produced from UCO.",
+		"GreenDiesel Sdn Bhd", "Consuming stage: biodiesel production",
+		`name="company_name" value="GreenDiesel Sdn Bhd"`,
+		`name="person_name" value="Asha Rao"`,
+		"Private procurement is invisible",
+	} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("demand_chain_report fragment is missing %q", expected)
+		}
 	}
 }
 

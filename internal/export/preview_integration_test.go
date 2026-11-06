@@ -54,6 +54,39 @@ func TestBrandedPDFPreview(t *testing.T) {
 				Risk:        &models.LegalRiskAssessment{Level: "low", Summary: "Two stale matters, no pending exposure."},
 			})
 		}},
+		{"demand-chain", func() []models.ExportArtifact {
+			return exporter.ExportDemandChain(ctx, &models.DemandChainReport{
+				Activity: "used cooking oil",
+				Objective: "Find refiners and oleochemical plants that buy used cooking oil in Malaysia and Singapore.",
+				ChainInferred: true,
+				Chain: []models.ValueChainStage{
+					{Name: "biodiesel production", Rationale: "Biodiesel is produced from used cooking oil feedstock.", Operators: []string{"biodiesel plant", "biorefinery"}, Source: "model"},
+					{Name: "oleochemicals", Rationale: "Fatty acid and glycerine production consumes UCO derivatives.", Operators: []string{"oleochemical plant"}, Source: "model"},
+				},
+				Results: []models.MarketLandscapeCompany{{
+					Name: "GreenDiesel Sdn Bhd", Domain: "greendiesel.com.my", Country: "Malaysia",
+					Activity: "used cooking oil", Stage: "biodiesel production",
+					Status: "verified", Confidence: 0.84, EvidenceType: "company-page",
+					EvidenceSummary: "State e-procurement award names GreenDiesel as the UCO feedstock purchaser.",
+					Evidence: []models.MarketLandscapeEvidence{{
+						Title: "GreenDiesel wins state tender", URL: "https://tenderportal.example.com/uco-tender",
+						Lane: "demand verification", ClaimType: models.DemandClaimTender,
+						SourceTier: "official", Status: "tender or procurement record",
+					}},
+				}},
+				QueriesUsed: 14, SearchHits: 37, LeadsReviewed: 37, LeadsExtracted: 9,
+				LeadsRejected: 3, PagesEnriched: 6, VerificationQueries: 9, CandidatesFound: 11,
+				Warnings: []string{
+					"Private procurement is invisible to web research: this run only sees demand that surfaced publicly.",
+					"Model-inferred stages are hypotheses; each result names the consuming stage it was tied to.",
+				},
+				Appendix: []models.MarketLandscapeEvidence{{
+					Title: "UCO import record — customs mirror", URL: "https://customs-mirror.example.com/hs-code",
+					Lane: "importer import data", ClaimType: models.DemandClaimImport,
+					SourceTier: "official", Status: "candidate",
+				}},
+			})
+		}},
 	} {
 		for _, artifact := range run.store() {
 			if artifact.Failed() {

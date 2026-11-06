@@ -53,6 +53,16 @@ func (e *Exporter) ExportMarketLandscape(ctx context.Context, report *models.Mar
 		reportFooter(marketReportTitle(report), generatedStamp(report.CompletedAt)), nil)
 }
 
+// ExportDemandChain renders and stores a finished buyer-side run's artifacts.
+func (e *Exporter) ExportDemandChain(ctx context.Context, report *models.DemandChainReport) []models.ExportArtifact {
+	if !e.Enabled() || report == nil {
+		return nil
+	}
+	return e.exportRun(ctx, "demand-chain", report.Activity,
+		renderDemandChainMarkdown(report), renderDemandChainHTML(report),
+		reportFooter(demandChainReportTitle(report), generatedStamp(report.CompletedAt)), nil)
+}
+
 // exportRun writes every enabled format, reporting one artifact per attempt: a
 // failed PDF must not hide the Markdown that was stored successfully. The search
 // trace — every query with its kept and excluded hits — is stored alongside them

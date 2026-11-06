@@ -89,6 +89,12 @@
                                     <strong class="block text-sm text-white">Market landscape</strong><small class="block text-xs text-slate-400 mt-1">Companies, regions, contacts</small>
                                 </span>
                             </label>
+                            <label class="mode-card cursor-pointer">
+                                <input type="radio" name="mode" value="demand_chain" class="sr-only" onclick="toggleFields('demand_chain')">
+                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                                    <strong class="block text-sm text-white">Buyer landscape</strong><small class="block text-xs text-slate-400 mt-1">Who consumes it, demand signals</small>
+                                </span>
+                            </label>
                         </div>
                     </div>
 
@@ -180,6 +186,48 @@
                         </div>
                         <p class="sm:col-span-2 text-[11px] text-slate-500">This additive mode uses a tagged, vector-free research corpus and does not change existing workflows.</p>
                     </div>
+                </div>
+
+                <!-- Buyer landscape fields: value-chain-driven demand research -->
+                <div id="demand-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
+                    <div class="sm:col-span-2">
+                        <label class="text-xs font-medium text-slate-400">Objective (Optional)</label>
+                        <input type="text" name="demand_objective" placeholder="e.g. Find refiners and oleochemical plants that buy crude palm oil"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Region scope</label>
+                        <div class="grid grid-cols-4 gap-2 mt-1">
+                            <label class="cursor-pointer"><input type="radio" name="demand_region_scope" value="global" checked class="sr-only peer"><span class="block text-center rounded-lg border border-slate-800 px-2 py-1.5 text-xs text-slate-300 peer-checked:border-indigo-500 peer-checked:text-white">Global</span></label>
+                            <label class="cursor-pointer"><input type="radio" name="demand_region_scope" value="asia" class="sr-only peer"><span class="block text-center rounded-lg border border-slate-800 px-2 py-1.5 text-xs text-slate-300 peer-checked:border-indigo-500 peer-checked:text-white">Asia</span></label>
+                            <label class="cursor-pointer"><input type="radio" name="demand_region_scope" value="mea" class="sr-only peer"><span class="block text-center rounded-lg border border-slate-800 px-2 py-1.5 text-xs text-slate-300 peer-checked:border-indigo-500 peer-checked:text-white">MEA</span></label>
+                            <label class="cursor-pointer"><input type="radio" name="demand_region_scope" value="india" class="sr-only peer"><span class="block text-center rounded-lg border border-slate-800 px-2 py-1.5 text-xs text-slate-300 peer-checked:border-indigo-500 peer-checked:text-white">India</span></label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Countries (Optional, comma separated)</label>
+                        <input type="text" name="demand_countries" placeholder="e.g. Singapore, UAE, Indonesia"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="text-xs font-medium text-slate-400">Consuming stages (Optional — leave blank to infer the value chain with the model)</label>
+                        <input type="text" name="demand_stages" placeholder="e.g. biodiesel production, oleochemicals, animal feed"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Maximum companies</label>
+                        <input type="number" name="demand_max_companies" value="20" min="1" max="50"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Exclude (Optional, comma separated)</label>
+                        <input type="text" name="demand_exclusions" placeholder="e.g. market research vendors"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
+                    </div>
+                    <div class="sm:col-span-2 flex flex-wrap gap-4 text-xs text-slate-300">
+                        <label><input type="checkbox" name="demand_intermediaries" value="1" class="mr-1 accent-indigo-500"> Include traders, brokers and intermediaries</label>
+                    </div>
+                    <p class="sm:col-span-2 text-[11px] text-slate-500">Infers the value chain, searches operators of the consuming stages, and verifies consumption through tenders, import signals and input language. Private procurement stays invisible.</p>
                 </div>
 
                 <div id="company-fields" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-800/60">
@@ -310,6 +358,7 @@
             const lf = document.getElementById('legal-fields');
             const rf = document.getElementById('related-fields');
             const mf = document.getElementById('market-fields');
+            const bf = document.getElementById('demand-fields');
             const ql = document.getElementById('query-label');
             const qi = document.getElementById('primary-query');
             const companySubmit = document.getElementById('company-submit');
@@ -321,7 +370,19 @@
             lf.classList.add('hidden');
             rf.classList.add('hidden');
             if (mf) mf.classList.add('hidden');
-            if (mode === 'market_landscape') {
+            if (bf) bf.classList.add('hidden');
+            if (mode === 'demand_chain') {
+                if (bf) bf.classList.remove('hidden');
+                ql.innerText = 'Product / commodity';
+                qi.placeholder = 'e.g. used cooking oil, crude palm oil, sulfur';
+                if (companySubmit) companySubmit.classList.remove('hidden');
+                if (personSubmit) personSubmit.classList.add('hidden');
+                if (spinner) spinner.innerText = 'Inferring the value chain…';
+                if (form) {
+                    form.setAttribute('hx-post', '/api/research');
+                    form.setAttribute('hx-target', '#results-container');
+                }
+            } else if (mode === 'market_landscape') {
                 if (mf) mf.classList.remove('hidden');
                 ql.innerText = 'Activity / market question';
                 qi.placeholder = 'e.g. oil blending (crude oil + fuel oil)';

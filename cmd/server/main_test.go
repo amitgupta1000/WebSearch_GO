@@ -523,6 +523,37 @@ func TestHandleResolvePersonWithTypedContextSpendsNoSearch(t *testing.T) {
 // TestPersonQueryFromFormCarriesTheConfirmedIdentity covers the wire between the card and
 // the run: the employer and place the operator confirmed, the seed profile the identity was
 // confirmed from, and how the identity arrived.
+// TestDemandChainQueryFromFormHonoursTypedGeography: a geography typed into
+// the query itself ("... focusing on India") is explicit user input and must
+// scope the run even when the region-scope radio says Global.
+func TestDemandChainQueryFromFormHonoursTypedGeography(t *testing.T) {
+	typed := demandChainQueryFromForm(postForm("/api/research",
+		"mode=demand_chain&query=used+cooking+oil+focusing+on+India&demand_region_scope=global"),
+		"used cooking oil focusing on India")
+	if len(typed.Regions) != 1 || typed.Regions[0] != "India" {
+		t.Fatalf("regions = %v, want the typed geography honoured under Global scope", typed.Regions)
+	}
+	if typed.Activity != "used cooking oil" {
+		t.Errorf("activity = %q, want the product without the region phrase", typed.Activity)
+	}
+
+	// The scope radios still win when the operator picks one explicitly.
+	scoped := demandChainQueryFromForm(postForm("/api/research",
+		"mode=demand_chain&query=used+cooking+oil&demand_region_scope=mea"),
+		"used cooking oil")
+	if len(scoped.Regions) != 2 || scoped.Regions[0] != "Middle East" || scoped.Regions[1] != "Africa" {
+		t.Fatalf("regions = %v, want the MEA scope", scoped.Regions)
+	}
+
+	// Stage overrides and the intermediaries toggle travel too.
+	overridden := demandChainQueryFromForm(postForm("/api/research",
+		"mode=demand_chain&query=used+cooking+oil&demand_stages=biodiesel+production,oleochemicals&demand_intermediaries=1"),
+		"used cooking oil")
+	if len(overridden.StagesOverride) != 2 || !overridden.IncludeIntermediaries {
+		t.Fatalf("query = %+v, want the stage override and the intermediaries toggle", overridden)
+	}
+}
+
 func TestPersonQueryFromFormCarriesTheConfirmedIdentity(t *testing.T) {
 	request := postForm("/api/research", "mode=person&query=Sanjay+Kumar+Gupta"+
 		"&company_name=Sanjay+Chemicals+%28India%29+Pvt+Ltd&location=Mumbai"+

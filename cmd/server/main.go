@@ -37,6 +37,7 @@ type Server struct {
 	legalAgent   *agent.LegalAgent
 	relatedAgent *agent.RelatedEntityAgent
 	marketAgent  *agent.MarketLandscapeAgent
+	demandAgent  *agent.DemandChainAgent
 	rocketReach  *tools.RocketReachClient
 	hub          *agent.SessionHub
 	tmpl         *template.Template
@@ -266,6 +267,10 @@ func main() {
 	legalAgent := agent.NewLegalAgent(eng, tools.NewIndianKanoonClient(), tools.NewCasemineClient(scraper), juristwayClient, cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery, cfg.LegalConcurrency)
 	relatedAgent := agent.NewRelatedEntityAgent(eng)
 	marketAgent := agent.NewMarketLandscapeAgent(eng, rocketReachClient)
+	// The buyer-side mode is a separate agent with its own phases (value-chain
+	// inference, per-stage discovery, consumption verification); it shares the
+	// engine and the market mode's evidence vocabulary.
+	demandAgent := agent.NewDemandChainAgent(eng)
 	juristwayNote := " (anonymous)"
 	if cfg.JuristwayEmail != "" {
 		juristwayNote = " (authenticated)"
@@ -300,6 +305,7 @@ func main() {
 		legalAgent:         legalAgent,
 		relatedAgent:       relatedAgent,
 		marketAgent:        marketAgent,
+		demandAgent:        demandAgent,
 		rocketReach:        rocketReachClient,
 		hub:                sessionHub,
 		tmpl:               tmpl,
@@ -492,6 +498,10 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	}
 	if mode == "market_landscape" {
 		s.startMarketLandscape(w, r, query)
+		return
+	}
+	if mode == "demand_chain" {
+		s.startDemandChain(w, r, query)
 		return
 	}
 
@@ -725,6 +735,78 @@ func (s *Server) startMarketLandscape(w http.ResponseWriter, r *http.Request, ac
 	}()
 	s.render(w, "workflow_console", map[string]string{
 		"SessionID": sessionID, "Mode": "Market Landscape", "Query": activity,
+		"Budget": fmt.Sprintf("%ds", int(timeout.Seconds())),
+	})
+}
+
+// demandChainQueryFromForm reads a buyer-side run's inputs: the product to
+// research, where, and how many companies to return. The consuming stages are
+// optional — an empty field means the model infers the value chain.
+func demandChainQueryFromForm(r *http.Request, activity string) models.DemandChainQuery {
+	objective := strings.TrimSpace(activity)
+	normalizedActivity, promptRegions := normalizeMarketPrompt(activity)
+	regions := splitFormList(r.FormValue("demand_regions"))
+	scope := strings.ToLower(strings.TrimSpace(r.FormValue("demand_region_scope")))
+	switch scope {
+	case "asia":
+		regions = append([]string{"Asia"}, regions...)
+	case "mea":
+		regions = append([]string{"Middle East", "Africa"}, regions...)
+	case "india":
+		regions = append([]string{"India"}, regions...)
+	}
+	regions = uniqueMarketRegions(regions)
+	// A geography typed into the query itself ("... focusing on India") is
+	// explicit user input: honour it even when the scope radio says Global.
+	if len(regions) == 0 {
+		regions = promptRegions
+	}
+	return models.DemandChainQuery{
+		Objective:             firstNonEmpty(strings.TrimSpace(r.FormValue("demand_objective")), objective),
+		Activity:              normalizedActivity,
+		Regions:               regions,
+		Countries:             splitFormList(r.FormValue("demand_countries")),
+		Exclusions:            splitFormList(r.FormValue("demand_exclusions")),
+		MaxCompanies:          parseBoundedInt(r.FormValue("demand_max_companies"), 20, 1, 50),
+		StagesOverride:        splitFormList(r.FormValue("demand_stages")),
+		IncludeIntermediaries: r.FormValue("demand_intermediaries") == "1",
+	}
+}
+
+// startDemandChain mirrors startMarketLandscape: a synchronous render when the
+// caller asks for it, otherwise a detached run on the session hub whose events
+// stream as SSE.
+func (s *Server) startDemandChain(w http.ResponseWriter, r *http.Request, activity string) {
+	query := demandChainQueryFromForm(r, activity)
+	sessionID := newSessionID()
+	if r.URL.Query().Get("sync") == "1" {
+		ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ResearchTimeoutFor(false))
+		defer cancel()
+		report, err := s.demandAgent.Research(ctx, sessionID, query, nil)
+		if err != nil {
+			s.renderError(w, "Demand chain research failed: "+err.Error())
+			return
+		}
+		s.render(w, "demand_chain_report", report)
+		return
+	}
+
+	session := s.hub.Create(sessionID, "demand_chain", activity)
+	timeout := s.cfg.ResearchTimeoutFor(false)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("[ERROR][session %s] demand chain panicked: %v\n%s", sessionID, recovered, debug.Stack())
+				session.Complete(nil, fmt.Errorf("research panicked: %v", recovered))
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		report, err := s.demandAgent.Research(ctx, sessionID, query, session.EventCh)
+		session.Complete(report, err)
+	}()
+	s.render(w, "workflow_console", map[string]string{
+		"SessionID": sessionID, "Mode": "Demand Chain", "Query": activity,
 		"Budget": fmt.Sprintf("%ds", int(timeout.Seconds())),
 	})
 }
@@ -1397,6 +1479,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				} else if session.Mode == "market_landscape" {
 					if report, ok := result.(*models.MarketLandscapeReport); ok {
 						sendSSE("result", renderFragment("market_landscape_report", report))
+					}
+					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
+				} else if session.Mode == "demand_chain" {
+					if report, ok := result.(*models.DemandChainReport); ok {
+						sendSSE("result", renderFragment("demand_chain_report", report))
 					}
 					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 				} else {

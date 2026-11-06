@@ -45,6 +45,7 @@ const (
 	kickerPerson  = "Professional dossier"
 	kickerLegal   = "Legal and regulatory check"
 	kickerMarket  = "Market landscape research"
+	kickerDemand  = "Demand chain research"
 )
 
 // coverPhotoCaption is printed under the cover photograph, in the deck's voice:

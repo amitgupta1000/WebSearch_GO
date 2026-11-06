@@ -999,7 +999,6 @@ func indexedProfileQueries(brief models.CompanyBrief) []models.PlannedQuery {
 			Priority:   1,
 		})
 	}
-	queries = append(queries)
 	for _, area := range brief.AreasOfInterest {
 		if strings.TrimSpace(area) == "" {
 			continue

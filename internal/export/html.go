@@ -78,6 +78,7 @@ type document struct {
 	Profile      *models.PersonProfile
 	Legal        *models.LegalReport
 	Market       *models.MarketLandscapeReport
+	Chain        *models.DemandChainReport
 	Timings      []models.PhaseTiming
 }
 

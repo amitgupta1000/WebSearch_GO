@@ -187,6 +187,67 @@ func TestMarketCoverRenders(t *testing.T) {
 	}
 }
 
+// TestDemandChainMarkdownAndHTMLCarryTheChain pins the buyer-side branded
+// report: the value chain leads the body, the demand claims travel with the
+// evidence, and the cover carries the demand-chain kicker.
+func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
+	report := &models.DemandChainReport{
+		ResearchID: "research-1", Activity: "used cooking oil",
+		Objective: "Find refiners and oleochemical plants that buy used cooking oil.",
+		Geography: "Malaysia",
+		Chain: []models.ValueChainStage{{
+			Name: "biodiesel production", Rationale: "Biodiesel is produced from used cooking oil.",
+			Operators: []string{"biodiesel plant"}, Source: "model",
+		}},
+		ChainInferred: true,
+		Results: []models.MarketLandscapeCompany{{
+			Name: "GreenDiesel Sdn Bhd", Domain: "greendiesel.com.my", Country: "Malaysia",
+			Activity: "used cooking oil", Stage: "biodiesel production",
+			Status: "verified", Confidence: 0.86, EvidenceType: "company-page",
+			Evidence: []models.MarketLandscapeEvidence{{
+				Title: "GreenDiesel wins state tender", URL: "https://tenderportal.example.com/uco-tender",
+				Lane: "demand verification", ClaimType: models.DemandClaimTender,
+				SourceTier: "official", Status: "tender or procurement record",
+			}},
+		}},
+		QueriesUsed: 12, SearchHits: 31, LeadsReviewed: 31, VerificationQueries: 6,
+		Appendix: []models.MarketLandscapeEvidence{{
+			Title: "UCO import record — customs mirror", URL: "https://customs-mirror.example.com/hs-code",
+			Lane: "importer import data", ClaimType: models.DemandClaimImport,
+			SourceTier: "official", Status: "candidate",
+		}},
+		Warnings: []string{"Private procurement is invisible to web research: this run only sees demand that surfaced publicly."},
+	}
+
+	markdown := renderDemandChainMarkdown(report)
+	for _, expected := range []string{
+		"# used cooking oil — Demand Chain",
+		"Geography: Malaysia",
+		"## Value chain", "biodiesel production", "Biodiesel is produced from used cooking oil.",
+		"## Results — verified consumers", "GreenDiesel Sdn Bhd", "biodiesel production",
+		"import-record", "Private procurement is invisible",
+	} {
+		if !strings.Contains(markdown, expected) {
+			t.Errorf("demand-chain markdown is missing %q", expected)
+		}
+	}
+
+	html := renderDemandChainHTML(report)
+	for _, expected := range []string{
+		`<p class="kicker">` + kickerDemand + `</p>`,
+		`<h1 class="cover-title">used cooking oil</h1>`,
+		`<p class="cover-meta">Malaysia</p>`,
+		`src="data:image/jpeg;base64,`,
+		"Value chain", "Operator vocabulary",
+		"GreenDiesel Sdn Bhd", "biodiesel production",
+		"Honesty notes", "Private procurement is invisible",
+	} {
+		if !strings.Contains(html, expected) {
+			t.Errorf("demand-chain HTML is missing %q", expected)
+		}
+	}
+}
+
 // TestPlainRendererStillPrints keeps the fallback honest: a renderer without
 // the footer capability is still used, and the export still succeeds.
 func TestPlainRendererStillPrints(t *testing.T) {

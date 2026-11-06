@@ -889,6 +889,26 @@ directory.
 - **Detached budget.** Exports run on `context.WithoutCancel` with their own timeout, so a
   run that consumed its whole research deadline still saves its results.
 
+### `internal/agent/demand_chain.go` — buyer landscape
+
+The buyer-side mode answers "who consumes or buys this product" — an evidence
+problem with a different shape than the supplier side, where sellers advertise
+themselves. Its phases: **infer** (one structured call proposes the consuming
+stages of the product; the operator's `StagesOverride` wins outright, and a
+failed inference degrades to a generic stage rather than failing the run),
+**discover** (stage-operator lanes built from the chain's own vocabulary, plus
+product-shaped demand lanes: tenders, importers, input language), **verify**
+(consumption evidence through consumption-shaped purposes), and **assemble**
+(deterministically). Demand claims carry a directness-weighted confidence ladder
+(import/tender record > the buyer's own input language > stage verification),
+buyer bait ("buyers list" listicles, market-research vendors) stays in the
+appendix as leads, and intermediaries (traders, brokers) are excluded unless the
+operator asks for them. The report carries the chain itself plus the house-style
+honesty warning that private procurement is invisible to web research. It shares
+the market mode's evidence vocabulary (`MarketLandscapeCompany`/`Evidence`),
+tier classification and name hygiene, so a later supplier∩buyer matching pass
+needs no schema change.
+
 ### `internal/gcs` — Cloud Storage JSON API client
 
 `Upload`, `Download` (with `found=false` for a missing object, which is a normal cache
@@ -995,6 +1015,8 @@ WebSearch_GO/
 │   │   ├── company.go           # Company agent: plan → search → rank → scrape → synthesize + QC loop
 │   │   ├── person.go            # Person agent: disambiguation → bio scraping → dossier synthesis
 │   │   ├── legal.go             # Legal agent: identity → IndianKanoon/Casemine search → classify → report
+│   │   ├── market_landscape.go  # Market agent: lanes → discovery → verification → deterministic report
+│   │   ├── demand_chain.go      # Buyer agent: infer value chain → stage lanes → consumption verification
 │   │   ├── hub.go               # Session + SessionHub: thread-safe per-research event buses
 │   │   ├── timing.go            # Per-phase timer/recorder for the run's timing report
 │   │   ├── legal_test.go        # Query plan, identity classification, buckets, budget honesty
@@ -1013,9 +1035,10 @@ WebSearch_GO/
 │   │   ├── export.go            # Artifact/Destination types, exporter wiring, Cloud Storage
 │   │   │                        #   and filesystem destinations, format selection
 │   │   ├── brand.go             # Crystal AI identity: palette, type stacks, embedded cover photo
-│   │   ├── run.go               # ExportCompany / ExportPerson / ExportLegal, object naming, slugify
+│   │   ├── run.go               # Export per mode (company/person/legal/market/demand-chain), naming, slugify
 │   │   ├── markdown.go          # Markdown documents for all research modes
 │   │   ├── html.go              # Self-contained branded printable documents for the PDF
+│   │   ├── demand_chain.go      # Buyer-side Markdown + HTML renderers (value chain, claims)
 │   │   ├── util.go              # Small rendering helpers
 │   │   └── export_test.go / render_test.go / brand_test.go / export_integration_test.go
 │   ├── gcs/
@@ -1029,6 +1052,8 @@ WebSearch_GO/
 │   │   ├── company.go           # OrgChart (+UnverifiedSourceCount), Department, Employee, Location
 │   │   ├── person.go            # PersonProfile (+ScorePercent), Experience, Education
 │   │   ├── legal.go             # LegalQuery, LegalReport, LegalFinding, LegalSourceReport
+│   │   ├── market_landscape.go  # MarketLandscapeQuery/Report/Company/Evidence (shared by both landscape modes)
+│   │   ├── demand_chain.go      # DemandChainQuery/Report, ValueChainStage, buyer claim types
 │   │   └── research.go          # Briefs, QueryPlan, RankedResult, Evidence, ScrapeReportEntry,
 │   │                            #   QualityReview (tolerant follow_up_queries), QuestionAnswer
 │   ├── tools/
