@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	marketMaxDiscoveryQueries    = 18
+	marketMaxDiscoveryQueries = 18
 	// Company verification gets 30 searches. Web key-person discovery and the
 	// optional RocketReach discovery each get their own 20-search budget.
 	marketMaxVerificationQueries = 70

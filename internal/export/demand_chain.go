@@ -103,7 +103,7 @@ func renderDemandChainHTML(report *models.DemandChainReport) string {
 		Kicker:       kickerDemand,
 		CoverSummary: coverSummary(report.Objective, coverSummaryLimit),
 		GeneratedAt:  generatedStamp(report.CompletedAt),
-		CoverPhoto:   coverPhotoURI(),
+		CoverPhoto:   coverPhotoForScope("buyer"),
 		Chain:        report,
 	})
 }

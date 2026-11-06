@@ -53,6 +53,13 @@ type DemandChainQuery struct {
 	// StagesOverride supplies the consuming stages directly; when set, the
 	// value-chain inference call is skipped entirely.
 	StagesOverride []string `json:"stages_override,omitempty"`
+	// IncludePeople runs web key-person discovery for the verified buyers —
+	// procurement, purchasing and supply-chain roles, the buyer-side
+	// counterparts of the seller's commercial team.
+	IncludePeople bool `json:"include_people,omitempty"`
+	// UseRocketReachDiscovery runs one RocketReach search per verified buyer
+	// with procurement/purchasing title filters. Needs ROCKETREACH_API_KEY.
+	UseRocketReachDiscovery bool `json:"use_rocketreach_discovery,omitempty"`
 	// IncludeIntermediaries keeps traders, brokers and trading houses — who are
 	// simultaneously buyers and sellers — in the results. They are excluded by
 	// default because a buyer list dominated by middlemen is rarely what the

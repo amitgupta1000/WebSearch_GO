@@ -11,10 +11,11 @@
 package export
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/base64"
 	"html"
 	"html/template"
+	"path"
 	"strings"
 )
 
@@ -57,19 +58,57 @@ const coverPhotoCaption = "Illustrative image, not a specific facility."
 // quiet lines, not a wall of text.
 const coverSummaryLimit = 320
 
-// coverPhotoJPEG is the front-page photograph, embedded so a report never
-// depends on the network at print time.
-//
-//go:embed assets/cover-oil-terminal.jpg
-var coverPhotoJPEG []byte
+// coverPhotoName is the file name every scope folder uses for its front-page
+// photograph, so adding a per-mode cover is a file drop, not a code change.
+const coverPhotoName = "cover-oil-terminal.jpg"
 
-// coverPhotoURI returns the embedded photograph as a data URI, typed as
-// template.URL so the print document carries the exact bytes — html/template's
-// contextual URL escaping would otherwise percent-encode the base64 payload.
-// The print browser blocks remote assets, so the photograph has to ride inside
-// the document itself.
-func coverPhotoURI() template.URL {
-	return template.URL("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(coverPhotoJPEG))
+// assetsFS is the per-search-mode photo library: assets/<mode folder>/cover-….
+// The folders are named for the modes ("buyer search", "company research",
+// "legal search", "person research", "producer seller search", "related entity
+// search").
+//
+//go:embed assets
+var assetsFS embed.FS
+
+// coverPhotoForScope returns the embedded photograph for a report scope,
+// matching the scope keyword against the folder names ("buyer" → buyer search)
+// and falling back to the first folder that carries a cover photo, so a
+// missing per-mode image degrades instead of breaking the report.
+func coverPhotoForScope(scopeKeyword string) template.URL {
+	keyword := strings.ToLower(strings.TrimSpace(scopeKeyword))
+	entries, err := assetsFS.ReadDir("assets")
+	if err != nil {
+		return ""
+	}
+	fallback := ""
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dir := path.Join("assets", entry.Name())
+		data, err := assetsFS.ReadFile(path.Join(dir, coverPhotoName))
+		if err != nil {
+			continue
+		}
+		if keyword != "" && strings.Contains(strings.ToLower(entry.Name()), keyword) {
+			return photoDataURI(data)
+		}
+		if fallback == "" {
+			fallback = dir
+		}
+	}
+	if fallback != "" {
+		if data, err := assetsFS.ReadFile(path.Join(fallback, coverPhotoName)); err == nil {
+			return photoDataURI(data)
+		}
+	}
+	return ""
+}
+
+// photoDataURI inlines photograph bytes as a data URI, typed as template.URL
+// so html/template's contextual URL escaping cannot percent-encode the payload.
+func photoDataURI(data []byte) template.URL {
+	return template.URL("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(data))
 }
 
 // coverSummary condenses a narrative into a cover paragraph: whitespace

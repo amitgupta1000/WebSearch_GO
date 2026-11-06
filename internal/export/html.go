@@ -89,7 +89,7 @@ func renderMarketLandscapeHTML(report *models.MarketLandscapeReport) string {
 		Kicker:       kickerMarket,
 		CoverSummary: coverSummary(report.Objective, coverSummaryLimit),
 		GeneratedAt:  generatedStamp(report.CompletedAt),
-		CoverPhoto:   coverPhotoURI(),
+		CoverPhoto:   coverPhotoForScope("buyer"),
 		Market:       report,
 	})
 }
@@ -136,8 +136,8 @@ func documentTemplate(name, body string) *template.Template {
 			<p class="checked">Checked {{.GeneratedAt}}</p>
 		</div>
 		<figure class="cover-figure">
-			<img class="cover-photo" src="{{.CoverPhoto}}" alt="Illustrative cover photograph">
-			<figcaption>` + coverPhotoCaption + `</figcaption>
+			{{if .CoverPhoto}}<img class="cover-photo" src="{{.CoverPhoto}}" alt="Illustrative cover photograph">
+			<figcaption>` + coverPhotoCaption + `</figcaption>{{end}}
 		</figure>
 	</div>
 </section>
@@ -214,7 +214,7 @@ func renderCompanyHTML(chart *models.OrgChart) string {
 		CoverSummary: coverSummary(chart.Overview, coverSummaryLimit),
 		CoverPills:   pills,
 		GeneratedAt:  generatedStamp(chart.LastUpdated),
-		CoverPhoto:   coverPhotoURI(),
+		CoverPhoto:   coverPhotoForScope("company"),
 		Chart:        chart,
 		Timings:      chart.Timings,
 	})
@@ -240,7 +240,7 @@ func renderPersonHTML(profile *models.PersonProfile) string {
 		CoverSummary: coverSummary(profile.ExecutiveSummary, coverSummaryLimit),
 		CoverPills:   pills,
 		GeneratedAt:  generatedStamp(profile.LastUpdated),
-		CoverPhoto:   coverPhotoURI(),
+		CoverPhoto:   coverPhotoForScope("person"),
 		Profile:      profile,
 	})
 }
@@ -278,7 +278,7 @@ func renderLegalHTML(report *models.LegalReport) string {
 		CoverSummary: coverSummary(narrative, coverSummaryLimit),
 		CoverPills:   pills,
 		GeneratedAt:  generatedStamp(report.LastUpdated),
-		CoverPhoto:   coverPhotoURI(),
+		CoverPhoto:   coverPhotoForScope("legal"),
 		Legal:        report,
 	})
 }

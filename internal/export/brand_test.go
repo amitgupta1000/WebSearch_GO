@@ -177,6 +177,7 @@ func TestMarketCoverRenders(t *testing.T) {
 	for _, expected := range []string{
 		`<p class="kicker">` + kickerMarket + `</p>`,
 		`<h1 class="cover-title">Crude oil trading</h1>`,
+		"<h1>Crude oil trading — Producer/Seller Landscape</h1>",
 		"Map the active counterparties",
 		`<p class="checked">Checked 2026-11-01 09:00 UTC</p>`,
 		`src="data:image/jpeg;base64,`,

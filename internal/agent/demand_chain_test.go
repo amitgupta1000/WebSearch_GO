@@ -15,6 +15,7 @@ import (
 type demandLLM struct {
 	stages        []models.ValueChainStage
 	candidates    []models.MarketLandscapeLeadCandidate
+	people        []models.MarketLandscapePersonCandidate
 	err           error
 	systemPrompts []string
 }
@@ -29,6 +30,8 @@ func (m *demandLLM) GenerateStructured(ctx context.Context, systemPrompt, userPr
 		*typed = append(*typed, m.stages...)
 	case *[]models.MarketLandscapeLeadCandidate:
 		*typed = append(*typed, m.candidates...)
+	case *[]models.MarketLandscapePersonCandidate:
+		*typed = append(*typed, m.people...)
 	}
 	return nil
 }
@@ -287,6 +290,11 @@ func TestDemandChainResearchAssemblesVerifiedConsumers(t *testing.T) {
 	if len(report.Results) == 0 {
 		t.Fatalf("results = %+v, want the verified consumer", report.Results)
 	}
+	// Alias-level dedupe: the discovery candidate and the verified company are
+	// one house, so the results carry GreenDiesel exactly once.
+	if len(report.Results) != 1 {
+		t.Fatalf("results = %d entries (%+v), want the deduplicated single consumer", len(report.Results), report.Results)
+	}
 	top := report.Results[0]
 	if top.Name != "GreenDiesel Sdn Bhd" || top.Stage != "biodiesel production" {
 		t.Fatalf("top result = %+v, want the verified consumer with its stage", top)
@@ -462,10 +470,18 @@ func TestDemandChainGroupsStageCandidates(t *testing.T) {
 		}},
 	}
 	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
-		"biodiesel plant": {{
-			Title: "Used cooking oil biodiesel plant in Malaysia", Link: "https://greendiesel.com.my/plant",
-			Snippet: "Produces biodiesel from used cooking oil feedstock.",
-		}},
+		"biodiesel plant": []models.SearchResult{
+			{
+				Title: "Used cooking oil biodiesel plant in Malaysia", Link: "https://greendiesel.com.my/plant",
+				Snippet: "Produces biodiesel from used cooking oil feedstock.",
+			},
+			{
+				// A second stage-relevant lead that never reaches verification:
+				// the roster must keep it honestly as a lead.
+				Title: "Biodiesel plant licensing in India", Link: "https://biofuelsindia.example.com/license",
+				Snippet: "Licensing a biodiesel plant requires used cooking oil feedstock approvals.",
+			},
+		},
 		"tender RFP": {{
 			Title: "Indiachem Solvents | Importer of industrial solvents", Link: "https://indiachem.example.com/import",
 			Snippet: "Importer of industrial solvents including used cooking oil derivatives.",
@@ -494,14 +510,26 @@ func TestDemandChainGroupsStageCandidates(t *testing.T) {
 	if biodiesel.Stage.Rationale == "" {
 		t.Error("the section must carry the stage's rationale")
 	}
-	foundLead := false
+	// Alias-level dedupe: the discovery lead and the verified company are one
+	// house, so the roster carries GreenDiesel exactly once — merged, verified
+	// — and keeps the never-verified licensing lead honestly as a lead.
+	greenDieselCount, leadCount := 0, 0
 	for _, company := range biodiesel.Companies {
+		if strings.Contains(company.Name, "GreenDiesel") {
+			greenDieselCount++
+			if company.Status == "lead" {
+				t.Errorf("the merged GreenDiesel entry must carry its verified status, got %q", company.Status)
+			}
+		}
 		if company.Status == "lead" {
-			foundLead = true
+			leadCount++
 		}
 	}
-	if !foundLead {
-		t.Errorf("the stage roster must keep unverified leads, got %+v", biodiesel.Companies)
+	if greenDieselCount != 1 {
+		t.Errorf("GreenDiesel appears %d time(s) in the roster, want exactly once after dedupe: %+v", greenDieselCount, biodiesel.Companies)
+	}
+	if leadCount == 0 {
+		t.Errorf("the roster must keep unverified leads, got %+v", biodiesel.Companies)
 	}
 	general, ok := byName["General demand lanes"]
 	if !ok {
@@ -510,6 +538,158 @@ func TestDemandChainGroupsStageCandidates(t *testing.T) {
 	if len(general.Companies) == 0 {
 		t.Error("the demand-lane bucket must keep its companies")
 	}
+}
+
+// TestDemandSameCompanyRules pins the alias rules and, just as importantly,
+// the refusals: conglomerate siblings and differently-named companies must
+// never merge.
+func TestDemandSameCompanyRules(t *testing.T) {
+	aliases := [][2]string{
+		{"IndianOil", "Indian Oil Corporation"},
+		{"Indian Oil Corporation", "IndianOil"},
+		{"Acme Ltd", "Acme"},
+		{"Acme", "Acme Ltd"},
+		{"S D Fine Chem Limited", "S D Fine Chem"},
+		{"Ishwar Chemicals & Gases", "Ishwar Chemicals and Gases"},
+	}
+	for _, pair := range aliases {
+		if !demandSameCompany(pair[0], pair[1]) {
+			t.Errorf("expected alias merge for %q / %q", pair[0], pair[1])
+		}
+	}
+	distinct := [][2]string{
+		{"Adani", "Adani Ports"},
+		{"Adani Ports", "Adani Power"},
+		{"Tata Motors", "Tata Steel"},
+		{"Punjab Chemicals", "Punjab Chemicals & Crop Protection Limited"},
+		{"OQ SAOC", "OQ Chemicals GmbH"},
+		{"IndianOil CBO", "Indian Oil Corporation"},
+		{"", "Acme"},
+	}
+	for _, pair := range distinct {
+		if demandSameCompany(pair[0], pair[1]) {
+			t.Errorf("expected %q / %q to stay separate", pair[0], pair[1])
+		}
+	}
+}
+
+// TestDemandDedupeCompaniesMergesAliases pins the merge itself: the strongest
+// member represents the house with the more complete name on ties, evidence
+// unions without duplicates, and genuinely different companies stay separate.
+func TestDemandDedupeCompaniesMergesAliases(t *testing.T) {
+	evidence := func(url string) models.MarketLandscapeEvidence {
+		return models.MarketLandscapeEvidence{URL: url, Title: "evidence", SourceTier: "official"}
+	}
+	pool := []*models.MarketLandscapeCompany{
+		{EntityKey: "company:name:indianoil", Name: "IndianOil", Country: "India", Status: "verified",
+			Confidence: 0.98, EvidenceType: "company-page", Evidence: []models.MarketLandscapeEvidence{evidence("https://iocl.com/1")}},
+		{EntityKey: "company:name:indian-oil-corp", Name: "Indian Oil Corporation", Status: "corroborated",
+			Confidence: 0.98, EvidenceType: "company-page", Evidence: []models.MarketLandscapeEvidence{func() models.MarketLandscapeEvidence {
+				e := evidence("https://trade-data.example.com/iocl")
+				e.SourceTier = "directory"
+				return e
+			}()}},
+		{EntityKey: "company:name:acme-ltd", Name: "Acme Ltd", Status: "verified",
+			Confidence: 0.70, EvidenceType: "company-page", Evidence: []models.MarketLandscapeEvidence{evidence("https://acme.com/1")}},
+		{EntityKey: "company:name:acme", Name: "Acme", Status: "lead",
+			Confidence: 0.45, EvidenceType: "discovery-lead", Evidence: []models.MarketLandscapeEvidence{evidence("https://acme.com/1")}},
+		{EntityKey: "company:name:punjab", Name: "Punjab Chemicals", Status: "lead",
+			Confidence: 0.45, EvidenceType: "discovery-lead"},
+		{EntityKey: "company:name:punjab-crop", Name: "Punjab Chemicals & Crop Protection Limited", Status: "verified",
+			Confidence: 0.78, EvidenceType: "company-page"},
+	}
+	merged := demandDedupeCompanies(pool)
+	if len(merged) != 4 {
+		t.Fatalf("merged = %d companies (%s), want 4", len(merged), dedupeNames(merged))
+	}
+	byName := make(map[string]models.MarketLandscapeCompany)
+	for _, rep := range merged {
+		byName[rep.Name] = *rep
+	}
+	iocl, ok := byName["Indian Oil Corporation"]
+	if !ok {
+		t.Fatalf("expected the more complete name to represent the IndianOil house, got %q", dedupeNames(merged))
+	}
+	if len(iocl.Evidence) != 2 {
+		t.Errorf("IndianOil evidence = %d record(s), want the union of both variants", len(iocl.Evidence))
+	}
+	if iocl.Status != "corroborated" {
+		t.Errorf("IndianOil status = %q, want the strongest verdict", iocl.Status)
+	}
+	acme, ok := byName["Acme Ltd"]
+	if !ok || len(acme.Evidence) != 1 {
+		t.Errorf("Acme bucket = %+v, want one representative with deduplicated evidence", acme)
+	}
+	if byName["Punjab Chemicals"].Name == "" || byName["Punjab Chemicals & Crop Protection Limited"].Name == "" {
+		t.Error("Punjab Chemicals and its Crop Protection arm must stay separate")
+	}
+}
+
+// dedupeNames renders a merged pool for failure messages.
+func dedupeNames(companies []*models.MarketLandscapeCompany) string {
+	out := make([]string, 0, len(companies))
+	for _, company := range companies {
+		out = append(out, company.Name)
+	}
+	return strings.Join(out, "; ")
+}
+
+// TestDemandPeopleDiscoveryUsesProcurementRoles pins the buyer-side people
+// phase: the search carries the procurement role vocabulary (not the seller's
+// sales roles), extracted people land on the verified buyer with their source,
+// and the RocketReach path reports itself unavailable without a client.
+func TestDemandPeopleDiscoveryUsesProcurementRoles(t *testing.T) {
+	var webQueries []string
+	searcher := &queryRecordingSearcher{hits: map[string][]models.SearchResult{
+		"procurement": {{
+			Title: "GreenDiesel Sdn Bhd appoints new procurement head", Link: "https://news.example.com/greendiesel-procurement",
+			Snippet: "GreenDiesel Sdn Bhd named Asha Rao as head of procurement and purchasing.",
+		}},
+	}}
+	searcher.recorder = &webQueries
+	llm := &demandLLM{people: []models.MarketLandscapePersonCandidate{{Name: "Asha Rao"}}}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, searcher))
+
+	companies := []*models.MarketLandscapeCompany{{
+		EntityKey: "company:name:greendiesel", Name: "GreenDiesel Sdn Bhd",
+		Status: "verified", Confidence: 0.84, EvidenceType: "company-page",
+	}}
+	used := agent.discoverDemandPeople(context.Background(), companies, demandPeopleQueryReserve/2, nil)
+	if used != 1 {
+		t.Fatalf("people searches = %d, want 1", used)
+	}
+	joined := strings.Join(webQueries, " | ")
+	for _, role := range []string{"procurement", "purchasing", "sourcing", "supply chain"} {
+		if !strings.Contains(strings.ToLower(joined), role) {
+			t.Errorf("people search %q is missing the buyer role %q", joined, role)
+		}
+	}
+	if strings.Contains(strings.ToLower(joined), "sales") {
+		t.Errorf("the seller-side sales vocabulary leaked into a buyer run: %q", joined)
+	}
+	if len(companies[0].KeyPeople) != 1 || companies[0].KeyPeople[0] != "Asha Rao" {
+		t.Fatalf("key people = %+v, want the extracted procurement contact", companies[0].KeyPeople)
+	}
+	if companies[0].KeyPeopleSources["Asha Rao"] != "web search" {
+		t.Errorf("source = %q, want web search", companies[0].KeyPeopleSources["Asha Rao"])
+	}
+}
+
+// queryRecordingSearcher wraps a hit table and records every query, so tests
+// can pin the role vocabulary the people phase searches with.
+type queryRecordingSearcher struct {
+	hits     map[string][]models.SearchResult
+	recorder *[]string
+}
+
+func (m *queryRecordingSearcher) Search(ctx context.Context, query string, maxResults int) ([]models.SearchResult, error) {
+	*m.recorder = append(*m.recorder, query)
+	for fragment, hits := range m.hits {
+		if strings.Contains(strings.ToLower(query), strings.ToLower(fragment)) {
+			return hits, nil
+		}
+	}
+	return nil, nil
 }
 
 // bidirectional and keeps unknown countries rather than guessing.

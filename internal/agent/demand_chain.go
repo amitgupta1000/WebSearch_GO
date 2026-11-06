@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 const (
@@ -28,17 +29,26 @@ const (
 	demandMaxVerificationQueries = 70
 	demandMaxLeadsEnriched       = 24
 	demandMaxStages              = 7
+	// Web key-person discovery and the optional RocketReach discovery each get
+	// their own 20-search budget, carved out of the verification budget when
+	// the people flags are on — the same discipline the market mode uses.
+	demandPeopleQueryReserve = 40
 )
 
 // DemandChainAgent owns the buyer-side workflow: infer the value chain, discover
 // operators of the consuming stages and public demand signals, verify
 // consumption, and assemble the report deterministically.
 type DemandChainAgent struct {
-	engine *Engine
+	engine      *Engine
+	rocketReach *tools.RocketReachClient
 }
 
-func NewDemandChainAgent(engine *Engine) *DemandChainAgent {
-	return &DemandChainAgent{engine: engine}
+func NewDemandChainAgent(engine *Engine, rocketReach ...*tools.RocketReachClient) *DemandChainAgent {
+	var client *tools.RocketReachClient
+	if len(rocketReach) > 0 {
+		client = rocketReach[0]
+	}
+	return &DemandChainAgent{engine: engine, rocketReach: client}
 }
 
 // Research runs the buyer pipeline. Existing search modes are not involved.
@@ -53,6 +63,14 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	// Budget normalization: zero keeps the mode defaults (MaxCompanies included),
 	// and the caps keep a mistyped budget from running away.
 	normalizeDemandBudget(&query)
+	// The people phase draws its searches from the same Serper budget as
+	// verification, so enabling it carves the reserve out of the verification
+	// budget, exactly as the market mode does.
+	if query.IncludePeople || query.UseRocketReachDiscovery {
+		if query.VerificationQueries > demandPeopleQueryReserve {
+			query.VerificationQueries -= demandPeopleQueryReserve
+		}
+	}
 
 	report := &models.DemandChainReport{
 		ResearchID: researchID, Objective: query.Objective, Activity: query.Activity,
@@ -135,17 +153,59 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	if verifyErr != nil {
 		report.Warnings = append(report.Warnings, verifyErr.Error())
 	}
+	if query.UseRocketReachDiscovery && (a.rocketReach == nil || !a.rocketReach.Enabled()) {
+		report.Warnings = append(report.Warnings, "RocketReach discovery was requested but no API key is configured (ROCKETREACH_API_KEY); web key-person discovery still runs when selected.")
+	}
+
+	// Phase 3b — key people. The buyer-side counterpart of the seller's
+	// commercial team: procurement, purchasing and supply-chain roles at the
+	// verified buyers, via RocketReach first and web discovery second.
+	rrCalls, rrProfiles, rrPromoted := 0, 0, 0
+	if query.UseRocketReachDiscovery && (a.rocketReach != nil && a.rocketReach.Enabled()) {
+		if len(verified) == 0 {
+			emitAgentEvent(eventCh, models.EventToolResult, "RocketReach discovery skipped: no buyers were verified", "rocketreach_search", "")
+		} else {
+			emitAgentEvent(eventCh, models.EventThinking, "Running RocketReach discovery for procurement contacts", "rocketreach_search", "")
+			rrCalls, rrProfiles, rrPromoted = a.discoverDemandRocketReach(ctx, verified, demandPeopleQueryReserve/2, eventCh)
+			emitAgentEvent(eventCh, models.EventToolResult,
+				fmt.Sprintf("RocketReach discovery complete: %d call(s), %d profile(s) returned, %d promoted", rrCalls, rrProfiles, rrPromoted),
+				"rocketreach_search", "")
+		}
+	}
+	if query.IncludePeople {
+		if len(verified) == 0 {
+			emitAgentEvent(eventCh, models.EventToolResult, "Web key-person discovery skipped: no buyers were verified", "search", "")
+		} else {
+			peopleQueries := a.discoverDemandPeople(ctx, verified, demandPeopleQueryReserve/2, eventCh)
+			report.QueriesUsed += peopleQueries
+			emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Web key-person discovery complete: %d procurement search(es)", peopleQueries), "search", "")
+		}
+	}
 
 	// Phase 4 — deterministic assembly, in the market mode's own shape. The
 	// execution must reflect the requested geography: a verified company whose
 	// own evidence names a country outside it moves to the appendix, honestly.
-	results := make([]*models.MarketLandscapeCompany, 0, len(companies)+len(verified))
+	var demotedEvidence []models.MarketLandscapeEvidence
+	pool := make([]*models.MarketLandscapeCompany, 0, len(companies)+len(verified))
 	for _, company := range companies {
-		if company.EvidenceType == "company-page" {
-			results = append(results, company)
+		pool = append(pool, company)
+	}
+	pool = append(pool, verified...)
+	// Alias-level dedupe: "IndianOil" and "Indian Oil Corporation" are one
+	// house; their evidence unions and the strongest verdict represents them.
+	merged := demandDedupeCompanies(pool)
+	results := make([]*models.MarketLandscapeCompany, 0, len(merged))
+	for _, rep := range merged {
+		if !demandCompanyTitle(rep.Name) {
+			// Document titles are sources, not buyers — they live in the
+			// appendix like every other piece of evidence.
+			report.Appendix = append(report.Appendix, rep.Evidence...)
+			continue
+		}
+		if rep.EvidenceType == "company-page" {
+			results = append(results, rep)
 		}
 	}
-	results = append(results, verified...)
 	// The requested geography is reflected, not enforced blindly: a company
 	// whose own evidence names a country (or city) outside it stays visible
 	// but the report says so — a deterministic city-vs-country test has been
@@ -185,7 +245,8 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	// inferred them. The verified list above is the cross-cutting view; this
 	// keeps stage-active companies visible even when their demand evidence
 	// did not reach the verification threshold.
-	report.StageCandidates = buildStageCandidates(companies, report.Chain)
+	report.StageCandidates, demotedEvidence = buildStageCandidates(merged, report.Chain)
+	report.Appendix = append(report.Appendix, demotedEvidence...)
 	report.CompletedAt = time.Now()
 	if exports := a.engine.ExportDemandChain(ctx, report); len(exports) > 0 {
 		report.Exports = exports
@@ -194,17 +255,113 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	return report, nil
 }
 
+// isDemandDocumentTitle catches titles that name documents rather than
+// companies — market reports, patents, studies and analyses rank well on stage
+// vocabulary, so the discovery lanes pull in plenty of them. They are evidence,
+// and stay in the appendix, never in the company rosters.
+func isDemandDocumentTitle(title string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(title))
+	for _, marker := range []string{
+		"market", "report", "forecast", "patent", "cost analysis", "feasibility",
+		"simulation", "kinetics", "study", "size and share", "industry analysis",
+		"outlook", "process for producing", "production cost", "drama", "grants",
+		"procurement system",
+	} {
+		if strings.Contains(lowered, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// demandCompanyTitle reports whether a title reads like a company at all: not
+// a document, not bait, not a generic list headline.
+func demandCompanyTitle(name string) bool {
+	return !isDemandDocumentTitle(name) && !isGenericMarketTitle(name) && !isDemandBaitTitle(name)
+}
+
+// stageVocabularyTokens extracts the distinctive tokens of a consuming stage —
+// its name and operator phrases — minus the generic trade words and the geo, so
+// a roster entry can be tested for stage relevance.
+func stageVocabularyTokens(stage models.ValueChainStage) []string {
+	generic := map[string]bool{
+		"plant": true, "manufacturer": true, "manufacturers": true, "producer": true,
+		"producers": true, "supplier": true, "suppliers": true, "production": true,
+		"india": true, "indian": true,
+	}
+	tokens := make([]string, 0, 8)
+	seen := make(map[string]bool)
+	add := func(text string) {
+		for _, token := range strings.Fields(strings.ToLower(text)) {
+			token = strings.Trim(token, ".,;:()")
+			if len(token) >= 4 && !generic[token] && !seen[token] {
+				seen[token] = true
+				tokens = append(tokens, token)
+			}
+		}
+	}
+	add(stage.Name)
+	for _, phrase := range stage.Operators {
+		add(phrase)
+	}
+	return tokens
+}
+
+// findDemandStage returns the chain stage with the given name, or nil.
+func findDemandStage(name string, chain []models.ValueChainStage) *models.ValueChainStage {
+	for index := range chain {
+		if chain[index].Name == name {
+			return &chain[index]
+		}
+	}
+	return nil
+}
+
+// stageRelevant reports whether a title speaks about the consuming stage —
+// one of its distinctive tokens present — rather than only about the product
+// itself. A hit that names the product but no stage vocabulary is the supply
+// side ("N-Butanol Manufacturer in Gandhinagar"), not a potential buyer.
+func stageRelevant(title string, stage models.ValueChainStage) bool {
+	text := strings.ToLower(title)
+	for _, token := range stageVocabularyTokens(stage) {
+		if strings.Contains(text, token) {
+			return true
+		}
+	}
+	return false
+}
+
 // buildStageCandidates groups the discovery candidates by their consuming
 // stage, in the chain's order, deterministically. Companies the product-shaped
 // demand lanes surfaced (no single stage) get their own section rather than
-// being dropped. Sorted by confidence, then name, like every other view.
-func buildStageCandidates(companies map[string]*models.MarketLandscapeCompany, chain []models.ValueChainStage) []models.StageCandidates {
+// being dropped, the operator's verified companies join the roster by their
+// attributed stage, and entries that only speak about the product (the supply
+// side) or name documents are demoted to the appendix. Sorted by confidence,
+// then name, like every other view.
+func buildStageCandidates(pool []*models.MarketLandscapeCompany, chain []models.ValueChainStage) ([]models.StageCandidates, []models.MarketLandscapeEvidence) {
 	byStage := make(map[string][]*models.MarketLandscapeCompany)
 	var unclassified []*models.MarketLandscapeCompany
-	for _, company := range companies {
+	var demoted []models.MarketLandscapeEvidence
+	for _, company := range pool {
+		if !demandCompanyTitle(company.Name) {
+			// Document titles are evidence, not companies: they move to the
+			// appendix where the sources live.
+			demoted = append(demoted, company.Evidence...)
+			continue
+		}
 		company.Status = marketStatus(company)
 		if strings.TrimSpace(company.Stage) == "" {
 			unclassified = append(unclassified, company)
+			continue
+		}
+		// Stage relevance guards the raw-title leads only: a discovery lead
+		// that only names the product is the supply side of the market. The
+		// verified companies and identity-passed company pages are exempt —
+		// they earned their place through extraction, verification and the
+		// identity gate, and a company name need not spell its stage.
+		stage := findDemandStage(company.Stage, chain)
+		if company.EvidenceType == "discovery-lead" && stage != nil && !stageRelevant(company.Name+" "+company.Domain, *stage) {
+			demoted = append(demoted, company.Evidence...)
 			continue
 		}
 		byStage[company.Stage] = append(byStage[company.Stage], company)
@@ -236,7 +393,166 @@ func buildStageCandidates(companies map[string]*models.MarketLandscapeCompany, c
 			Companies: sortStageCompanies(unclassified),
 		})
 	}
-	return sections
+	return sections, demoted
+}
+
+// demandCorporateSuffixes are the legal-form words that carry no identity:
+// their presence or absence never makes two names different companies.
+var demandCorporateSuffixes = map[string]bool{
+	"limited": true, "ltd": true, "pvt": true, "private": true, "inc": true,
+	"incorporated": true, "gmbh": true, "bv": true, "nv": true, "sa": true,
+	"ag": true, "plc": true, "corp": true, "corporation": true, "company": true,
+	"co": true, "llp": true, "llc": true, "lp": true,
+}
+
+// demandStopWords are conjunctions and articles that carry no identity —
+// "Ishwar Chemicals & Gases" and "Ishwar Chemicals and Gases" are one house.
+var demandStopWords = map[string]bool{"and": true, "the": true, "of": true}
+
+// demandNameTokens lowercases a name into alphanumeric tokens, drops stop
+// words, and strips trailing corporate suffixes, so "Acme Ltd" and "Acme"
+// collapse together and ampersand/and variants unify.
+func demandNameTokens(name string) []string {
+	tokens := strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+	})
+	kept := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		if !demandStopWords[token] {
+			kept = append(kept, token)
+		}
+	}
+	tokens = kept
+	for len(tokens) > 1 && demandCorporateSuffixes[tokens[len(tokens)-1]] {
+		tokens = tokens[:len(tokens)-1]
+	}
+	return tokens
+}
+
+// demandSameCompany reports whether two names are alias-level variants of one
+// company, under deliberately conservative rules: space-insensitive equality
+// ("IndianOil" / "Indian Oil"), corporate-suffix-insensitive equality
+// ("Acme Ltd" / "Acme"), and a long brand key with a corporate-suffix remainder
+// ("indianoil" + "indianoilcorporation"). Anything looser would merge
+// conglomerate siblings — Adani vs Adani Ports, Tata Motors vs Tata Steel —
+// and a buyer list must not do that silently.
+func demandSameCompany(a, b string) bool {
+	at, bt := demandNameTokens(a), demandNameTokens(b)
+	if len(at) == 0 || len(bt) == 0 {
+		return false
+	}
+	aj, bj := strings.Join(at, ""), strings.Join(bt, "")
+	if aj == bj {
+		return true
+	}
+	short, long := aj, bj
+	if len(short) > len(long) {
+		short, long = long, short
+	}
+	return len(short) >= 8 && strings.HasPrefix(long, short) && demandCorporateSuffixes[long[len(short):]]
+}
+
+// demandCanonicalURL folds a URL to host-without-www plus lowercase path, so
+// https://greendiesel.com.my/plant and https://www.greendiesel.com.my/plant
+// compare equal when two entries cite the same page.
+func demandCanonicalURL(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Hostname() == "" {
+		return strings.ToLower(strings.TrimSpace(raw))
+	}
+	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+	return host + strings.ToLower(parsed.Path)
+}
+
+// demandSharesEvidence reports whether two entries cite the same source URL —
+// the strongest identity signal a raw discovery candidate and the verified
+// company extracted from it can share, because they cite the very same page.
+func demandSharesEvidence(a, b *models.MarketLandscapeCompany) bool {
+	urls := make(map[string]bool)
+	for _, evidence := range a.Evidence {
+		if evidence.URL != "" {
+			urls[demandCanonicalURL(evidence.URL)] = true
+		}
+	}
+	for _, evidence := range b.Evidence {
+		if evidence.URL != "" && urls[demandCanonicalURL(evidence.URL)] {
+			return true
+		}
+	}
+	return false
+}
+
+// demandDedupeCompanies merges entries that are alias-level variants of one
+// company. The strongest member (confidence, then the more complete name) is
+// the representative; evidence is unioned without URL duplicates; country,
+// domain and stage fall back to the first member that carries them.
+func demandDedupeCompanies(pool []*models.MarketLandscapeCompany) []*models.MarketLandscapeCompany {
+	buckets := make([][]*models.MarketLandscapeCompany, 0, len(pool))
+	for _, company := range pool {
+		found := false
+		for index := range buckets {
+			if demandSameCompany(buckets[index][0].Name, company.Name) ||
+				demandSharesEvidence(buckets[index][0], company) {
+				buckets[index] = append(buckets[index], company)
+				found = true
+				break
+			}
+		}
+		if !found {
+			buckets = append(buckets, []*models.MarketLandscapeCompany{company})
+		}
+	}
+	merged := make([]*models.MarketLandscapeCompany, 0, len(buckets))
+	for _, bucket := range buckets {
+		merged = append(merged, demandMergeBucket(bucket))
+	}
+	return merged
+}
+
+// demandMergeBucket builds one representative from an alias bucket.
+func demandMergeBucket(members []*models.MarketLandscapeCompany) *models.MarketLandscapeCompany {
+	best := members[0]
+	for _, member := range members[1:] {
+		if member.Confidence > best.Confidence ||
+			(member.Confidence == best.Confidence && len(member.Name) > len(best.Name)) {
+			best = member
+		}
+	}
+	rep := *best
+	rep.Evidence = nil
+	seenURLs := make(map[string]bool)
+	seenPeople := make(map[string]bool)
+	for _, member := range members {
+		if strings.TrimSpace(rep.Country) == "" && strings.TrimSpace(member.Country) != "" {
+			rep.Country = member.Country
+		}
+		if strings.TrimSpace(rep.Domain) == "" && strings.TrimSpace(member.Domain) != "" {
+			rep.Domain = member.Domain
+		}
+		if strings.TrimSpace(rep.Stage) == "" && strings.TrimSpace(member.Stage) != "" {
+			rep.Stage = member.Stage
+		}
+		if member.EvidenceType == "company-page" {
+			rep.EvidenceType = "company-page"
+		}
+		for _, evidence := range member.Evidence {
+			if evidence.URL == "" || !seenURLs[evidence.URL] {
+				if evidence.URL != "" {
+					seenURLs[evidence.URL] = true
+				}
+				rep.Evidence = append(rep.Evidence, evidence)
+			}
+		}
+		for _, person := range member.KeyPeople {
+			key := strings.ToLower(strings.TrimSpace(person))
+			if person != "" && !seenPeople[key] {
+				seenPeople[key] = true
+				rep.KeyPeople = append(rep.KeyPeople, person)
+			}
+		}
+	}
+	rep.Status = marketStatus(&rep)
+	return &rep
 }
 
 // normalizeDemandBudget applies the budget defaults and caps: zero keeps the
@@ -445,6 +761,17 @@ func demandCandidate(hit models.SearchResult, lane demandLane, query models.Dema
 	}
 	domain := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
 	name := strings.TrimSpace(hit.Title)
+	// A name that arrived as a page title ("X | Products | Acme") collapses to
+	// its longest segment — the company name is the last meaningful part.
+	if strings.Contains(name, "|") {
+		best := ""
+		for _, segment := range strings.Split(name, "|") {
+			if trimmed := strings.TrimSpace(segment); len(trimmed) > len(best) {
+				best = trimmed
+			}
+		}
+		name = best
+	}
 	if name == "" {
 		name = domain
 	}
@@ -776,6 +1103,118 @@ func demandClaimWeight(claimType string) float64 {
 	default:
 		return 0.08
 	}
+}
+
+// demandProcurementTitles are the RocketReach title filters for the buyer side:
+// the roles that execute and sign off on purchases.
+var demandProcurementTitles = []string{"procurement", "purchasing", "sourcing", "supply chain"}
+
+// discoverDemandRocketReach mirrors the market mode's RocketReach discovery
+// with buyer-side title filters: one search per verified company, and profiles
+// promoted only when their current employer matches that company — a profile
+// at a same-named company elsewhere is exactly the mis-attribution a buyer
+// list must not carry.
+func (a *DemandChainAgent) discoverDemandRocketReach(ctx context.Context, companies []*models.MarketLandscapeCompany, budget int, eventCh chan<- models.AgentEvent) (int, int, int) {
+	if a.rocketReach == nil || !a.rocketReach.Enabled() {
+		return 0, 0, 0
+	}
+	used, profilesFound, promoted := 0, 0, 0
+	for _, company := range companies {
+		if used >= budget {
+			break
+		}
+		emitAgentEvent(eventCh, models.EventToolCall, "Discovering RocketReach procurement contacts at "+company.Name, "rocketreach_search", company.Name)
+		searchFilters := map[string][]string{
+			"current_employer": []string{company.Name},
+			"current_title":    demandProcurementTitles,
+		}
+		profiles, err := a.rocketReach.Search(ctx, searchFilters)
+		used++
+		if err != nil {
+			emitAgentEvent(eventCh, models.EventError, "RocketReach search failed for "+company.Name+": "+err.Error(), "rocketreach_search", company.Name)
+			continue
+		}
+		profilesFound += len(profiles)
+		seen := make(map[string]bool)
+		for _, existing := range company.KeyPeople {
+			seen[strings.ToLower(strings.TrimSpace(existing))] = true
+		}
+		for _, profile := range profiles {
+			if !strings.EqualFold(strings.TrimSpace(profile.CurrentEmployer), strings.TrimSpace(company.Name)) {
+				emitAgentEvent(eventCh, models.EventThinking,
+					fmt.Sprintf("RocketReach candidate %q not promoted: employer %q does not match %q", profile.Name, profile.CurrentEmployer, company.Name),
+					"rocketreach_search", "")
+				continue
+			}
+			name := strings.TrimSpace(profile.Name)
+			key := strings.ToLower(name)
+			if name != "" && !seen[key] && isPlausiblePersonName(name) {
+				company.KeyPeople = append(company.KeyPeople, name)
+				if company.KeyPeopleSources == nil {
+					company.KeyPeopleSources = make(map[string]string)
+				}
+				company.KeyPeopleSources[name] = "RocketReach"
+				seen[key] = true
+				promoted++
+				emitAgentEvent(eventCh, models.EventToolResult,
+					fmt.Sprintf("Promoted procurement contact %s at %s (current employer matched)", name, company.Name),
+					"rocketreach_search", "")
+			}
+		}
+	}
+	return used, profilesFound, promoted
+}
+
+// discoverDemandPeople mirrors the market mode's web key-person discovery with
+// buyer-side role vocabulary: procurement, purchasing, sourcing and supply
+// chain, at the verified buyers, never inventing people beyond the evidence.
+func (a *DemandChainAgent) discoverDemandPeople(ctx context.Context, companies []*models.MarketLandscapeCompany, budget int, eventCh chan<- models.AgentEvent) int {
+	used := 0
+	for _, company := range companies {
+		if used >= budget {
+			break
+		}
+		searchQuery := fmt.Sprintf("%q (procurement OR purchasing OR sourcing OR \"supply chain\") (director OR head OR manager OR VP OR chief OR \"category manager\")", company.Name)
+		emitAgentEvent(eventCh, models.EventToolCall, "Discovering procurement contacts at "+company.Name, "search", searchQuery)
+		hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+		used++
+		if err != nil {
+			continue
+		}
+		evidence := make([]string, 0, len(hits))
+		companyName := strings.ToLower(company.Name)
+		for _, hit := range hits {
+			text := strings.ToLower(hit.Title + " " + hit.Snippet)
+			if strings.Contains(text, companyName) && strings.TrimSpace(hit.Link) != "" {
+				evidence = append(evidence, fmt.Sprintf("%s — %s (%s)", hit.Title, hit.Snippet, hit.Link))
+			}
+		}
+		if len(evidence) == 0 {
+			continue
+		}
+		var people []models.MarketLandscapePersonCandidate
+		prompt := fmt.Sprintf("Extract only named people whose procurement, purchasing, sourcing, or supply-chain role is explicitly associated with %q. Exclude job vacancies, generic titles, publishers, and people whose employer is not stated. Return a JSON array with name only. Evidence:\n%s", company.Name, strings.Join(evidence, "\n"))
+		if err := a.engine.GenerateStructured(ctx, "You identify explicitly named current procurement and supply-chain employees from anchored company evidence. Never invent names.", prompt, &people); err != nil {
+			continue
+		}
+		seen := make(map[string]bool)
+		for _, existing := range company.KeyPeople {
+			seen[strings.ToLower(strings.TrimSpace(existing))] = true
+		}
+		for _, person := range people {
+			name := strings.TrimSpace(person.Name)
+			key := strings.ToLower(name)
+			if name != "" && !seen[key] && isPlausiblePersonName(name) {
+				company.KeyPeople = append(company.KeyPeople, name)
+				if company.KeyPeopleSources == nil {
+					company.KeyPeopleSources = make(map[string]string)
+				}
+				company.KeyPeopleSources[name] = "web search"
+				seen[key] = true
+			}
+		}
+	}
+	return used
 }
 
 // demandCountryMatches reports whether a company's stated country sits inside

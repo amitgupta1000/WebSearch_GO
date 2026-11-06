@@ -269,8 +269,9 @@ func main() {
 	marketAgent := agent.NewMarketLandscapeAgent(eng, rocketReachClient)
 	// The buyer-side mode is a separate agent with its own phases (value-chain
 	// inference, per-stage discovery, consumption verification); it shares the
-	// engine and the market mode's evidence vocabulary.
-	demandAgent := agent.NewDemandChainAgent(eng)
+	// engine and the market mode's evidence vocabulary, and RocketReach for
+	// procurement-contact discovery when the operator asks for it.
+	demandAgent := agent.NewDemandChainAgent(eng, rocketReachClient)
 	juristwayNote := " (anonymous)"
 	if cfg.JuristwayEmail != "" {
 		juristwayNote = " (authenticated)"
@@ -762,14 +763,16 @@ func demandChainQueryFromForm(r *http.Request, activity string) models.DemandCha
 		regions = promptRegions
 	}
 	return models.DemandChainQuery{
-		Objective:             firstNonEmpty(strings.TrimSpace(r.FormValue("demand_objective")), objective),
-		Activity:              normalizedActivity,
-		Regions:               regions,
-		Countries:             splitFormList(r.FormValue("demand_countries")),
-		Exclusions:            splitFormList(r.FormValue("demand_exclusions")),
-		MaxCompanies:          parseBoundedInt(r.FormValue("demand_max_companies"), 20, 1, 50),
-		StagesOverride:        splitFormList(r.FormValue("demand_stages")),
-		IncludeIntermediaries: r.FormValue("demand_intermediaries") == "1",
+		Objective:               firstNonEmpty(strings.TrimSpace(r.FormValue("demand_objective")), objective),
+		Activity:                normalizedActivity,
+		Regions:                 regions,
+		Countries:               splitFormList(r.FormValue("demand_countries")),
+		Exclusions:              splitFormList(r.FormValue("demand_exclusions")),
+		MaxCompanies:            parseBoundedInt(r.FormValue("demand_max_companies"), 20, 1, 50),
+		StagesOverride:          splitFormList(r.FormValue("demand_stages")),
+		IncludeIntermediaries:   r.FormValue("demand_intermediaries") == "1",
+		IncludePeople:           r.FormValue("demand_people") == "1",
+		UseRocketReachDiscovery: r.FormValue("demand_rocketreach_discovery") == "1",
 	}
 }
 

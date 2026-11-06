@@ -56,8 +56,8 @@ func TestBrandedPDFPreview(t *testing.T) {
 		}},
 		{"demand-chain", func() []models.ExportArtifact {
 			return exporter.ExportDemandChain(ctx, &models.DemandChainReport{
-				Activity: "used cooking oil",
-				Objective: "Find refiners and oleochemical plants that buy used cooking oil in Malaysia and Singapore.",
+				Activity:      "used cooking oil",
+				Objective:     "Find refiners and oleochemical plants that buy used cooking oil in Malaysia and Singapore.",
 				ChainInferred: true,
 				Chain: []models.ValueChainStage{
 					{Name: "biodiesel production", Rationale: "Biodiesel is produced from used cooking oil feedstock.", Operators: []string{"biodiesel plant", "biorefinery"}, Source: "model"},

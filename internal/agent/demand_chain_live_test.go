@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
+	"github.com/amitgupta1000/WebSearch_GO/internal/config"
 	"github.com/amitgupta1000/WebSearch_GO/internal/export"
 	"github.com/amitgupta1000/WebSearch_GO/internal/llm"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -33,18 +34,24 @@ func TestDemandChainLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	gemini, err := llm.NewGeminiClient(ctx, "")
+	// Clients are wired exactly like the server wires them — through config —
+	// so the credentials resolve the same way, including the Windows
+	// registry-aware fallback for variables set after this terminal's parent
+	// started.
+	cfg := config.Load()
+	gemini, err := llm.NewGeminiClient(ctx, cfg.GeminiModel)
 	if err != nil {
 		t.Fatalf("gemini client: %v", err)
 	}
-	serper := tools.NewSerperClient(os.Getenv("SERPER_API_KEY"))
+	serper := tools.NewSerperClient(cfg.SerperAPIKey)
+	rocketReach := tools.NewRocketReachClient(cfg.RocketReachAPIKey)
 	scraper := tools.NewScraperWithBrowser(nil, 15*time.Second, false)
 	defer scraper.Close()
 
 	exporter := export.New(export.NewFilesystemDestination(outDir), scraper, "live/", nil)
 	eng := NewEngine(gemini, serper, scraper, cache.NewMemoryCache(200), 40, 10, 20, WithExporter(exporter))
 
-	agent := NewDemandChainAgent(eng)
+	agent := NewDemandChainAgent(eng, rocketReach)
 	report, err := agent.Research(ctx, "live-nbutanol-india", models.DemandChainQuery{
 		Activity:     "N-Butanol",
 		Objective:    "Find potential buyers of N-Butanol in India",
@@ -52,9 +59,11 @@ func TestDemandChainLive(t *testing.T) {
 		MaxCompanies: 15,
 		// A deliberately deep budget for the sample run: the levers are
 		// query-driven, so the shipped mode defaults stay untouched.
-		DiscoveryQueries:    60,
-		VerificationQueries: 250,
-		MaxLeadsEnriched:    60,
+		DiscoveryQueries:        60,
+		VerificationQueries:     250,
+		MaxLeadsEnriched:        60,
+		IncludePeople:           true,
+		UseRocketReachDiscovery: true,
 	}, nil)
 	if err != nil {
 		t.Fatalf("Research: %v", err)
