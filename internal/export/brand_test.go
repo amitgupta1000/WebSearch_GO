@@ -60,6 +60,17 @@ func TestCompanyCoverCarriesTheCrystalBrand(t *testing.T) {
 	}
 }
 
+func TestCoverPhotoRotatesThroughTheLibrary(t *testing.T) {
+	first := coverPhotoForScope("company")
+	second := coverPhotoForScope("company")
+	if first == "" || second == "" {
+		t.Fatal("expected bundled cover photos")
+	}
+	if first == second {
+		t.Error("successive cover-photo selections should rotate")
+	}
+}
+
 // TestPersonCoverCarriesConfidencePill keeps the confidence verdict on the
 // cover — and off it when the run has no confidence to claim.
 func TestPersonCoverCarriesConfidencePill(t *testing.T) {

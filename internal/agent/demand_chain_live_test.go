@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -114,4 +116,36 @@ func TestDemandChainLive(t *testing.T) {
 	if len(report.Results) == 0 {
 		t.Errorf("the live run verified no buyers; check the warnings and the appendix")
 	}
+	// The run's findings land in a file too, so the test can be started from a
+	// detached process whose console cannot be observed.
+	summary := &strings.Builder{}
+	fmt.Fprintf(summary, "geography: %q; chain inferred: %v\r\n", report.Geography, report.ChainInferred)
+	for _, stage := range report.Chain {
+		fmt.Fprintf(summary, "stage [%s] %s — %s (operators: %s)\r\n", stage.Source, stage.Name, stage.Rationale, strings.Join(stage.Operators, "; "))
+	}
+	fmt.Fprintf(summary, "lanes: %d queries, %d hits, %d verification queries, %d pages enriched\r\n", report.QueriesUsed, report.SearchHits, report.VerificationQueries, report.PagesEnriched)
+	for index, result := range report.Results {
+		claims := make([]string, 0, len(result.Evidence))
+		for _, evidence := range result.Evidence {
+			claims = append(claims, evidence.ClaimType+"("+evidence.SourceTier+")")
+		}
+		fmt.Fprintf(summary, "result %d: %s | stage=%s | country=%s | status=%s | confidence=%.2f | claims=%s | people=%v\r\n",
+			index+1, result.Name, result.Stage, result.Country, result.Status, result.Confidence, strings.Join(claims, ","), result.KeyPeople)
+	}
+	for _, warning := range report.Warnings {
+		fmt.Fprintf(summary, "warning: %s\r\n", warning)
+	}
+	for _, event := range events {
+		if strings.Contains(event.Content, "RocketReach") || strings.Contains(event.Content, "procurement") {
+			fmt.Fprintf(summary, "event %s: %s\r\n", event.Type, event.Content)
+		}
+	}
+	for _, artifact := range report.Exports {
+		fmt.Fprintf(summary, "artifact %s -> %s\r\n", artifact.Format, artifact.URI)
+	}
+	summaryPath := filepath.Join(outDir, "live-run-summary.txt")
+	if err := os.WriteFile(summaryPath, []byte(summary.String()), 0o644); err != nil {
+		t.Fatalf("write the run summary: %v", err)
+	}
+	t.Logf("summary -> %s", summaryPath)
 }

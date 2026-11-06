@@ -631,7 +631,7 @@ func TestIndexSendsBothModesThroughTheConfirmationStep(t *testing.T) {
 	if !strings.Contains(page, `id="confirmation-step"`) {
 		t.Error("expected the confirmation step target on the page")
 	}
-	if !strings.Contains(page, "Continue: confirm the company") || !strings.Contains(page, "Continue: confirm the person") {
+	if !strings.Contains(page, "Continue: confirm the query") || !strings.Contains(page, "Continue: confirm the person") {
 		t.Error("expected both modes to say they continue to a confirmation step")
 	}
 	if !strings.Contains(page, "htmx-indicator") {

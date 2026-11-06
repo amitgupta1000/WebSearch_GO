@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -17,6 +18,7 @@ import (
 const (
 	newsWindow            = 24 * time.Hour
 	newsMaxQueries        = 8
+	newsSearchConcurrency = 3
 	newsMaxArticles       = 30
 	newsMaxSearchResults  = 10
 	newsChunkSize         = 2400
@@ -98,18 +100,37 @@ func (a *NewsAgent) Research(ctx context.Context, researchID string, query model
 	queries := newsQueries(query.Query, hosts)
 	var candidates []newsCandidate
 	seen := make(map[string]bool)
-	for _, searchQuery := range queries {
-		if err := ctx.Err(); err != nil {
-			return nil, err
+	searches := make([]newsSearchOutcome, len(queries))
+	searchLimit := newsSearchConcurrency
+	if searchLimit > len(queries) {
+		searchLimit = len(queries)
+	}
+	searchSemaphore := make(chan struct{}, searchLimit)
+	var searchWaitGroup sync.WaitGroup
+	for index, searchQuery := range queries {
+		searchWaitGroup.Add(1)
+		go func(index int, searchQuery string) {
+			defer searchWaitGroup.Done()
+			searchSemaphore <- struct{}{}
+			defer func() { <-searchSemaphore }()
+			if err := ctx.Err(); err != nil {
+				searches[index].err = err
+				return
+			}
+			emitAgentEvent(eventCh, models.EventToolCall, "Searching recent news", "search", searchQuery)
+			if query.ForceFreshSearch {
+				searches[index].hits, searches[index].err = a.engine.SearchFresh(ctx, searchQuery, query.MaxSearchResults)
+			} else {
+				searches[index].hits, searches[index].err = a.engine.SearchCached(ctx, searchQuery, query.MaxSearchResults)
+			}
+		}(index, searchQuery)
+	}
+	searchWaitGroup.Wait()
+	for index := range queries {
+		if searches[index].err == context.Canceled || searches[index].err == context.DeadlineExceeded {
+			return nil, searches[index].err
 		}
-		emitAgentEvent(eventCh, models.EventToolCall, "Searching recent news", "search", searchQuery)
-		var hits []models.SearchResult
-		var err error
-		if query.ForceFreshSearch {
-			hits, err = a.engine.SearchFresh(ctx, searchQuery, query.MaxSearchResults)
-		} else {
-			hits, err = a.engine.SearchCached(ctx, searchQuery, query.MaxSearchResults)
-		}
+		hits, err := searches[index].hits, searches[index].err
 		report.QueriesUsed++
 		report.SearchHits += len(hits)
 		if err != nil {
@@ -222,6 +243,11 @@ type newsCandidate struct {
 	published time.Time
 }
 
+type newsSearchOutcome struct {
+	hits []models.SearchResult
+	err  error
+}
+
 func (a *NewsAgent) synthesize(ctx context.Context, report *models.NewsReport, eventCh chan<- models.AgentEvent) error {
 	contextParts := make([]string, 0)
 	for _, article := range report.Articles {
@@ -236,7 +262,20 @@ func (a *NewsAgent) synthesize(ctx context.Context, report *models.NewsReport, e
 		report.Warnings = append(report.Warnings, "Synthesis context was bounded; not all collected chunk text was sent to the model.")
 	}
 	system := `You are a careful current-news editor. Use only the supplied article chunks.
-Return JSON matching the NewsSynthesis schema. Write an original article and concise summary.
+Return exactly one JSON object with these keys:
+{
+  "headline": "non-empty headline",
+  "article": "non-empty synthesized news article",
+  "summary": "non-empty concise summary",
+  "key_developments": ["..."],
+  "sentiment": {"label": "positive|negative|neutral|mixed", "score": 0, "confidence": 0, "rationale": "..."},
+  "article_sentiments": [],
+  "conflicts": [],
+  "citations": [{"claim": "...", "urls": [" supplied article URL "], "chunk_ids": [" supplied chunk ID "]}],
+  "uncertainty": []
+}
+The headline, article, and summary are required and must never be empty. Write an original
+article and concise summary grounded in the supplied chunks.
 For conflicts separated by time, treat the later report as the current status while preserving the earlier report as historical context.
 For contemporaneous conflicts, present both attributed versions and mark the conflict unresolved.
 Never invent facts, dates, sources, sentiment evidence, or citations. Every citation URL must be supplied.
