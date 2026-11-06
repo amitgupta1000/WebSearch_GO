@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
@@ -13,6 +14,7 @@ import (
 // the agent hands it from the queued values and records the system prompts, so
 // tests can pin which phases ran.
 type demandLLM struct {
+	mu            sync.Mutex
 	stages        []models.ValueChainStage
 	candidates    []models.MarketLandscapeLeadCandidate
 	people        []models.MarketLandscapePersonCandidate
@@ -21,36 +23,44 @@ type demandLLM struct {
 }
 
 func (m *demandLLM) GenerateStructured(ctx context.Context, systemPrompt, userPrompt string, target any) error {
+	m.mu.Lock()
 	m.systemPrompts = append(m.systemPrompts, systemPrompt)
-	if m.err != nil {
-		return m.err
+	err := m.err
+	stages, candidates, people := m.stages, m.candidates, m.people
+	m.mu.Unlock()
+	if err != nil {
+		return err
 	}
 	switch typed := target.(type) {
 	case *[]models.ValueChainStage:
-		*typed = append(*typed, m.stages...)
+		*typed = append(*typed, stages...)
 	case *[]models.MarketLandscapeLeadCandidate:
-		*typed = append(*typed, m.candidates...)
+		*typed = append(*typed, candidates...)
 	case *[]models.MarketLandscapePersonCandidate:
-		*typed = append(*typed, m.people...)
+		*typed = append(*typed, people...)
 	}
 	return nil
 }
 
 // demandSearcher routes scripted hits by query substring, so a test can serve
 // different pages to discovery and verification searches; it records every
-// query, so tests can pin that the product and geography travelled.
+// query thread-safely, because the pipeline searches with bounded concurrency.
 type demandSearcher struct {
+	mu      sync.Mutex
 	hits    map[string][]models.SearchResult
 	queries []string
 }
 
 func (m *demandSearcher) Search(ctx context.Context, query string, maxResults int) ([]models.SearchResult, error) {
+	m.mu.Lock()
 	m.queries = append(m.queries, query)
 	for fragment, hits := range m.hits {
 		if strings.Contains(strings.ToLower(query), strings.ToLower(fragment)) {
+			m.mu.Unlock()
 			return hits, nil
 		}
 	}
+	m.mu.Unlock()
 	return nil, nil
 }
 
@@ -570,6 +580,24 @@ func TestDemandSameCompanyRules(t *testing.T) {
 		if demandSameCompany(pair[0], pair[1]) {
 			t.Errorf("expected %q / %q to stay separate", pair[0], pair[1])
 		}
+	}
+}
+
+// TestDemandDedupeNeverMergesSharedTenderPages: a tender portal that names
+// several bidders is cited by several companies' verification evidence —
+// shared URLs are identity only between a discovery lead and the verified
+// company extracted from that page, never between two established entries.
+func TestDemandDedupeNeverMergesSharedTenderPages(t *testing.T) {
+	shared := models.MarketLandscapeEvidence{URL: "https://tenderportal.example.com/uco", Title: "UCO tender", SourceTier: "official"}
+	pool := []*models.MarketLandscapeCompany{
+		{EntityKey: "company:a", Name: "Alpha Chemicals", Status: "verified",
+			Confidence: 0.84, EvidenceType: "company-page", Evidence: []models.MarketLandscapeEvidence{shared}},
+		{EntityKey: "company:b", Name: "Beta Solvents Pvt Ltd", Status: "verified",
+			Confidence: 0.80, EvidenceType: "company-page", Evidence: []models.MarketLandscapeEvidence{shared}},
+	}
+	merged := demandDedupeCompanies(pool)
+	if len(merged) != 2 {
+		t.Fatalf("merged = %d companies (%s), want 2 — shared tender pages are not identity", len(merged), dedupeNames(merged))
 	}
 }
 

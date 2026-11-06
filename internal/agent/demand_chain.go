@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -33,6 +34,13 @@ const (
 	// their own 20-search budget, carved out of the verification budget when
 	// the people flags are on — the same discipline the market mode uses.
 	demandPeopleQueryReserve = 40
+	// Bounded concurrency for the pipeline's network-bound stages: lane
+	// searches and LLM extraction batches run three at a time, and lead
+	// enrichment rides the engine's shared scrape semaphore. Order of results
+	// never depends on completion order.
+	demandLaneSearchConcurrency = 3
+	demandExtractionConcurrency = 3
+	demandExtractionBatchSize   = 4
 )
 
 // DemandChainAgent owns the buyer-side workflow: infer the value chain, discover
@@ -105,18 +113,44 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		laneStages[strings.ToLower(lane.term)] = lane.stage
 	}
 	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Discovering demand across %d lane(s)", len(lanes)), "", "")
-	queriesUsed := 0
-	for _, lane := range lanes {
-		if queriesUsed >= query.DiscoveryQueries {
-			break
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		searchQuery := strings.TrimSpace(query.Activity + " " + lane.term + " " + demandGeography(query))
-		emitAgentEvent(eventCh, models.EventToolCall, "Searching "+lane.term, "search", searchQuery)
-		hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
-		queriesUsed++
+	lanesToRun := lanes
+	if len(lanesToRun) > query.DiscoveryQueries {
+		lanesToRun = lanesToRun[:query.DiscoveryQueries]
+	}
+	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Searching %d lane(s) with bounded concurrency", len(lanesToRun)), "", "")
+	// Lane searches are bounded-concurrent (three at a time) and
+	// order-preserving: results land in the lane's slot, so the leads, the
+	// appendix and the stage attribution never depend on completion order.
+	type laneSearch struct {
+		hits []models.SearchResult
+		err  error
+	}
+	laneResults := make([]laneSearch, len(lanesToRun))
+	searchSemaphore := make(chan struct{}, demandLaneSearchConcurrency)
+	var searchGroup sync.WaitGroup
+	for index, lane := range lanesToRun {
+		searchGroup.Add(1)
+		go func(index int, lane demandLane) {
+			defer searchGroup.Done()
+			searchSemaphore <- struct{}{}
+			defer func() { <-searchSemaphore }()
+			if err := ctx.Err(); err != nil {
+				laneResults[index].err = err
+				return
+			}
+			searchQuery := strings.TrimSpace(query.Activity + " " + lane.term + " " + demandGeography(query))
+			emitAgentEvent(eventCh, models.EventToolCall, "Searching "+lane.term, "search", searchQuery)
+			hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+			laneResults[index].hits, laneResults[index].err = hits, err
+		}(index, lane)
+	}
+	searchGroup.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	report.QueriesUsed = len(lanesToRun)
+	for index, lane := range lanesToRun {
+		hits, err := laneResults[index].hits, laneResults[index].err
 		report.SearchHits += len(hits)
 		report.LeadsReviewed += len(hits)
 		if err != nil {
@@ -139,7 +173,6 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 			mergeMarketCompany(companies, candidate)
 		}
 	}
-	report.QueriesUsed = queriesUsed
 	report.CandidatesFound = len(companies)
 
 	// Phase 3 — verification. The discovery leads are enriched and classified
@@ -482,6 +515,30 @@ func demandSharesEvidence(a, b *models.MarketLandscapeCompany) bool {
 	return false
 }
 
+// demandGeoNames assembles the geography vocabulary a buyer run must never
+// accept as a company: the query's own countries and regions, plus the geo
+// names extraction models most often echo as entities when a lead mentions a
+// market instead of a buyer.
+func demandGeoNames(query models.DemandChainQuery) map[string]bool {
+	names := map[string]bool{
+		"usa": true, "united states": true, "united states of america": true,
+		"europe": true, "european union": true, "asia": true, "asia pacific": true,
+		"middle east": true, "africa": true, "global": true, "emea": true,
+		"apac": true, "north america": true, "south america": true,
+	}
+	for _, region := range query.Regions {
+		if region = strings.ToLower(strings.TrimSpace(region)); region != "" {
+			names[region] = true
+		}
+	}
+	for _, country := range query.Countries {
+		if country = strings.ToLower(strings.TrimSpace(country)); country != "" {
+			names[country] = true
+		}
+	}
+	return names
+}
+
 // demandDedupeCompanies merges entries that are alias-level variants of one
 // company. The strongest member (confidence, then the more complete name) is
 // the representative; evidence is unioned without URL duplicates; country,
@@ -491,8 +548,20 @@ func demandDedupeCompanies(pool []*models.MarketLandscapeCompany) []*models.Mark
 	for _, company := range pool {
 		found := false
 		for index := range buckets {
-			if demandSameCompany(buckets[index][0].Name, company.Name) ||
-				demandSharesEvidence(buckets[index][0], company) {
+			if demandSameCompany(buckets[index][0].Name, company.Name) {
+				buckets[index] = append(buckets[index], company)
+				found = true
+				break
+			}
+			// Shared-evidence identity is admitted only between a verified or
+			// identity-passed entry and the raw discovery lead that was
+			// extracted from the very same page. Two company-page entries
+			// citing one tender portal that lists several bidders are
+			// different companies, not one.
+			sharedProvenance := demandSharesEvidence(buckets[index][0], company) &&
+				((buckets[index][0].EvidenceType == "discovery-lead" && company.EvidenceType != "discovery-lead") ||
+					(company.EvidenceType == "discovery-lead" && buckets[index][0].EvidenceType != "discovery-lead"))
+			if sharedProvenance {
 				buckets[index] = append(buckets[index], company)
 				found = true
 				break
@@ -882,19 +951,37 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 	if len(leads) == 0 {
 		return nil, 0, 0, 0, 0, nil
 	}
-	enrichedLeads := make([]models.MarketLandscapeEvidence, 0, len(leads))
-	pagesEnriched := 0
-	for index, lead := range leads {
-		if index >= query.MaxLeadsEnriched {
-			break
-		}
-		leadCopy := lead
+	enrichable := leads
+	if len(enrichable) > query.MaxLeadsEnriched {
+		enrichable = enrichable[:query.MaxLeadsEnriched]
+	}
+	// Enrichment is bounded-concurrent through the engine's batch scraper —
+	// the same scrape semaphore every other scraping stage shares — so a deep
+	// run's dozens of lead pages do not crawl one by one. Outcomes arrive in
+	// submission order, so the lead order is stable.
+	targets := make([]string, 0, len(enrichable))
+	for _, lead := range enrichable {
 		if isQualifyingMarketTier(lead.SourceTier) {
-			page, err := a.engine.ScrapeCached(ctx, lead.URL)
-			if err == nil && page != nil && strings.TrimSpace(page.Content) != "" {
-				leadCopy.Content = truncateMarketText(page.Content, 3000)
-				pagesEnriched++
-			}
+			targets = append(targets, lead.URL)
+		}
+	}
+	outcomes := a.engine.ScrapeCachedBatch(ctx, targets)
+	contentByURL := make(map[string]string, len(outcomes))
+	pagesEnriched := 0
+	for _, outcome := range outcomes {
+		if outcome.Err != nil || outcome.Result == nil {
+			continue
+		}
+		if content := strings.TrimSpace(outcome.Result.Content); content != "" {
+			contentByURL[demandCanonicalURL(outcome.URL)] = truncateMarketText(content, 3000)
+			pagesEnriched++
+		}
+	}
+	enrichedLeads := make([]models.MarketLandscapeEvidence, 0, len(enrichable))
+	for _, lead := range enrichable {
+		leadCopy := lead
+		if content, ok := contentByURL[demandCanonicalURL(lead.URL)]; ok {
+			leadCopy.Content = content
 		}
 		enrichedLeads = append(enrichedLeads, leadCopy)
 	}
@@ -907,31 +994,59 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 	if geo = strings.TrimSpace(geo); geo != "" {
 		geoPreference = fmt.Sprintf("Prefer companies operating in %s when the lead supports it, and exclude companies whose stated country is outside %s; record the country a lead names (never a city). ", geo, geo)
 	}
-	for start := 0; start < len(enrichedLeads); start += 4 {
-		end := start + 4
+	// Extraction runs bounded-concurrent: batches of four leads, three batches
+	// in flight, results merged in submission order so the verification queue
+	// never depends on which LLM call finished first.
+	batchCount := (len(enrichedLeads) + demandExtractionBatchSize - 1) / demandExtractionBatchSize
+	batchResults := make([][]models.MarketLandscapeLeadCandidate, batchCount)
+	batchErrs := make([]string, batchCount)
+	extractSemaphore := make(chan struct{}, demandExtractionConcurrency)
+	var extractGroup sync.WaitGroup
+	for batchIndex := 0; batchIndex < batchCount; batchIndex++ {
+		extractGroup.Add(1)
+		go func(batchIndex int) {
+			defer extractGroup.Done()
+			extractSemaphore <- struct{}{}
+			defer func() { <-extractSemaphore }()
+			start := batchIndex * demandExtractionBatchSize
+			end := start + demandExtractionBatchSize
+			if end > len(enrichedLeads) {
+				end = len(enrichedLeads)
+			}
+			leadText := make([]string, 0, end-start)
+			for index, lead := range enrichedLeads[start:end] {
+				content := lead.Snippet
+				if lead.Content != "" {
+					content += "\nPage content: " + lead.Content
+				}
+				leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
+			}
+			var batch []models.MarketLandscapeLeadCandidate
+			prompt := fmt.Sprintf("Extract every actual company or facility operator explicitly supported by these leads as a consumer, buyer, importer, or processor of %q. %sExclude publishers, list titles, market-research vendors, regions, projects, and generic categories. If a lead explicitly names a relevant procurement, purchasing, or supply-chain person, include the person's name in key_people; never infer people. Return a JSON array with name, country, reason, evidence_url as a string, and key_people as an array of strings.\nActivity: %s\nLeads:\n%s", query.Activity, geoPreference, query.Activity, strings.Join(leadText, "\n"))
+			if err := a.engine.GenerateStructured(ctx, "You extract company names for a buyer-research verification queue. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
+				batchErrs[batchIndex] = err.Error()
+			}
+			batchResults[batchIndex] = batch
+		}(batchIndex)
+	}
+	extractGroup.Wait()
+	for batchIndex := 0; batchIndex < batchCount; batchIndex++ {
+		start := batchIndex * demandExtractionBatchSize
+		end := start + demandExtractionBatchSize
 		if end > len(enrichedLeads) {
 			end = len(enrichedLeads)
 		}
-		leadText := make([]string, 0, end-start)
-		for index, lead := range enrichedLeads[start:end] {
-			content := lead.Snippet
-			if lead.Content != "" {
-				content += "\nPage content: " + lead.Content
-			}
-			leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
-		}
-		var batch []models.MarketLandscapeLeadCandidate
-		prompt := fmt.Sprintf("Extract every actual company or facility operator explicitly supported by these leads as a consumer, buyer, importer, or processor of %q. %sExclude publishers, list titles, market-research vendors, regions, projects, and generic categories. If a lead explicitly names a relevant procurement, purchasing, or supply-chain person, include the person's name in key_people; never infer people. Return a JSON array with name, country, reason, evidence_url as a string, and key_people as an array of strings.\nActivity: %s\nLeads:\n%s", query.Activity, geoPreference, query.Activity, strings.Join(leadText, "\n"))
-		if err := a.engine.GenerateStructured(ctx, "You extract company names for a buyer-research verification queue. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
+		if batchErrs[batchIndex] != "" {
 			rejected += end - start
-			extractionErrors = append(extractionErrors, err.Error())
+			extractionErrors = append(extractionErrors, batchErrs[batchIndex])
 			continue
 		}
-		extracted = append(extracted, batch...)
+		extracted = append(extracted, batchResults[batchIndex]...)
 	}
 
 	uniqueExtracted := make([]models.MarketLandscapeLeadCandidate, 0, len(extracted))
 	seenNames := make(map[string]bool)
+	geoNames := demandGeoNames(query)
 	for _, candidate := range extracted {
 		candidate.Name = strings.TrimSpace(candidate.Name)
 		// A name that arrived as a page title ("Butyl Acrylate | Products | X")
@@ -949,6 +1064,12 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 		// A name that equals the country the lead named is a geography, not a
 		// company — the model occasionally echoes a country as an entity.
 		if strings.EqualFold(candidate.Name, strings.TrimSpace(candidate.Country)) {
+			rejected++
+			continue
+		}
+		// So is a geography the run was never supposed to treat as a buyer:
+		// "European Union" or "USA" appear when a lead talks about a market.
+		if geoNames[normalizeMarketName(candidate.Name)] {
 			rejected++
 			continue
 		}

@@ -269,13 +269,16 @@ Return exactly one JSON object with these keys:
   "summary": "non-empty concise summary",
   "key_developments": ["..."],
   "sentiment": {"label": "positive|negative|neutral|mixed", "score": 0, "confidence": 0, "rationale": "..."},
-  "article_sentiments": [],
-  "conflicts": [],
+  "article_sentiments": [{"url": "supplied article URL", "label": "positive|negative|neutral|mixed", "score": 0, "confidence": 0, "rationale": "...", "chunk_ids": ["supplied chunk ID"]}],
+  "conflicts": [{"claim": "...", "versions": ["..."], "urls": ["supplied article URL"], "resolution": "updated|unresolved|clarified", "explanation": "...", "confidence": 0}],
   "citations": [{"claim": "...", "urls": [" supplied article URL "], "chunk_ids": [" supplied chunk ID "]}],
   "uncertainty": []
 }
 The headline, article, and summary are required and must never be empty. Write an original
 article and concise summary grounded in the supplied chunks.
+Every article_sentiments entry must include a supplied URL, a valid label, score, confidence,
+and rationale; omit that optional array rather than emitting an incomplete entry. Likewise,
+omit incomplete optional conflicts, citations, or developments.
 For conflicts separated by time, treat the later report as the current status while preserving the earlier report as historical context.
 For contemporaneous conflicts, present both attributed versions and mark the conflict unresolved.
 Never invent facts, dates, sources, sentiment evidence, or citations. Every citation URL must be supplied.
@@ -286,7 +289,16 @@ Sentiment labels must be positive, negative, neutral, or mixed; scores must be b
 		return fmt.Errorf("news synthesis failed: %w", err)
 	}
 	if err := validateNewsSynthesis(synthesis, report.Articles); err != nil {
-		return err
+		retrySystem := system + "\nYour previous JSON failed validation: " + err.Error() +
+			"\nReturn a corrected JSON object. Do not emit partial objects in optional arrays."
+		var corrected models.NewsSynthesis
+		if retryErr := a.engine.GenerateStructured(ctx, retrySystem, "Query: "+report.Query+"\nAs of: "+report.AsOf.Format(time.RFC3339)+"\n\nArticle chunks:\n"+contextData, &corrected); retryErr != nil {
+			return fmt.Errorf("news synthesis validation failed and correction failed: %w", retryErr)
+		}
+		if retryErr := validateNewsSynthesis(corrected, report.Articles); retryErr != nil {
+			return fmt.Errorf("news synthesis validation failed after correction: %w", retryErr)
+		}
+		synthesis = corrected
 	}
 	report.Synthesis = synthesis
 	return nil

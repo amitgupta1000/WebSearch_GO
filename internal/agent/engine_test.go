@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -27,11 +28,14 @@ func (m *mockSearcher) Search(ctx context.Context, query string, maxResults int)
 }
 
 type mockScraper struct {
+	mu         sync.Mutex
 	calledURLs []string
 }
 
 func (m *mockScraper) ScrapeURL(ctx context.Context, targetURL string) (*models.ScrapeResult, error) {
+	m.mu.Lock()
 	m.calledURLs = append(m.calledURLs, targetURL)
+	m.mu.Unlock()
 	return &models.ScrapeResult{
 		URL:      targetURL,
 		Title:    "Test Page",
