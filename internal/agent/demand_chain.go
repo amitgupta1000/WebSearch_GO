@@ -27,7 +27,6 @@ const (
 	demandMaxDiscoveryQueries    = 20
 	demandMaxVerificationQueries = 70
 	demandMaxLeadsEnriched       = 24
-	demandMaxVerifiedCompanies   = 10
 	demandMaxStages              = 7
 )
 
@@ -51,9 +50,9 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	if strings.TrimSpace(query.Objective) == "" {
 		query.Objective = query.Activity
 	}
-	if query.MaxCompanies <= 0 || query.MaxCompanies > 50 {
-		query.MaxCompanies = 20
-	}
+	// Budget normalization: zero keeps the mode defaults (MaxCompanies included),
+	// and the caps keep a mistyped budget from running away.
+	normalizeDemandBudget(&query)
 
 	report := &models.DemandChainReport{
 		ResearchID: researchID, Objective: query.Objective, Activity: query.Activity,
@@ -90,7 +89,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Discovering demand across %d lane(s)", len(lanes)), "", "")
 	queriesUsed := 0
 	for _, lane := range lanes {
-		if queriesUsed >= demandMaxDiscoveryQueries {
+		if queriesUsed >= query.DiscoveryQueries {
 			break
 		}
 		if err := ctx.Err(); err != nil {
@@ -137,7 +136,9 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		report.Warnings = append(report.Warnings, verifyErr.Error())
 	}
 
-	// Phase 4 — deterministic assembly, in the market mode's own shape.
+	// Phase 4 — deterministic assembly, in the market mode's own shape. The
+	// execution must reflect the requested geography: a verified company whose
+	// own evidence names a country outside it moves to the appendix, honestly.
 	results := make([]*models.MarketLandscapeCompany, 0, len(companies)+len(verified))
 	for _, company := range companies {
 		if company.EvidenceType == "company-page" {
@@ -145,6 +146,21 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		}
 	}
 	results = append(results, verified...)
+	// The requested geography is reflected, not enforced blindly: a company
+	// whose own evidence names a country (or city) outside it stays visible
+	// but the report says so — a deterministic city-vs-country test has been
+	// measured to misfire (e.g. "New Delhi" vs "India").
+	if len(query.Countries) > 0 {
+		var outside []string
+		for _, company := range results {
+			if company.Country != "" && !demandCountryMatches(company.Country, query.Countries) {
+				outside = append(outside, fmt.Sprintf("%s (%s)", company.Name, strings.TrimSpace(company.Country)))
+			}
+		}
+		if len(outside) > 0 {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("%d result(s) carry a country outside the requested geography — check the Country column: %s.", len(outside), strings.Join(outside, ", ")))
+		}
+	}
 	sort.Slice(results, func(i, j int) bool {
 		if results[i].Confidence == results[j].Confidence {
 			return results[i].Name < results[j].Name
@@ -164,12 +180,89 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	if len(report.Results) == 0 {
 		report.Warnings = append(report.Warnings, "No company met the consumption-verification threshold; discovery leads remain in the appendix.")
 	}
+	// The stage-oriented roster: every company the operator lanes tied to a
+	// consuming stage — verified or not — grouped the way the value chain
+	// inferred them. The verified list above is the cross-cutting view; this
+	// keeps stage-active companies visible even when their demand evidence
+	// did not reach the verification threshold.
+	report.StageCandidates = buildStageCandidates(companies, report.Chain)
 	report.CompletedAt = time.Now()
 	if exports := a.engine.ExportDemandChain(ctx, report); len(exports) > 0 {
 		report.Exports = exports
 	}
 	emitAgentEvent(eventCh, models.EventComplete, fmt.Sprintf("Demand chain complete: %d verified result(s), %d stage(s)", len(report.Results), len(report.Chain)), "", "")
 	return report, nil
+}
+
+// buildStageCandidates groups the discovery candidates by their consuming
+// stage, in the chain's order, deterministically. Companies the product-shaped
+// demand lanes surfaced (no single stage) get their own section rather than
+// being dropped. Sorted by confidence, then name, like every other view.
+func buildStageCandidates(companies map[string]*models.MarketLandscapeCompany, chain []models.ValueChainStage) []models.StageCandidates {
+	byStage := make(map[string][]*models.MarketLandscapeCompany)
+	var unclassified []*models.MarketLandscapeCompany
+	for _, company := range companies {
+		company.Status = marketStatus(company)
+		if strings.TrimSpace(company.Stage) == "" {
+			unclassified = append(unclassified, company)
+			continue
+		}
+		byStage[company.Stage] = append(byStage[company.Stage], company)
+	}
+	sortStageCompanies := func(companies []*models.MarketLandscapeCompany) []models.MarketLandscapeCompany {
+		sort.Slice(companies, func(i, j int) bool {
+			if companies[i].Confidence == companies[j].Confidence {
+				return companies[i].Name < companies[j].Name
+			}
+			return companies[i].Confidence > companies[j].Confidence
+		})
+		section := make([]models.MarketLandscapeCompany, 0, len(companies))
+		for _, company := range companies {
+			section = append(section, *company)
+		}
+		return section
+	}
+	sections := make([]models.StageCandidates, 0, len(chain)+1)
+	for _, stage := range chain {
+		sections = append(sections, models.StageCandidates{Stage: stage, Companies: sortStageCompanies(byStage[stage.Name])})
+	}
+	if len(unclassified) > 0 {
+		sections = append(sections, models.StageCandidates{
+			Stage: models.ValueChainStage{
+				Name:      "General demand lanes",
+				Source:    "lanes",
+				Rationale: "Companies the product-shaped demand lanes surfaced, not tied to a single consuming stage.",
+			},
+			Companies: sortStageCompanies(unclassified),
+		})
+	}
+	return sections
+}
+
+// normalizeDemandBudget applies the budget defaults and caps: zero keeps the
+// mode defaults, and the caps keep a mistyped budget from running away.
+func normalizeDemandBudget(query *models.DemandChainQuery) {
+	if query.DiscoveryQueries <= 0 {
+		query.DiscoveryQueries = demandMaxDiscoveryQueries
+	}
+	if query.DiscoveryQueries > 60 {
+		query.DiscoveryQueries = 60
+	}
+	if query.VerificationQueries <= 0 {
+		query.VerificationQueries = demandMaxVerificationQueries
+	}
+	if query.VerificationQueries > 250 {
+		query.VerificationQueries = 250
+	}
+	if query.MaxLeadsEnriched <= 0 {
+		query.MaxLeadsEnriched = demandMaxLeadsEnriched
+	}
+	if query.MaxLeadsEnriched > 60 {
+		query.MaxLeadsEnriched = 60
+	}
+	if query.MaxCompanies <= 0 || query.MaxCompanies > 50 {
+		query.MaxCompanies = 20
+	}
 }
 
 // demandLane is one discovery lane: the phrase appended to the activity in the
@@ -276,10 +369,22 @@ func stageNames(stages []models.ValueChainStage) string {
 // first (the chain's whole point), then product-shaped demand lanes, then
 // geography-scoped importer/tender lanes.
 func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainStage) []demandLane {
-	lanes := make([]demandLane, 0, len(chain)*2+6)
+	lanes := make([]demandLane, 0, len(chain)*3+8)
+	// Deeper discovery budgets earn a wider operator vocabulary per stage, so
+	// the extra queries land on new stage lanes instead of thinning the demand
+	// lanes.
+	vocabularyCap := 2
+	if query.DiscoveryQueries >= 40 {
+		vocabularyCap = 3
+	}
 	for _, stage := range chain {
+		vocabularyCount := 0
 		for _, vocabulary := range stage.Operators {
+			if vocabularyCount >= vocabularyCap {
+				break
+			}
 			lanes = append(lanes, demandLane{term: strings.TrimSpace(vocabulary), stage: stage.Name})
+			vocabularyCount++
 		}
 	}
 	lanes = append(lanes,
@@ -287,6 +392,8 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 		demandLane{term: "tender RFP e-procurement"},
 		demandLane{term: "importer import data"},
 		demandLane{term: "raw material feedstock consumption"},
+		demandLane{term: "distributor wholesaler of"},
+		demandLane{term: "applications uses industries"},
 	)
 	for _, country := range query.Countries {
 		lanes = append(lanes, demandLane{term: strings.TrimSpace(country) + " importer tender procurement"})
@@ -329,7 +436,7 @@ func demandGeographyClause(query models.DemandChainQuery) string {
 }
 
 // demandCandidate turns one search hit into a candidate company. It reuses the
-// market landscape's identity and tier hygiene, adds buyer-specific bait and
+// producer/seller landscape's identity and tier hygiene, adds buyer-specific bait and
 // intermediary filtering, and tags the consuming stage the lane serves.
 func demandCandidate(hit models.SearchResult, lane demandLane, query models.DemandChainQuery) *models.MarketLandscapeCompany {
 	parsed, err := url.Parse(hit.Link)
@@ -451,7 +558,7 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 	enrichedLeads := make([]models.MarketLandscapeEvidence, 0, len(leads))
 	pagesEnriched := 0
 	for index, lead := range leads {
-		if index >= demandMaxLeadsEnriched {
+		if index >= query.MaxLeadsEnriched {
 			break
 		}
 		leadCopy := lead
@@ -471,7 +578,7 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 	geo := demandGeography(query)
 	geoPreference := ""
 	if geo = strings.TrimSpace(geo); geo != "" {
-		geoPreference = fmt.Sprintf("Prefer companies operating in %s when the lead supports it; record the country a lead names. ", geo)
+		geoPreference = fmt.Sprintf("Prefer companies operating in %s when the lead supports it, and exclude companies whose stated country is outside %s; record the country a lead names (never a city). ", geo, geo)
 	}
 	for start := 0; start < len(enrichedLeads); start += 4 {
 		end := start + 4
@@ -500,6 +607,24 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 	seenNames := make(map[string]bool)
 	for _, candidate := range extracted {
 		candidate.Name = strings.TrimSpace(candidate.Name)
+		// A name that arrived as a page title ("Butyl Acrylate | Products | X")
+		// collapses to its longest segment — the company name is usually the
+		// last meaningful part of a navigation title.
+		if strings.Contains(candidate.Name, "|") {
+			best := ""
+			for _, segment := range strings.Split(candidate.Name, "|") {
+				if trimmed := strings.TrimSpace(segment); len(trimmed) > len(best) {
+					best = trimmed
+				}
+			}
+			candidate.Name = best
+		}
+		// A name that equals the country the lead named is a geography, not a
+		// company — the model occasionally echoes a country as an entity.
+		if strings.EqualFold(candidate.Name, strings.TrimSpace(candidate.Country)) {
+			rejected++
+			continue
+		}
 		key := normalizeMarketName(candidate.Name)
 		if !isPlausibleMarketLeadName(candidate.Name) || seenNames[key] {
 			rejected++
@@ -520,11 +645,11 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 		{"import data OR importer of", "import record"},
 	}
 	for index, lead := range uniqueExtracted {
-		if index >= demandMaxVerifiedCompanies || queriesUsed >= demandMaxVerificationQueries {
+		if index >= query.MaxCompanies || queriesUsed >= query.VerificationQueries {
 			break
 		}
 		for _, purpose := range purposes {
-			if queriesUsed >= demandMaxVerificationQueries {
+			if queriesUsed >= query.VerificationQueries {
 				break
 			}
 			searchQuery := strings.TrimSpace(fmt.Sprintf("%q %s %s %s", strings.TrimSpace(lead.Name), query.Activity, purpose.phrase, demandGeography(query)))
@@ -571,11 +696,22 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 }
 
 // demandStageForLead recovers the consuming stage a lead was discovered under,
-// so a verified company carries the stage it was tied to. The lane→stage map is
+// so a verified company carries the stage it was tied to. The URL match is
+// exact; because the model sometimes echoes a lead URL loosely, a lead whose
+// snippet or title names the candidate is the fallback. The lane→stage map is
 // the one built when the discovery lanes were created.
 func demandStageForLead(leads []models.MarketLandscapeEvidence, lead models.MarketLandscapeLeadCandidate, laneStages map[string]string) string {
 	for _, evidence := range leads {
 		if strings.EqualFold(evidence.URL, lead.EvidenceURL) {
+			return laneStages[strings.ToLower(strings.TrimSpace(evidence.Lane))]
+		}
+	}
+	name := strings.ToLower(strings.TrimSpace(lead.Name))
+	if name == "" {
+		return ""
+	}
+	for _, evidence := range leads {
+		if strings.Contains(strings.ToLower(evidence.Title+" "+evidence.Snippet), name) {
 			return laneStages[strings.ToLower(strings.TrimSpace(evidence.Lane))]
 		}
 	}
@@ -640,4 +776,25 @@ func demandClaimWeight(claimType string) float64 {
 	default:
 		return 0.08
 	}
+}
+
+// demandCountryMatches reports whether a company's stated country sits inside
+// the requested geography. Both directions are checked, so "Republic of India"
+// matches "India" and "India" matches "INDIA". An unknown country is kept: the
+// run never claims knowledge it does not have.
+func demandCountryMatches(country string, countries []string) bool {
+	country = strings.ToLower(strings.TrimSpace(country))
+	if country == "" {
+		return true
+	}
+	for _, wanted := range countries {
+		wanted = strings.ToLower(strings.TrimSpace(wanted))
+		if wanted == "" {
+			continue
+		}
+		if strings.Contains(country, wanted) || strings.Contains(wanted, country) {
+			return true
+		}
+	}
+	return false
 }

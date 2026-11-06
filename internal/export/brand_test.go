@@ -165,8 +165,8 @@ func TestExporterPrefersTheFooteredRenderer(t *testing.T) {
 	}
 }
 
-// TestMarketCoverRenders keeps the fourth scope honest: a market landscape
-// gets the same branded cover, with its objective as the summary paragraph.
+// TestMarketCoverRenders keeps the fourth scope honest: a producer/seller
+// landscape run gets the same branded cover, with its objective as the summary.
 func TestMarketCoverRenders(t *testing.T) {
 	report := &models.MarketLandscapeReport{
 		Activity:    "Crude oil trading",
@@ -211,6 +211,16 @@ func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 			}},
 		}},
 		QueriesUsed: 12, SearchHits: 31, LeadsReviewed: 31, VerificationQueries: 6,
+		StageCandidates: []models.StageCandidates{{
+			Stage: models.ValueChainStage{
+				Name: "biodiesel production", Rationale: "Biodiesel is produced from used cooking oil feedstock.",
+				Operators: []string{"biodiesel plant"}, Source: "model",
+			},
+			Companies: []models.MarketLandscapeCompany{{
+				Name: "Jayant Oleochemicals", Country: "India", Status: "lead", Confidence: 0.45,
+				EvidenceType: "discovery-lead",
+			}},
+		}},
 		Appendix: []models.MarketLandscapeEvidence{{
 			Title: "UCO import record — customs mirror", URL: "https://customs-mirror.example.com/hs-code",
 			Lane: "importer import data", ClaimType: models.DemandClaimImport,
@@ -225,6 +235,7 @@ func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 		"Geography: Malaysia",
 		"## Value chain", "biodiesel production", "Biodiesel is produced from used cooking oil.",
 		"## Results — verified consumers", "GreenDiesel Sdn Bhd", "biodiesel production",
+		"## Potential buyers by stage", "### biodiesel production", "Jayant Oleochemicals",
 		"import-record", "Private procurement is invisible",
 	} {
 		if !strings.Contains(markdown, expected) {
@@ -239,6 +250,7 @@ func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 		`<p class="cover-meta">Malaysia</p>`,
 		`src="data:image/jpeg;base64,`,
 		"Value chain", "Operator vocabulary",
+		"Potential buyers by stage", "Jayant Oleochemicals",
 		"GreenDiesel Sdn Bhd", "biodiesel production",
 		"Honesty notes", "Private procurement is invisible",
 	} {

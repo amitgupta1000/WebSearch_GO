@@ -249,13 +249,17 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 
 	report := &models.DemandChainReport{
 		Activity: "used cooking oil", Objective: "Find refiners that buy UCO.",
-		Geography: "India",
+		Geography:     "India",
 		ChainInferred: true,
 		Chain: []models.ValueChainStage{{
 			Name: "biodiesel production", Rationale: "Biodiesel is produced from UCO.",
 			Operators: []string{"biodiesel plant"}, Source: "model",
 		}},
 		QueriesUsed: 12, SearchHits: 31, VerificationQueries: 6,
+		StageCandidates: []models.StageCandidates{{
+			Stage:     models.ValueChainStage{Name: "biodiesel production", Rationale: "Biodiesel is produced from UCO.", Source: "model"},
+			Companies: []models.MarketLandscapeCompany{{Name: "Jayant Oleochemicals", Status: "lead", Confidence: 0.45}},
+		}},
 		Results: []models.MarketLandscapeCompany{{
 			Name: "GreenDiesel Sdn Bhd", Domain: "greendiesel.com.my", Status: "verified",
 			Stage: "biodiesel production", Confidence: 0.86,
@@ -276,6 +280,7 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 	for _, expected := range []string{
 		"Buyer landscape",
 		"Geography: India",
+		"Potential buyers by stage",
 		"biodiesel production", "Biodiesel is produced from UCO.",
 		"GreenDiesel Sdn Bhd", "Consuming stage: biodiesel production",
 		`name="company_name" value="GreenDiesel Sdn Bhd"`,

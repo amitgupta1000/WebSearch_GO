@@ -72,7 +72,7 @@ func TestDemandChainLanesCoverStagesThenDemand(t *testing.T) {
 			t.Errorf("operator lane %q must carry its stage, got %q", lane.term, lane.stage)
 		}
 	}
-	for _, expected := range []string{"biodiesel plant", "buyer procurement purchase", "tender RFP e-procurement", "importer import data", "Malaysia importer tender procurement"} {
+	for _, expected := range []string{"biodiesel plant", "buyer procurement purchase", "tender RFP e-procurement", "importer import data", "distributor wholesaler of", "applications uses industries", "Malaysia importer tender procurement"} {
 		found := false
 		for _, term := range terms {
 			if term == expected {
@@ -332,5 +332,218 @@ func TestDemandChainResearchAssemblesVerifiedConsumers(t *testing.T) {
 	}
 	if !foundHonesty {
 		t.Errorf("expected the honesty warning in %v", report.Warnings)
+	}
+}
+
+// TestDemandChainBudgetOverride: the query's budget fields drive the run —
+// zero keeps the defaults, and both caps are honoured exactly.
+func TestDemandChainBudgetOverride(t *testing.T) {
+	llm := &demandLLM{
+		stages: []models.ValueChainStage{{
+			Name: "biodiesel production", Operators: []string{"biodiesel plant"},
+		}},
+		candidates: []models.MarketLandscapeLeadCandidate{{
+			Name: "GreenDiesel Sdn Bhd", Country: "Malaysia",
+			EvidenceURL: "https://greendiesel.com.my/plant",
+		}},
+	}
+	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
+		"biodiesel plant": {{
+			Title: "Used cooking oil biodiesel plant in Malaysia", Link: "https://greendiesel.com.my/plant",
+			Snippet: "Produces biodiesel from used cooking oil feedstock.",
+		}},
+		"official site": {{
+			Title: "GreenDiesel Sdn Bhd | Biodiesel Plant", Link: "https://www.greendiesel.com.my/plant",
+			Snippet: "We use used cooking oil as our feedstock.",
+		}},
+		"tender OR RFP": {{
+			Title:   "GreenDiesel Sdn Bhd wins state tender for used cooking oil supply",
+			Link:    "https://tenderportal.example.com/uco-tender",
+			Snippet: "E-procurement award: GreenDiesel Sdn Bhd to purchase used cooking oil feedstock.",
+		}},
+	}}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, searcher))
+
+	report, err := agent.Research(context.Background(), "research-1", models.DemandChainQuery{
+		Activity:            "used cooking oil",
+		DiscoveryQueries:    4,
+		VerificationQueries: 2,
+	}, nil)
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	if report.QueriesUsed != 4 {
+		t.Errorf("discovery queries = %d, want exactly the 4-query budget", report.QueriesUsed)
+	}
+	if report.VerificationQueries != 2 {
+		t.Errorf("verification queries = %d, want exactly the 2-query budget", report.VerificationQueries)
+	}
+}
+
+// TestDemandChainDefaultsAreKept: zero budget fields fall back to the mode
+// defaults, and oversized budgets are capped — the console and the shipped
+// behaviour never change.
+func TestDemandChainDefaultsAreKept(t *testing.T) {
+	query := models.DemandChainQuery{Activity: "x"}
+	normalizeDemandBudget(&query)
+	if query.DiscoveryQueries != demandMaxDiscoveryQueries ||
+		query.VerificationQueries != demandMaxVerificationQueries ||
+		query.MaxLeadsEnriched != demandMaxLeadsEnriched || query.MaxCompanies != 20 {
+		t.Fatalf("normalized = %+v, want the mode defaults", query)
+	}
+
+	deep := models.DemandChainQuery{Activity: "x", DiscoveryQueries: 500, VerificationQueries: 900, MaxLeadsEnriched: 200, MaxCompanies: 99}
+	normalizeDemandBudget(&deep)
+	// MaxCompanies resets to the default when out of range, like the shipped
+	// behaviour; the search budgets clamp to their runaway caps.
+	if deep.DiscoveryQueries != 60 || deep.VerificationQueries != 250 || deep.MaxLeadsEnriched != 60 || deep.MaxCompanies != 20 {
+		t.Fatalf("capped = %+v, want the runaway caps", deep)
+	}
+}
+
+// TestDemandExtractionRejectsTitlesAndCountries pins the two deterministic
+// extraction guards: navigation titles collapse to their longest segment, and
+// a candidate whose name equals its own country is a geography, not a buyer.
+func TestDemandExtractionRejectsTitlesAndCountries(t *testing.T) {
+	llm := &demandLLM{
+		stages: []models.ValueChainStage{{Name: "biodiesel production", Operators: []string{"biodiesel plant"}}},
+		candidates: []models.MarketLandscapeLeadCandidate{
+			{Name: "Butyl Acrylate | Products | Mitsubishi Chemical Corporation", Country: ""},
+			{Name: "Philippines", Country: "Philippines"},
+			{Name: "GreenDiesel Sdn Bhd", Country: "Malaysia"},
+		},
+	}
+	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
+		"biodiesel plant": {{
+			Title: "Used cooking oil biodiesel plant in Malaysia", Link: "https://greendiesel.com.my/plant",
+			Snippet: "Produces biodiesel from used cooking oil feedstock.",
+		}},
+		// Verification hits so the cleaned candidates can reach the results:
+		// the per-company evidence gate picks the hit that names each one.
+		"official site": []models.SearchResult{
+			{Title: "Mitsubishi Chemical Corporation — Butyl Acrylate", Link: "https://www.mitsubishichemical.com/butanol", Snippet: "Butanol is a key raw material for our butyl acrylate production."},
+			{Title: "GreenDiesel Sdn Bhd | Biodiesel Plant", Link: "https://www.greendiesel.com.my/plant", Snippet: "We use used cooking oil as feedstock."},
+		},
+	}}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, searcher))
+	report, err := agent.Research(context.Background(), "r", models.DemandChainQuery{Activity: "used cooking oil"}, nil)
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	names := make([]string, 0, len(report.Results))
+	for _, result := range report.Results {
+		names = append(names, result.Name)
+	}
+	joined := strings.Join(names, "; ")
+	if !strings.Contains(joined, "Mitsubishi Chemical Corporation") || strings.Contains(joined, "|") {
+		t.Errorf("the page title must collapse to the company segment, got %q", joined)
+	}
+	if strings.Contains(joined, "Philippines") {
+		t.Errorf("a bare country name must be rejected as a company, got %q", joined)
+	}
+	if !strings.Contains(joined, "GreenDiesel Sdn Bhd") {
+		t.Errorf("the plausible candidate must survive, got %q", joined)
+	}
+}
+
+// TestDemandChainGroupsStageCandidates keeps the stage roster honest: every
+// company the operator lanes surfaced stays visible under its consuming stage
+// (verified or not), and demand-lane companies get their own bucket rather
+// than being dropped at assembly.
+func TestDemandChainGroupsStageCandidates(t *testing.T) {
+	llm := &demandLLM{
+		stages: []models.ValueChainStage{{
+			Name: "biodiesel production", Rationale: "Biodiesel is produced from used cooking oil.",
+			Operators: []string{"biodiesel plant"},
+		}},
+		candidates: []models.MarketLandscapeLeadCandidate{{
+			Name: "GreenDiesel Sdn Bhd", Country: "Malaysia",
+			EvidenceURL: "https://greendiesel.com.my/plant",
+		}},
+	}
+	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
+		"biodiesel plant": {{
+			Title: "Used cooking oil biodiesel plant in Malaysia", Link: "https://greendiesel.com.my/plant",
+			Snippet: "Produces biodiesel from used cooking oil feedstock.",
+		}},
+		"tender RFP": {{
+			Title: "Indiachem Solvents | Importer of industrial solvents", Link: "https://indiachem.example.com/import",
+			Snippet: "Importer of industrial solvents including used cooking oil derivatives.",
+		}},
+		"official site": {{
+			Title: "GreenDiesel Sdn Bhd | Biodiesel Plant", Link: "https://www.greendiesel.com.my/plant",
+			Snippet: "We use used cooking oil as our feedstock.",
+		}},
+	}}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, searcher))
+	report, err := agent.Research(context.Background(), "r", models.DemandChainQuery{Activity: "used cooking oil"}, nil)
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	if len(report.StageCandidates) == 0 {
+		t.Fatal("expected stage candidate sections")
+	}
+	byName := make(map[string]models.StageCandidates)
+	for _, section := range report.StageCandidates {
+		byName[section.Stage.Name] = section
+	}
+	biodiesel, ok := byName["biodiesel production"]
+	if !ok {
+		t.Fatalf("missing the biodiesel section in %+v", report.StageCandidates)
+	}
+	if biodiesel.Stage.Rationale == "" {
+		t.Error("the section must carry the stage's rationale")
+	}
+	foundLead := false
+	for _, company := range biodiesel.Companies {
+		if company.Status == "lead" {
+			foundLead = true
+		}
+	}
+	if !foundLead {
+		t.Errorf("the stage roster must keep unverified leads, got %+v", biodiesel.Companies)
+	}
+	general, ok := byName["General demand lanes"]
+	if !ok {
+		t.Fatalf("missing the demand-lane bucket in %+v", report.StageCandidates)
+	}
+	if len(general.Companies) == 0 {
+		t.Error("the demand-lane bucket must keep its companies")
+	}
+}
+
+// bidirectional and keeps unknown countries rather than guessing.
+func TestDemandCountryMatchesKeepsTheRunInsideItsGeography(t *testing.T) {
+	countries := []string{"India"}
+	if !demandCountryMatches("India", countries) || !demandCountryMatches("INDIA", countries) ||
+		!demandCountryMatches("Republic of India", countries) || !demandCountryMatches("", countries) {
+		t.Error("Indian variants and unknown countries must be kept")
+	}
+	if demandCountryMatches("Japan", countries) || demandCountryMatches("Germany", countries) {
+		t.Error("out-of-geography countries must not match")
+	}
+}
+
+// TestDemandChainLanesCapOperatorVocabularyPerStage keeps the default budget
+// frugal (two operator phrases per stage) and lets a deep discovery budget
+// widen the vocabulary to three.
+func TestDemandChainLanesCapOperatorVocabularyPerStage(t *testing.T) {
+	chain := []models.ValueChainStage{{
+		Name: "oleochemicals", Operators: []string{"oleochemical plant", "fatty acid plant", "glycerine plant", "surfactant plant"},
+	}}
+	stageLanes := func(query models.DemandChainQuery) int {
+		count := 0
+		for _, lane := range demandChainLanes(query, chain) {
+			if lane.stage == "oleochemicals" {
+				count++
+			}
+		}
+		return count
+	}
+	if got := stageLanes(models.DemandChainQuery{Activity: "palm oil"}); got != 2 {
+		t.Fatalf("default-budget stage lanes = %d, want 2", got)
+	}
+	if got := stageLanes(models.DemandChainQuery{Activity: "palm oil", DiscoveryQueries: 40}); got != 3 {
+		t.Fatalf("deep-budget stage lanes = %d, want 3", got)
 	}
 }

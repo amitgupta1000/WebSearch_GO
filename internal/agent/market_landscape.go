@@ -188,7 +188,7 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	if exports := a.engine.ExportMarketLandscape(ctx, report); len(exports) > 0 {
 		report.Exports = exports
 	}
-	emitAgentEvent(eventCh, models.EventComplete, fmt.Sprintf("Market landscape complete: %d verified result(s), %d candidate(s)", len(report.Results), report.CandidatesFound), "", "")
+	emitAgentEvent(eventCh, models.EventComplete, fmt.Sprintf("Producer/Seller Landscape complete: %d verified result(s), %d candidate(s)", len(report.Results), report.CandidatesFound), "", "")
 	return report, nil
 }
 

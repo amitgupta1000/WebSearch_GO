@@ -85,7 +85,7 @@ type document struct {
 func renderMarketLandscapeHTML(report *models.MarketLandscapeReport) string {
 	return executeDocument(marketLandscapeHTMLTemplate, document{
 		Title:        marketReportTitle(report),
-		CoverSubject: nonEmpty(report.Activity, "Market landscape"),
+		CoverSubject: nonEmpty(report.Activity, "Producer/Seller Landscape"),
 		Kicker:       kickerMarket,
 		CoverSummary: coverSummary(report.Objective, coverSummaryLimit),
 		GeneratedAt:  generatedStamp(report.CompletedAt),
@@ -97,11 +97,11 @@ func renderMarketLandscapeHTML(report *models.MarketLandscapeReport) string {
 // marketReportTitle is the document title, shared by the cover, the running
 // footer and the stored file name.
 func marketReportTitle(report *models.MarketLandscapeReport) string {
-	return nonEmpty(report.Activity, "Market landscape") + " — Research Report"
+	return nonEmpty(report.Activity, "Producer/Seller Landscape") + " — Research Report"
 }
 
 var marketLandscapeHTMLTemplate = documentTemplate("market-landscape", `
-<header><h1>{{.Market.Activity}} — Market Landscape</h1><p class="subtitle">{{.Market.Objective}}</p></header>
+<header><h1>{{.Market.Activity}} — Producer/Seller Landscape</h1><p class="subtitle">{{.Market.Objective}}</p></header>
 <section><h2>Results</h2>
 {{if .Market.Results}}<table><thead><tr><th>Company</th><th>Country</th><th>Activity</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Market.Results}}<tr><td>{{.Name}}</td><td>{{.Country}}</td><td>{{.Activity}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{else}}<p>No verified companies were promoted.</p>{{end}}
 </section>

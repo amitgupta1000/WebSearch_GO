@@ -57,6 +57,28 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 				markdownCell(result.Country), markdownCell(result.Status), result.Confidence*100)
 		}
 	}
+	b.WriteString("\n## Potential buyers by stage\n\n")
+	b.WriteString("_Every company the consuming stage's lanes surfaced, verified or not — a company operating a stage that consumes the product is a potential buyer by construction. Status \"lead\" means the evidence did not reach the verification threshold; cross-check the verified list above._\n\n")
+	if len(report.StageCandidates) == 0 {
+		b.WriteString("No stage-active companies surfaced.\n\n")
+	}
+	for _, section := range report.StageCandidates {
+		fmt.Fprintf(&b, "### %s\n\n", section.Stage.Name)
+		if trimmed(section.Stage.Rationale) != "" {
+			fmt.Fprintf(&b, "_%s_\n\n", trimmed(section.Stage.Rationale))
+		}
+		if len(section.Companies) == 0 {
+			b.WriteString("_No stage-active companies surfaced._\n\n")
+			continue
+		}
+		b.WriteString("| Company | Country | Status | Confidence |\n| :--- | :--- | :--- | :--- |\n")
+		for _, company := range section.Companies {
+			fmt.Fprintf(&b, "| %s | %s | %s | %.0f%% |\n",
+				markdownCell(company.Name), markdownCell(company.Country),
+				markdownCell(company.Status), company.Confidence*100)
+		}
+		b.WriteString("\n")
+	}
 	fmt.Fprintf(&b, "\n## Method summary\n\n%d discovery queries; %d raw hits; %d leads reviewed; %d entities extracted; %d rejected; %d pages enriched; %d verification queries.\n\n",
 		report.QueriesUsed, report.SearchHits, report.LeadsReviewed, report.LeadsExtracted,
 		report.LeadsRejected, report.PagesEnriched, report.VerificationQueries)
@@ -96,6 +118,15 @@ var demandChainHTMLTemplate = documentTemplate("demand-chain", `
 </section>{{end}}
 <section><h2>Results — verified consumers</h2>
 {{if .Chain.Results}}<table><thead><tr><th>Company</th><th>Consuming stage</th><th>Country</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Chain.Results}}<tr><td>{{.Name}}</td><td>{{.Stage}}</td><td>{{.Country}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{else}}<p>No company met the consumption-verification threshold.</p>{{end}}
+</section>
+<section><h2>Potential buyers by stage</h2>
+<p class="dim">Every company the consuming stage's lanes surfaced, verified or not — a company operating a stage that consumes the product is a potential buyer by construction. Status "lead" means the evidence did not reach the verification threshold; cross-check the verified list above.</p>
+{{range .Chain.StageCandidates}}<div class="dept">
+	<h3>{{.Stage.Name}}</h3>
+	{{if .Stage.Rationale}}<p class="dim">{{.Stage.Rationale}}</p>{{end}}
+	{{if .Companies}}<table><thead><tr><th>Company</th><th>Country</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Companies}}<tr><td>{{.Name}}</td><td>{{.Country}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>
+	{{else}}<p class="dim">No stage-active companies surfaced.</p>{{end}}
+</div>{{end}}
 </section>
 <section><h2>Method summary</h2><p>{{.Chain.QueriesUsed}} discovery queries, {{.Chain.SearchHits}} raw hits, {{.Chain.LeadsReviewed}} leads reviewed, {{.Chain.LeadsExtracted}} entities extracted, {{.Chain.LeadsRejected}} rejected, {{.Chain.PagesEnriched}} pages enriched, {{.Chain.VerificationQueries}} verification queries.</p></section>
 {{if .Chain.Warnings}}<section class="card">

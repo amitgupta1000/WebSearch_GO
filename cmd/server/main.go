@@ -712,7 +712,7 @@ func (s *Server) startMarketLandscape(w http.ResponseWriter, r *http.Request, ac
 		defer cancel()
 		report, err := s.marketAgent.Research(ctx, sessionID, query, nil)
 		if err != nil {
-			s.renderError(w, "Market landscape research failed: "+err.Error())
+			s.renderError(w, "Producer/Seller Landscape research failed: "+err.Error())
 			return
 		}
 		s.render(w, "market_landscape_report", report)
@@ -724,7 +724,7 @@ func (s *Server) startMarketLandscape(w http.ResponseWriter, r *http.Request, ac
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				log.Printf("[ERROR][session %s] market landscape panicked: %v\n%s", sessionID, recovered, debug.Stack())
+				log.Printf("[ERROR][session %s] producer/seller landscape panicked: %v\n%s", sessionID, recovered, debug.Stack())
 				session.Complete(nil, fmt.Errorf("research panicked: %v", recovered))
 			}
 		}()
@@ -734,7 +734,7 @@ func (s *Server) startMarketLandscape(w http.ResponseWriter, r *http.Request, ac
 		session.Complete(report, err)
 	}()
 	s.render(w, "workflow_console", map[string]string{
-		"SessionID": sessionID, "Mode": "Market Landscape", "Query": activity,
+		"SessionID": sessionID, "Mode": "Producer/Seller Landscape", "Query": activity,
 		"Budget": fmt.Sprintf("%ds", int(timeout.Seconds())),
 	})
 }

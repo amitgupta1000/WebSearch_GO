@@ -58,6 +58,23 @@ type DemandChainQuery struct {
 	// default because a buyer list dominated by middlemen is rarely what the
 	// operator asked for.
 	IncludeIntermediaries bool `json:"include_intermediaries,omitempty"`
+	// Budget overrides. Zero keeps the mode defaults; a run spends at most
+	// DiscoveryQueries discovery searches and VerificationQueries verification
+	// searches, and enriches at most MaxLeadsEnriched discovery leads before
+	// extraction — the levers that make a deep run deep.
+	DiscoveryQueries    int `json:"discovery_queries,omitempty"`
+	VerificationQueries int `json:"verification_queries,omitempty"`
+	MaxLeadsEnriched    int `json:"max_leads_enriched,omitempty"`
+}
+
+// StageCandidates groups the companies a run tied to one consuming stage —
+// operators the stage lanes surfaced, verified or not. This is the stage-
+// oriented view of "potential buyers": a company running a consuming stage is
+// a potential buyer of the product by construction, even before any tender or
+// import evidence reaches the verification threshold.
+type StageCandidates struct {
+	Stage     ValueChainStage          `json:"stage"`
+	Companies []MarketLandscapeCompany `json:"companies,omitempty"`
 }
 
 // DemandChainReport is the buyer-side counterpart of MarketLandscapeReport: the
@@ -75,8 +92,12 @@ type DemandChainReport struct {
 	Chain []ValueChainStage `json:"chain,omitempty"`
 	// ChainInferred reports whether the chain came from the model. False means
 	// the operator supplied it or the inference fell back to a generic stage.
-	ChainInferred       bool                      `json:"chain_inferred"`
-	Results             []MarketLandscapeCompany  `json:"results,omitempty"`
+	ChainInferred bool                     `json:"chain_inferred"`
+	Results       []MarketLandscapeCompany `json:"results,omitempty"`
+	// StageCandidates is the stage-oriented view: the companies each consuming
+	// stage's lanes surfaced, whatever their verification status. Results above
+	// is the cross-cutting verified list; this is the value chain's own roster.
+	StageCandidates     []StageCandidates         `json:"stage_candidates,omitempty"`
 	Appendix            []MarketLandscapeEvidence `json:"appendix,omitempty"`
 	Lanes               []string                  `json:"lanes,omitempty"`
 	Iterations          int                       `json:"iterations"`

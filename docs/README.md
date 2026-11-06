@@ -442,12 +442,12 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
   under `person/`.
 - **PDF** is the same report as a Crystal AI branded document: a cover page carrying the
   wordmark, a kicker naming the report kind ("Company research - Org chart", "Professional
-  dossier", "Legal and regulatory check", "Market landscape research", "Demand chain research"),
+  dossier", "Legal and regulatory check", "Producer/Seller Landscape research", "Demand chain research"),
   the serif title, the run's own summary, the checked stamp and an illustrative photograph —
   followed by the report body in the brand's sage-teal palette. Chromium prints a running
   footer on every page: the brand line with the report title and checked stamp on the left,
   page numbers on the right.
-- **Demand chain** (`mode=demand_chain`) is the buyer-side counterpart of market landscape:
+- **Demand chain** (`mode=demand_chain`) is the buyer-side counterpart of producer/seller landscape:
   it infers the product's value chain, searches operators of the consuming stages plus tender/
   import/input-language lanes, and verifies consumption with claim-typed evidence. Its
   artifacts land under `demand-chain/` with the value chain leading both documents.

@@ -9,7 +9,7 @@ import (
 
 func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# %s — Market Landscape\n\n%s\n\n## Results\n\n", report.Activity, report.Objective)
+	fmt.Fprintf(&b, "# %s — Producer/Seller Landscape\n\n%s\n\n## Results\n\n", report.Activity, report.Objective)
 	if len(report.Results) == 0 {
 		b.WriteString("No verified companies were promoted.\n")
 	} else {
