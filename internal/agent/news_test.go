@@ -63,9 +63,18 @@ func TestNewsCanonicalURLAndJSONLDDate(t *testing.T) {
 	if got := canonicalNewsURL("https://www.reuters.com/story?id=1#top"); got != "https://reuters.com/story" {
 		t.Fatalf("canonical URL = %q", got)
 	}
-	published, updated := newsDatesFromJSONLD([]string{`{"@type":"NewsArticle","datePublished":"2026-11-06T10:00:00Z","dateModified":"2026-11-06T11:00:00Z"}`})
+	published, updated := newsDatesFromJSONLD([]string{`{"@type":"NewsArticle","datePublished":"2026-11-06T10:00:00Z","dateModified":"2026-11-06T11:00:00Z"}`}, "", "")
 	if published.IsZero() || updated.IsZero() {
 		t.Fatalf("expected JSON-LD dates, got published=%v updated=%v", published, updated)
+	}
+}
+
+func TestNewsDatesFromJSONLDPrefersPageArticle(t *testing.T) {
+	values := []string{`{"@graph":[{"@type":"NewsArticle","url":"https://reuters.com/story","headline":"Story","datePublished":"2026-11-05T10:00:00Z"},{"@type":"NewsArticle","url":"https://reuters.com/related","headline":"Related","datePublished":"2026-11-06T11:00:00Z"}]}`}
+	published, _ := newsDatesFromJSONLD(values, "https://reuters.com/story", "Story")
+	want := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
+	if !published.Equal(want) {
+		t.Fatalf("selected JSON-LD publication date = %v, want %v", published, want)
 	}
 }
 
@@ -125,5 +134,38 @@ func TestValidateNewsSynthesisRejectsUnsupportedCitation(t *testing.T) {
 	err := validateNewsSynthesis(synthesis, []models.NewsArticle{{URL: "https://reuters.com/story"}})
 	if err == nil || !strings.Contains(err.Error(), "unsupplied URL") {
 		t.Fatalf("expected unsupported citation error, got %v", err)
+	}
+}
+
+func TestValidateNewsSynthesisAcceptsCanonicalCitationURL(t *testing.T) {
+	synthesis := models.NewsSynthesis{
+		Headline: "Headline", Article: "Article", Summary: "Summary",
+		Sentiment: models.NewsArticleSentiment{Label: "neutral"},
+		Citations: []models.NewsCitation{{URLs: []string{"https://www.bbc.com/news/story?id=1"}}},
+	}
+	err := validateNewsSynthesis(synthesis, []models.NewsArticle{{URL: "https://bbc.com/news/story?id=1"}})
+	if err != nil {
+		t.Fatalf("expected canonical citation URL to be accepted, got %v", err)
+	}
+}
+
+func TestCompactNewsArticleSentimentsDropsEmptyPlaceholders(t *testing.T) {
+	kept := compactNewsArticleSentiments([]models.NewsArticleSentiment{
+		{},
+		{Label: "neutral", Confidence: 0.5},
+		{URL: "https://reuters.com/story", Label: "neutral"},
+	})
+	if len(kept) != 1 || kept[0].URL != "https://reuters.com/story" {
+		t.Fatalf("compact sentiments = %+v", kept)
+	}
+}
+
+func TestCompactNewsConflictsDropsEmptyPlaceholders(t *testing.T) {
+	kept := compactNewsConflicts([]models.NewsConflict{
+		{},
+		{Claim: "A claim", Resolution: "unresolved"},
+	})
+	if len(kept) != 1 || kept[0].Claim != "A claim" {
+		t.Fatalf("compact conflicts = %+v", kept)
 	}
 }

@@ -134,6 +134,48 @@ RocketReach is a paid enrichment provider and is intentionally limited to compan
 and explicitly requested person dossiers. Search and lookup failures are non-fatal and are
 reported as run warnings.
 
+### Deep search mode (open-ended questions)
+
+Deep search is the one mode that starts from a free-form research question instead of a
+confirmed identity. There is no confirmation step: `mode=deepsearch` posts straight to
+`POST /api/research`. Before anything is searched the operator picks a focus — **depth**
+(decompose into 10 sub-questions, favour comprehensive coverage) or **recency** (5
+sub-questions, favour the latest developments and dated sources) — and the run proceeds in
+rounds:
+
+1. **Decompose** — the planner takes the question apart into its sub-questions. It designs
+   the decomposition; it never answers the question.
+2. **Compose** — each sub-question gets up to 5 custom search queries (recency-composed
+   queries carry current-year/“latest” qualifiers). Each round executes a bounded round-robin
+   sample (10 per round) so every sub-question is covered before any gets a second search.
+3. **Search & select** — the round's queries run concurrently through the cached search path,
+   hits are deduplicated across rounds, and a relevance judge scores the candidates on title,
+   snippet, and date only. Ranking is judge score plus a deterministic recency bonus when the
+   focus is recency; the top candidates within the scrape budget are read.
+4. **Read & extract** — selected pages go through the normal scrape ladder, and an extractor
+   distils each round's pages into grounded question–answer pairs (question, faithful answer,
+   verbatim supporting quote, source URL). A pair whose URL was not actually scraped is
+   dropped with a warning.
+5. **Review & rerun** — a reviewer checks the answers collected so far against the
+   sub-questions. Incomplete coverage names the gaps and emits rerun queries that become the
+   next round; complete coverage (or the round/scrape budget) ends the loop.
+6. **Assemble** — the final cited report is assembled **from the question–answer pairs alone**;
+   raw page text is not re-sent, so nothing outside the extracted pairs reaches the report.
+
+Every LLM stage is role-scoped with a grounding clause: the planner designs, the composer
+rephrases, the judge classifies, the extractor quotes, the reviewer assesses coverage, and the
+assembler arranges — **none of them may contribute the model's own knowledge to the corpus or
+the output**. The rule is also enforced deterministically: QA-pair URLs must match scraped
+pages, and synthesis citations must match collected sources, with violations dropped and
+reported as run warnings. If nothing could be read, the run completes with a warning instead
+of an invented report.
+
+Budgets (defaults in parentheses, each capped): rounds (`3`, max 5), results per query (`8`,
+max 10), and pages read per run (`12`, max 24). The console exposes all three plus the focus
+choice; deep search rides the rendered-run timeout because it reads pages every round. Events
+stream to the console like every other mode, and the report fragment shows the decomposition,
+the composed query plan, the per-round trace, the extracted answer pairs, and the sources.
+
 ### Legal mode (Indian case-law check)
 
 A legal run is a bounded litigation-exposure check on the confirmed company and the named

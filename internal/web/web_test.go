@@ -3,6 +3,7 @@ package web
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
@@ -290,6 +291,84 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("demand_chain_report fragment is missing %q", expected)
+		}
+	}
+}
+
+// TestDeepSearchReportFragmentRenders renders the deep search report with a
+// fully-populated report and asserts every section makes it into the HTML.
+func TestDeepSearchReportFragmentRenders(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	report := &models.DeepSearchReport{
+		ResearchID: "sess-1", Question: "How are regulators responding to AI disinformation?",
+		Focus: models.FocusRecency, AsOf: now, StartedAt: now, CompletedAt: now,
+		Plan: models.DeepSearchPlan{
+			Understanding: "The question asks about regulator responses.",
+			SubQuestions:  []string{"Which regulators acted recently?"},
+		},
+		QueryPlan: models.DeepSearchQueryPlan{
+			Entries: []models.DeepSubQuestionQueries{{
+				SubQuestion: "Which regulators acted recently?",
+				Queries:     []string{"regulator deepfake rules 2026", "latest election deepfake guidance"},
+			}},
+		},
+		Rounds: []models.DeepSearchRound{
+			{Round: 1, Queries: []string{"regulator deepfake rules 2026"}, Composed: 2, Candidates: 8, Selected: 1,
+				SearchHits: 8, Scraped: 1, QAPairs: 2, Missing: []string{"no regulator statements"}},
+			{Round: 2, Queries: []string{"election deepfake guidance"}, SearchHits: 6, Selected: 1, Scraped: 1,
+				QAPairs: 2, Complete: true},
+		},
+		Sources: []models.DeepSearchSource{{
+			URL: "https://example.com/regulator", Title: "Regulator acts on deepfakes",
+			Host: "example.com", SubQuestion: "Which regulators acted recently?",
+			Snippet: "The regulator proposed rules.",
+			Content: "The regulator proposed rules on synthetic media.", Round: 1, FetchedAt: now,
+		}},
+		QAPairs: []models.DeepSearchQAPair{{
+			SubQuestion: "Which regulators acted recently?", Question: "Which regulator proposed deepfake rules?",
+			Answer: "A regulator proposed rules on synthetic media.", Quote: "proposed rules on synthetic media",
+			URL: "https://example.com/regulator", Round: 1,
+		}},
+		Synthesis: models.DeepSearchSynthesis{
+			Title:   "Regulators tighten deepfake rules",
+			Summary: "Several regulators moved this year.",
+			Report:  "## Findings\nSynthetic media rules expanded.",
+			Findings: []models.DeepSearchFinding{
+				{Statement: "A regulator proposed deepfake rules.", URLs: []string{"https://example.com/regulator"}},
+			},
+			OpenQuestions: []string{"Enforcement timelines remain unclear."},
+		},
+		QueriesUsed: 2, SearchHits: 14, PagesScraped: 2, RoundsRun: 2,
+	}
+
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "deepsearch_report", report); err != nil {
+		t.Fatalf("execute deepsearch_report: %v", err)
+	}
+	rendered := out.String()
+	for _, expected := range []string{
+		"Regulators tighten deepfake rules",
+		"How are regulators responding to AI disinformation?",
+		"focus: recency",
+		"Several regulators moved this year.",
+		"Synthetic media rules expanded.",
+		"A regulator proposed deepfake rules.",
+		"Enforcement timelines remain unclear.",
+		"Regulator acts on deepfakes",
+		"Which regulators acted recently?",
+		"regulator deepfake rules 2026",
+		"Which regulator proposed deepfake rules?",
+		"A regulator proposed rules on synthetic media.",
+		"proposed rules on synthetic media",
+		"Extracted question",
+	} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("deepsearch_report fragment is missing %q", expected)
 		}
 	}
 }

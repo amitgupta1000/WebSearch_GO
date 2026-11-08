@@ -413,7 +413,7 @@ func (e *Engine) ScrapeConcurrency() int {
 
 // SearchCached performs a Google search with TTL caching.
 func (e *Engine) SearchCached(ctx context.Context, query string, maxResults int) ([]models.SearchResult, error) {
-	cacheKey := cache.HashKey("search", query)
+	cacheKey := cache.HashKey("search", fmt.Sprintf("%s|max=%d", query, maxResults))
 	var cached []models.SearchResult
 	if cache.GetJSON(ctx, e.cache, cacheKey, &cached) {
 		return cached, nil

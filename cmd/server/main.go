@@ -39,6 +39,7 @@ type Server struct {
 	marketAgent  *agent.MarketLandscapeAgent
 	demandAgent  *agent.DemandChainAgent
 	newsAgent    *agent.NewsAgent
+	deepAgent    *agent.DeepSearchAgent
 	rocketReach  *tools.RocketReachClient
 	hub          *agent.SessionHub
 	tmpl         *template.Template
@@ -274,6 +275,10 @@ func main() {
 	// procurement-contact discovery when the operator asks for it.
 	demandAgent := agent.NewDemandChainAgent(eng, rocketReachClient)
 	newsAgent := agent.NewNewsAgent(eng)
+	// Deep search is the open-ended mode: the same engine, but the model plans
+	// the queries, reflects on the evidence between rounds, and decides when
+	// the sources collected are enough to synthesize the cited report.
+	deepAgent := agent.NewDeepSearchAgent(eng)
 	juristwayNote := " (anonymous)"
 	if cfg.JuristwayEmail != "" {
 		juristwayNote = " (authenticated)"
@@ -310,6 +315,7 @@ func main() {
 		marketAgent:        marketAgent,
 		demandAgent:        demandAgent,
 		newsAgent:          newsAgent,
+		deepAgent:          deepAgent,
 		rocketReach:        rocketReachClient,
 		hub:                sessionHub,
 		tmpl:               tmpl,
@@ -510,6 +516,10 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 	}
 	if mode == "news" {
 		s.startNews(w, r, query)
+		return
+	}
+	if mode == "deepsearch" {
+		s.startDeepSearch(w, r, query)
 		return
 	}
 
@@ -826,6 +836,58 @@ func (s *Server) startNews(w http.ResponseWriter, r *http.Request, query string)
 	}()
 	s.render(w, "workflow_console", map[string]string{
 		"SessionID": sessionID, "Mode": "News", "Query": query,
+		"Budget": fmt.Sprintf("%ds", int(timeout.Seconds())),
+	})
+}
+
+// deepSearchQueryFromForm reads the open-ended question, the recency/depth
+// focus, and its budgets. Every budget falls back to the agent's own defaults,
+// so a bare question is enough.
+func deepSearchQueryFromForm(r *http.Request, query string) models.DeepSearchQuery {
+	return models.DeepSearchQuery{
+		Question:         strings.TrimSpace(query),
+		Focus:            strings.TrimSpace(r.FormValue("deep_focus")),
+		MaxRounds:        parseBoundedInt(r.FormValue("deep_max_rounds"), 0, 1, agent.DeepMaxRounds),
+		MaxSearchResults: parseBoundedInt(r.FormValue("deep_max_results"), 0, 1, agent.DeepMaxSearchResults),
+		MaxScrapes:       parseBoundedInt(r.FormValue("deep_max_scrapes"), 0, 1, agent.DeepMaxScrapes),
+	}
+}
+
+// startDeepSearch mirrors startNews: a synchronous render when the caller asks
+// for it, otherwise a detached run on the session hub whose events stream as
+// SSE. Deep search reads more pages than a fixed pipeline, so it rides the
+// larger rendered-run budget.
+func (s *Server) startDeepSearch(w http.ResponseWriter, r *http.Request, query string) {
+	deepQuery := deepSearchQueryFromForm(r, query)
+	sessionID := newSessionID()
+	if r.URL.Query().Get("sync") == "1" {
+		ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ResearchTimeoutFor(true))
+		defer cancel()
+		report, err := s.deepAgent.Research(ctx, sessionID, deepQuery, nil)
+		if err != nil {
+			s.renderError(w, "Deep search failed: "+err.Error())
+			return
+		}
+		s.render(w, "deepsearch_report", report)
+		return
+	}
+
+	session := s.hub.Create(sessionID, "deepsearch", query)
+	timeout := s.cfg.ResearchTimeoutFor(true)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("[ERROR][session %s] deep search panicked: %v\n%s", sessionID, recovered, debug.Stack())
+				session.Complete(nil, fmt.Errorf("research panicked: %v", recovered))
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		report, err := s.deepAgent.Research(ctx, sessionID, deepQuery, session.EventCh)
+		session.Complete(report, err)
+	}()
+	s.render(w, "workflow_console", map[string]string{
+		"SessionID": sessionID, "Mode": "Deep Search", "Query": query,
 		"Budget": fmt.Sprintf("%ds", int(timeout.Seconds())),
 	})
 }
@@ -1546,6 +1608,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				} else if session.Mode == "news" {
 					if report, ok := result.(*models.NewsReport); ok {
 						sendSSE("result", renderFragment("news_report", report))
+					}
+					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
+				} else if session.Mode == "deepsearch" {
+					if report, ok := result.(*models.DeepSearchReport); ok {
+						sendSSE("result", renderFragment("deepsearch_report", report))
 					}
 					sendSSE("status", `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">● Complete</span>`)
 				} else {

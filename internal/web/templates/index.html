@@ -12,9 +12,20 @@
     <style>
         body { background: radial-gradient(circle at 15% 0%, rgba(30, 64, 175, .18), transparent 34rem), #020617; }
         .brand-mark { box-shadow: 0 0 32px rgba(56, 189, 248, .24); }
-        .mode-card input:checked + span { border-color: rgb(99 102 241); background: rgba(79, 70, 229, .18); color: white; box-shadow: inset 0 0 0 1px rgba(129, 140, 248, .25); }
-        .mode-card span { transition: border-color .2s, background .2s, transform .2s; }
+        .mode-card span { background: rgba(2, 6, 23, .72); transition: border-color .2s, background .2s, box-shadow .2s, transform .2s; }
+        .mode-card span[data-tone] { position: relative; overflow: hidden; }
+        .mode-card span[data-tone]::after { content: ''; position: absolute; top: 0; left: 1.25rem; right: 1.25rem; height: 2px; background: var(--mode-accent); opacity: .8; }
+        .mode-card span[data-tone="company"] { --mode-accent: rgb(56 189 248); }
+        .mode-card span[data-tone="person"] { --mode-accent: rgb(129 140 248); }
+        .mode-card span[data-tone="legal"] { --mode-accent: rgb(251 113 133); }
+        .mode-card span[data-tone="related"] { --mode-accent: rgb(192 132 252); }
+        .mode-card span[data-tone="market"] { --mode-accent: rgb(45 212 191); }
+        .mode-card span[data-tone="demand"] { --mode-accent: rgb(250 204 21); }
+        .mode-card span[data-tone="news"] { --mode-accent: rgb(251 146 60); }
+        .mode-card span[data-tone="deep"] { --mode-accent: rgb(74 222 128); }
+        .mode-card input:checked + span { border-color: rgb(99 102 241); background: rgba(79, 70, 229, .18); color: white; box-shadow: inset 0 0 0 1px rgba(129, 140, 248, .25), 0 12px 24px rgba(15, 23, 42, .24); transform: translateY(-2px); }
         .mode-card:hover span { transform: translateY(-1px); border-color: rgb(71 85 105); }
+        .mode-card input:focus-visible + span { outline: 2px solid rgb(129 140 248); outline-offset: 3px; }
         .field { transition: border-color .2s, box-shadow .2s; }
         .field:focus { box-shadow: 0 0 0 3px rgba(99, 102, 241, .14); }
     </style>
@@ -58,47 +69,53 @@
                             <label class="text-xs font-medium text-slate-300">What are you researching?</label>
                             <span class="text-[11px] text-slate-500">One focused mode per run</span>
                         </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                             <label class="mode-card cursor-pointer">
                                 <input type="radio" name="mode" value="company" checked class="sr-only" onclick="toggleFields('company')">
-                                <span class="block rounded-2xl border border-indigo-500/60 bg-indigo-500/15 p-4">
+                                <span data-tone="company" class="block h-full min-h-[7.5rem] rounded-2xl border border-slate-800 p-5">
                                     <strong class="block text-sm text-white">Company brief</strong><small class="block text-xs text-slate-400 mt-1">Structure, leaders, locations</small>
                                 </span>
                             </label>
                             <label class="mode-card cursor-pointer">
                                 <input type="radio" name="mode" value="person" class="sr-only" onclick="toggleFields('person')">
-                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                                    <strong class="block text-sm text-white">Person dossier</strong><small class="block text-xs text-slate-400 mt-1">Identity, career, contacts</small>
+                                <span data-tone="person" class="block h-full min-h-[7.5rem] rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                    <strong class="block text-sm text-white">Person dossier</strong><small class="block text-xs text-slate-400 mt-1">Confirm identity, career, and professional footprint</small>
                                 </span>
                             </label>
                             <label class="mode-card cursor-pointer">
                                 <input type="radio" name="mode" value="legal" class="sr-only" onclick="toggleFields('legal')">
-                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                                    <strong class="block text-sm text-white">Legal check</strong><small class="block text-xs text-slate-400 mt-1">Case law and exposure</small>
+                                <span data-tone="legal" class="block h-full min-h-[7.5rem] rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                    <strong class="block text-sm text-white">Legal check</strong><small class="block text-xs text-slate-400 mt-1">Find case law, regulatory exposure, and risk signals</small>
                                 </span>
                             </label>
                             <label class="mode-card cursor-pointer">
                                 <input type="radio" name="mode" value="related_entity" class="sr-only" onclick="toggleFields('related_entity')">
-                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                                    <strong class="block text-sm text-white">Related entities</strong><small class="block text-xs text-slate-400 mt-1">Groups, affiliations, links</small>
+                                <span data-tone="related" class="block h-full min-h-[7.5rem] rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                    <strong class="block text-sm text-white">Related entities</strong><small class="block text-xs text-slate-400 mt-1">Map groups, affiliations, directors, and links</small>
                                 </span>
                             </label>
                             <label class="mode-card cursor-pointer">
                                 <input type="radio" name="mode" value="market_landscape" class="sr-only" onclick="toggleFields('market_landscape')">
-                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                                    <strong class="block text-sm text-white">Producer/Seller Landscape</strong><small class="block text-xs text-slate-400 mt-1">Companies, regions, contacts</small>
+                                <span data-tone="market" class="block h-full min-h-[7.5rem] rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                    <strong class="block text-sm text-white">Producer/Seller Landscape</strong><small class="block text-xs text-slate-400 mt-1">Compare producers, regions, activity, and contacts</small>
                                 </span>
                             </label>
                             <label class="mode-card cursor-pointer">
                                 <input type="radio" name="mode" value="demand_chain" class="sr-only" onclick="toggleFields('demand_chain')">
-                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                                    <strong class="block text-sm text-white">Buyer landscape</strong><small class="block text-xs text-slate-400 mt-1">Who consumes it, demand signals</small>
+                                <span data-tone="demand" class="block h-full min-h-[7.5rem] rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                    <strong class="block text-sm text-white">Buyer landscape</strong><small class="block text-xs text-slate-400 mt-1">Identify consumers, demand stages, and buying signals</small>
                                 </span>
                             </label>
                             <label class="mode-card cursor-pointer">
                                 <input type="radio" name="mode" value="news" class="sr-only" onclick="toggleFields('news')">
-                                <span class="block rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                                    <strong class="block text-sm text-white">News brief</strong><small class="block text-xs text-slate-400 mt-1">Current reporting and sentiment</small>
+                                <span data-tone="news" class="block h-full min-h-[7.5rem] rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                    <strong class="block text-sm text-white">News brief</strong><small class="block text-xs text-slate-400 mt-1">Track current reporting, conflicts, and sentiment</small>
+                                </span>
+                            </label>
+                            <label class="mode-card cursor-pointer">
+                                <input type="radio" name="mode" value="deepsearch" class="sr-only" onclick="toggleFields('deepsearch')">
+                                <span data-tone="deep" class="block h-full min-h-[7.5rem] rounded-2xl border border-slate-800 bg-slate-950 p-5">
+                                    <strong class="block text-sm text-white">Deep search</strong><small class="block text-xs text-slate-400 mt-1">Break open questions into a thorough cited report</small>
                                 </span>
                             </label>
                         </div>
@@ -130,6 +147,33 @@
                     </div>
                     <label class="sm:col-span-2 text-xs text-slate-300"><input type="checkbox" name="news_include_undated" value="1" class="mr-1 accent-indigo-500"> Include scraped articles with no verifiable publication timestamp</label>
                     <p class="sm:col-span-2 text-[11px] text-slate-500">Only articles published within the last 24 hours are selected by default. Conflicting reports are attributed and resolved chronologically where evidence supports an update.</p>
+                </div>
+
+                <!-- Budget fields for Deep Search Mode -->
+                <div id="deepsearch-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Research focus</label>
+                        <div class="flex gap-4 mt-2 text-sm text-slate-300">
+                            <label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" name="deep_focus" value="depth" checked class="accent-indigo-500"> Depth</label>
+                            <label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" name="deep_focus" value="recency" class="accent-indigo-500"> Recency</label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Maximum rounds (search → select → read → extract → review)</label>
+                        <input type="number" name="deep_max_rounds" value="3" min="1" max="5"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Results per query</label>
+                        <input type="number" name="deep_max_results" value="8" min="1" max="10"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-400">Maximum pages read</label>
+                        <input type="number" name="deep_max_scrapes" value="12" min="1" max="24"
+                               class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
+                    </div>
+                    <p class="sm:col-span-2 text-[11px] text-slate-500">The question is decomposed into sub-questions (10 for depth, 5 for recency), each with its own custom search queries; results are judged for relevance, read, and distilled into grounded question–answer pairs before the cited report is assembled. Depth favours coverage; recency favours the latest developments and dated sources.</p>
                 </div>
 
                 <!-- Disambiguation fields for Person Mode -->
@@ -388,6 +432,7 @@
             const mf = document.getElementById('market-fields');
             const bf = document.getElementById('demand-fields');
             const nf = document.getElementById('news-fields');
+            const df = document.getElementById('deepsearch-fields');
             const ql = document.getElementById('query-label');
             const qi = document.getElementById('primary-query');
             const companySubmit = document.getElementById('company-submit');
@@ -401,6 +446,7 @@
             if (mf) mf.classList.add('hidden');
             if (bf) bf.classList.add('hidden');
             if (nf) nf.classList.add('hidden');
+            if (df) df.classList.add('hidden');
             if (mode === 'demand_chain') {
                 if (bf) bf.classList.remove('hidden');
                 ql.innerText = 'Product / commodity';
@@ -430,6 +476,17 @@
                 if (companySubmit) companySubmit.classList.remove('hidden');
                 if (personSubmit) personSubmit.classList.add('hidden');
                 if (spinner) spinner.innerText = 'Collecting current reporting…';
+                if (form) {
+                    form.setAttribute('hx-post', '/api/research');
+                    form.setAttribute('hx-target', '#results-container');
+                }
+            } else if (mode === 'deepsearch') {
+                if (df) df.classList.remove('hidden');
+                ql.innerText = 'Research question';
+                qi.placeholder = 'e.g. How are regulators responding to AI-generated disinformation in elections?';
+                if (companySubmit) companySubmit.classList.remove('hidden');
+                if (personSubmit) personSubmit.classList.add('hidden');
+                if (spinner) spinner.innerText = 'Planning the deep research strategy…';
                 if (form) {
                     form.setAttribute('hx-post', '/api/research');
                     form.setAttribute('hx-target', '#results-container');
