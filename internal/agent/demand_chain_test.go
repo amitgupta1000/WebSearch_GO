@@ -351,6 +351,11 @@ func TestDemandSourceOverrideAndName(t *testing.T) {
 		"mdpi.com":                "publisher",
 		"pubs.acs.org":            "publisher",
 		"onlinelibrary.wiley.com": "publisher",
+		"www.imarcgroup.com":      "consultancy",
+		"statista.com":            "consultancy",
+		"www.intratec.us":         "consultancy",
+		"engconfintl.org":         "institution",
+		"iea.org":                 "institution",
 		"www.greendiesel.com.my":  "",
 	} {
 		if got := demandSourceOverride(domain); got != want {
@@ -361,14 +366,45 @@ func TestDemandSourceOverrideAndName(t *testing.T) {
 		"Latest Alcohol Tenders in India 2026 - TendersOnTime",
 		"Carbonylation of Methanol: A Versatile Reaction - Wiley Online Library",
 		"mdpi.com",
+		"IMARC Group",
+		"Intratec",
+		"Methanol Carbonylation - Energyscope",
+		"Methanol Carbonylation – Energyscope",
+		"Community Exposure to Toluene Diisocyanate",
+		"Methanol Use In Gasoline",
+		"NPTEL IIT Guwahati",
+		"engconfintl.org",
+		"chemprob.org",
 	} {
-		if !demandSourceName(name) {
+		if !demandSourceName(name, "methanol") {
 			t.Errorf("demandSourceName(%q) must reject a source masquerading as a buyer", name)
 		}
 	}
-	for _, name := range []string{"Gujarat Narmada Valley Fertilizers & Chemicals Limited", "GreenDiesel Sdn Bhd"} {
-		if demandSourceName(name) {
+	for _, name := range []string{
+		"Gujarat Narmada Valley Fertilizers & Chemicals Limited",
+		"GreenDiesel Sdn Bhd",
+		"Aldehydes India",
+		"Kunnathan Polymers",
+		"INEOS-GNFC",
+	} {
+		if demandSourceName(name, "methanol") {
 			t.Errorf("demandSourceName(%q) must not reject a real company", name)
+		}
+	}
+}
+
+// TestDemandNormalizeCandidateName: an echoed page title or headline collapses
+// to its company segment — longest pipe part, then pre-colon, then
+// pre-possessive.
+func TestDemandNormalizeCandidateName(t *testing.T) {
+	for name, want := range map[string]string{
+		"Butyl Acrylate | Products | Mitsubishi Chemical Corporation":             "Mitsubishi Chemical Corporation",
+		"INEOS-GNFC's New Plant: Is India's Methanol-Acetic Acid Bet Paying Off?": "INEOS-GNFC",
+		"Acme Chemicals: Formaldehyde Supplier":                                   "Acme Chemicals",
+		"GreenDiesel Sdn Bhd":                                                     "GreenDiesel Sdn Bhd",
+	} {
+		if got := demandNormalizeCandidateName(name); got != want {
+			t.Errorf("demandNormalizeCandidateName(%q) = %q, want %q", name, got, want)
 		}
 	}
 }

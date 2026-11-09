@@ -385,10 +385,27 @@ var demandPublisherMarkers = []string{
 	"nature.com", "sciencedaily", "scribd", "slideshare", "amazon.", "books.google",
 }
 
-// demandSourceOverride reclassifies aggregator and publisher domains for the
-// buyer side. The returned tier never qualifies, so such pages stay in the
-// run as demand signals and leads while being unable to verify a company or
-// reach the results as one. Empty when the shared tier classifier stands.
+// demandConsultancyMarkers are the domains of market-research vendors and
+// consultancies: they write about demand, they do not exercise it.
+var demandConsultancyMarkers = []string{
+	"imarc", "mordorintelligence", "statista", "credence", "grandviewresearch",
+	"marketsandmarkets", "gminsights", "fortunebusinessinsights", "researchandmarkets",
+	"intratec", "databridge", "alliedmarket", "persistencemarket", "techsci",
+	"stratview", "nextmove", "marketresearch", "transparencymarketresearch",
+}
+
+// demandInstitutionMarkers are the domains of conferences, associations and
+// bodies: commentary and community, not buyers.
+var demandInstitutionMarkers = []string{
+	"conference", "confintl", "symposium", "associa", "society", "council",
+	"federation", "institute", "iea.", "unep", "oecd",
+}
+
+// demandSourceOverride reclassifies aggregator, publisher, consultancy and
+// institution domains for the buyer side. The returned tier never qualifies,
+// so such pages stay in the run as demand signals and leads while being
+// unable to present as companies themselves. Empty when the shared tier
+// classifier stands.
 func demandSourceOverride(domain string) string {
 	domain = strings.ToLower(strings.TrimPrefix(domain, "www."))
 	for _, marker := range demandAggregatorMarkers {
@@ -401,22 +418,53 @@ func demandSourceOverride(domain string) string {
 			return "publisher"
 		}
 	}
+	for _, marker := range demandConsultancyMarkers {
+		if strings.Contains(domain, marker) {
+			return "consultancy"
+		}
+	}
+	for _, marker := range demandInstitutionMarkers {
+		if strings.Contains(domain, marker) {
+			return "institution"
+		}
+	}
 	return ""
 }
 
-// demandSourceName catches a candidate whose *name* is an aggregator page or
-// publication rather than a company — the extraction occasionally echoes the
-// page title ("Latest Alcohol Tenders in India 2026 - TendersOnTime") as a
-// buyer.
-func demandSourceName(name string) bool {
+// demandSourceName catches a candidate whose *name* is an aggregator page,
+// consultancy, institution or publication rather than a company — the
+// extraction occasionally echoes the page title ("Latest Alcohol Tenders in
+// India 2026 - TendersOnTime", "IMARC Group") as a buyer. A "topic - site"
+// echo whose topic names the product is likewise a page title, not a buyer.
+func demandSourceName(name, activity string) bool {
 	lowered := strings.ToLower(name)
+	// En/em dashes are headline punctuation too; normalize before matching.
+	lowered = strings.ReplaceAll(lowered, "–", "-")
+	lowered = strings.ReplaceAll(lowered, "—", "-")
 	for _, marker := range []string{
 		"tender", "rfp", "rfq", "marketplace", "indiamart", "tradeindia",
 		"alibaba", "b2b portal", "eprocure", "wiley", "mdpi", "springer",
 		"sciencedirect", "online library", "journal", "books", "researchgate",
-		"proceedings", "isbn",
+		"proceedings", "isbn", "imarc", "mordor", "statista", "credence",
+		"research and markets", "marketsandmarkets", "gminsights",
+		"grand view", "fortune business", "market report", "market research",
+		"consultancy", "consulting", "intratec", "conference", "symposium",
+		"association", "society", "council", "exposure to", "handbook",
+		"encyclopedia", "guide to", "review of", "study of", "confintl",
+		"university", "college", "nptel", "use in",
 	} {
 		if strings.Contains(lowered, marker) {
+			return true
+		}
+	}
+	// A bare .org domain echoed as the entity is a non-commercial site.
+	if strings.HasSuffix(lowered, ".org") && strings.Contains(lowered, ".") && !strings.Contains(lowered, " ") {
+		return true
+	}
+	// "Topic - Site" where the topic names the product is a document title.
+	activity = strings.ToLower(strings.TrimSpace(activity))
+	if idx := strings.Index(lowered, " - "); idx > 0 && activity != "" {
+		if strings.Contains(lowered[:idx], activity) {
 			return true
 		}
 	}
@@ -1129,7 +1177,7 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 			leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 		}
 		var batch []models.MarketLandscapeLeadCandidate
-		prompt := fmt.Sprintf("Extract every actual company or facility operator explicitly supported by these leads as a consumer, buyer, importer, or processor of %q. %sExclude publishers, list titles, market-research vendors, regions, projects, and generic categories. Set producer to true when the page describes the company as a producer, manufacturer, or supplier of %q itself rather than a consumer of it. If a lead explicitly names a relevant procurement, purchasing, or supply-chain person, include the person's name in key_people; never infer people. Return a JSON array with name, country, reason, evidence_url as a string, producer as a boolean, and key_people as an array of strings.\nActivity: %s\nLeads:\n%s", query.Activity, geoPreference, query.Activity, query.Activity, strings.Join(leadText, "\n"))
+		prompt := fmt.Sprintf("Extract every actual company or facility operator explicitly supported by these leads as a consumer, buyer, importer, or processor of %q. %sExclude publishers, list titles, market-research vendors, regions, projects, and generic categories. Return the company's legal name — never a news headline, page title, or project name. Set producer to true when the page describes the company as a producer, manufacturer, or supplier of %q itself rather than a consumer of it. If a lead explicitly names a relevant procurement, purchasing, or supply-chain person, include the person's name in key_people; never infer people. Return a JSON array with name, country, reason, evidence_url as a string, producer as a boolean, and key_people as an array of strings.\nActivity: %s\nLeads:\n%s", query.Activity, geoPreference, query.Activity, query.Activity, strings.Join(leadText, "\n"))
 		if err := a.engine.GenerateStructured(ctx, "You extract company names for a buyer-research verification queue. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
 			rejected += end - start
 			extractionErrors = append(extractionErrors, err.Error())
@@ -1141,19 +1189,10 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 	uniqueExtracted := make([]models.MarketLandscapeLeadCandidate, 0, len(extracted))
 	seenNames := make(map[string]bool)
 	for _, candidate := range extracted {
-		candidate.Name = strings.TrimSpace(candidate.Name)
-		// A name that arrived as a page title ("Butyl Acrylate | Products | X")
-		// collapses to its longest segment — the company name is usually the
-		// last meaningful part of a navigation title.
-		if strings.Contains(candidate.Name, "|") {
-			best := ""
-			for _, segment := range strings.Split(candidate.Name, "|") {
-				if trimmed := strings.TrimSpace(segment); len(trimmed) > len(best) {
-					best = trimmed
-				}
-			}
-			candidate.Name = best
-		}
+		// A name that arrived as a page title or headline ("Butyl Acrylate |
+		// Products | X", "INEOS-GNFC's New Plant: Is India's ...") collapses
+		// to its company segment.
+		candidate.Name = demandNormalizeCandidateName(strings.TrimSpace(candidate.Name))
 		// A name that equals the country the lead named is a geography, not a
 		// company — the model occasionally echoes a country as an entity.
 		if strings.EqualFold(candidate.Name, strings.TrimSpace(candidate.Country)) {
@@ -1166,9 +1205,9 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 			rejected++
 			continue
 		}
-		// A tender portal, B2B marketplace or publication echoed as the
-		// entity itself is a source, not a buyer.
-		if demandSourceName(candidate.Name) {
+		// A tender portal, B2B marketplace, consultancy, institution or
+		// publication echoed as the entity itself is a source, not a buyer.
+		if demandSourceName(candidate.Name, query.Activity) {
 			rejected++
 			continue
 		}
@@ -1275,6 +1314,31 @@ func demandStageForLead(leads []models.MarketLandscapeEvidence, lead models.Mark
 	return ""
 }
 
+// demandNormalizeCandidateName collapses an echoed page title or headline to
+// its company segment: the longest pipe-delimited part ("Butyl Acrylate |
+// Products | X"), then everything before a colon (news headlines use
+// "Headline: subhead"), then everything before a possessive 's
+// ("INEOS-GNFC's New Plant: ..." → "INEOS-GNFC").
+func demandNormalizeCandidateName(name string) string {
+	name = strings.TrimSpace(name)
+	if strings.Contains(name, "|") {
+		best := ""
+		for _, segment := range strings.Split(name, "|") {
+			if trimmed := strings.TrimSpace(segment); len(trimmed) > len(best) {
+				best = trimmed
+			}
+		}
+		name = best
+	}
+	if idx := strings.Index(name, ":"); idx > 0 {
+		name = strings.TrimSpace(name[:idx])
+	}
+	if idx := strings.Index(name, "'s"); idx > 0 {
+		name = strings.TrimSpace(name[:idx])
+	}
+	return name
+}
+
 // demandVerificationPurpose is one templated verification search.
 type demandVerificationPurpose struct {
 	phrase string
@@ -1326,8 +1390,8 @@ func demandClaimForLead(leads []models.MarketLandscapeEvidence, lead models.Mark
 func demandVerificationEvidence(hit models.SearchResult, company, activity, purpose string) (models.MarketLandscapeEvidence, bool) {
 	domain := hostname(hit.Link)
 	tier := marketSourceTier(domain)
-	if override := demandSourceOverride(domain); override == "publisher" {
-		// Academic publishers and repositories are bibliography — never
+	if override := demandSourceOverride(domain); override != "" && override != "aggregator" {
+		// Publishers, consultancies and institutions are commentary — never
 		// consumption evidence. Tender-portal domains are NOT overridden
 		// here: a tender listing hosted on a portal that names the buyer is
 		// real claim evidence about that buyer (the aggregators themselves
