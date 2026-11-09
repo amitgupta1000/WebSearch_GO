@@ -235,6 +235,175 @@ func TestDemandBuyerFitConfidence(t *testing.T) {
 	}
 }
 
+// TestDemandChainProducerFlagDemotesTheExtractorJudgement: when the
+// extraction flags a candidate as a producer of the product itself, the
+// company is demoted from the results — it enters the run as a lead and its
+// evidence stays in the appendix unless transactional proof exists.
+func TestDemandChainProducerFlagDemotesTheExtractorJudgement(t *testing.T) {
+	llm := &demandLLM{
+		stages: []models.ValueChainStage{{Name: "biodiesel production", Operators: []string{"biodiesel plant"}}},
+		candidates: []models.MarketLandscapeLeadCandidate{
+			{Name: "Methanex", Producer: true, EvidenceURL: "https://methanex.com"},
+		},
+	}
+	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
+		"biodiesel plant": {{
+			Title: "Used cooking oil biodiesel plant in Malaysia", Link: "https://greendiesel.com.my/plant",
+			Snippet: "Produces biodiesel from used cooking oil feedstock.",
+		}},
+		"official site": {{
+			Title: "Methanex | Home", Link: "https://methanex.com",
+			Snippet: "Methanex operates a used cooking oil handling terminal.",
+		}},
+	}}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, searcher))
+	report, err := agent.Research(context.Background(), "r", models.DemandChainQuery{Activity: "used cooking oil"}, nil)
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	for _, result := range report.Results {
+		if strings.Contains(result.Name, "Methanex") {
+			t.Errorf("a producer-only company must be demoted from the results, got %+v", result)
+		}
+	}
+}
+
+// TestDemandVerificationAggregatorHostedEvidence: a tender listing hosted on
+// a portal domain that names the buyer is real claim evidence about that
+// buyer — the aggregator gate stops the portal masquerading as a company, it
+// must not erase the buyer's tender record. Publishers, by contrast, never
+// verify.
+func TestDemandVerificationAggregatorHostedEvidence(t *testing.T) {
+	tenderHit := models.SearchResult{
+		Title:   "Tender for Supply of Methanol to GNFC, Bharuch Plant",
+		Link:    "https://indiantender.in/gnfc-methanol",
+		Snippet: "Gujarat Narmada Valley Fertilizers and Chemicals Limited invited bids for the supply of Methanol.",
+	}
+	evidence, ok := demandVerificationEvidence(tenderHit, "GNFC", "methanol", "tender or procurement record")
+	if !ok {
+		t.Fatal("tender evidence hosted on an aggregator portal must still verify the buyer it names")
+	}
+	if evidence.ClaimType != models.DemandClaimTender {
+		t.Errorf("claim type = %q, want demand-tender", evidence.ClaimType)
+	}
+	publisherHit := models.SearchResult{
+		Title:   "Methanol carbonylation kinetics",
+		Link:    "https://pubs.acs.org/doi/10.1021/example",
+		Snippet: "Methanol carbonylation experiments reference Acme Chemicals catalysts.",
+	}
+	if _, ok := demandVerificationEvidence(publisherHit, "Acme Chemicals", "methanol", "own site"); ok {
+		t.Error("publisher-hosted hits must never verify a company")
+	}
+}
+
+// TestDemandProducerSignal pins the producer gate's precision: every marker
+// embeds the product name itself, so a downstream manufacturer's page never
+// misfires, and the buyer's own input language is never producer evidence.
+func TestDemandProducerSignal(t *testing.T) {
+	producer := models.SearchResult{
+		Title:   "Methanex Corporation",
+		Snippet: "Methanex is the world's largest methanol producer and supplier.",
+	}
+	if !demandProducerSignal(producer, "methanol") {
+		t.Error("a producer self-description must be flagged")
+	}
+	downstream := models.SearchResult{
+		Title:   "Reichhold | Resins",
+		Snippet: "Reichhold is a manufacturer of resins, consuming methanol as a raw material for formaldehyde production.",
+	}
+	if demandProducerSignal(downstream, "methanol") {
+		t.Error("a manufacturer of a downstream product must not be flagged as a producer of the product itself")
+	}
+	usage := models.SearchResult{
+		Title:   "Acme Chemicals",
+		Snippet: "We purchase methanol as a raw material for acetic acid production.",
+	}
+	if demandProducerSignal(usage, "methanol") {
+		t.Error("the buyer's own input language must not be flagged as producer evidence")
+	}
+}
+
+// TestDemandVerificationPurposesFollowTheDiscoveryClaim: the verification
+// searches run cheapest-first for what the discovery lane already claimed.
+func TestDemandVerificationPurposesFollowTheDiscoveryClaim(t *testing.T) {
+	firstKind := func(claim string) string {
+		return demandVerificationPurposes(claim)[0].kind
+	}
+	if got := firstKind(models.DemandClaimTender); got != "tender or procurement record" {
+		t.Errorf("a tender-discovered lead must verify via tender evidence first, got %q", got)
+	}
+	if got := firstKind(models.DemandClaimImport); got != "import record" {
+		t.Errorf("an import-discovered lead must verify via trade data first, got %q", got)
+	}
+	if got := firstKind(models.DemandClaimOperator); got != "own site" {
+		t.Errorf("a stage-discovered lead must verify via the company's own words first, got %q", got)
+	}
+}
+
+// TestDemandSourceOverrideAndName: tender portals, B2B marketplaces and
+// publishers are demand signals and bibliography — never qualifying tiers,
+// never verified companies.
+func TestDemandSourceOverrideAndName(t *testing.T) {
+	for domain, want := range map[string]string{
+		"indiantender.in":         "aggregator",
+		"www.tendersontime.com":   "aggregator",
+		"tradeindia.com":          "aggregator",
+		"mdpi.com":                "publisher",
+		"pubs.acs.org":            "publisher",
+		"onlinelibrary.wiley.com": "publisher",
+		"www.greendiesel.com.my":  "",
+	} {
+		if got := demandSourceOverride(domain); got != want {
+			t.Errorf("demandSourceOverride(%q) = %q, want %q", domain, got, want)
+		}
+	}
+	for _, name := range []string{
+		"Latest Alcohol Tenders in India 2026 - TendersOnTime",
+		"Carbonylation of Methanol: A Versatile Reaction - Wiley Online Library",
+		"mdpi.com",
+	} {
+		if !demandSourceName(name) {
+			t.Errorf("demandSourceName(%q) must reject a source masquerading as a buyer", name)
+		}
+	}
+	for _, name := range []string{"Gujarat Narmada Valley Fertilizers & Chemicals Limited", "GreenDiesel Sdn Bhd"} {
+		if demandSourceName(name) {
+			t.Errorf("demandSourceName(%q) must not reject a real company", name)
+		}
+	}
+}
+
+// TestDemandProducerGateGradesSupplySide: a producer with no demand claim is
+// demoted, while an integrated producer-consumer with transactional proof
+// stays — penalized, not excluded.
+func TestDemandProducerGateGradesSupplySide(t *testing.T) {
+	producer := &models.MarketLandscapeCompany{
+		EntityKey: "company:name:methanex", Name: "Methanex", EvidenceType: "company-page",
+		Confidence: 0.70, Activity: "methanol",
+		Evidence: []models.MarketLandscapeEvidence{{
+			URL: "https://methanex.com", ClaimType: models.DemandClaimOperator,
+			SourceTier: "official", Status: "producer-signal",
+		}},
+	}
+	if !demandIsProducerWithoutDemand(producer) {
+		t.Fatal("a producer with no demand claim must be demoted")
+	}
+	integrated := &models.MarketLandscapeCompany{
+		EntityKey: "company:name:gnfc", Name: "GNFC", EvidenceType: "company-page",
+		Confidence: 0.98, Activity: "methanol",
+		Evidence: []models.MarketLandscapeEvidence{
+			{URL: "https://gnfc.in", ClaimType: models.DemandClaimOperator, SourceTier: "official", Status: "producer-signal"},
+			{URL: "https://tender.example.com/gnfc", ClaimType: models.DemandClaimTender, SourceTier: "official", Status: "tender or procurement record"},
+		},
+	}
+	if demandIsProducerWithoutDemand(integrated) {
+		t.Fatal("an integrated producer-consumer with transactional proof must not be demoted")
+	}
+	if !demandHasProducerSignal(integrated) || demandHasProducerSignal(producer) == false {
+		t.Fatal("both companies must carry the producer signal")
+	}
+}
+
 // TestDemandCandidateTagsStageAndFiltersNoise pins the discovery heuristics:
 // stage tagging, demand-lane language checks, bait, and the intermediary
 // exclusion toggle.

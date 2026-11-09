@@ -1,18 +1,18 @@
 # Demand eval — Methanol
 
-_Run eval-methanol · 20 discovery queries (188 hits) · 36 verification queries · 24 pages enriched · 0 leads rejected · completed 2026-11-09 15:17_
+_Run eval-methanol · 20 discovery queries (186 hits) · 36 verification queries · 18 pages enriched · 0 leads rejected · completed 2026-11-09 21:42_
 
 ## Inferred chain
 
 | Stage | Steps from the product | Rationale |
 | :--- | :--- | :--- |
-| Formaldehyde Production | 1 | Consumes Methanol as a feedstock. |
-| Biodiesel Production | 1 | Consumes Methanol in transesterification. |
+| Formaldehyde Production | 1 | Consumes Methanol as a primary feedstock. |
+| Biodiesel Production | 1 | Consumes Methanol in transesterification reaction. |
 | Methyl Tertiary Butyl Ether (MTBE) Production | 1 | Consumes Methanol as a reactant. |
 | Acetic Acid Production | 1 | Consumes Methanol via carbonylation. |
 | Dimethyl Ether (DME) Production | 1 | Consumes Methanol as a feedstock. |
-| Methyl Methacrylate (MMA) Production | 1 | Consumes Methanol as a feedstock. |
-| Methylamine Production | 1 | Consumes Methanol as a feedstock. |
+| Methyl Methacrylate (MMA) Production | 1 | Consumes Methanol as a feedstock in some processes. |
+| Methylamine Production | 1 | Consumes Methanol as a reactant. |
 
 ## Scorecard
 
@@ -32,18 +32,18 @@ _Run eval-methanol · 20 discovery queries (188 hits) · 36 verification queries
 
 ## Verified buyers
 
-- **AFDC** — stage: Biodiesel Production · country:  · status: corroborated · confidence: 0.98
-- **Alfa Laval** — stage: Biodiesel Production · country:  · status: verified · confidence: 0.98
+- **Alfa Laval** — stage: Biodiesel Production · country:  · status: corroborated · confidence: 0.98
 - **Anguil Environmental Systems, Inc.** — stage: Formaldehyde Production · country:  · status: corroborated · confidence: 0.98
+- **August Wilhelm von Hofmann** — stage: Formaldehyde Production · country:  · status: corroborated · confidence: 0.98
+- **Biodiesel Producers** — stage: Biodiesel Production · country:  · status: corroborated · confidence: 0.98
+- **Biodiesel Production and Distribution** — stage: Biodiesel Production · country:  · status: corroborated · confidence: 0.98
 - **HTA** — stage: Biodiesel Production · country: Italy · status: corroborated · confidence: 0.98
-- **Methanex** — stage: Formaldehyde Production · country:  · status: corroborated · confidence: 0.98
 - **Reichhold** — stage: Formaldehyde Production · country: USA · status: corroborated · confidence: 0.98
-- **SL Chemtech** — stage: Formaldehyde Production · country:  · status: corroborated · confidence: 0.98
-- **mdpi.com** — stage: Formaldehyde Production · country:  · status: corroborated · confidence: 0.98
-- **pubs.acs.org** — stage: Biodiesel Production · country:  · status: corroborated · confidence: 0.98
-- **elchemy.com** — stage: Formaldehyde Production · country:  · status: corroborated · confidence: 0.86
+- **SLchemtech** — stage: Formaldehyde Production · country:  · status: corroborated · confidence: 0.98
+- **YS Erchamo** — stage: Biodiesel Production · country:  · status: verified · confidence: 0.98
 - **DME: AN EMERGING GLOBAL FUEL** — stage: Dimethyl Ether (DME) Production · country:  · status: verified · confidence: 0.75
-- **operachem.com** — stage: Biodiesel Production · country:  · status: verified · confidence: 0.70
+- **acetic acid production, from low-pressure methanol ...** — stage: Acetic Acid Production · country:  · status: verified · confidence: 0.65
+- **Methanex** — stage: Formaldehyde Production · country:  · status: corroborated · confidence: 0.52
 
 ## Warnings
 

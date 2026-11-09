@@ -1,0 +1,6 @@
+=== RUN   TestDemandChainEval
+    demand_chain_eval_test.go:407: scorecard -> C:\WebSearch_GO\eval\eval-methanol-scorecard.md
+    demand_chain_eval_test.go:407: scorecard -> C:\WebSearch_GO\eval\eval-tdi-scorecard.md
+*** Test killed: ran too long (1h39m0s).
+FAIL	github.com/amitgupta1000/WebSearch_GO/internal/agent	13386.578s
+FAIL
