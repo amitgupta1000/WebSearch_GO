@@ -495,9 +495,11 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
   footer on every page: the brand line with the report title and checked stamp on the left,
   page numbers on the right.
 - **Demand chain** (`mode=demand_chain`) is the buyer-side counterpart of producer/seller landscape:
-  it infers the product's value chain, searches operators of the consuming stages plus tender/
-  import/input-language lanes, and verifies consumption with claim-typed evidence. Its
-  artifacts land under `demand-chain/` with the value chain leading both documents.
+  it infers the product's value chain scoped to the buyer definition — manufacturers whose process
+  consumes the product directly as an input (step 1) plus one derived step (step 2) — searches
+  operators of those consuming stages plus tender/import/input-language lanes, and verifies
+  consumption with claim-typed evidence. Its artifacts land under `demand-chain/` with the value
+  chain leading both documents.
 - **Search results** (`<run>-searches.json`) accompany every run: every query it issued, with
   each hit split into what the identity/entity gate kept and what it excluded. The console's
   **Search results** panel previews it per query and links the download; the file is written

@@ -60,31 +60,42 @@ func demandChainTestEngine(llm LLMClient, searcher Searcher) *Engine {
 
 // TestDemandChainLanesCoverStagesThenDemand pins the lane order: the chain's
 // operator vocabulary first, then the product-shaped demand lanes, then
-// geography-scoped importer/tender lanes.
+// geography-scoped importer/tender lanes. Distributors and wholesalers are
+// retained as buyers (they purchase to resell), so their lane always runs;
+// only the deeper value-chain stages were scoped out.
 func TestDemandChainLanesCoverStagesThenDemand(t *testing.T) {
-	lanes := demandChainLanes(models.DemandChainQuery{
-		Activity:  "used cooking oil",
-		Countries: []string{"Malaysia"},
-	}, []models.ValueChainStage{{
+	chain := []models.ValueChainStage{{
 		Name: "biodiesel production", Operators: []string{"biodiesel plant", "biorefinery"},
-	}})
-	terms := make([]string, 0, len(lanes))
-	for _, lane := range lanes {
-		terms = append(terms, lane.term)
-		if lane.term == "biodiesel plant" && lane.stage != "biodiesel production" {
-			t.Errorf("operator lane %q must carry its stage, got %q", lane.term, lane.stage)
+	}}
+	terms := func(query models.DemandChainQuery) []string {
+		out := make([]string, 0, 10)
+		for _, lane := range demandChainLanes(query, chain) {
+			out = append(out, lane.term)
+			if lane.term == "biodiesel plant" && lane.stage != "biodiesel production" {
+				t.Errorf("operator lane %q must carry its stage, got %q", lane.term, lane.stage)
+			}
 		}
+		return out
 	}
-	for _, expected := range []string{"biodiesel plant", "buyer procurement purchase", "tender RFP e-procurement", "importer import data", "distributor wholesaler of", "applications uses industries", "Malaysia importer tender procurement"} {
+	query := models.DemandChainQuery{Activity: "used cooking oil", Countries: []string{"Malaysia"}}
+	defaults := terms(query)
+	for _, expected := range []string{"biodiesel plant", "buyer procurement purchase", "tender RFP e-procurement", "importer import data", "raw material feedstock consumption", "industrial applications manufacturers", "distributor wholesaler of", "Malaysia importer tender procurement"} {
 		found := false
-		for _, term := range terms {
+		for _, term := range defaults {
 			if term == expected {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("expected lane %q in %v", expected, terms)
+			t.Errorf("expected lane %q in %v", expected, defaults)
+		}
+	}
+	for _, banned := range []string{"applications uses industries"} {
+		for _, term := range defaults {
+			if term == banned {
+				t.Errorf("lane %q must not run under the two-step buyer scope, found in %v", banned, defaults)
+			}
 		}
 	}
 }
@@ -104,6 +115,9 @@ func TestDemandChainInferenceOverrideSkipsTheModel(t *testing.T) {
 		t.Fatalf("chain = %+v, want the operator's stages", chain)
 	}
 	for _, stage := range chain {
+		if stage.Distance != models.StageDistanceDirect {
+			t.Errorf("operator stage %+v must be scoped as a direct consumer", stage)
+		}
 		if stage.Source != "operator" || len(stage.Operators) == 0 {
 			t.Errorf("operator stage %+v must carry its source and vocabulary", stage)
 		}
@@ -147,6 +161,77 @@ func TestDemandChainInferenceCapsAndFillsVocabulary(t *testing.T) {
 		if len(stage.Operators) == 0 {
 			t.Errorf("stage %q must gain default operator vocabulary", stage.Name)
 		}
+	}
+}
+
+// TestDemandChainInferenceEnforcesTwoStepScope pins the buyer definition:
+// unlabelled distances normalize to direct consumption, a step-2 stage stays,
+// and a stage deeper than two transformation steps is dropped as out of scope.
+func TestDemandChainInferenceEnforcesTwoStepScope(t *testing.T) {
+	stages := []models.ValueChainStage{
+		{Name: "unlabelled"},
+		{Name: "direct consumption", Distance: models.StageDistanceDirect},
+		{Name: "derived consumption", Distance: models.StageDistanceDerived},
+		{Name: "end-use sector", Distance: 3},
+	}
+	llm := &demandLLM{stages: stages}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
+	chain, inferred, _ := agent.inferDemandChain(context.Background(), models.DemandChainQuery{Activity: "palm oil"}, nil)
+	if !inferred {
+		t.Fatal("the chain must be reported as inferred")
+	}
+	want := map[string]int{
+		"unlabelled":          models.StageDistanceDirect,
+		"direct consumption":  models.StageDistanceDirect,
+		"derived consumption": models.StageDistanceDerived,
+	}
+	if len(chain) != len(want) {
+		t.Fatalf("chain = %+v, want %d stages (the step-3 stage must be dropped)", chain, len(want))
+	}
+	for _, stage := range chain {
+		if want[stage.Name] != stage.Distance {
+			t.Errorf("stage %q distance = %d, want %d", stage.Name, stage.Distance, want[stage.Name])
+		}
+	}
+}
+
+// TestDemandChainLanesFavourDirectConsumers: under the same discovery budget,
+// a derived (step-2) stage earns one fewer operator lane than a direct stage,
+// so the queries land on the strongest buyer hypotheses first.
+func TestDemandChainLanesFavourDirectConsumers(t *testing.T) {
+	chain := []models.ValueChainStage{
+		{Name: "oleochemicals", Distance: models.StageDistanceDirect, Operators: []string{"oleochemical plant", "fatty acid plant"}},
+		{Name: "soap making", Distance: models.StageDistanceDerived, Operators: []string{"soap plant", "detergent plant"}},
+	}
+	counts := make(map[string]int)
+	for _, lane := range demandChainLanes(models.DemandChainQuery{Activity: "palm oil"}, chain) {
+		counts[lane.stage]++
+	}
+	if counts["oleochemicals"] != 2 || counts["soap making"] != 1 {
+		t.Errorf("stage lane counts = %v, want the direct stage at 2 and the derived stage at 1", counts)
+	}
+}
+
+// TestDemandBuyerFitConfidence pins the step penalty: direct consumers keep
+// their confidence, derived consumers carry a deterministic step penalty, and
+// the floor keeps a heavily penalized candidate from collapsing to zero.
+func TestDemandBuyerFitConfidence(t *testing.T) {
+	direct := &models.ValueChainStage{Name: "s", Distance: models.StageDistanceDirect}
+	derived := &models.ValueChainStage{Name: "s", Distance: models.StageDistanceDerived}
+	if got := demandBuyerFitConfidence(0.84, direct); got != 0.84 {
+		t.Errorf("direct-stage confidence = %v, want unchanged", got)
+	}
+	if got := demandBuyerFitConfidence(0.84, nil); got != 0.84 {
+		t.Errorf("untied confidence = %v, want unchanged", got)
+	}
+	if got := demandBuyerFitConfidence(0.84, derived); got < 0.789 || got > 0.791 {
+		t.Errorf("derived-stage confidence = %v, want 0.79", got)
+	}
+	if got := demandBuyerFitConfidence(0.40, derived); got < 0.349 || got > 0.351 {
+		t.Errorf("derived-stage low confidence = %v, want 0.35", got)
+	}
+	if got := demandBuyerFitConfidence(0.32, derived); got != 0.30 {
+		t.Errorf("floored confidence = %v, want 0.30", got)
 	}
 }
 

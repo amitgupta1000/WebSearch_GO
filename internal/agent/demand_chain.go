@@ -88,6 +88,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	report.Warnings = append(report.Warnings, warnings...)
 	report.Warnings = append(report.Warnings,
 		"Private procurement is invisible to web research: this run only sees demand that surfaced publicly.",
+		"Buyer scope: manufacturers whose process consumes the product directly (step 1) or via one intermediate transformation (step 2); deeper value-chain stages are out of scope.",
 		"Model-inferred stages are hypotheses; each result names the consuming stage it was tied to.")
 	if !query.IncludeIntermediaries {
 		report.Warnings = append(report.Warnings, "Traders, brokers and trading houses are excluded; rerun with intermediaries to include them.")
@@ -203,6 +204,10 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 			continue
 		}
 		if rep.EvidenceType == "company-page" {
+			// Buyer-fit distance: tie the confidence to how many
+			// transformation steps the stage sits from the product, so a
+			// direct consumer outranks an otherwise identical derived one.
+			rep.Confidence = demandBuyerFitConfidence(rep.Confidence, findDemandStage(rep.Stage, report.Chain))
 			results = append(results, rep)
 		}
 	}
@@ -278,6 +283,19 @@ func isDemandDocumentTitle(title string) bool {
 // a document, not bait, not a generic list headline.
 func demandCompanyTitle(name string) bool {
 	return !isDemandDocumentTitle(name) && !isGenericMarketTitle(name) && !isDemandBaitTitle(name)
+}
+
+// demandBuyerFitConfidence applies the buyer-definition step penalty: a
+// company tied to a derived (step-2) consuming stage sits one transformation
+// further from the product than a direct consumer, so an otherwise identical
+// derived candidate cannot outrank a direct one. Deterministic, never below
+// the discovery floor.
+func demandBuyerFitConfidence(confidence float64, stage *models.ValueChainStage) float64 {
+	if stage == nil || stage.Distance <= models.StageDistanceDirect {
+		return confidence
+	}
+	penalized := confidence - 0.05*float64(stage.Distance-models.StageDistanceDirect)
+	return maxFloat(0.30, penalized)
 }
 
 // stageVocabularyTokens extracts the distinctive tokens of a consuming stage —
@@ -602,7 +620,11 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 				continue
 			}
 			stages = append(stages, models.ValueChainStage{
-				Name:      name,
+				Name: name,
+				// An operator-supplied consuming stage is direct consumption
+				// by definition: the operator names the process that takes
+				// the product in.
+				Distance:  models.StageDistanceDirect,
 				Source:    "operator",
 				Operators: []string{strings.TrimSpace(name) + " plant operator manufacturer"},
 			})
@@ -612,14 +634,24 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 	}
 
 	var proposed []models.ValueChainStage
-	prompt := fmt.Sprintf("Identify the industrial processes that consume or process %q as an input%s. Return a JSON array where each element has name (the consuming process, e.g. \"biodiesel production\"), rationale (one line on why the stage consumes the product), and operators (2-3 search phrases for the plants or companies operating that stage, e.g. \"biodiesel plant\"). Exclude retail, logistics-only and publication stages.", query.Activity, demandGeographyClause(query))
+	// The prompt encodes the buyer definition: a buyer is a manufacturer whose
+	// process consumes the product as an input, so the chain stops at two
+	// transformation steps downstream — deeper steps are context, not buyers.
+	prompt := fmt.Sprintf("Identify the industrial manufacturing processes that are potential buyers of %q: processes that consume the product%s. Scope: at most two transformation steps downstream. Return a JSON array where each element has name (the consuming manufacturing process, e.g. \"biodiesel production\"), rationale (one line naming which input the stage consumes), operators (2-3 search phrases for the plants or companies operating that stage, e.g. \"biodiesel plant\"), and distance: 1 when the stage consumes %q directly as an input or raw material, 2 when it consumes the output of a distance-1 process. Exclude stages beyond two steps, end-use sectors that manufacture nothing, retail, logistics, trading and publication stages.", query.Activity, demandGeographyClause(query), query.Activity)
 	if err := a.engine.GenerateStructured(ctx,
-		"You infer industrial value chains for market research. Never invent stage names that do not plausibly consume the product; keep operator phrases as concrete plant vocabulary.",
+		"You infer industrial value chains for buyer research. A buyer is a manufacturer whose process consumes the product as an input; never propose stages more than two transformation steps downstream, and keep operator phrases as concrete plant vocabulary.",
 		prompt, &proposed); err != nil {
 		return a.demandChainFallback(ctx, "Value-chain inference failed", err, query, eventCh)
 	}
 
-	stages := sanitizeDemandStages(proposed)
+	var warnings []string
+	sanitized := sanitizeDemandStages(proposed)
+	if len(sanitized.dropped) > 0 {
+		// Audit trail for the buyer definition: what the model proposed
+		// beyond the two-step scope is reported, not silently discarded.
+		warnings = append(warnings, fmt.Sprintf("%d proposed stage(s) beyond two transformation steps were dropped as out of buyer scope: %s.", len(sanitized.dropped), strings.Join(sanitized.dropped, ", ")))
+	}
+	stages := sanitized.kept
 	if len(stages) == 0 {
 		return a.demandChainFallback(ctx, "Value-chain inference returned no usable stages", fmt.Errorf("the model proposed no stages"), query, eventCh)
 	}
@@ -629,7 +661,7 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 		}
 	}
 	emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Inferred %d consuming stage(s): %s", len(stages), stageNames(stages)), "", "")
-	return stages, true, nil
+	return stages, true, warnings
 }
 
 // demandChainFallback degrades to a product-named generic stage — the buyer
@@ -641,21 +673,41 @@ func (a *DemandChainAgent) demandChainFallback(ctx context.Context, reason strin
 	fallback := []models.ValueChainStage{{
 		Name:      query.Activity,
 		Source:    "fallback",
+		Distance:  models.StageDistanceDirect,
 		Rationale: "Generic fallback: the model could not propose consuming stages, so only product-shaped demand lanes ran.",
 	}}
 	return fallback, false, []string{warning}
 }
 
+// sanitizedDemandStages carries what survived the buyer-scope gate and what
+// the model proposed beyond it — the dropped names feed the run's audit trail.
+type sanitizedDemandStages struct {
+	kept    []models.ValueChainStage
+	dropped []string
+}
+
 // sanitizeDemandStages trims, dedupes and caps the model's proposal so the
-// lanes downstream are always buildable from it.
-func sanitizeDemandStages(proposed []models.ValueChainStage) []models.ValueChainStage {
+// lanes downstream are always buildable from it, and reports every stage the
+// two-step buyer scope removed.
+func sanitizeDemandStages(proposed []models.ValueChainStage) sanitizedDemandStages {
 	stages := make([]models.ValueChainStage, 0, len(proposed))
+	var dropped []string
 	seen := make(map[string]bool)
 	for _, stage := range proposed {
 		stage.Name = strings.TrimSpace(stage.Name)
 		stage.Rationale = strings.TrimSpace(stage.Rationale)
 		if stage.Name == "" || seen[strings.ToLower(stage.Name)] {
 			continue
+		}
+		if stage.Distance > models.StageDistanceDerived {
+			// Beyond two transformation steps the stage is out of buyer scope
+			// by definition — the full value chain is context, not buyers.
+			dropped = append(dropped, stage.Name)
+			continue
+		}
+		if stage.Distance < models.StageDistanceDirect {
+			// An unlabelled distance is treated as direct consumption.
+			stage.Distance = models.StageDistanceDirect
 		}
 		seen[strings.ToLower(stage.Name)] = true
 		vocabulary := make([]string, 0, len(stage.Operators))
@@ -670,7 +722,7 @@ func sanitizeDemandStages(proposed []models.ValueChainStage) []models.ValueChain
 			break
 		}
 	}
-	return stages
+	return sanitizedDemandStages{kept: stages, dropped: dropped}
 }
 
 func stageNames(stages []models.ValueChainStage) string {
@@ -695,8 +747,16 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 	}
 	for _, stage := range chain {
 		vocabularyCount := 0
+		stageCap := vocabularyCap
+		if stage.Distance > models.StageDistanceDirect && stageCap > 1 {
+			// A derived (step-2) stage sits one transformation further from
+			// the product than a direct consumer: its operator vocabulary
+			// earns one fewer lane, so the budget favours the strongest
+			// buyer hypotheses.
+			stageCap--
+		}
 		for _, vocabulary := range stage.Operators {
-			if vocabularyCount >= vocabularyCap {
+			if vocabularyCount >= stageCap {
 				break
 			}
 			lanes = append(lanes, demandLane{term: strings.TrimSpace(vocabulary), stage: stage.Name})
@@ -708,8 +768,11 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 		demandLane{term: "tender RFP e-procurement"},
 		demandLane{term: "importer import data"},
 		demandLane{term: "raw material feedstock consumption"},
+		demandLane{term: "industrial applications manufacturers"},
+		// Distributors and wholesalers are retained as buyers: they purchase
+		// the product to resell it, which is real demand. Traders and brokers
+		// remain gated behind IncludeIntermediaries.
 		demandLane{term: "distributor wholesaler of"},
-		demandLane{term: "applications uses industries"},
 	)
 	for _, country := range query.Countries {
 		lanes = append(lanes, demandLane{term: strings.TrimSpace(country) + " importer tender procurement"})

@@ -24,4 +24,4 @@ __pycache__/
 *.pyc
 
 # Local scratch helpers (throwaway tooling, never part of the service)
-tmp_*/
+tmp_*/eval/

@@ -25,6 +25,18 @@ const (
 	DemandClaimSignal = "demand-signal"
 )
 
+// Stage distance values. The buyer definition scopes buyers to manufacturers
+// one or two transformation steps downstream of the product: direct consumers
+// of the product as an input, and manufacturers of a direct consumer's output.
+const (
+	// StageDistanceDirect marks a process that consumes the product itself as
+	// an input or raw material — the strongest buyer hypothesis.
+	StageDistanceDirect = 1
+	// StageDistanceDerived marks a process that consumes a direct consumer's
+	// output — one transformation step beyond the product, still in scope.
+	StageDistanceDerived = 2
+)
+
 // ValueChainStage is one consuming stage the buyer-side search is organised
 // around: buyers of a product are, almost by definition, operators of the
 // processes that consume it.
@@ -39,6 +51,11 @@ type ValueChainStage struct {
 	// Source records where the stage came from: "model" (inferred),
 	// "operator" (supplied on the form), or "fallback" (inference failed).
 	Source string `json:"source"`
+	// Distance is how many transformation steps the stage sits from the
+	// product: 1 consumes the product directly as an input or raw material,
+	// 2 consumes a step-1 output. Stages further than two steps are out of
+	// buyer scope and are dropped at inference; zero is treated as 1.
+	Distance int `json:"distance,omitempty"`
 }
 
 // DemandChainQuery defines one bounded buyer-side investigation: the product or
