@@ -14,6 +14,7 @@ func sampleChart() *models.OrgChart {
 		Domain:       "kljresources.com",
 		Headquarters: "New Delhi, India",
 		Overview:     "A specialty chemicals and mining group.",
+		Brief:        &models.CompanyProfile{BusinessDescription: "A specialty chemicals producer and trading group.", KeyProducts: []string{"industrial chemicals", "minerals"}, KeyLocations: []models.Location{{City: "New Delhi", Country: "India"}}},
 		Leadership: []models.Employee{
 			{Name: "Asha Rao", Title: "Chief Executive Officer", Location: "New Delhi", PublicSource: "https://kljresources.com/leadership"},
 		},
@@ -55,6 +56,7 @@ func TestCompanyMarkdownCoversTheChart(t *testing.T) {
 		"# KLJ Resources Limited — Company Org Chart",
 		"kljresources.com", "New Delhi, India",
 		"## Overview", "specialty chemicals",
+		"## Company Brief", "Business description:", "industrial chemicals", "Key locations:",
 		"## Executive Leadership", "Asha Rao", "Chief Executive Officer",
 		"## Departments & Functions", "Procurement", "Sourcing and supply chain.", "Ravi Menon",
 		"## Locations", "240",

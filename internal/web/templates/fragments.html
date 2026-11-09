@@ -323,6 +323,12 @@
 		<h4 class="text-sm font-semibold text-slate-300 mb-1">Company Overview</h4>
 		<p class="text-sm text-slate-400 leading-relaxed">{{.Overview}}</p>
 	</div>
+	{{if .Brief}}<div class="border-t border-slate-800 pt-4 space-y-3">
+		<h4 class="text-sm font-semibold text-slate-300">Company Brief</h4>
+		{{if .Brief.BusinessDescription}}<p class="text-sm text-slate-400 leading-relaxed">{{.Brief.BusinessDescription}}</p>{{end}}
+		{{if .Brief.KeyProducts}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Key products:</span> {{range $index, $product := .Brief.KeyProducts}}{{if $index}}, {{end}}{{$product}}{{end}}</p>{{end}}
+		{{if .Brief.KeyLocations}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Key locations:</span> {{range $index, $location := .Brief.KeyLocations}}{{if $index}}; {{end}}{{$location.City}}{{if $location.Country}}, {{$location.Country}}{{end}}{{end}}</p>{{end}}
+	</div>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Results</div>
 		<p class="text-xs text-slate-500 mt-1">The concise, evidence-backed findings from this research run.</p>

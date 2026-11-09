@@ -18,17 +18,18 @@ endpoints and deployment.
 3. [Component map](#component-map)
 4. [Engineering principles at a glance](#engineering-principles-at-a-glance)
 5. [Request lifecycle](#request-lifecycle)
-6. [Data flow (company mode)](#data-flow-company-mode)
-7. [Module deep dive](#module-deep-dive)
-8. [Repository layout & file roles](#repository-layout--file-roles)
-9. [Cross-cutting mechanisms](#cross-cutting-mechanisms)
-10. [Configuration](#configuration)
-11. [HTTP API reference](#http-api-reference)
-12. [Testing](#testing)
-13. [Building & deploying](#building--deploying)
-14. [Files that are not part of the Go service](#files-that-are-not-part-of-the-go-service)
-15. [Project health & known issues](#project-health--known-issues)
-16. [Design history & roadmap](#design-history--roadmap)
+6. [Architecture assessment](#architecture-assessment)
+7. [Data flow (company mode)](#data-flow-company-mode)
+8. [Module deep dive](#module-deep-dive)
+9. [Repository layout & file roles](#repository-layout--file-roles)
+10. [Cross-cutting mechanisms](#cross-cutting-mechanisms)
+11. [Configuration](#configuration)
+12. [HTTP API reference](#http-api-reference)
+13. [Testing](#testing)
+14. [Building & deploying](#building--deploying)
+15. [Files that are not part of the Go service](#files-that-are-not-part-of-the-go-service)
+16. [Project health & known issues](#project-health--known-issues)
+17. [Design history & roadmap](#design-history--roadmap)
 
 ## The research modes
 
@@ -50,8 +51,10 @@ The system is built from six cooperating layers:
 
 - **HTTP layer** (`cmd/server`, `internal/web`) — an HTMX-powered single-page console,
   with templates embedded into the binary via `go:embed`.
-- **Agentic orchestration** (`internal/agent`) — a shared *Engine* plus six domain
-  specialists (company / person / legal / related entity / market / news) that plan, search, rank, scrape and synthesize.
+- **Agentic orchestration** (`internal/agent`) — a shared *Engine* plus domain
+  specialists (company / person / legal / related entity / market / demand / news /
+  deep search) that run bounded research pipelines. The modes share acquisition and
+  evidence plumbing, but retain domain-specific plans, schemas and quality rules.
 - **Tooling** (`internal/tools`) — Serper.dev Google-search client, a sanitized HTML
   scraper with an optional Playwright renderer and PDF text extraction,
   browser-cookie import, and the IndianKanoon case-law client.
@@ -110,6 +113,110 @@ flowchart TD
 - **Streaming, not polling.** Agent progress reaches the UI through a per-session
   channel → SSE handler → HTMX swap chain, with history replay for (re)connects.
 
+## Architecture assessment
+
+### Verdict
+
+The structure is robust for the current workload. The strongest decisions are the
+dependency-inverted `Engine`, the typed models at package boundaries, bounded budgets,
+deterministic fallbacks, explicit evidence provenance, and domain-owned final schemas.
+Those choices make a failed search, scraper, model call or browser render degrade to a
+reported partial result instead of taking down the process or silently inventing data.
+
+The main scaling risk is not the HTTP or tool layer; it is workflow duplication inside
+`internal/agent`. Company, person, legal, related-entity, market, demand-chain, news and
+deep-search modes each implement variations of query planning, bounded search execution,
+URL/result deduplication, scraping, evidence assembly, source tracing, identity checks and
+review. The duplication is currently understandable because the modes were developed from
+different evidence problems, but it will make policy fixes drift between modes as more
+research models are added.
+
+### What should become reusable
+
+The right abstraction is a set of small, synchronous Go services or pipeline stages, not
+an independent LLM agent for every recurring task. A generic LLM agent would make budgets,
+provenance and failure semantics harder to reason about. The following boundaries are
+worth extracting behind interfaces while keeping the existing domain agents as
+orchestrators:
+
+| Reusable boundary | Shared responsibility | Domain-owned responsibility |
+| :--- | :--- | :--- |
+| `IdentityResolver` / `IdentityMatcher` | Compile confirmed names, aliases, domains and registration IDs; classify source/entity matches; retain excluded material | Company, person and legal acceptance rules, including legal same-named retention and person employer rules |
+| `SearchExecutor` | Run planned searches with cache, concurrency, cancellation, result normalization, URL dedupe and `SearchTrace` | Query vocabulary, source choice, pagination and whether a failed source is fatal |
+| `EvidenceCollector` | Select candidates, fetch pages through the shared scraper, retain snippet fallback, dedupe content, and emit `ScrapeReport` | Candidate priority, profile/hard-URL policy, evidence type and the minimum evidence needed for synthesis |
+| `Provenance` helpers | Normalize canonical URLs, attach source/date/quality metadata, and enforce that output citations came from collected evidence | The meaning of a citation and the evidence threshold for each output field |
+| `ReviewPolicy` | Bounded review attempts, remaining-budget checks, unavailable/error status and follow-up accounting | Review prompt, verdict schema, deterministic fallback and whether revision is safe for the domain |
+| `RunContext` | Shared deadline, phase timings, budget reservations, event emission and trace identity | Mode-specific counters and output assembly |
+
+These should be introduced incrementally. `Engine.SearchCached`,
+`ScrapeCachedBatch`, `Emit`, the phase timer and the existing trace/report models are
+already the beginnings of these services; extraction should move their policy-neutral
+parts out of `company.go` rather than create a second framework beside `Engine`.
+
+### What should remain domain-specific
+
+Do not generalize the final synthesis or classification layer yet. An org chart, a person
+dossier, a legal docket, a market landscape, a demand chain, a news chronology and a deep
+research report have different evidence semantics and failure policies. In particular:
+
+- Legal matching must preserve ambiguous findings and derive risk deterministically.
+- Person research needs employer/location disambiguation, same-named grouping and timeline QC.
+- Company research needs entity gating, freshness validation and bounded revision loops.
+- Market and demand modes need lane-specific discovery and deterministic company merging.
+- News needs freshness-first acquisition and citation/date constraints.
+
+Those are agent policies, not shared mechanics. Keeping them local prevents a generic
+pipeline from weakening the strongest safety rule of one mode to accommodate another.
+
+### Recommended target shape
+
+Keep `CompanyAgent`, `PersonAgent`, `LegalAgent`, and the other domain agents as thin
+orchestrators over a shared run context:
+
+```text
+domain request
+  -> domain planner
+  -> shared SearchExecutor
+  -> domain candidate policy
+  -> shared EvidenceCollector
+  -> domain synthesis/classification
+  -> shared ReviewPolicy or validation helpers
+  -> domain report/export
+```
+
+The shared stages should return typed outcomes containing successes, per-item failures,
+budgets spent, trace entries and provenance. They must never hide an unavailable source or
+turn a cache/tool failure into an empty successful result. This preserves the current
+honesty contract while making cross-mode behaviour testable once.
+
+### Migration order and guardrails
+
+1. Extract `RunContext` and `SearchExecutor` from the company and person paths first;
+  these have the clearest overlap and already use compatible `Searcher`/cache contracts.
+2. Extract evidence/citation normalization next, starting with canonical URL and content
+  dedupe. Keep hard-URL, profile and legal-document ladders as injected policies.
+3. Move identity matching behind a small interface only after company, person and legal
+  tests cover their intentionally different verdicts. Share matching primitives, not one
+  universal gate.
+4. Add a reusable review/validation budget helper after the stage contracts are stable.
+  Its first job is accounting and status reporting, not prompt generation.
+5. Migrate news, market, demand-chain, related-entity and deep-search incrementally, one
+  mode at a time, with golden trace/report fixtures and race-detector coverage.
+
+Every extraction should preserve the current public agent entry points, event ordering where
+the UI depends on it, cache-key semantics, deterministic result ordering, and explicit
+partial/unavailable states. A small contract test suite for search traces, scrape reports,
+identity exclusions, cancellation and budget exhaustion is more valuable than a broad
+generic agent abstraction.
+
+### Assessment summary
+
+The architecture is sound and can scale further without a rewrite. The next optimization
+is consolidation of recurring mechanics into injectable stages, not adding more autonomous
+agents. The current domain agents should remain responsible for the questions they ask,
+the evidence they trust and the shape of the answer; shared services should make the
+mechanics consistent, bounded and observable.
+
 ---
 
 ## Component map
@@ -117,7 +224,7 @@ flowchart TD
 | Module / Package | Path | Functional Contribution |
 | :--- | :--- | :--- |
 | **HTTP API Entry** | `cmd/server/main.go` | Loads configuration, initializes dependencies with fail-fast checks, routes company/person research modes, serves the HTMX UI from embedded templates (`internal/web`), renders auto-escaped HTML fragments, probes Chromium once for the per-run rendering toggle, serves `POST /api/research`, `POST /api/rerun`, `POST /api/question` and the `/api/events` SSE stream, and exposes `/healthz` with graceful shutdown. |
-| **ReAct Agent Engine** | `internal/agent/engine.go` | Implements the core Reasoning + Acting loop. Drives iterative LLM reasoning, dispatches tool calls, captures observation outputs, and prevents runaway loops via max-iteration bounds. |
+| **Shared Agent Engine** | `internal/agent/engine.go` | Provides dependency-inverted search, scrape, cache, structured-LLM, event, budget and synthesis plumbing used by the bounded domain pipelines. The domain agents decide the workflow; this package does not run a free-form ReAct loop. |
 | **Company Agent** | `internal/agent/company.go` | Orchestrates multi-phase company discovery (domain search, leadership page extraction, executive hierarchy building, and departmental/regional drill-down formatting). |
 | **Person Agent** | `internal/agent/person.go` | Accepts optional company/location disambiguation constraints, queries career footprints across public sources, and aggregates data into an end-to-end dossier. |
 | **Search Tool** | `internal/tools/serper.go` | Executes structured web queries via Serper API (regular, news, and site-restricted queries) and returns sanitized snippets and links. |

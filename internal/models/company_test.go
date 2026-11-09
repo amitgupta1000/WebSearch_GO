@@ -27,6 +27,17 @@ func TestOrgChartAcceptsHeadquartersString(t *testing.T) {
 	}
 }
 
+func TestOrgChartAcceptsCompanyBrief(t *testing.T) {
+	var chart OrgChart
+	err := json.Unmarshal([]byte(`{"company_name":"Acme","brief":{"business_description":"Makes pumps.","key_products":["industrial pumps"],"key_locations":[{"city":"Pune","country":"India"}]}}`), &chart)
+	if err != nil {
+		t.Fatalf("unmarshal company brief: %v", err)
+	}
+	if chart.Brief == nil || chart.Brief.BusinessDescription != "Makes pumps." || len(chart.Brief.KeyProducts) != 1 || chart.Brief.KeyLocations[0].City != "Pune" {
+		t.Fatalf("unexpected company brief: %+v", chart.Brief)
+	}
+}
+
 func TestOrgChartAcceptsNumericHeadcountAndNestedLeadership(t *testing.T) {
 	var chart OrgChart
 	err := json.Unmarshal([]byte(`{"company_name":"Chevron","locations":[{"city":"Houston","country":"USA","headcount_est":7000}],"org_chart":{"name":"Chevron Corporation","leadership":[{"name":"Mike Wirth","title":"Chairman and CEO","direct_reports":[{"name":"Mark Nelson","title":"Vice Chairman"}]}]}}`), &chart)

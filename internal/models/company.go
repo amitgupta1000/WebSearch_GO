@@ -13,6 +13,7 @@ type OrgChart struct {
 	CompanyName  string              `json:"company_name"`
 	Domain       string              `json:"domain,omitempty"`
 	Overview     string              `json:"overview"`
+	Brief        *CompanyProfile     `json:"brief,omitempty"`
 	Headquarters string              `json:"headquarters,omitempty"`
 	Leadership   []Employee          `json:"leadership"`
 	Departments  []Department        `json:"departments"`
@@ -40,6 +41,13 @@ type OrgChart struct {
 	// short roster is explainable. Also attached by the agent.
 	EntityGate  *EntityGate `json:"entity_gate,omitempty"`
 	LastUpdated time.Time   `json:"last_updated"`
+}
+
+// CompanyProfile is the concise business brief synthesized alongside the org chart.
+type CompanyProfile struct {
+	BusinessDescription string     `json:"business_description,omitempty"`
+	KeyProducts         []string   `json:"key_products,omitempty"`
+	KeyLocations        []Location `json:"key_locations,omitempty"`
 }
 
 // TimingTotalMillis is the summed duration of every recorded phase, used for the

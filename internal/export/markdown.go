@@ -36,6 +36,26 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 		builder.WriteString(overview)
 		builder.WriteString("\n\n")
 	}
+	if chart.Brief != nil {
+		builder.WriteString("## Company Brief\n\n")
+		if description := trimmed(chart.Brief.BusinessDescription); description != "" {
+			fmt.Fprintf(&builder, "**Business description:** %s\n\n", description)
+		}
+		if len(chart.Brief.KeyProducts) > 0 {
+			builder.WriteString("**Key products:** ")
+			builder.WriteString(strings.Join(chart.Brief.KeyProducts, ", "))
+			builder.WriteString("\n\n")
+		}
+		if len(chart.Brief.KeyLocations) > 0 {
+			builder.WriteString("**Key locations:** ")
+			locations := make([]string, 0, len(chart.Brief.KeyLocations))
+			for _, location := range chart.Brief.KeyLocations {
+				locations = append(locations, strings.Trim(strings.Join([]string{location.City, location.Country}, ", "), ", "))
+			}
+			builder.WriteString(strings.Join(locations, "; "))
+			builder.WriteString("\n\n")
+		}
+	}
 
 	if len(chart.Leadership) > 0 {
 		builder.WriteString("## Executive Leadership\n\n")

@@ -355,6 +355,11 @@ var companyHTMLTemplate = documentTemplate("company", `
 	{{if .Subtitle}}<p class="subtitle">{{.Subtitle}}</p>{{end}}
 </header>
 {{if .Chart.Overview}}<section><h2>Overview</h2><p>{{.Chart.Overview}}</p></section>{{end}}
+{{if .Chart.Brief}}<section><h2>Company Brief</h2>
+{{if .Chart.Brief.BusinessDescription}}<p><strong>Business description:</strong> {{.Chart.Brief.BusinessDescription}}</p>{{end}}
+{{if .Chart.Brief.KeyProducts}}<p><strong>Key products:</strong> {{range $index, $product := .Chart.Brief.KeyProducts}}{{if $index}}, {{end}}{{$product}}{{end}}</p>{{end}}
+{{if .Chart.Brief.KeyLocations}}<p><strong>Key locations:</strong> {{range $index, $location := .Chart.Brief.KeyLocations}}{{if $index}}; {{end}}{{$location.City}}{{if $location.Country}}, {{$location.Country}}{{end}}{{end}}</p>{{end}}
+</section>{{end}}
 {{if .Chart.Leadership}}<section>
 	<h2>Executive Leadership</h2>
 	<table><thead><tr><th>Name</th><th>Title</th><th>Location</th><th>As of</th><th>Public source</th></tr></thead><tbody>
