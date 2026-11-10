@@ -155,7 +155,7 @@
 	</div>
 	{{if .Chain}}<div class="grid grid-cols-1 lg:grid-cols-3 gap-3">{{range .Chain}}
 		<div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
-			<div class="flex justify-between gap-2"><span class="font-semibold text-white">{{.Name}}</span><span class="text-[10px] text-slate-500">{{.Source}}</span></div>
+			<div class="flex justify-between gap-2"><span class="font-semibold text-white">{{.Name}}</span><span class="text-[10px] text-slate-500">{{if eq .Distance 2}}step 2 · derived{{else}}step 1 · direct{{end}} · {{.Source}}</span></div>
 			{{if .Rationale}}<p class="text-xs text-slate-400 mt-1">{{.Rationale}}</p>{{end}}
 			{{if .Operators}}<div class="mt-2">{{range .Operators}}<span class="inline-block text-[11px] text-indigo-300 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 mr-1 mt-1">{{.}}</span>{{end}}</div>{{end}}
 		</div>
@@ -178,10 +178,10 @@
 	{{end}}</div>{{else}}<p class="text-sm text-slate-500">No company met the consumption-verification threshold.</p>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Potential buyers by stage</div>
-		<p class="text-xs text-slate-500 mt-1">Every company the consuming stage's lanes surfaced, verified or not — a stage operator is a potential buyer by construction. Status "lead" means the evidence did not reach the verification threshold.</p>
+		<p class="text-xs text-slate-500 mt-1">Every company the consuming stage's lanes surfaced, verified or not — a stage operator is a potential buyer by construction, within the two-step buyer scope (direct consumers and one derived step). Status "lead" means the evidence did not reach the verification threshold.</p>
 	</div>
 	{{range .StageCandidates}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
-		<div class="flex justify-between gap-2"><span class="font-semibold text-white">{{.Stage.Name}}</span><span class="text-[10px] text-slate-500">{{.Stage.Source}}</span></div>
+		<div class="flex justify-between gap-2"><span class="font-semibold text-white">{{.Stage.Name}}</span><span class="text-[10px] text-slate-500">{{if eq .Stage.Distance 2}}step 2 · derived{{else}}step 1 · direct{{end}} · {{.Stage.Source}}</span></div>
 		{{if .Stage.Rationale}}<p class="text-xs text-slate-400 mt-1">{{.Stage.Rationale}}</p>{{end}}
 		{{if .Companies}}<div class="mt-2 flex flex-wrap gap-1.5">{{range .Companies}}<span class="inline-block text-[11px] {{if eq .Status "lead"}}text-slate-300{{else}}text-emerald-300{{end}} bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5">{{.Name}} · {{.Status}}</span>{{end}}</div>
 		{{else}}<p class="text-xs text-slate-500 mt-1">No stage-active companies surfaced.</p>{{end}}
@@ -197,6 +197,37 @@
 		<div class="text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Appendix</div>
 		<p class="text-xs text-slate-600 mt-1">Discovery leads, rejected candidates, excluded intermediaries, and demand-signal records remain available under Research links for audit and follow-up.</p>
 	</div>
+</div>
+{{end}}
+
+{{define "deepsearch_report"}}
+<div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+	<div class="flex items-start justify-between border-b border-slate-800 pb-4 gap-4">
+		<div>
+			<h3 class="text-2xl font-bold text-white">{{.Synthesis.Title}}</h3>
+			<p class="text-sm text-slate-400 mt-1">{{.Question}}</p>
+			<p class="text-xs text-slate-500 mt-1">Completed {{.CompletedAt}} · {{if .Focus}}focus: {{.Focus}} · {{end}}{{.RoundsRun}} round(s) · {{len .Sources}} source(s) · {{len .QAPairs}} answer pair(s) · {{len .Synthesis.Findings}} finding(s)</p>
+		</div>
+		<div class="text-right text-xs text-slate-500">{{.QueriesUsed}} queries · {{.SearchHits}} hits · {{.PagesScraped}} pages read</div>
+	</div>
+	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
+	<div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+		<h4 class="text-sm font-semibold text-slate-300">Summary</h4>
+		<p class="text-sm text-slate-300 whitespace-pre-line leading-relaxed">{{.Synthesis.Summary}}</p>
+	</div>
+	<div class="bg-slate-950 border border-slate-800 rounded-xl p-4 prose prose-invert max-w-none">
+		<h4 class="text-sm font-semibold text-slate-300">Report</h4>
+		<div class="text-sm text-slate-300 whitespace-pre-line leading-relaxed mt-2">{{.Synthesis.Report}}</div>
+	</div>
+	{{if .Synthesis.Findings}}<div><h4 class="text-sm font-semibold text-slate-300 mb-2">Key findings</h4><div class="space-y-2">{{range .Synthesis.Findings}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-slate-300">{{.Statement}}{{range .URLs}}<a href="{{.}}" target="_blank" rel="noreferrer" class="ml-1 text-[11px] text-indigo-400 hover:underline">[source]</a>{{end}}</div>{{end}}</div></div>{{end}}
+	{{if .Synthesis.OpenQuestions}}<div><h4 class="text-sm font-semibold text-slate-300 mb-2">Open questions</h4><ul class="list-disc pl-5 text-sm text-slate-400 space-y-1">{{range .Synthesis.OpenQuestions}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
+	{{if .Plan.SubQuestions}}<details class="border-t border-slate-800 pt-5"><summary class="cursor-pointer text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Decomposition and query plan</summary><div class="mt-3 space-y-3">
+		<div class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-400">{{if .Plan.Understanding}}<div class="text-slate-300">{{.Plan.Understanding}}</div>{{end}}{{range .Plan.SubQuestions}}<div class="mt-1">• {{.}}</div>{{end}}</div>
+		{{if .QueryPlan.Entries}}<div class="space-y-2">{{range .QueryPlan.Entries}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-3"><div class="text-xs text-slate-300">{{.SubQuestion}}</div>{{range .Queries}}<div class="text-[11px] text-slate-500 mt-1">search: {{.}}</div>{{end}}</div>{{end}}</div>{{end}}
+	</div></details>{{end}}
+	{{if .Rounds}}<details class="border-t border-slate-800 pt-5"><summary class="cursor-pointer text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Round trace</summary><div class="mt-3 space-y-3">{{range .Rounds}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-3"><div class="text-xs text-white">Round {{.Round}} · {{.Candidates}} candidate(s) · {{.Selected}} selected · {{.SearchHits}} hits · {{.Scraped}} page(s) read · {{.QAPairs}} answer pair(s) · {{if .Complete}}reviewer: complete{{else if .Missing}}gaps: {{range .Missing}}{{.}} {{end}}{{else}}budget reached{{end}}</div>{{range .Queries}}<div class="text-[11px] text-slate-500 mt-1">search: {{.}}</div>{{end}}</div>{{end}}</div></details>{{end}}
+	{{if .QAPairs}}<details class="border-t border-slate-800 pt-5"><summary class="cursor-pointer text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Extracted question–answer pairs</summary><div class="mt-3 space-y-3">{{range .QAPairs}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-3"><div class="text-xs text-slate-300">{{.Question}}</div><div class="text-xs text-slate-400 mt-1">{{.Answer}}</div>{{if .Quote}}<div class="text-[11px] text-slate-500 mt-1 italic">“{{.Quote}}”</div>{{end}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-[11px] text-indigo-400 hover:underline mt-1 inline-block">source</a>{{if .SubQuestion}}<div class="text-[11px] text-slate-500">serves: {{.SubQuestion}}</div>{{end}}</div>{{end}}</div></details>{{end}}
+	{{if .Sources}}<details class="border-t border-slate-800 pt-5"><summary class="cursor-pointer text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Sources and evidence</summary><div class="mt-3 space-y-3">{{range .Sources}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-3"><a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-xs text-indigo-400 hover:underline">{{.Title}}</a><div class="text-[11px] text-slate-500 mt-1">{{.Host}} · round {{.Round}} · {{len .Content}} chars</div>{{if .Snippet}}<p class="text-[11px] text-slate-500 mt-1">{{.Snippet}}</p>{{end}}</div>{{end}}</div></details>{{end}}
 </div>
 {{end}}
 
@@ -292,6 +323,12 @@
 		<h4 class="text-sm font-semibold text-slate-300 mb-1">Company Overview</h4>
 		<p class="text-sm text-slate-400 leading-relaxed">{{.Overview}}</p>
 	</div>
+	{{if .Brief}}<div class="border-t border-slate-800 pt-4 space-y-3">
+		<h4 class="text-sm font-semibold text-slate-300">Company Brief</h4>
+		{{if .Brief.BusinessDescription}}<p class="text-sm text-slate-400 leading-relaxed">{{.Brief.BusinessDescription}}</p>{{end}}
+		{{if .Brief.KeyProducts}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Key products:</span> {{range $index, $product := .Brief.KeyProducts}}{{if $index}}, {{end}}{{$product}}{{end}}</p>{{end}}
+		{{if .Brief.KeyLocations}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Key locations:</span> {{range $index, $location := .Brief.KeyLocations}}{{if $index}}; {{end}}{{$location.City}}{{if $location.Country}}, {{$location.Country}}{{end}}{{end}}</p>{{end}}
+	</div>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Results</div>
 		<p class="text-xs text-slate-500 mt-1">The concise, evidence-backed findings from this research run.</p>

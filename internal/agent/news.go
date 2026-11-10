@@ -183,10 +183,8 @@ func (a *NewsAgent) Research(ctx context.Context, researchID string, query model
 		if article.CanonicalURL == "" {
 			article.CanonicalURL = canonicalNewsURL(scrape.CanonicalURL)
 		}
-		published, updated := newsDatesFromJSONLD(scrape.JSONLD)
-		if published.After(article.PublishedAt) {
-			article.PublishedAt = published
-		} else if article.PublishedAt.IsZero() {
+		published, updated := newsDatesFromJSONLD(scrape.JSONLD, article.CanonicalURL, article.Title)
+		if !published.IsZero() {
 			article.PublishedAt = published
 		}
 		article.UpdatedAt = updated
@@ -288,6 +286,8 @@ Sentiment labels must be positive, negative, neutral, or mixed; scores must be b
 	if err := a.engine.GenerateStructured(ctx, system, "Query: "+report.Query+"\nAs of: "+report.AsOf.Format(time.RFC3339)+"\n\nArticle chunks:\n"+contextData, &synthesis); err != nil {
 		return fmt.Errorf("news synthesis failed: %w", err)
 	}
+	synthesis.ArticleSentiments = compactNewsArticleSentiments(synthesis.ArticleSentiments)
+	synthesis.Conflicts = compactNewsConflicts(synthesis.Conflicts)
 	if err := validateNewsSynthesis(synthesis, report.Articles); err != nil {
 		retrySystem := system + "\nYour previous JSON failed validation: " + err.Error() +
 			"\nReturn a corrected JSON object. Do not emit partial objects in optional arrays."
@@ -304,6 +304,30 @@ Sentiment labels must be positive, negative, neutral, or mixed; scores must be b
 	return nil
 }
 
+func compactNewsArticleSentiments(sentiments []models.NewsArticleSentiment) []models.NewsArticleSentiment {
+	filtered := sentiments[:0]
+	for _, sentiment := range sentiments {
+		if strings.TrimSpace(sentiment.URL) == "" {
+			continue
+		}
+		filtered = append(filtered, sentiment)
+	}
+	return filtered
+}
+
+func compactNewsConflicts(conflicts []models.NewsConflict) []models.NewsConflict {
+	filtered := conflicts[:0]
+	for _, conflict := range conflicts {
+		if strings.TrimSpace(conflict.Claim) == "" && len(conflict.Versions) == 0 &&
+			len(conflict.URLs) == 0 && strings.TrimSpace(conflict.Explanation) == "" &&
+			conflict.Confidence == 0 {
+			continue
+		}
+		filtered = append(filtered, conflict)
+	}
+	return filtered
+}
+
 func validateNewsSynthesis(s models.NewsSynthesis, articles []models.NewsArticle) error {
 	if strings.TrimSpace(s.Headline) == "" || strings.TrimSpace(s.Article) == "" || strings.TrimSpace(s.Summary) == "" {
 		return fmt.Errorf("news synthesis returned incomplete headline, article, or summary")
@@ -313,17 +337,18 @@ func validateNewsSynthesis(s models.NewsSynthesis, articles []models.NewsArticle
 	}
 	known := make(map[string]bool)
 	for _, article := range articles {
-		known[article.URL], known[article.CanonicalURL] = true, true
+		knownNewsURL(known, article.URL)
+		knownNewsURL(known, article.CanonicalURL)
 	}
 	for _, citation := range s.Citations {
 		for _, citationURL := range citation.URLs {
-			if !known[citationURL] {
+			if !knownNewsURL(known, citationURL) {
 				return fmt.Errorf("news synthesis cited an unsupplied URL %q", citationURL)
 			}
 		}
 	}
 	for _, sentiment := range s.ArticleSentiments {
-		if !known[sentiment.URL] {
+		if !knownNewsURL(known, sentiment.URL) {
 			return fmt.Errorf("news sentiment cited an unsupplied URL %q", sentiment.URL)
 		}
 		if err := validateNewsSentiment(sentiment); err != nil {
@@ -336,6 +361,25 @@ func validateNewsSynthesis(s models.NewsSynthesis, articles []models.NewsArticle
 		}
 	}
 	return nil
+}
+
+func knownNewsURL(known map[string]bool, rawURL string) bool {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return false
+	}
+	if known[rawURL] {
+		return true
+	}
+	canonical := canonicalNewsURL(rawURL)
+	if canonical == "" {
+		return false
+	}
+	if known[canonical] {
+		return true
+	}
+	known[canonical] = true
+	return false
 }
 
 func validateNewsSentiment(sentiment models.NewsArticleSentiment) error {
@@ -443,8 +487,13 @@ func parseNewsTime(raw string, now time.Time) time.Time {
 	return time.Time{}
 }
 
-func newsDatesFromJSONLD(values []string) (time.Time, time.Time) {
-	var published, updated time.Time
+func newsDatesFromJSONLD(values []string, pageURL, pageTitle string) (time.Time, time.Time) {
+	type dateCandidate struct {
+		published time.Time
+		updated   time.Time
+		score     int
+	}
+	var candidates []dateCandidate
 	for _, raw := range values {
 		var value any
 		if json.Unmarshal([]byte(raw), &value) != nil {
@@ -454,17 +503,26 @@ func newsDatesFromJSONLD(values []string) (time.Time, time.Time) {
 		visit = func(node any) {
 			switch typed := node.(type) {
 			case map[string]any:
+				var published, updated time.Time
 				for key, child := range typed {
 					switch strings.ToLower(key) {
 					case "datepublished":
-						if parsed := parseNewsTime(fmt.Sprint(child), time.Now().UTC()); parsed.After(published) {
-							published = parsed
-						}
+						published = parseNewsTime(fmt.Sprint(child), time.Now().UTC())
 					case "datemodified", "dateupdated":
-						if parsed := parseNewsTime(fmt.Sprint(child), time.Now().UTC()); parsed.After(updated) {
-							updated = parsed
-						}
+						updated = parseNewsTime(fmt.Sprint(child), time.Now().UTC())
 					}
+				}
+				if !published.IsZero() || !updated.IsZero() {
+					score := 0
+					if candidateURL, ok := typed["url"].(string); ok && canonicalNewsURL(candidateURL) == pageURL {
+						score += 2
+					}
+					if headline, ok := typed["headline"].(string); ok && strings.EqualFold(strings.TrimSpace(headline), strings.TrimSpace(pageTitle)) {
+						score++
+					}
+					candidates = append(candidates, dateCandidate{published: published, updated: updated, score: score})
+				}
+				for _, child := range typed {
 					visit(child)
 				}
 			case []any:
@@ -475,7 +533,11 @@ func newsDatesFromJSONLD(values []string) (time.Time, time.Time) {
 		}
 		visit(value)
 	}
-	return published, updated
+	if len(candidates) == 0 {
+		return time.Time{}, time.Time{}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].score > candidates[j].score })
+	return candidates[0].published, candidates[0].updated
 }
 
 func newsChunks(article models.NewsArticle, _ time.Time) []models.NewsChunk {

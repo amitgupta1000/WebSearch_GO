@@ -96,6 +96,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	report.Warnings = append(report.Warnings, warnings...)
 	report.Warnings = append(report.Warnings,
 		"Private procurement is invisible to web research: this run only sees demand that surfaced publicly.",
+		"Buyer scope: manufacturers whose process consumes the product directly (step 1) or via one intermediate transformation (step 2); deeper value-chain stages are out of scope.",
 		"Model-inferred stages are hypotheses; each result names the consuming stage it was tied to.")
 	if !query.IncludeIntermediaries {
 		report.Warnings = append(report.Warnings, "Traders, brokers and trading houses are excluded; rerun with intermediaries to include them.")
@@ -236,6 +237,22 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 			continue
 		}
 		if rep.EvidenceType == "company-page" {
+			// Producer gate: a company whose verification hits describe it as
+			// a producer of the product itself is the supply side — it stays
+			// a buyer only with transactional or input-language proof.
+			if demandIsProducerWithoutDemand(rep) {
+				report.Appendix = append(report.Appendix, rep.Evidence...)
+				continue
+			}
+			// An integrated producer-consumer keeps its place but carries a
+			// deterministic penalty: its demand is real, but partial.
+			if demandHasProducerSignal(rep) {
+				rep.Confidence = maxFloat(0.30, rep.Confidence-0.10)
+			}
+			// Buyer-fit distance: tie the confidence to how many
+			// transformation steps the stage sits from the product, so a
+			// direct consumer outranks an otherwise identical derived one.
+			rep.Confidence = demandBuyerFitConfidence(rep.Confidence, findDemandStage(rep.Stage, report.Chain))
 			results = append(results, rep)
 		}
 	}
@@ -311,6 +328,193 @@ func isDemandDocumentTitle(title string) bool {
 // a document, not bait, not a generic list headline.
 func demandCompanyTitle(name string) bool {
 	return !isDemandDocumentTitle(name) && !isGenericMarketTitle(name) && !isDemandBaitTitle(name)
+}
+
+// demandProducerPhrases are the phrase shapes that tie a company to
+// *producing* the product itself. Each embeds the product name, so a page
+// about manufacturing a downstream product never misfires on a buyer.
+func demandProducerPhrases(activity string) []string {
+	return []string{
+		"manufacturer of " + activity, "manufacturers of " + activity,
+		"producer of " + activity, "producers of " + activity,
+		"supplier of " + activity, "suppliers of " + activity,
+		"produces " + activity, "producing " + activity,
+		"manufactures " + activity, "manufacturing " + activity,
+		activity + " manufacturer", activity + " manufacturers",
+		activity + " producer", activity + " producers",
+	}
+}
+
+// demandProducerSignal reports whether a verification hit describes the
+// company as a producer, manufacturer or supplier of the product itself —
+// the supply side. Every marker embeds the product name ("manufacturer of
+// methanol", "methanol producer"), so "manufacturer of resins" next to a
+// methanol mention never misfires on a legitimate downstream buyer.
+func demandProducerSignal(hit models.SearchResult, activity string) bool {
+	activity = strings.ToLower(strings.TrimSpace(activity))
+	if activity == "" {
+		return false
+	}
+	text := strings.ToLower(hit.Title + " " + hit.Snippet)
+	for _, phrase := range demandProducerPhrases(activity) {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// demandHasProducerSignal reports whether the company was determined to be a
+// producer of the product itself — by the extractor's producer flag or by a
+// producer self-description among its verification evidence.
+func demandHasProducerSignal(company *models.MarketLandscapeCompany) bool {
+	if company.ProducerSignal {
+		return true
+	}
+	for _, evidence := range company.Evidence {
+		if evidence.Status == "producer-signal" {
+			return true
+		}
+	}
+	return false
+}
+
+// demandHasDirectDemandClaim reports whether any evidence names an actual
+// transaction or the buyer's own input language — the claim kinds that
+// outweigh a producer self-description.
+func demandHasDirectDemandClaim(company *models.MarketLandscapeCompany) bool {
+	for _, evidence := range company.Evidence {
+		switch evidence.ClaimType {
+		case models.DemandClaimImport, models.DemandClaimTender, models.DemandClaimUsage:
+			return true
+		}
+	}
+	return false
+}
+
+// demandIsProducerWithoutDemand reports whether the company's only
+// self-description is as a producer of the product — the supply side, demoted
+// to the appendix unless transactional or input-language evidence exists.
+// Integrated producer-consumers (GNFC produces methanol and tenders for it)
+// keep their place, penalized.
+func demandIsProducerWithoutDemand(company *models.MarketLandscapeCompany) bool {
+	return demandHasProducerSignal(company) && !demandHasDirectDemandClaim(company)
+}
+
+// demandAggregatorMarkers are the domain fragments of tender portals, B2B
+// marketplaces and trade aggregators: they publish demand, they do not
+// exercise it, so their pages neither verify a company nor pass as one.
+var demandAggregatorMarkers = []string{
+	"tender", "rfp", "rfq", "eprocure", "e-procurement", "bidding",
+	"indiamart", "tradeindia", "alibaba", "made-in-china", "exportersindia",
+	"tradekey", "ec21", "go4worldbusiness", "exporthub",
+}
+
+// demandPublisherMarkers are the domain fragments of academic publishers and
+// repositories: bibliography, not buyers.
+var demandPublisherMarkers = []string{
+	"mdpi", "pubs.acs", "wiley", "sciencedirect", "springer", "researchgate",
+	"semanticscholar", "ssrn", "ieee", "journals", "scholar", "ncbi",
+	"nature.com", "sciencedaily", "scribd", "slideshare", "amazon.", "books.google",
+}
+
+// demandConsultancyMarkers are the domains of market-research vendors and
+// consultancies: they write about demand, they do not exercise it.
+var demandConsultancyMarkers = []string{
+	"imarc", "mordorintelligence", "statista", "credence", "grandviewresearch",
+	"marketsandmarkets", "gminsights", "fortunebusinessinsights", "researchandmarkets",
+	"intratec", "databridge", "alliedmarket", "persistencemarket", "techsci",
+	"stratview", "nextmove", "marketresearch", "transparencymarketresearch",
+}
+
+// demandInstitutionMarkers are the domains of conferences, associations and
+// bodies: commentary and community, not buyers.
+var demandInstitutionMarkers = []string{
+	"conference", "confintl", "symposium", "associa", "society", "council",
+	"federation", "institute", "iea.", "unep", "oecd",
+}
+
+// demandSourceOverride reclassifies aggregator, publisher, consultancy and
+// institution domains for the buyer side. The returned tier never qualifies,
+// so such pages stay in the run as demand signals and leads while being
+// unable to present as companies themselves. Empty when the shared tier
+// classifier stands.
+func demandSourceOverride(domain string) string {
+	domain = strings.ToLower(strings.TrimPrefix(domain, "www."))
+	for _, marker := range demandAggregatorMarkers {
+		if strings.Contains(domain, marker) {
+			return "aggregator"
+		}
+	}
+	for _, marker := range demandPublisherMarkers {
+		if strings.Contains(domain, marker) {
+			return "publisher"
+		}
+	}
+	for _, marker := range demandConsultancyMarkers {
+		if strings.Contains(domain, marker) {
+			return "consultancy"
+		}
+	}
+	for _, marker := range demandInstitutionMarkers {
+		if strings.Contains(domain, marker) {
+			return "institution"
+		}
+	}
+	return ""
+}
+
+// demandSourceName catches a candidate whose *name* is an aggregator page,
+// consultancy, institution or publication rather than a company — the
+// extraction occasionally echoes the page title ("Latest Alcohol Tenders in
+// India 2026 - TendersOnTime", "IMARC Group") as a buyer. A "topic - site"
+// echo whose topic names the product is likewise a page title, not a buyer.
+func demandSourceName(name, activity string) bool {
+	lowered := strings.ToLower(name)
+	// En/em dashes are headline punctuation too; normalize before matching.
+	lowered = strings.ReplaceAll(lowered, "–", "-")
+	lowered = strings.ReplaceAll(lowered, "—", "-")
+	for _, marker := range []string{
+		"tender", "rfp", "rfq", "marketplace", "indiamart", "tradeindia",
+		"alibaba", "b2b portal", "eprocure", "wiley", "mdpi", "springer",
+		"sciencedirect", "online library", "journal", "books", "researchgate",
+		"proceedings", "isbn", "imarc", "mordor", "statista", "credence",
+		"research and markets", "marketsandmarkets", "gminsights",
+		"grand view", "fortune business", "market report", "market research",
+		"consultancy", "consulting", "intratec", "conference", "symposium",
+		"association", "society", "council", "exposure to", "handbook",
+		"encyclopedia", "guide to", "review of", "study of", "confintl",
+		"university", "college", "nptel", "use in",
+	} {
+		if strings.Contains(lowered, marker) {
+			return true
+		}
+	}
+	// A bare .org domain echoed as the entity is a non-commercial site.
+	if strings.HasSuffix(lowered, ".org") && strings.Contains(lowered, ".") && !strings.Contains(lowered, " ") {
+		return true
+	}
+	// "Topic - Site" where the topic names the product is a document title.
+	activity = strings.ToLower(strings.TrimSpace(activity))
+	if idx := strings.Index(lowered, " - "); idx > 0 && activity != "" {
+		if strings.Contains(lowered[:idx], activity) {
+			return true
+		}
+	}
+	return false
+}
+
+// demandBuyerFitConfidence applies the buyer-definition step penalty: a
+// company tied to a derived (step-2) consuming stage sits one transformation
+// further from the product than a direct consumer, so an otherwise identical
+// derived candidate cannot outrank a direct one. Deterministic, never below
+// the discovery floor.
+func demandBuyerFitConfidence(confidence float64, stage *models.ValueChainStage) float64 {
+	if stage == nil || stage.Distance <= models.StageDistanceDirect {
+		return confidence
+	}
+	penalized := confidence - 0.05*float64(stage.Distance-models.StageDistanceDirect)
+	return maxFloat(0.30, penalized)
 }
 
 // stageVocabularyTokens extracts the distinctive tokens of a consuming stage —
@@ -671,7 +875,11 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 				continue
 			}
 			stages = append(stages, models.ValueChainStage{
-				Name:      name,
+				Name: name,
+				// An operator-supplied consuming stage is direct consumption
+				// by definition: the operator names the process that takes
+				// the product in.
+				Distance:  models.StageDistanceDirect,
 				Source:    "operator",
 				Operators: []string{strings.TrimSpace(name) + " plant operator manufacturer"},
 			})
@@ -681,14 +889,24 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 	}
 
 	var proposed []models.ValueChainStage
-	prompt := fmt.Sprintf("Identify the industrial processes that consume or process %q as an input%s. Return a JSON array where each element has name (the consuming process, e.g. \"biodiesel production\"), rationale (one line on why the stage consumes the product), and operators (2-3 search phrases for the plants or companies operating that stage, e.g. \"biodiesel plant\"). Exclude retail, logistics-only and publication stages.", query.Activity, demandGeographyClause(query))
+	// The prompt encodes the buyer definition: a buyer is a manufacturer whose
+	// process consumes the product as an input, so the chain stops at two
+	// transformation steps downstream — deeper steps are context, not buyers.
+	prompt := fmt.Sprintf("Identify the industrial manufacturing processes that are potential buyers of %q: processes that consume the product%s. Scope: at most two transformation steps downstream. Return a JSON array where each element has name (the consuming manufacturing process, e.g. \"biodiesel production\"), rationale (one line naming which input the stage consumes), operators (2-3 search phrases for the plants or companies operating that stage, e.g. \"biodiesel plant\"), and distance: 1 when the stage consumes %q directly as an input or raw material, 2 when it consumes the output of a distance-1 process. Exclude stages beyond two steps, end-use sectors that manufacture nothing, retail, logistics, trading and publication stages.", query.Activity, demandGeographyClause(query), query.Activity)
 	if err := a.engine.GenerateStructured(ctx,
-		"You infer industrial value chains for market research. Never invent stage names that do not plausibly consume the product; keep operator phrases as concrete plant vocabulary.",
+		"You infer industrial value chains for buyer research. A buyer is a manufacturer whose process consumes the product as an input; never propose stages more than two transformation steps downstream, and keep operator phrases as concrete plant vocabulary.",
 		prompt, &proposed); err != nil {
 		return a.demandChainFallback(ctx, "Value-chain inference failed", err, query, eventCh)
 	}
 
-	stages := sanitizeDemandStages(proposed)
+	var warnings []string
+	sanitized := sanitizeDemandStages(proposed)
+	if len(sanitized.dropped) > 0 {
+		// Audit trail for the buyer definition: what the model proposed
+		// beyond the two-step scope is reported, not silently discarded.
+		warnings = append(warnings, fmt.Sprintf("%d proposed stage(s) beyond two transformation steps were dropped as out of buyer scope: %s.", len(sanitized.dropped), strings.Join(sanitized.dropped, ", ")))
+	}
+	stages := sanitized.kept
 	if len(stages) == 0 {
 		return a.demandChainFallback(ctx, "Value-chain inference returned no usable stages", fmt.Errorf("the model proposed no stages"), query, eventCh)
 	}
@@ -698,7 +916,7 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 		}
 	}
 	emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Inferred %d consuming stage(s): %s", len(stages), stageNames(stages)), "", "")
-	return stages, true, nil
+	return stages, true, warnings
 }
 
 // demandChainFallback degrades to a product-named generic stage — the buyer
@@ -710,21 +928,41 @@ func (a *DemandChainAgent) demandChainFallback(ctx context.Context, reason strin
 	fallback := []models.ValueChainStage{{
 		Name:      query.Activity,
 		Source:    "fallback",
+		Distance:  models.StageDistanceDirect,
 		Rationale: "Generic fallback: the model could not propose consuming stages, so only product-shaped demand lanes ran.",
 	}}
 	return fallback, false, []string{warning}
 }
 
+// sanitizedDemandStages carries what survived the buyer-scope gate and what
+// the model proposed beyond it — the dropped names feed the run's audit trail.
+type sanitizedDemandStages struct {
+	kept    []models.ValueChainStage
+	dropped []string
+}
+
 // sanitizeDemandStages trims, dedupes and caps the model's proposal so the
-// lanes downstream are always buildable from it.
-func sanitizeDemandStages(proposed []models.ValueChainStage) []models.ValueChainStage {
+// lanes downstream are always buildable from it, and reports every stage the
+// two-step buyer scope removed.
+func sanitizeDemandStages(proposed []models.ValueChainStage) sanitizedDemandStages {
 	stages := make([]models.ValueChainStage, 0, len(proposed))
+	var dropped []string
 	seen := make(map[string]bool)
 	for _, stage := range proposed {
 		stage.Name = strings.TrimSpace(stage.Name)
 		stage.Rationale = strings.TrimSpace(stage.Rationale)
 		if stage.Name == "" || seen[strings.ToLower(stage.Name)] {
 			continue
+		}
+		if stage.Distance > models.StageDistanceDerived {
+			// Beyond two transformation steps the stage is out of buyer scope
+			// by definition — the full value chain is context, not buyers.
+			dropped = append(dropped, stage.Name)
+			continue
+		}
+		if stage.Distance < models.StageDistanceDirect {
+			// An unlabelled distance is treated as direct consumption.
+			stage.Distance = models.StageDistanceDirect
 		}
 		seen[strings.ToLower(stage.Name)] = true
 		vocabulary := make([]string, 0, len(stage.Operators))
@@ -739,7 +977,7 @@ func sanitizeDemandStages(proposed []models.ValueChainStage) []models.ValueChain
 			break
 		}
 	}
-	return stages
+	return sanitizedDemandStages{kept: stages, dropped: dropped}
 }
 
 func stageNames(stages []models.ValueChainStage) string {
@@ -764,8 +1002,16 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 	}
 	for _, stage := range chain {
 		vocabularyCount := 0
+		stageCap := vocabularyCap
+		if stage.Distance > models.StageDistanceDirect && stageCap > 1 {
+			// A derived (step-2) stage sits one transformation further from
+			// the product than a direct consumer: its operator vocabulary
+			// earns one fewer lane, so the budget favours the strongest
+			// buyer hypotheses.
+			stageCap--
+		}
 		for _, vocabulary := range stage.Operators {
-			if vocabularyCount >= vocabularyCap {
+			if vocabularyCount >= stageCap {
 				break
 			}
 			lanes = append(lanes, demandLane{term: strings.TrimSpace(vocabulary), stage: stage.Name})
@@ -777,8 +1023,11 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 		demandLane{term: "tender RFP e-procurement"},
 		demandLane{term: "importer import data"},
 		demandLane{term: "raw material feedstock consumption"},
+		demandLane{term: "industrial applications manufacturers"},
+		// Distributors and wholesalers are retained as buyers: they purchase
+		// the product to resell it, which is real demand. Traders and brokers
+		// remain gated behind IncludeIntermediaries.
 		demandLane{term: "distributor wholesaler of"},
-		demandLane{term: "applications uses industries"},
 	)
 	for _, country := range query.Countries {
 		lanes = append(lanes, demandLane{term: strings.TrimSpace(country) + " importer tender procurement"})
@@ -845,8 +1094,15 @@ func demandCandidate(hit models.SearchResult, lane demandLane, query models.Dema
 		name = domain
 	}
 	sourceTier := marketSourceTier(domain)
+	sourceOverride := demandSourceOverride(domain)
+	if sourceOverride != "" {
+		// Aggregator and publisher pages remain in the run as demand signals
+		// and leads — the extraction may still surface the buyers their
+		// listings name — but they can never present as companies.
+		sourceTier = sourceOverride
+	}
 	evidenceType := "company-page"
-	if sourceTier == "news" || sourceTier == "social" || isGenericMarketTitle(name) || isDemandBaitTitle(name) || !hasCompanyIdentitySignal(name, domain) {
+	if sourceTier == "news" || sourceTier == "social" || sourceOverride != "" || isGenericMarketTitle(name) || isDemandBaitTitle(name) || !hasCompanyIdentitySignal(name, domain) {
 		evidenceType = "discovery-lead"
 	}
 	// Product-shaped demand lanes must carry buyer language on the hit itself;
@@ -1022,7 +1278,7 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 				leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 			}
 			var batch []models.MarketLandscapeLeadCandidate
-			prompt := fmt.Sprintf("Extract every actual company or facility operator explicitly supported by these leads as a consumer, buyer, importer, or processor of %q. %sExclude publishers, list titles, market-research vendors, regions, projects, and generic categories. If a lead explicitly names a relevant procurement, purchasing, or supply-chain person, include the person's name in key_people; never infer people. Return a JSON array with name, country, reason, evidence_url as a string, and key_people as an array of strings.\nActivity: %s\nLeads:\n%s", query.Activity, geoPreference, query.Activity, strings.Join(leadText, "\n"))
+			prompt := fmt.Sprintf("Extract every actual company or facility operator explicitly supported by these leads as a consumer, buyer, importer, or processor of %q. %sExclude publishers, list titles, market-research vendors, regions, projects, and generic categories. Return the company's legal name — never a news headline, page title, or project name. Set producer to true when the page describes the company as a producer, manufacturer, or supplier of %q itself rather than a consumer of it. If a lead explicitly names a relevant procurement, purchasing, or supply-chain person, include the person's name in key_people; never infer people. Return a JSON array with name, country, reason, evidence_url as a string, producer as a boolean, and key_people as an array of strings.\nActivity: %s\nLeads:\n%s", query.Activity, geoPreference, query.Activity, query.Activity, strings.Join(leadText, "\n"))
 			if err := a.engine.GenerateStructured(ctx, "You extract company names for a buyer-research verification queue. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
 				batchErrs[batchIndex] = err.Error()
 			}
@@ -1048,19 +1304,10 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 	seenNames := make(map[string]bool)
 	geoNames := demandGeoNames(query)
 	for _, candidate := range extracted {
-		candidate.Name = strings.TrimSpace(candidate.Name)
-		// A name that arrived as a page title ("Butyl Acrylate | Products | X")
-		// collapses to its longest segment — the company name is usually the
-		// last meaningful part of a navigation title.
-		if strings.Contains(candidate.Name, "|") {
-			best := ""
-			for _, segment := range strings.Split(candidate.Name, "|") {
-				if trimmed := strings.TrimSpace(segment); len(trimmed) > len(best) {
-					best = trimmed
-				}
-			}
-			candidate.Name = best
-		}
+		// A name that arrived as a page title or headline ("Butyl Acrylate |
+		// Products | X", "INEOS-GNFC's New Plant: Is India's ...") collapses
+		// to its company segment.
+		candidate.Name = demandNormalizeCandidateName(strings.TrimSpace(candidate.Name))
 		// A name that equals the country the lead named is a geography, not a
 		// company — the model occasionally echoes a country as an entity.
 		if strings.EqualFold(candidate.Name, strings.TrimSpace(candidate.Country)) {
@@ -1070,6 +1317,18 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 		// So is a geography the run was never supposed to treat as a buyer:
 		// "European Union" or "USA" appear when a lead talks about a market.
 		if geoNames[normalizeMarketName(candidate.Name)] {
+			rejected++
+			continue
+		}
+		// A name that equals the product itself is the commodity, not a buyer —
+		// the model occasionally echoes the product as an entity.
+		if normalizeMarketName(candidate.Name) == normalizeMarketName(query.Activity) {
+			rejected++
+			continue
+		}
+		// A tender portal, B2B marketplace, consultancy, institution or
+		// publication echoed as the entity itself is a source, not a buyer.
+		if demandSourceName(candidate.Name, query.Activity) {
 			rejected++
 			continue
 		}
@@ -1084,18 +1343,14 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 
 	verified := make([]*models.MarketLandscapeCompany, 0, len(uniqueExtracted))
 	queriesUsed := 0
-	purposes := []struct {
-		phrase string
-		kind   string
-	}{
-		{"official site", "own site"},
-		{"tender OR RFP OR procurement", "tender or procurement record"},
-		{"import data OR importer of", "import record"},
-	}
 	for index, lead := range uniqueExtracted {
 		if index >= query.MaxCompanies || queriesUsed >= query.VerificationQueries {
 			break
 		}
+		// Claim-conditioned verification: the searches run cheapest-first for
+		// what the discovery lane already claimed, so a tender-lane lead does
+		// not burn its budget proving its own website first.
+		purposes := demandVerificationPurposes(demandClaimForLead(leads, lead))
 		for _, purpose := range purposes {
 			if queriesUsed >= query.VerificationQueries {
 				break
@@ -1122,14 +1377,28 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 					}
 					verified = append(verified, company)
 				}
+				producer := demandProducerSignal(hit, query.Activity) || lead.Producer
+				if producer {
+					company.ProducerSignal = true
+				}
+				if producer && demandProducerSignal(hit, query.Activity) {
+					// The hit self-describes the company as a producer of the
+					// product itself — the supply side. Retained as evidence,
+					// never as confidence: the assembly gate decides whether
+					// transactional proof makes this producer also a buyer.
+					evidence.Status = "producer-signal"
+				}
 				company.Evidence = append(company.Evidence, evidence)
 				if company.EvidenceSummary == "" {
 					company.EvidenceSummary = strings.TrimSpace(evidence.Snippet)
 				}
-				company.Confidence = minFloat(0.98, company.Confidence+demandClaimWeight(evidence.ClaimType))
 				if company.Domain == "" {
 					company.Domain = strings.TrimPrefix(strings.ToLower(hostname(hit.Link)), "www.")
 				}
+				if producer {
+					continue
+				}
+				company.Confidence = minFloat(0.98, company.Confidence+demandClaimWeight(evidence.ClaimType))
 			}
 		}
 	}
@@ -1166,11 +1435,90 @@ func demandStageForLead(leads []models.MarketLandscapeEvidence, lead models.Mark
 	return ""
 }
 
+// demandNormalizeCandidateName collapses an echoed page title or headline to
+// its company segment: the longest pipe-delimited part ("Butyl Acrylate |
+// Products | X"), then everything before a colon (news headlines use
+// "Headline: subhead"), then everything before a possessive 's
+// ("INEOS-GNFC's New Plant: ..." → "INEOS-GNFC").
+func demandNormalizeCandidateName(name string) string {
+	name = strings.TrimSpace(name)
+	if strings.Contains(name, "|") {
+		best := ""
+		for _, segment := range strings.Split(name, "|") {
+			if trimmed := strings.TrimSpace(segment); len(trimmed) > len(best) {
+				best = trimmed
+			}
+		}
+		name = best
+	}
+	if idx := strings.Index(name, ":"); idx > 0 {
+		name = strings.TrimSpace(name[:idx])
+	}
+	if idx := strings.Index(name, "'s"); idx > 0 {
+		name = strings.TrimSpace(name[:idx])
+	}
+	return name
+}
+
+// demandVerificationPurpose is one templated verification search.
+type demandVerificationPurpose struct {
+	phrase string
+	kind   string
+}
+
+// demandVerificationPurposes orders the three verification searches by what
+// the discovery lane already claimed: a tender-lane lead confirms cheapest
+// through tender evidence, an import-lane lead through trade data, and
+// everything else through the buyer's own words first.
+func demandVerificationPurposes(discoveryClaim string) []demandVerificationPurpose {
+	tender := demandVerificationPurpose{phrase: "tender OR RFP OR procurement", kind: "tender or procurement record"}
+	importer := demandVerificationPurpose{phrase: "import data OR importer of", kind: "import record"}
+	ownSite := demandVerificationPurpose{phrase: "official site", kind: "own site"}
+	switch discoveryClaim {
+	case models.DemandClaimTender:
+		return []demandVerificationPurpose{tender, importer, ownSite}
+	case models.DemandClaimImport:
+		return []demandVerificationPurpose{importer, tender, ownSite}
+	default:
+		return []demandVerificationPurpose{ownSite, tender, importer}
+	}
+}
+
+// demandClaimForLead recovers the discovery claim a lead carried, matching by
+// URL first and by a name mention in the lead's title/snippet second — the
+// same discipline as demandStageForLead. Empty when nothing matches.
+func demandClaimForLead(leads []models.MarketLandscapeEvidence, lead models.MarketLandscapeLeadCandidate) string {
+	for _, evidence := range leads {
+		if strings.EqualFold(evidence.URL, lead.EvidenceURL) {
+			return evidence.ClaimType
+		}
+	}
+	name := strings.ToLower(strings.TrimSpace(lead.Name))
+	if name == "" {
+		return ""
+	}
+	for _, evidence := range leads {
+		if strings.Contains(strings.ToLower(evidence.Title+" "+evidence.Snippet), name) {
+			return evidence.ClaimType
+		}
+	}
+	return ""
+}
+
 // demandVerificationEvidence accepts one verification hit as consumption
 // evidence when the tier qualifies, the company is named, and the hit carries
 // buyer language or the activity itself. The claim type is read off the text.
 func demandVerificationEvidence(hit models.SearchResult, company, activity, purpose string) (models.MarketLandscapeEvidence, bool) {
-	tier := marketSourceTier(hostname(hit.Link))
+	domain := hostname(hit.Link)
+	tier := marketSourceTier(domain)
+	if override := demandSourceOverride(domain); override != "" && override != "aggregator" {
+		// Publishers, consultancies and institutions are commentary — never
+		// consumption evidence. Tender-portal domains are NOT overridden
+		// here: a tender listing hosted on a portal that names the buyer is
+		// real claim evidence about that buyer (the aggregators themselves
+		// are stopped from masquerading as companies at extraction).
+		tier = override
+	}
 	if !isQualifyingMarketTier(tier) || !mentionsMarketCompany(hit, company) {
 		return models.MarketLandscapeEvidence{}, false
 	}

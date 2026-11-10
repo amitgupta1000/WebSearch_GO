@@ -32,11 +32,16 @@ type MarketLandscapeEvidence struct {
 // MarketLandscapeLeadCandidate is a company name extracted from a discovery
 // lead and queued for company-specific verification.
 type MarketLandscapeLeadCandidate struct {
-	Name        string   `json:"name"`
-	Country     string   `json:"country,omitempty"`
-	Reason      string   `json:"reason,omitempty"`
-	EvidenceURL string   `json:"evidence_url,omitempty"`
-	KeyPeople   []string `json:"key_people,omitempty"`
+	Name        string `json:"name"`
+	Country     string `json:"country,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	EvidenceURL string `json:"evidence_url,omitempty"`
+	// Producer records the extractor's judgement that the page describes the
+	// company as a producer, manufacturer or supplier of the target product
+	// itself — the supply side. Buyer-side runs consume it through the
+	// producer gate; zero-valued (false) on supplier-side runs.
+	Producer  bool     `json:"producer,omitempty"`
+	KeyPeople []string `json:"key_people,omitempty"`
 }
 
 // MarketLandscapeCompany is a normalized company candidate or result.
@@ -51,7 +56,12 @@ type MarketLandscapeCompany struct {
 	Confidence float64 `json:"confidence"`
 	// Stage names the consuming stage a buyer-side (demand chain) run tied the
 	// company to; empty on supplier-side runs.
-	Stage            string                    `json:"stage,omitempty"`
+	Stage string `json:"stage,omitempty"`
+	// ProducerSignal marks a buyer-side run's determination that the company
+	// describes itself as a producer of the product itself — the supply side.
+	// Such a company is a buyer only with transactional or input-language
+	// proof; false on supplier-side runs.
+	ProducerSignal   bool                      `json:"producer_signal,omitempty"`
 	EvidenceType     string                    `json:"evidence_type,omitempty"`
 	EvidenceSummary  string                    `json:"evidence_summary,omitempty"`
 	BusinessContact  []string                  `json:"business_contact,omitempty"`

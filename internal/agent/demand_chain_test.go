@@ -70,31 +70,42 @@ func demandChainTestEngine(llm LLMClient, searcher Searcher) *Engine {
 
 // TestDemandChainLanesCoverStagesThenDemand pins the lane order: the chain's
 // operator vocabulary first, then the product-shaped demand lanes, then
-// geography-scoped importer/tender lanes.
+// geography-scoped importer/tender lanes. Distributors and wholesalers are
+// retained as buyers (they purchase to resell), so their lane always runs;
+// only the deeper value-chain stages were scoped out.
 func TestDemandChainLanesCoverStagesThenDemand(t *testing.T) {
-	lanes := demandChainLanes(models.DemandChainQuery{
-		Activity:  "used cooking oil",
-		Countries: []string{"Malaysia"},
-	}, []models.ValueChainStage{{
+	chain := []models.ValueChainStage{{
 		Name: "biodiesel production", Operators: []string{"biodiesel plant", "biorefinery"},
-	}})
-	terms := make([]string, 0, len(lanes))
-	for _, lane := range lanes {
-		terms = append(terms, lane.term)
-		if lane.term == "biodiesel plant" && lane.stage != "biodiesel production" {
-			t.Errorf("operator lane %q must carry its stage, got %q", lane.term, lane.stage)
+	}}
+	terms := func(query models.DemandChainQuery) []string {
+		out := make([]string, 0, 10)
+		for _, lane := range demandChainLanes(query, chain) {
+			out = append(out, lane.term)
+			if lane.term == "biodiesel plant" && lane.stage != "biodiesel production" {
+				t.Errorf("operator lane %q must carry its stage, got %q", lane.term, lane.stage)
+			}
 		}
+		return out
 	}
-	for _, expected := range []string{"biodiesel plant", "buyer procurement purchase", "tender RFP e-procurement", "importer import data", "distributor wholesaler of", "applications uses industries", "Malaysia importer tender procurement"} {
+	query := models.DemandChainQuery{Activity: "used cooking oil", Countries: []string{"Malaysia"}}
+	defaults := terms(query)
+	for _, expected := range []string{"biodiesel plant", "buyer procurement purchase", "tender RFP e-procurement", "importer import data", "raw material feedstock consumption", "industrial applications manufacturers", "distributor wholesaler of", "Malaysia importer tender procurement"} {
 		found := false
-		for _, term := range terms {
+		for _, term := range defaults {
 			if term == expected {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("expected lane %q in %v", expected, terms)
+			t.Errorf("expected lane %q in %v", expected, defaults)
+		}
+	}
+	for _, banned := range []string{"applications uses industries"} {
+		for _, term := range defaults {
+			if term == banned {
+				t.Errorf("lane %q must not run under the two-step buyer scope, found in %v", banned, defaults)
+			}
 		}
 	}
 }
@@ -114,6 +125,9 @@ func TestDemandChainInferenceOverrideSkipsTheModel(t *testing.T) {
 		t.Fatalf("chain = %+v, want the operator's stages", chain)
 	}
 	for _, stage := range chain {
+		if stage.Distance != models.StageDistanceDirect {
+			t.Errorf("operator stage %+v must be scoped as a direct consumer", stage)
+		}
 		if stage.Source != "operator" || len(stage.Operators) == 0 {
 			t.Errorf("operator stage %+v must carry its source and vocabulary", stage)
 		}
@@ -157,6 +171,282 @@ func TestDemandChainInferenceCapsAndFillsVocabulary(t *testing.T) {
 		if len(stage.Operators) == 0 {
 			t.Errorf("stage %q must gain default operator vocabulary", stage.Name)
 		}
+	}
+}
+
+// TestDemandChainInferenceEnforcesTwoStepScope pins the buyer definition:
+// unlabelled distances normalize to direct consumption, a step-2 stage stays,
+// and a stage deeper than two transformation steps is dropped as out of scope.
+func TestDemandChainInferenceEnforcesTwoStepScope(t *testing.T) {
+	stages := []models.ValueChainStage{
+		{Name: "unlabelled"},
+		{Name: "direct consumption", Distance: models.StageDistanceDirect},
+		{Name: "derived consumption", Distance: models.StageDistanceDerived},
+		{Name: "end-use sector", Distance: 3},
+	}
+	llm := &demandLLM{stages: stages}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
+	chain, inferred, _ := agent.inferDemandChain(context.Background(), models.DemandChainQuery{Activity: "palm oil"}, nil)
+	if !inferred {
+		t.Fatal("the chain must be reported as inferred")
+	}
+	want := map[string]int{
+		"unlabelled":          models.StageDistanceDirect,
+		"direct consumption":  models.StageDistanceDirect,
+		"derived consumption": models.StageDistanceDerived,
+	}
+	if len(chain) != len(want) {
+		t.Fatalf("chain = %+v, want %d stages (the step-3 stage must be dropped)", chain, len(want))
+	}
+	for _, stage := range chain {
+		if want[stage.Name] != stage.Distance {
+			t.Errorf("stage %q distance = %d, want %d", stage.Name, stage.Distance, want[stage.Name])
+		}
+	}
+}
+
+// TestDemandChainLanesFavourDirectConsumers: under the same discovery budget,
+// a derived (step-2) stage earns one fewer operator lane than a direct stage,
+// so the queries land on the strongest buyer hypotheses first.
+func TestDemandChainLanesFavourDirectConsumers(t *testing.T) {
+	chain := []models.ValueChainStage{
+		{Name: "oleochemicals", Distance: models.StageDistanceDirect, Operators: []string{"oleochemical plant", "fatty acid plant"}},
+		{Name: "soap making", Distance: models.StageDistanceDerived, Operators: []string{"soap plant", "detergent plant"}},
+	}
+	counts := make(map[string]int)
+	for _, lane := range demandChainLanes(models.DemandChainQuery{Activity: "palm oil"}, chain) {
+		counts[lane.stage]++
+	}
+	if counts["oleochemicals"] != 2 || counts["soap making"] != 1 {
+		t.Errorf("stage lane counts = %v, want the direct stage at 2 and the derived stage at 1", counts)
+	}
+}
+
+// TestDemandBuyerFitConfidence pins the step penalty: direct consumers keep
+// their confidence, derived consumers carry a deterministic step penalty, and
+// the floor keeps a heavily penalized candidate from collapsing to zero.
+func TestDemandBuyerFitConfidence(t *testing.T) {
+	direct := &models.ValueChainStage{Name: "s", Distance: models.StageDistanceDirect}
+	derived := &models.ValueChainStage{Name: "s", Distance: models.StageDistanceDerived}
+	if got := demandBuyerFitConfidence(0.84, direct); got != 0.84 {
+		t.Errorf("direct-stage confidence = %v, want unchanged", got)
+	}
+	if got := demandBuyerFitConfidence(0.84, nil); got != 0.84 {
+		t.Errorf("untied confidence = %v, want unchanged", got)
+	}
+	if got := demandBuyerFitConfidence(0.84, derived); got < 0.789 || got > 0.791 {
+		t.Errorf("derived-stage confidence = %v, want 0.79", got)
+	}
+	if got := demandBuyerFitConfidence(0.40, derived); got < 0.349 || got > 0.351 {
+		t.Errorf("derived-stage low confidence = %v, want 0.35", got)
+	}
+	if got := demandBuyerFitConfidence(0.32, derived); got != 0.30 {
+		t.Errorf("floored confidence = %v, want 0.30", got)
+	}
+}
+
+// TestDemandChainProducerFlagDemotesTheExtractorJudgement: when the
+// extraction flags a candidate as a producer of the product itself, the
+// company is demoted from the results — it enters the run as a lead and its
+// evidence stays in the appendix unless transactional proof exists.
+func TestDemandChainProducerFlagDemotesTheExtractorJudgement(t *testing.T) {
+	llm := &demandLLM{
+		stages: []models.ValueChainStage{{Name: "biodiesel production", Operators: []string{"biodiesel plant"}}},
+		candidates: []models.MarketLandscapeLeadCandidate{
+			{Name: "Methanex", Producer: true, EvidenceURL: "https://methanex.com"},
+		},
+	}
+	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
+		"biodiesel plant": {{
+			Title: "Used cooking oil biodiesel plant in Malaysia", Link: "https://greendiesel.com.my/plant",
+			Snippet: "Produces biodiesel from used cooking oil feedstock.",
+		}},
+		"official site": {{
+			Title: "Methanex | Home", Link: "https://methanex.com",
+			Snippet: "Methanex operates a used cooking oil handling terminal.",
+		}},
+	}}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, searcher))
+	report, err := agent.Research(context.Background(), "r", models.DemandChainQuery{Activity: "used cooking oil"}, nil)
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	for _, result := range report.Results {
+		if strings.Contains(result.Name, "Methanex") {
+			t.Errorf("a producer-only company must be demoted from the results, got %+v", result)
+		}
+	}
+}
+
+// TestDemandVerificationAggregatorHostedEvidence: a tender listing hosted on
+// a portal domain that names the buyer is real claim evidence about that
+// buyer — the aggregator gate stops the portal masquerading as a company, it
+// must not erase the buyer's tender record. Publishers, by contrast, never
+// verify.
+func TestDemandVerificationAggregatorHostedEvidence(t *testing.T) {
+	tenderHit := models.SearchResult{
+		Title:   "Tender for Supply of Methanol to GNFC, Bharuch Plant",
+		Link:    "https://indiantender.in/gnfc-methanol",
+		Snippet: "Gujarat Narmada Valley Fertilizers and Chemicals Limited invited bids for the supply of Methanol.",
+	}
+	evidence, ok := demandVerificationEvidence(tenderHit, "GNFC", "methanol", "tender or procurement record")
+	if !ok {
+		t.Fatal("tender evidence hosted on an aggregator portal must still verify the buyer it names")
+	}
+	if evidence.ClaimType != models.DemandClaimTender {
+		t.Errorf("claim type = %q, want demand-tender", evidence.ClaimType)
+	}
+	publisherHit := models.SearchResult{
+		Title:   "Methanol carbonylation kinetics",
+		Link:    "https://pubs.acs.org/doi/10.1021/example",
+		Snippet: "Methanol carbonylation experiments reference Acme Chemicals catalysts.",
+	}
+	if _, ok := demandVerificationEvidence(publisherHit, "Acme Chemicals", "methanol", "own site"); ok {
+		t.Error("publisher-hosted hits must never verify a company")
+	}
+}
+
+// TestDemandProducerSignal pins the producer gate's precision: every marker
+// embeds the product name itself, so a downstream manufacturer's page never
+// misfires, and the buyer's own input language is never producer evidence.
+func TestDemandProducerSignal(t *testing.T) {
+	producer := models.SearchResult{
+		Title:   "Methanex Corporation",
+		Snippet: "Methanex is the world's largest methanol producer and supplier.",
+	}
+	if !demandProducerSignal(producer, "methanol") {
+		t.Error("a producer self-description must be flagged")
+	}
+	downstream := models.SearchResult{
+		Title:   "Reichhold | Resins",
+		Snippet: "Reichhold is a manufacturer of resins, consuming methanol as a raw material for formaldehyde production.",
+	}
+	if demandProducerSignal(downstream, "methanol") {
+		t.Error("a manufacturer of a downstream product must not be flagged as a producer of the product itself")
+	}
+	usage := models.SearchResult{
+		Title:   "Acme Chemicals",
+		Snippet: "We purchase methanol as a raw material for acetic acid production.",
+	}
+	if demandProducerSignal(usage, "methanol") {
+		t.Error("the buyer's own input language must not be flagged as producer evidence")
+	}
+}
+
+// TestDemandVerificationPurposesFollowTheDiscoveryClaim: the verification
+// searches run cheapest-first for what the discovery lane already claimed.
+func TestDemandVerificationPurposesFollowTheDiscoveryClaim(t *testing.T) {
+	firstKind := func(claim string) string {
+		return demandVerificationPurposes(claim)[0].kind
+	}
+	if got := firstKind(models.DemandClaimTender); got != "tender or procurement record" {
+		t.Errorf("a tender-discovered lead must verify via tender evidence first, got %q", got)
+	}
+	if got := firstKind(models.DemandClaimImport); got != "import record" {
+		t.Errorf("an import-discovered lead must verify via trade data first, got %q", got)
+	}
+	if got := firstKind(models.DemandClaimOperator); got != "own site" {
+		t.Errorf("a stage-discovered lead must verify via the company's own words first, got %q", got)
+	}
+}
+
+// TestDemandSourceOverrideAndName: tender portals, B2B marketplaces and
+// publishers are demand signals and bibliography — never qualifying tiers,
+// never verified companies.
+func TestDemandSourceOverrideAndName(t *testing.T) {
+	for domain, want := range map[string]string{
+		"indiantender.in":         "aggregator",
+		"www.tendersontime.com":   "aggregator",
+		"tradeindia.com":          "aggregator",
+		"mdpi.com":                "publisher",
+		"pubs.acs.org":            "publisher",
+		"onlinelibrary.wiley.com": "publisher",
+		"www.imarcgroup.com":      "consultancy",
+		"statista.com":            "consultancy",
+		"www.intratec.us":         "consultancy",
+		"engconfintl.org":         "institution",
+		"iea.org":                 "institution",
+		"www.greendiesel.com.my":  "",
+	} {
+		if got := demandSourceOverride(domain); got != want {
+			t.Errorf("demandSourceOverride(%q) = %q, want %q", domain, got, want)
+		}
+	}
+	for _, name := range []string{
+		"Latest Alcohol Tenders in India 2026 - TendersOnTime",
+		"Carbonylation of Methanol: A Versatile Reaction - Wiley Online Library",
+		"mdpi.com",
+		"IMARC Group",
+		"Intratec",
+		"Methanol Carbonylation - Energyscope",
+		"Methanol Carbonylation – Energyscope",
+		"Community Exposure to Toluene Diisocyanate",
+		"Methanol Use In Gasoline",
+		"NPTEL IIT Guwahati",
+		"engconfintl.org",
+		"chemprob.org",
+	} {
+		if !demandSourceName(name, "methanol") {
+			t.Errorf("demandSourceName(%q) must reject a source masquerading as a buyer", name)
+		}
+	}
+	for _, name := range []string{
+		"Gujarat Narmada Valley Fertilizers & Chemicals Limited",
+		"GreenDiesel Sdn Bhd",
+		"Aldehydes India",
+		"Kunnathan Polymers",
+		"INEOS-GNFC",
+	} {
+		if demandSourceName(name, "methanol") {
+			t.Errorf("demandSourceName(%q) must not reject a real company", name)
+		}
+	}
+}
+
+// TestDemandNormalizeCandidateName: an echoed page title or headline collapses
+// to its company segment — longest pipe part, then pre-colon, then
+// pre-possessive.
+func TestDemandNormalizeCandidateName(t *testing.T) {
+	for name, want := range map[string]string{
+		"Butyl Acrylate | Products | Mitsubishi Chemical Corporation":             "Mitsubishi Chemical Corporation",
+		"INEOS-GNFC's New Plant: Is India's Methanol-Acetic Acid Bet Paying Off?": "INEOS-GNFC",
+		"Acme Chemicals: Formaldehyde Supplier":                                   "Acme Chemicals",
+		"GreenDiesel Sdn Bhd":                                                     "GreenDiesel Sdn Bhd",
+	} {
+		if got := demandNormalizeCandidateName(name); got != want {
+			t.Errorf("demandNormalizeCandidateName(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// TestDemandProducerGateGradesSupplySide: a producer with no demand claim is
+// demoted, while an integrated producer-consumer with transactional proof
+// stays — penalized, not excluded.
+func TestDemandProducerGateGradesSupplySide(t *testing.T) {
+	producer := &models.MarketLandscapeCompany{
+		EntityKey: "company:name:methanex", Name: "Methanex", EvidenceType: "company-page",
+		Confidence: 0.70, Activity: "methanol",
+		Evidence: []models.MarketLandscapeEvidence{{
+			URL: "https://methanex.com", ClaimType: models.DemandClaimOperator,
+			SourceTier: "official", Status: "producer-signal",
+		}},
+	}
+	if !demandIsProducerWithoutDemand(producer) {
+		t.Fatal("a producer with no demand claim must be demoted")
+	}
+	integrated := &models.MarketLandscapeCompany{
+		EntityKey: "company:name:gnfc", Name: "GNFC", EvidenceType: "company-page",
+		Confidence: 0.98, Activity: "methanol",
+		Evidence: []models.MarketLandscapeEvidence{
+			{URL: "https://gnfc.in", ClaimType: models.DemandClaimOperator, SourceTier: "official", Status: "producer-signal"},
+			{URL: "https://tender.example.com/gnfc", ClaimType: models.DemandClaimTender, SourceTier: "official", Status: "tender or procurement record"},
+		},
+	}
+	if demandIsProducerWithoutDemand(integrated) {
+		t.Fatal("an integrated producer-consumer with transactional proof must not be demoted")
+	}
+	if !demandHasProducerSignal(integrated) || demandHasProducerSignal(producer) == false {
+		t.Fatal("both companies must carry the producer signal")
 	}
 }
 

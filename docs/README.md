@@ -134,6 +134,48 @@ RocketReach is a paid enrichment provider and is intentionally limited to compan
 and explicitly requested person dossiers. Search and lookup failures are non-fatal and are
 reported as run warnings.
 
+### Deep search mode (open-ended questions)
+
+Deep search is the one mode that starts from a free-form research question instead of a
+confirmed identity. There is no confirmation step: `mode=deepsearch` posts straight to
+`POST /api/research`. Before anything is searched the operator picks a focus — **depth**
+(decompose into 10 sub-questions, favour comprehensive coverage) or **recency** (5
+sub-questions, favour the latest developments and dated sources) — and the run proceeds in
+rounds:
+
+1. **Decompose** — the planner takes the question apart into its sub-questions. It designs
+   the decomposition; it never answers the question.
+2. **Compose** — each sub-question gets up to 5 custom search queries (recency-composed
+   queries carry current-year/“latest” qualifiers). Each round executes a bounded round-robin
+   sample (10 per round) so every sub-question is covered before any gets a second search.
+3. **Search & select** — the round's queries run concurrently through the cached search path,
+   hits are deduplicated across rounds, and a relevance judge scores the candidates on title,
+   snippet, and date only. Ranking is judge score plus a deterministic recency bonus when the
+   focus is recency; the top candidates within the scrape budget are read.
+4. **Read & extract** — selected pages go through the normal scrape ladder, and an extractor
+   distils each round's pages into grounded question–answer pairs (question, faithful answer,
+   verbatim supporting quote, source URL). A pair whose URL was not actually scraped is
+   dropped with a warning.
+5. **Review & rerun** — a reviewer checks the answers collected so far against the
+   sub-questions. Incomplete coverage names the gaps and emits rerun queries that become the
+   next round; complete coverage (or the round/scrape budget) ends the loop.
+6. **Assemble** — the final cited report is assembled **from the question–answer pairs alone**;
+   raw page text is not re-sent, so nothing outside the extracted pairs reaches the report.
+
+Every LLM stage is role-scoped with a grounding clause: the planner designs, the composer
+rephrases, the judge classifies, the extractor quotes, the reviewer assesses coverage, and the
+assembler arranges — **none of them may contribute the model's own knowledge to the corpus or
+the output**. The rule is also enforced deterministically: QA-pair URLs must match scraped
+pages, and synthesis citations must match collected sources, with violations dropped and
+reported as run warnings. If nothing could be read, the run completes with a warning instead
+of an invented report.
+
+Budgets (defaults in parentheses, each capped): rounds (`3`, max 5), results per query (`8`,
+max 10), and pages read per run (`12`, max 24). The console exposes all three plus the focus
+choice; deep search rides the rendered-run timeout because it reads pages every round. Events
+stream to the console like every other mode, and the report fragment shows the decomposition,
+the composed query plan, the per-round trace, the extracted answer pairs, and the sources.
+
 ### Legal mode (Indian case-law check)
 
 A legal run is a bounded litigation-exposure check on the confirmed company and the named
@@ -453,9 +495,11 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
   footer on every page: the brand line with the report title and checked stamp on the left,
   page numbers on the right.
 - **Demand chain** (`mode=demand_chain`) is the buyer-side counterpart of producer/seller landscape:
-  it infers the product's value chain, searches operators of the consuming stages plus tender/
-  import/input-language lanes, and verifies consumption with claim-typed evidence. Its
-  artifacts land under `demand-chain/` with the value chain leading both documents.
+  it infers the product's value chain scoped to the buyer definition — manufacturers whose process
+  consumes the product directly as an input (step 1) plus one derived step (step 2) — searches
+  operators of those consuming stages plus tender/import/input-language lanes, and verifies
+  consumption with claim-typed evidence. Its artifacts land under `demand-chain/` with the value
+  chain leading both documents.
 - **Search results** (`<run>-searches.json`) accompany every run: every query it issued, with
   each hit split into what the identity/entity gate kept and what it excluded. The console's
   **Search results** panel previews it per query and links the download; the file is written
