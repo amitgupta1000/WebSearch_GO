@@ -566,13 +566,11 @@ func stageRelevant(title string, stage models.ValueChainStage) bool {
 	return false
 }
 
-// buildStageCandidates groups the discovery candidates by their consuming
-// stage, in the chain's order, deterministically. Companies the product-shaped
-// demand lanes surfaced (no single stage) get their own section rather than
-// being dropped, the operator's verified companies join the roster by their
-// attributed stage, and entries that only speak about the product (the supply
-// side) or name documents are demoted to the appendix. Sorted by confidence,
-// then name, like every other view.
+// buildStageCandidates groups identity-passed companies by their consuming
+// stage, in the chain's order, deterministically. Raw discovery leads are
+// evidence for the LLM extraction and verification queue, not companies; they
+// remain auditable in the appendix until a company identity is established.
+// Sorted by confidence, then name, like every other view.
 func buildStageCandidates(pool []*models.MarketLandscapeCompany, chain []models.ValueChainStage) ([]models.StageCandidates, []models.MarketLandscapeEvidence) {
 	byStage := make(map[string][]*models.MarketLandscapeCompany)
 	var unclassified []*models.MarketLandscapeCompany
@@ -584,16 +582,21 @@ func buildStageCandidates(pool []*models.MarketLandscapeCompany, chain []models.
 			demoted = append(demoted, company.Evidence...)
 			continue
 		}
+		if company.EvidenceType == "discovery-lead" {
+			// Discovery leads have not passed the structured buyer/entity
+			// classifier and verification gate. Never render their page titles
+			// as company names in a stage roster.
+			demoted = append(demoted, company.Evidence...)
+			continue
+		}
 		company.Status = marketStatus(company)
 		if strings.TrimSpace(company.Stage) == "" {
 			unclassified = append(unclassified, company)
 			continue
 		}
-		// Stage relevance guards the raw-title leads only: a discovery lead
-		// that only names the product is the supply side of the market. The
-		// verified companies and identity-passed company pages are exempt —
-		// they earned their place through extraction, verification and the
-		// identity gate, and a company name need not spell its stage.
+		// A verified company need not spell its consuming stage in its name; it
+		// earned its place through extraction, verification and the identity
+		// gate.
 		stage := findDemandStage(company.Stage, chain)
 		if company.EvidenceType == "discovery-lead" && stage != nil && !stageRelevant(company.Name+" "+company.Domain, *stage) {
 			demoted = append(demoted, company.Evidence...)
@@ -1009,7 +1012,7 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 			// even when the model's operator vocabulary is weak or equipment-
 			// oriented.
 			lanes = append(lanes, demandLane{
-				term:  stageName + " companies",
+				term:  "largest manufacturers of " + demandStageSearchLabel(stageName),
 				stage: stage.Name,
 			})
 		}
@@ -1058,6 +1061,20 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 		unique = append(unique, lane)
 	}
 	return unique
+}
+
+func demandStageSearchLabel(stage string) string {
+	label := strings.ToLower(strings.TrimSpace(stage))
+	for _, suffix := range []string{" production", " manufacturing", " processing"} {
+		if strings.HasSuffix(label, suffix) {
+			label = strings.TrimSpace(strings.TrimSuffix(label, suffix))
+			break
+		}
+	}
+	if label == "" {
+		return strings.ToLower(strings.TrimSpace(stage))
+	}
+	return label
 }
 
 // selectDemandLanes keeps the two highest-value direct-demand lanes in every

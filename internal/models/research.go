@@ -223,8 +223,14 @@ type ValidationReport struct {
 	RowsDated   int                `json:"rows_dated"`
 	RowsStale   int                `json:"rows_stale"`
 	RowsUndated int                `json:"rows_undated"`
-	Conflicts   []string           `json:"conflicts,omitempty"`
-	// ExcludedRows records people removed from the current chart by current-employment checks.
+	// RowsUnverified counts rows the current-status lookups could not confirm:
+	// they stay in the chart carrying an "unable to verify" remark, and the
+	// freshness section reports them separately from the date buckets.
+	RowsUnverified int `json:"rows_unverified,omitempty"`
+	Conflicts      []string `json:"conflicts,omitempty"`
+	// ExcludedRows records people removed from the current chart by
+	// current-employment checks: verified historical associations only, never
+	// the merely unverifiable.
 	ExcludedRows []OffEntityRow `json:"excluded_rows,omitempty"`
 	// Skipped names why no reverse lookups ran (validation disabled, out of
 	// budget, or nothing needed checking).

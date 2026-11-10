@@ -509,6 +509,9 @@ func (ca *CompanyAgent) validateChart(ctx context.Context, sessionID string, bri
 	ca.enrichPublicEmails(ctx, brief, rows, matcher, ca.engine.ValidationLookups()-report.LookupsUsed)
 	report.ExcludedRows = applyCurrentStatusVerdicts(ca.engine.EntityGateRemoves(), chart, rows, report.Lookups)
 	countVerdicts(report, buckets)
+	// Rows the current-status lookups could not confirm stay in the chart; the
+	// report counts them so the reader sees how many carry the remark.
+	report.RowsUnverified = countRowsWithVerdict(rows, models.VerificationCurrentUnverified)
 
 	// The entity pass runs last: it needs the labels above, and its removals must not
 	// disturb the row indexes the earlier passes used.
@@ -944,6 +947,14 @@ func hasRoleEmploymentShape(title string) bool {
 	return false
 }
 
+// applyCurrentStatusVerdicts labels rows by the current-employment status their
+// reverse lookups established. A row the lookup could not confirm is shown,
+// not dropped: the lookup's silence is not evidence the person left, so the row
+// stays in the chart with an "unable to verify" remark and is counted in
+// `ValidationReport.RowsUnverified`. A row whose lookup did establish a former,
+// retired or deceased association (or a current role elsewhere) is historical:
+// those are removed in enforce mode (labelled in report mode) and preserved in
+// `ValidationReport.ExcludedRows`.
 func applyCurrentStatusVerdicts(remove bool, chart *models.OrgChart, rows []rosterRow, lookups []models.ValidationLookup) []models.OffEntityRow {
 	statuses := make(map[string]string)
 	for _, lookup := range lookups {
@@ -971,8 +982,11 @@ func applyCurrentStatusVerdicts(remove bool, chart *models.OrgChart, rows []rost
 			row.employee.Verification = models.VerificationHistorical
 			row.employee.VerificationNote = appendNote(row.employee.VerificationNote, "historical association: former, retired or deceased status")
 		} else {
+			// Unverifiable, not disproved: keep the row visible, with the remark
+			// carrying the uncertainty instead of the removal hiding the person.
 			row.employee.Verification = models.VerificationCurrentUnverified
-			row.employee.VerificationNote = appendNote(row.employee.VerificationNote, "current employment could not be established")
+			row.employee.VerificationNote = appendNote(row.employee.VerificationNote, "unable to verify: current employment could not be established")
+			continue
 		}
 		excluded[row.employee] = true
 		excludedNames[key] = true
@@ -989,6 +1003,19 @@ func applyCurrentStatusVerdicts(remove bool, chart *models.OrgChart, rows []rost
 		removeRosterRows(chart, excluded, excludedNames)
 	}
 	return removed
+}
+
+// countRowsWithVerdict counts the finished rows carrying one verdict, so the
+// report can present the kept-but-unverified set separately from the freshness
+// buckets, which are computed before the current-status pass runs.
+func countRowsWithVerdict(rows []rosterRow, verdict string) int {
+	count := 0
+	for _, row := range rows {
+		if row.employee.Verification == verdict {
+			count++
+		}
+	}
+	return count
 }
 
 // applyEntityRescue upgrades every row whose company association the lookup confirmed: a

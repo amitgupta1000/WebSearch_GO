@@ -422,6 +422,7 @@ var companyHTMLTemplate = documentTemplate("company", `
 	<tr><td>dated</td><td>{{.Chart.Validation.RowsDated}}</td></tr>
 	<tr><td>stale</td><td>{{.Chart.Validation.RowsStale}}</td></tr>
 	<tr><td>undated</td><td>{{.Chart.Validation.RowsUndated}}</td></tr>
+	{{if .Chart.Validation.RowsUnverified}}<tr><td>current-unverified (kept, unable to verify)</td><td>{{.Chart.Validation.RowsUnverified}}</td></tr>{{end}}
 	</tbody></table>
 	{{if .Chart.Validation.Conflicts}}<ul>{{range .Chart.Validation.Conflicts}}<li><strong>Conflicting title:</strong> {{.}}</li>{{end}}</ul>{{end}}
 	{{if .Chart.Validation.ExcludedRows}}<h3>Excluded from the current org chart</h3>

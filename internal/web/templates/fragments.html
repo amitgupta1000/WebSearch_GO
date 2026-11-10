@@ -425,6 +425,7 @@
 				<span class="px-2 py-0.5 rounded border border-sky-500/30 bg-sky-500/10 text-sky-300">dated {{.Validation.RowsDated}}</span>
 				<span class="px-2 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300">stale {{.Validation.RowsStale}}</span>
 				<span class="px-2 py-0.5 rounded border border-slate-600 bg-slate-800/60 text-slate-300">undated {{.Validation.RowsUndated}}</span>
+				{{if .Validation.RowsUnverified}}<span class="px-2 py-0.5 rounded border border-orange-500/30 bg-orange-500/10 text-orange-300">current-unverified (unable to verify) {{.Validation.RowsUnverified}}</span>{{end}}
 			</div>
 			{{if .Validation.Conflicts}}<ul class="list-disc pl-5 space-y-1 text-amber-300">{{range .Validation.Conflicts}}<li>{{.}}</li>{{end}}</ul>{{end}}
 			{{if .Validation.ExcludedRows}}

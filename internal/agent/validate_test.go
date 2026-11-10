@@ -52,15 +52,39 @@ func TestHistoricalPersonStatus(t *testing.T) {
 	}
 }
 
-func TestApplyCurrentStatusVerdictsRemovesUnverifiedRows(t *testing.T) {
+func TestApplyCurrentStatusVerdictsKeepsUnverifiedRowsWithRemark(t *testing.T) {
 	chart := &models.OrgChart{Leadership: []models.Employee{{Name: "Drishti Pahwa", Title: "Managing Partner"}}}
 	rows := collectRosterRows(chart)
-	applyCurrentStatusVerdicts(true, chart, rows, []models.ValidationLookup{{
+	removed := applyCurrentStatusVerdicts(true, chart, rows, []models.ValidationLookup{{
 		Person:        "Drishti Pahwa",
 		CurrentStatus: "unknown",
 	}})
+	if len(chart.Leadership) != 1 {
+		t.Fatal("expected the current-unverified row to stay in the chart")
+	}
+	if len(removed) != 0 {
+		t.Fatalf("expected no removals for an unverifiable row, got %+v", removed)
+	}
+	if chart.Leadership[0].Verification != models.VerificationCurrentUnverified {
+		t.Fatalf("expected the current-unverified verdict, got %q", chart.Leadership[0].Verification)
+	}
+	if !strings.Contains(chart.Leadership[0].VerificationNote, "unable to verify") {
+		t.Fatalf("expected an unable-to-verify remark, got %q", chart.Leadership[0].VerificationNote)
+	}
+}
+
+func TestApplyCurrentStatusVerdictsStillRemovesHistoricalRows(t *testing.T) {
+	chart := &models.OrgChart{Leadership: []models.Employee{{Name: "Drishti Pahwa", Title: "Managing Partner"}}}
+	rows := collectRosterRows(chart)
+	removed := applyCurrentStatusVerdicts(true, chart, rows, []models.ValidationLookup{{
+		Person:        "Drishti Pahwa",
+		CurrentStatus: "historical",
+	}})
 	if len(chart.Leadership) != 0 {
-		t.Fatal("expected current-unverified row to be removed")
+		t.Fatal("expected the verified-historical row to be removed")
+	}
+	if len(removed) != 1 {
+		t.Fatalf("expected the removal to be recorded for auditability, got %+v", removed)
 	}
 }
 

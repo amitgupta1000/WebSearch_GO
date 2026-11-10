@@ -94,7 +94,7 @@ func TestDemandChainLanesCoverStagesThenDemand(t *testing.T) {
 	}
 	query := models.DemandChainQuery{Activity: "used cooking oil", Countries: []string{"Malaysia"}}
 	defaults := terms(query)
-	for _, expected := range []string{"biodiesel production companies", "biodiesel plant", "buyer procurement purchase", "tender RFP e-procurement", "importer import data", "raw material feedstock consumption", "industrial applications manufacturers", "distributor wholesaler of", "Malaysia importer tender procurement"} {
+	for _, expected := range []string{"largest manufacturers of biodiesel", "biodiesel plant", "buyer procurement purchase", "tender RFP e-procurement", "importer import data", "raw material feedstock consumption", "industrial applications manufacturers", "distributor wholesaler of", "Malaysia importer tender procurement"} {
 		found := false
 		for _, term := range defaults {
 			if term == expected {
@@ -106,7 +106,7 @@ func TestDemandChainLanesCoverStagesThenDemand(t *testing.T) {
 			t.Errorf("expected lane %q in %v", expected, defaults)
 		}
 	}
-	if defaults[0] != "biodiesel production companies" {
+	if defaults[0] != "largest manufacturers of biodiesel" {
 		t.Fatalf("stage company lane must be first, got %q", defaults[0])
 	}
 	for _, banned := range []string{"applications uses industries"} {
@@ -842,9 +842,9 @@ func TestDemandChainGroupsStageCandidates(t *testing.T) {
 		t.Error("the section must carry the stage's rationale")
 	}
 	// Alias-level dedupe: the discovery lead and the verified company are one
-	// house, so the roster carries GreenDiesel exactly once — merged, verified
-	// — and keeps the never-verified licensing lead honestly as a lead.
-	greenDieselCount, leadCount := 0, 0
+	// house, so the roster carries GreenDiesel exactly once — merged and
+	// verified. Raw discovery leads stay in the appendix until classified.
+	greenDieselCount := 0
 	for _, company := range biodiesel.Companies {
 		if strings.Contains(company.Name, "GreenDiesel") {
 			greenDieselCount++
@@ -852,22 +852,19 @@ func TestDemandChainGroupsStageCandidates(t *testing.T) {
 				t.Errorf("the merged GreenDiesel entry must carry its verified status, got %q", company.Status)
 			}
 		}
-		if company.Status == "lead" {
-			leadCount++
-		}
 	}
 	if greenDieselCount != 1 {
 		t.Errorf("GreenDiesel appears %d time(s) in the roster, want exactly once after dedupe: %+v", greenDieselCount, biodiesel.Companies)
 	}
-	if leadCount == 0 {
-		t.Errorf("the roster must keep unverified leads, got %+v", biodiesel.Companies)
+	for _, section := range report.StageCandidates {
+		for _, company := range section.Companies {
+			if company.Status == "lead" {
+				t.Errorf("raw discovery lead %q must not appear in the company roster", company.Name)
+			}
+		}
 	}
-	general, ok := byName["General demand lanes"]
-	if !ok {
-		t.Fatalf("missing the demand-lane bucket in %+v", report.StageCandidates)
-	}
-	if len(general.Companies) == 0 {
-		t.Error("the demand-lane bucket must keep its companies")
+	if len(report.Appendix) == 0 {
+		t.Error("raw discovery leads must remain auditable in the appendix")
 	}
 }
 

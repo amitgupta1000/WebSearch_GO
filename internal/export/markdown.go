@@ -232,7 +232,7 @@ func renderValidationMarkdown(report *models.ValidationReport) string {
 	var builder strings.Builder
 	builder.WriteString("## Data freshness\n\n")
 	builder.WriteString("| Verdict | Rows |\n| :--- | :--- |\n")
-	for _, entry := range []struct {
+	verdicts := []struct {
 		label string
 		count int
 	}{
@@ -240,7 +240,15 @@ func renderValidationMarkdown(report *models.ValidationReport) string {
 		{models.VerificationDated, report.RowsDated},
 		{models.VerificationStale, report.RowsStale},
 		{models.VerificationUndated, report.RowsUndated},
-	} {
+	}
+	if report.RowsUnverified > 0 {
+		// Shown, not removed: these rows stay in the chart carrying the remark.
+		verdicts = append(verdicts, struct {
+			label string
+			count int
+		}{models.VerificationCurrentUnverified + " (kept, unable to verify)", report.RowsUnverified})
+	}
+	for _, entry := range verdicts {
 		fmt.Fprintf(&builder, "| %s | %d |\n", entry.label, entry.count)
 	}
 	builder.WriteString("\n_Verdicts come from the newest dated source behind each row: verified-recent means a source inside the recent window from the company's own site or from two independent domains, and stale means the newest source is older than the stale window. A dated row is a statement about the evidence, not proof of current employment._\n\n")

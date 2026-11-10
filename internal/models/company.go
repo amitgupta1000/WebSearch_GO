@@ -130,37 +130,59 @@ func (person Employee) EntityWarning() string {
 }
 
 // Freshness renders a person's date and verdict as one cell value, for example
-// "2021-02-26 · stale" or "— · undated". It returns an empty string when the row
-// carries no freshness information, so charts from before the validation pass
-// render exactly as they did.
+// "2021-02-26 · stale" or "— · undated", followed by the row's verification note
+// when it has one — the "unable to verify" remark a current-status lookup
+// leaves. It returns an empty string when the row carries no freshness
+// information at all, so charts from before the validation pass render exactly
+// as they did.
 func (person Employee) Freshness() string {
 	date := strings.TrimSpace(person.AsOf)
 	verdict := strings.TrimSpace(person.Verification)
+	shown := ""
 	switch {
 	case date == "" && verdict == "":
-		return ""
+		shown = ""
 	case date == "":
-		return "— · " + verdict
+		shown = "— · " + verdict
 	case verdict == "":
-		return date
+		shown = date
 	default:
-		return date + " · " + verdict
+		shown = date + " · " + verdict
 	}
+	return appendStatusRemark(shown, person.VerificationNote)
 }
 
-// FreshnessNote renders a person's freshness for prose.
+// FreshnessNote renders a person's freshness for prose, with the verification
+// note attached so remarks like "unable to verify" travel with the row.
 func (person Employee) FreshnessNote() string {
 	date := strings.TrimSpace(person.AsOf)
 	verdict := strings.TrimSpace(person.Verification)
+	shown := ""
 	switch {
 	case date != "" && verdict != "":
-		return fmt.Sprintf("as of %s · %s", date, verdict)
+		shown = fmt.Sprintf("as of %s · %s", date, verdict)
 	case verdict != "":
-		return verdict
+		shown = verdict
 	case date != "":
-		return "as of " + date
+		shown = "as of " + date
 	}
-	return ""
+	return appendStatusRemark(shown, person.VerificationNote)
+}
+
+// appendStatusRemark attaches the row's verification note (conflict messages,
+// the "unable to verify" remark) to a rendered verdict, so the remark travels
+// with the row into every artifact instead of living only in the report
+// appendix.
+func appendStatusRemark(shown, note string) string {
+	note = strings.TrimSpace(note)
+	switch {
+	case note == "":
+		return shown
+	case shown == "":
+		return note
+	default:
+		return shown + " · " + note
+	}
 }
 
 // UnverifiedSourceCount reports how many collected sources could not be used as

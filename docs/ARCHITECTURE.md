@@ -1314,12 +1314,15 @@ Current-employment status is conservative and three-way:
   employment evidence was found. Absence of a newer employer is not evidence of continued
   employment.
 
-With `ENTITY_GATE_MODE=enforce`, historical and current-unverified rows are removed from the
-current roster and preserved in `ValidationReport.ExcludedRows`, rendered as **Excluded from
-the current org chart** in the web UI, Markdown, and PDF reports. `report` mode applies the
-same verdicts and notes but leaves the rows in the chart for inspection; `off` disables the
-entity gate comparison. This preserves an audit trail without presenting uncertain historical
-affiliations as current leadership.
+Verified `historical` rows are removed from the current roster in `enforce` mode (labelled
+in `report` mode) and preserved in `ValidationReport.ExcludedRows`, rendered as **Excluded
+from the current org chart** in the web UI, Markdown, and PDF reports. A
+`current-unverified` row is **not** removed: the lookup's silence is not evidence the
+person left, so the row stays in the chart carrying an "unable to verify" remark — visible
+in the row's `As of` cell in the console, Markdown and PDF — and is counted separately as
+`ValidationReport.RowsUnverified` in the Data freshness section. This shows the
+unconfirmed results instead of hiding them, without presenting uncertain historical
+affiliations as current leadership. `off` disables the entity gate comparison.
 
 The result renders as an `As of` column and a "Data freshness" section in the console, the Markdown and the PDF, including the conflicts and what each lookup changed. `OrgChart.UnverifiedSourceCount()` remains the separate measure of sources that could not be used at all.
 
