@@ -55,6 +55,21 @@ var legalSuffixes = map[string]bool{
 	"llc": true, "plc": true, "incorporated": true, "corp": true, "corporation": true,
 }
 
+// genericCorporateWords are name words too common to serve as a brand key on
+// their own: a page saying "state", "global" or "industries" is not thereby
+// about the company, even when the company's own domain repeats the word.
+var genericCorporateWords = map[string]bool{
+	"state": true, "bank": true, "trust": true, "group": true, "global": true,
+	"national": true, "united": true, "international": true, "general": true,
+	"central": true, "federal": true, "royal": true, "public": true, "union": true,
+	"capital": true, "prime": true, "indian": true, "india": true, "city": true,
+	"industries": true, "industry": true, "enterprises": true, "enterprise": true,
+	"corporation": true, "corporate": true, "company": true, "holdings": true,
+	"partners": true, "associates": true, "solutions": true, "systems": true,
+	"technologies": true, "services": true, "ventures": true, "resources": true,
+	"products": true, "projects": true, "worldwide": true, "healthcare": true,
+}
+
 // entityMatcher is a run's compiled identity: built once from the brief, consulted
 // for every candidate, snippet and row.
 type entityMatcher struct {
@@ -88,6 +103,42 @@ func newEntityMatcher(brief models.CompanyBrief) *entityMatcher {
 			named = append(named, key)
 		}
 	}
+	// A multi-word name often travels by its brand word alone — "Zonal Sales Head
+	// at GOYUM" for a company registered as "Goyum Screw Press". The brand key is
+	// derived only when the first token is distinctive (five or more characters,
+	// not a generic corporate word), the rest of the name is not one generic word
+	// after another — "Sanjay Chemicals" travels by a person's name over a generic
+	// industry word, and same-first-word firms ("Sanjay Chlorides") abound — and a
+	// confirmed domain spells the whole name out run together, which is what makes
+	// the short form this company's own rather than a shared word.
+	brands := make([]string, 0, 1)
+	seenBrands := make(map[string]bool)
+	for _, key := range named {
+		if len(key.tokenValues) < 2 {
+			continue
+		}
+		brand := key.tokenValues[0]
+		if len(brand) < 5 || genericCorporateWords[brand] || seenBrands[brand] {
+			continue
+		}
+		restGeneric := true
+		for _, token := range key.tokenValues[1:] {
+			if !genericCorporateWords[token] {
+				restGeneric = false
+				break
+			}
+		}
+		if restGeneric || key.collapsed == "" || !domainConfirmsBrand(matcher.keys, key.collapsed) {
+			continue
+		}
+		seenBrands[brand] = true
+		brands = append(brands, brand)
+	}
+	for _, brand := range brands {
+		if key, ok := nameEntityKey(models.EntityKeyAlias, brand, 0.6); ok {
+			named = append(named, key)
+		}
+	}
 	// More specific names first: with "CJ Shah" and "CJ Shah & Co" both configured as
 	// keys, a source that says "CJ Shah & Co" must be reported as the alias match,
 	// because that is the stronger, more informative attribution.
@@ -102,6 +153,27 @@ func newEntityMatcher(brief models.CompanyBrief) *entityMatcher {
 // company up instead of gating a run on something that is not a domain.
 func NormalizeDomain(value string) string {
 	return normalizeDomain(value)
+}
+
+// domainConfirmsBrand reports whether a confirmed domain spells the whole name
+// out run together — goyumscrewpress.in for "Goyum Screw Press" — which is what
+// makes the short first token this company's own brand rather than a shared
+// word. A domain that merely contains the token (sanjaychemindia.com contains
+// "sanjay") does not: same-first-word firms abound.
+func domainConfirmsBrand(keys []entityKey, collapsed string) bool {
+	for _, key := range keys {
+		if key.kind != models.EntityKeyDomain {
+			continue
+		}
+		root := key.domain
+		if index := strings.IndexByte(root, '.'); index > 0 {
+			root = root[:index]
+		}
+		if root == collapsed {
+			return true
+		}
+	}
+	return false
 }
 
 // entityDomains returns the brief's confirmed domains, primary first, normalized and

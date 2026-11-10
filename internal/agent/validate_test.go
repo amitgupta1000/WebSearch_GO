@@ -35,7 +35,7 @@ func TestHasCurrentEmployerConflict(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := hasCurrentEmployerConflict([]models.SearchResult{test.result}, "Coralbay Advisors", "Drishti Pahwa"); got != test.want {
+			if got := hasCurrentEmployerConflict([]models.SearchResult{test.result}, nil, "Coralbay Advisors", "Drishti Pahwa"); got != test.want {
 				t.Fatalf("hasCurrentEmployerConflict() = %v, want %v", got, test.want)
 			}
 		})
@@ -47,7 +47,7 @@ func TestHistoricalPersonStatus(t *testing.T) {
 		Title:   "Drishti Pahwa profile",
 		Snippet: "Drishti Pahwa retired from Coralbay Advisors in 2024.",
 	}}
-	if !hasHistoricalPersonStatus(results, "Coralbay Advisors", "Drishti Pahwa") {
+	if !hasHistoricalPersonStatus(results, nil, "Coralbay Advisors", "Drishti Pahwa") {
 		t.Fatal("expected explicit retirement status to be detected")
 	}
 }

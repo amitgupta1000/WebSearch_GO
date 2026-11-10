@@ -27,6 +27,7 @@ import (
 
 const (
 	demandMaxDiscoveryQueries    = 20
+	demandMinDiscoveryQueries    = 2
 	demandMaxVerificationQueries = 70
 	demandMaxLeadsEnriched       = 24
 	demandMaxStages              = 7
@@ -114,10 +115,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		laneStages[strings.ToLower(lane.term)] = lane.stage
 	}
 	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Discovering demand across %d lane(s)", len(lanes)), "", "")
-	lanesToRun := lanes
-	if len(lanesToRun) > query.DiscoveryQueries {
-		lanesToRun = lanesToRun[:query.DiscoveryQueries]
-	}
+	lanesToRun := selectDemandLanes(lanes, query.DiscoveryQueries)
 	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Searching %d lane(s) with bounded concurrency", len(lanesToRun)), "", "")
 	// Lane searches are bounded-concurrent (three at a time) and
 	// order-preserving: results land in the lane's slot, so the leads, the
@@ -834,6 +832,9 @@ func normalizeDemandBudget(query *models.DemandChainQuery) {
 	if query.DiscoveryQueries <= 0 {
 		query.DiscoveryQueries = demandMaxDiscoveryQueries
 	}
+	if query.DiscoveryQueries < demandMinDiscoveryQueries {
+		query.DiscoveryQueries = demandMinDiscoveryQueries
+	}
 	if query.DiscoveryQueries > 60 {
 		query.DiscoveryQueries = 60
 	}
@@ -1057,6 +1058,56 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 		unique = append(unique, lane)
 	}
 	return unique
+}
+
+// selectDemandLanes keeps the two highest-value direct-demand lanes in every
+// run: procurement/direct-enquiry and tender/RFP. The remaining budget follows
+// the stage-first order produced by demandChainLanes.
+func selectDemandLanes(lanes []demandLane, budget int) []demandLane {
+	if budget <= 0 {
+		return nil
+	}
+	mandatory := map[string]bool{
+		"buyer procurement purchase": true,
+		"tender RFP e-procurement":   true,
+	}
+	reserved := 0
+	for _, lane := range lanes {
+		if mandatory[lane.term] {
+			reserved++
+		}
+	}
+	if reserved == 0 {
+		if len(lanes) > budget {
+			return lanes[:budget]
+		}
+		return lanes
+	}
+	if budget < reserved {
+		budget = reserved
+	}
+	capacity := len(lanes)
+	if capacity > budget {
+		capacity = budget
+	}
+	selected := make([]demandLane, 0, capacity)
+	optionalBudget := budget - reserved
+	for _, lane := range lanes {
+		if mandatory[lane.term] {
+			continue
+		}
+		if optionalBudget == 0 {
+			break
+		}
+		selected = append(selected, lane)
+		optionalBudget--
+	}
+	for _, lane := range lanes {
+		if mandatory[lane.term] {
+			selected = append(selected, lane)
+		}
+	}
+	return selected
 }
 
 // demandGeography renders the geo suffix for search queries: countries win over

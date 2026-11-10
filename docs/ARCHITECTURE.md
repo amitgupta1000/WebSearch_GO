@@ -530,6 +530,11 @@ so the result can answer post-run questions:
    `departments[].members` schema. Evidence originating from `professional_profile`
    snippets is re-presented as a labelled **profile candidates** block, so a headline
    that pairs a name with a function and a company is not lost among the page text.
+   The roster's scope is evidence, not the brief's Areas: every person the supplied
+   evidence explicitly names in a role at the company is placed in the department their
+   title implies, with the naming page as their public source — Areas drive which
+   functions get dedicated searches, they do not suppress people the evidence already
+   names.
    Missing company name / domain are backfilled from the brief; `Sources` and
    `LastUpdated` are stamped locally. Synthesis requires at least one usable piece of
    evidence ("no usable company evidence was collected").
@@ -1362,6 +1367,13 @@ presented as equivalent to a domain match.
    run-together word that merely begins with the name ("sanjaychemicalsllp.com" vs
    "sanjay chemicals") never matches, because a hit must consume whole words on both
    sides. Short or initialism names ("CJ Shah") keep the strict whole-word rule entirely.
+   A multi-word name whose distinctive first token (five-plus characters, not a generic
+   corporate word) is spelled out by a confirmed domain as the whole name run together
+   also gains a single-token brand key — goyumscrewpress.in for "Goyum Screw Press" matches
+   "at GOYUM" — while a domain that merely contains the token (sanjaychemindia.com contains
+   "sanjay"), a name that is a person's name over generic industry words ("Sanjay
+   Chemicals", where same-first-word firms like "Sanjay Chlorides" abound), and initialisms
+   ("CJ Shah") never do.
    `mentionsCompanyNear` and `namesTheEntity` apply the same fallback.
 4. **Rows** (`applyEntityVerdicts`, inside the validation pass) — a row supported by no
    entity-naming source is recorded in `EntityGate.OffEntity` with its title, department and
@@ -1373,7 +1385,10 @@ presented as equivalent to a domain match.
    `lookupWorthiness`) is deliberately aggressive, because a lookup *establishes* facts the
    run could not collect rather than only dating rows it already has. Ranked candidates:
    a row with no entity key at all (the lookup can rescue it) → a title two people claim →
-   a name-only match → stale → undated → merely dated. A row already `verified-recent` *and*
+   a name-only match → stale → undated → merely dated. The current-status tests
+   (`hasCurrentCompanyEmployment` and friends) run through the entity matcher, so results
+   that spell the company differently — operating name vs registered name, or the bare
+   brand — no longer read as "unknown" and cost a live row its place. A row already `verified-recent` *and*
    tied by a domain, alias or registration id is not looked up. `reverseLookup` reports
    `MatchedCompany`/`MatchedKey` when a result names both the person and the company, and
    `applyEntityRescue` upgrades the row (rescuing it from exclusion, or strengthening a

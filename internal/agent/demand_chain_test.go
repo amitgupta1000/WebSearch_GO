@@ -68,6 +68,10 @@ func demandChainTestEngine(llm LLMClient, searcher Searcher) *Engine {
 	return NewEngine(llm, searcher, &mockScraper{}, cache.NewMemoryCache(10), 5, 3, 10)
 }
 
+// TestSelectDemandLanesReservesDirectEnquiryAndTender pins the selection cap:
+// direct-enquiry and tender lanes survive the cap, and the selected set stays at
+// the requested size.
+
 // TestDemandChainLanesCoverStagesThenDemand pins the lane order: the chain's
 // product-plus-sector company query first, then operator vocabulary, then
 // product-shaped demand lanes, then
@@ -111,6 +115,29 @@ func TestDemandChainLanesCoverStagesThenDemand(t *testing.T) {
 				t.Errorf("lane %q must not run under the two-step buyer scope, found in %v", banned, defaults)
 			}
 		}
+	}
+}
+
+func TestSelectDemandLanesReservesDirectEnquiryAndTender(t *testing.T) {
+	lanes := []demandLane{
+		{term: "soap manufacturing companies", stage: "soap manufacturing"},
+		{term: "soap plant", stage: "soap manufacturing"},
+		{term: "buyer procurement purchase"},
+		{term: "tender RFP e-procurement"},
+		{term: "importer import data"},
+	}
+	selected := selectDemandLanes(lanes, 4)
+	terms := make(map[string]bool, len(selected))
+	for _, lane := range selected {
+		terms[lane.term] = true
+	}
+	for _, required := range []string{"soap manufacturing companies", "buyer procurement purchase", "tender RFP e-procurement"} {
+		if !terms[required] {
+			t.Errorf("selected lanes must include %q, got %+v", required, selected)
+		}
+	}
+	if len(selected) != 4 {
+		t.Fatalf("selected %d lanes, want 4: %+v", len(selected), selected)
 	}
 }
 

@@ -17,6 +17,7 @@ CompanyAgent now defaults to leadership-focused research:
 - The UI provides examples such as procurement, supply chain, and sales/marketing.
 - The planner no longer adds default procurement, marketing, finance, engineering, or generic department searches.
 - Indexed LinkedIn role searches are also limited to explicitly requested focus areas.
+- Focus areas still steer which departments get dedicated searches, but people the collected evidence names (for example LinkedIn profiles) are included in the roster even when their function was not requested.
 
 Relevant files:
 

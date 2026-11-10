@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"context"
 	"testing"
 
+	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
 
@@ -54,10 +56,13 @@ func TestEntityMatcherAcceptsNameSpellingVariants(t *testing.T) {
 		t.Error("expected a company mention in the spaced spelling to anchor the person")
 	}
 
-	// A page that merely uses two of the words still fails: the collapsed form has
-	// to appear whole.
-	if matcher.match("", "Goyum brand screw press accessories", "Third-party accessories.").Matched {
-		t.Error("collapsed fallback must require the whole name, not its words scattered")
+	// Near-miss words must not join into the collapsed name: for a matcher with no
+	// brand key (the confirmed domain does not spell the name out), "screwing" and
+	// "pressers" cannot concatenate to "goyumscrewpress", and the strict whole-word
+	// rule rejects them too.
+	noBrand := newEntityMatcher(models.CompanyBrief{CompanyName: "Goyum Screw Press", Domain: "gsp-india.in", EntitySource: "typed"})
+	if noBrand.match("", "Goyum brand screwing pressers accessories", "Third-party accessories.").Matched {
+		t.Error("collapsed fallback must require the exact name from whole words")
 	}
 }
 
@@ -75,5 +80,74 @@ func TestEntityMatcherKeepsShortNamesStrict(t *testing.T) {
 	// The strict rule itself is unchanged: Janat Shah is still not CJ Shah.
 	if matcher.match("", "Supply Chain Management by Janat Shah", "Textbook.").Matched {
 		t.Error("Janat Shah must stay excluded from a CJ Shah run")
+	}
+}
+
+// TestEntityMatcherDerivesTheBrandKeyFromTheDomain pins the brand-word fix: a
+// multi-word name whose distinctive first token is spelled out by the confirmed
+// domain also matches that token alone ("Zonal Sales Head at GOYUM" for
+// "Goyum Screw Press" + goyumscrewpress.in), while generic corporate words and
+// initialisms never become brand keys.
+func TestEntityMatcherDerivesTheBrandKeyFromTheDomain(t *testing.T) {
+	matcher := newEntityMatcher(goyumBrief())
+	if !matcher.match("", "Ankur Chitroda - Zonal Sales Head at GOYUM", "Total 12+ years of experience in Technical Sales, Engineering and Design of plant and equipments.").Matched {
+		t.Error("expected the brand word GOYUM to match via the domain-confirmed brand key")
+	}
+
+	// A generic first word never becomes a brand key, even when the domain repeats it.
+	stateBank := newEntityMatcher(models.CompanyBrief{CompanyName: "State Bank of India", Domain: "statebankofindia.in", EntitySource: "typed"})
+	if stateBank.match("", "STATE circular", "Notice for all branches.").Matched {
+		t.Error("generic corporate words must not become brand keys")
+	}
+
+	// Initialism names keep the strict whole-word rule: no brand key for "cj".
+	if (newEntityMatcher(cjShahBrief())).match("", "CJ notice", "Announcement for members.").Matched {
+		t.Error("short initialism names must not derive brand keys")
+	}
+}
+
+// TestValidationKeepsRowsWhenTheLookupSpellsTheCompanyDifferently pins the
+// validation-pass fix: the reverse lookup's current-status tests run through the
+// entity matcher, so results spelling the company the registered way ("Goyum
+// Screw Press" for a "Goyum Screwpress" brief) read as "current" instead of
+// "unknown", and the row keeps its place in the roster instead of being removed
+// as current-unverified.
+func TestValidationKeepsRowsWhenTheLookupSpellsTheCompanyDifferently(t *testing.T) {
+	brief := models.CompanyBrief{CompanyName: "Goyum Screwpress", Domain: "goyumscrewpress.in", EntityConfirmed: true}
+	brief.AreasOfInterest = []string{"sales"}
+	source := "https://in.linkedin.com/in/gurpreet-grewal-682810141"
+	chart := &models.OrgChart{
+		CompanyName: brief.CompanyName,
+		Domain:      brief.Domain,
+		Departments: []models.Department{{
+			Name: "Sales",
+			Members: []models.Employee{
+				{Name: "Gurpreet Grewal", Title: "Manager of Sales", PublicSource: source},
+			},
+		}},
+	}
+	state := &models.CompanyResearchContext{Brief: brief, Evidence: []models.Evidence{
+		{URL: source, Title: "GURPREET GREWAL - Manager of Sales at Goyum", Content: "Manager of Sales at Goyum Screw Press. Apr 2023 - Present 3 years 7 months. Ludhiana, Punjab, India."},
+	}}
+	searcher := &datedSearcher{results: []models.SearchResult{{
+		Title:   "Gurpreet Grewal - Manager of Sales - Goyum Screw Press",
+		Link:    source,
+		Snippet: "Manager of Sales at Goyum Screw Press. Apr 2023 - Present 3 years 7 months. Ludhiana, Punjab, India.",
+	}}}
+	engine := NewEngine(&mockLLM{}, searcher, &failingScraper{}, cache.NewMemoryCache(50), 10, 5, 20,
+		WithValidation(true, 10, 36, 18), WithEntityGate(EntityGateEnforce))
+	agent := NewCompanyAgent(engine)
+	gate := &models.EntityGate{Confirmed: true, Mode: EntityGateEnforce}
+
+	agent.validateChart(context.Background(), "sess_test", brief, chart, state, nil, gate)
+
+	if len(chart.Departments[0].Members) != 1 {
+		t.Fatalf("expected the sales row to survive a differently-spelled lookup, got %+v", chart.Departments[0].Members)
+	}
+	if row := chart.Departments[0].Members[0]; row.Verification == models.VerificationCurrentUnverified {
+		t.Errorf("expected the current-status lookup to recognise the spaced spelling, got %+v", row)
+	}
+	if gate.RowsOffEntity != 0 {
+		t.Errorf("expected no off-entity rows, got %d (%+v)", gate.RowsOffEntity, gate.OffEntity)
 	}
 }

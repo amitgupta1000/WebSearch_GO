@@ -761,14 +761,14 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 		lookup.Status = "no-results"
 		return lookup, nil
 	}
-	if hasHistoricalPersonStatus(results, brief.CompanyName, name) {
+	if hasHistoricalPersonStatus(results, matcher, brief.CompanyName, name) {
 		lookup.Status = "historical"
 		lookup.CurrentEmployerConflict = true
 		lookup.CurrentStatus = "historical"
 		lookup.Detail = "the person is identified as former, retired or deceased"
 		return lookup, results
 	}
-	if hasCurrentEmployerConflict(results, brief.CompanyName, name) {
+	if hasCurrentEmployerConflict(results, matcher, brief.CompanyName, name) {
 		lookup.Status = "conflicting-employer"
 		lookup.CurrentEmployerConflict = true
 		lookup.CurrentStatus = "historical"
@@ -798,7 +798,7 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 	newest, source := newestDatedResult(results)
 	if newest.IsZero() {
 		lookup.Status = "unchanged"
-		if hasCurrentCompanyEmployment(results, brief.CompanyName, name) {
+		if hasCurrentCompanyEmployment(results, matcher, brief.CompanyName, name) {
 			lookup.CurrentStatus = "current"
 		} else {
 			lookup.CurrentStatus = "unknown"
@@ -819,7 +819,7 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 		return lookup, results
 	}
 	lookup.Status = "refreshed"
-	if hasCurrentCompanyEmployment(results, brief.CompanyName, name) {
+	if hasCurrentCompanyEmployment(results, matcher, brief.CompanyName, name) {
 		lookup.CurrentStatus = "current"
 	} else {
 		lookup.CurrentStatus = "unknown"
@@ -827,10 +827,23 @@ func (ca *CompanyAgent) reverseLookup(ctx context.Context, brief models.CompanyB
 	return lookup, results
 }
 
-func hasCurrentEmployerConflict(results []models.SearchResult, company, person string) bool {
+// resultNamesCompany reports whether one search result names the researched
+// company: through the entity matcher when the gate is active — so spelling
+// variants ("Goyum Screwpress" as typed, "Goyum Screw Press" as registered, the
+// bare brand "GOYUM") all count — and through a plain substring of the typed
+// name when the gate is off, which is the historical behaviour.
+func resultNamesCompany(matcher *entityMatcher, result models.SearchResult, company string) bool {
+	if matcher != nil {
+		return matcher.match(result.Link, result.Title, result.Snippet).Matched
+	}
 	target := strings.ToLower(strings.Join(strings.Fields(company), " "))
+	text := strings.ToLower(strings.Join(strings.Fields(result.Title+" "+result.Snippet), " "))
+	return strings.Contains(text, target)
+}
+
+func hasCurrentEmployerConflict(results []models.SearchResult, matcher *entityMatcher, company, person string) bool {
 	name := strings.ToLower(strings.Join(strings.Fields(person), " "))
-	if target == "" || name == "" {
+	if name == "" || (matcher == nil && strings.TrimSpace(company) == "") {
 		return false
 	}
 	for _, result := range results {
@@ -842,7 +855,7 @@ func hasCurrentEmployerConflict(results []models.SearchResult, company, person s
 		if hasFormerEmploymentSignal(text) && hasCurrentEmploymentSignal(text) {
 			return true
 		}
-		if !strings.Contains(text, target) && hasRoleEmploymentShape(title) &&
+		if !resultNamesCompany(matcher, result, company) && hasRoleEmploymentShape(title) &&
 			(hasCurrentEmploymentSignal(text) || isProfessionalProfileResult(result)) {
 			return true
 		}
@@ -850,29 +863,30 @@ func hasCurrentEmployerConflict(results []models.SearchResult, company, person s
 	return false
 }
 
-func hasHistoricalPersonStatus(results []models.SearchResult, company, person string) bool {
-	target := strings.ToLower(strings.Join(strings.Fields(company), " "))
+func hasHistoricalPersonStatus(results []models.SearchResult, matcher *entityMatcher, company, person string) bool {
 	name := strings.ToLower(strings.Join(strings.Fields(person), " "))
 	for _, result := range results {
 		text := strings.ToLower(strings.Join(strings.Fields(result.Title+" "+result.Snippet), " "))
 		if !strings.Contains(text, name) || !hasExplicitHistoricalStatus(text) {
 			continue
 		}
-		if strings.Contains(text, target) || hasFormerEmploymentSignal(text) {
+		if resultNamesCompany(matcher, result, company) || hasFormerEmploymentSignal(text) {
 			return true
 		}
 	}
 	return false
 }
 
-func hasCurrentCompanyEmployment(results []models.SearchResult, company, person string) bool {
-	target := strings.ToLower(strings.Join(strings.Fields(company), " "))
+func hasCurrentCompanyEmployment(results []models.SearchResult, matcher *entityMatcher, company, person string) bool {
 	name := strings.ToLower(strings.Join(strings.Fields(person), " "))
+	target := strings.ToLower(strings.Join(strings.Fields(company), " "))
 	for _, result := range results {
 		title := strings.ToLower(strings.Join(strings.Fields(result.Title), " "))
 		text := title + " " + strings.ToLower(strings.Join(strings.Fields(result.Snippet), " "))
-		if !strings.Contains(text, name) || !strings.Contains(text, target) ||
-			hasFormerEmploymentSignal(text) {
+		if !strings.Contains(text, name) || hasFormerEmploymentSignal(text) {
+			continue
+		}
+		if !resultNamesCompany(matcher, result, company) {
 			continue
 		}
 		if hasCurrentEmploymentSignal(text) || strings.Contains(text, " at "+target) ||
