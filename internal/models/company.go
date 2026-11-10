@@ -248,8 +248,23 @@ type Location struct {
 	HeadcountEst string `json:"headcount_est,omitempty"`
 }
 
-// UnmarshalJSON accepts numeric or string headcount estimates from LLM output.
+// UnmarshalJSON accepts the location object the synthesis schema describes, a
+// bare location string ("Ludhiana, Punjab, India") the model sometimes emits
+// for brief.key_locations, and numeric or string headcount estimates.
 func (location *Location) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	if trimmed[0] == '"' {
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err != nil {
+			return err
+		}
+		parseLocationText(location, text)
+		return nil
+	}
+
 	type locationAlias Location
 	aux := struct {
 		HeadcountEst json.RawMessage `json:"headcount_est"`
@@ -268,6 +283,31 @@ func (location *Location) UnmarshalJSON(data []byte) error {
 	}
 	location.HeadcountEst = value
 	return nil
+}
+
+// parseLocationText fills a Location from a bare "City, Region, Country"
+// string: the first comma part is the city, the last the country, and anything
+// between them lands in Address so no detail is dropped.
+func parseLocationText(location *Location, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	parts := strings.Split(text, ",")
+	for index := range parts {
+		parts[index] = strings.TrimSpace(parts[index])
+	}
+	switch len(parts) {
+	case 1:
+		location.City = parts[0]
+	case 2:
+		location.City = parts[0]
+		location.Country = parts[1]
+	default:
+		location.City = parts[0]
+		location.Country = parts[len(parts)-1]
+		location.Address = strings.Join(parts[1:len(parts)-1], ", ")
+	}
 }
 
 func flexibleString(raw json.RawMessage) (string, error) {

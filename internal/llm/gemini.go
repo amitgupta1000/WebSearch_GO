@@ -344,8 +344,8 @@ func decodeOCRResponse(raw string) ([]ocrImageResult, error) {
 
 // GenerateStructured requests JSON output and unmarshals it into target.
 // The model is instructed to emit bare JSON; markdown fences or stray prose
-// are cleaned before parsing, and one stricter retry is attempted if the
-// first response cannot be decoded.
+// are cleaned before parsing, and one stricter retry — which names the decode
+// failure — is attempted if the first response cannot be decoded.
 func (g *GeminiClient) GenerateStructured(ctx context.Context, systemPrompt, userPrompt string, target any) error {
 	sysInstruction := systemPrompt + "\n\nCRITICAL: Respond ONLY with valid JSON matching the requested schema. Do not enclose in markdown code blocks, and do not add explanatory preamble."
 
@@ -354,13 +354,15 @@ func (g *GeminiClient) GenerateStructured(ctx context.Context, systemPrompt, use
 		return err
 	}
 
-	if err := decodeJSON(rawJSON, target); err == nil {
+	firstErr := decodeJSON(rawJSON, target)
+	if firstErr == nil {
 		return nil
 	}
 
 	// Retry once: models occasionally wrap JSON in prose or fences despite the
-	// instruction; a reminder after a failed attempt usually fixes it.
-	retrySys := sysInstruction + "\nYour previous response was not parseable. Output ONLY the raw JSON object, starting with { and ending with }."
+	// instruction, or drift from the requested field shapes; naming the decode
+	// failure in the retry usually fixes it.
+	retrySys := sysInstruction + "\nYour previous response was not parseable (" + decodeReason(firstErr) + "). Fix that problem and output ONLY the raw JSON object, starting with { and ending with }."
 	rawRetry, err := g.GenerateContent(ctx, retrySys, userPrompt)
 	if err != nil {
 		return err
@@ -378,6 +380,16 @@ func decodeJSON(raw string, target any) error {
 		return fmt.Errorf("failed to unmarshal structured output: %w (raw: %s)", err, cleaned)
 	}
 	return nil
+}
+
+// decodeReason strips the raw-payload suffix from a decodeJSON error so the
+// retry prompt can name the failure without echoing the whole response back.
+func decodeReason(err error) string {
+	reason := err.Error()
+	if index := strings.Index(reason, " (raw: "); index >= 0 {
+		reason = reason[:index]
+	}
+	return reason
 }
 
 func decodeJSONMust(raw string, target any) error {
