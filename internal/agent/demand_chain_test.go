@@ -69,7 +69,8 @@ func demandChainTestEngine(llm LLMClient, searcher Searcher) *Engine {
 }
 
 // TestDemandChainLanesCoverStagesThenDemand pins the lane order: the chain's
-// operator vocabulary first, then the product-shaped demand lanes, then
+// product-plus-sector company query first, then operator vocabulary, then
+// product-shaped demand lanes, then
 // geography-scoped importer/tender lanes. Distributors and wholesalers are
 // retained as buyers (they purchase to resell), so their lane always runs;
 // only the deeper value-chain stages were scoped out.
@@ -89,7 +90,7 @@ func TestDemandChainLanesCoverStagesThenDemand(t *testing.T) {
 	}
 	query := models.DemandChainQuery{Activity: "used cooking oil", Countries: []string{"Malaysia"}}
 	defaults := terms(query)
-	for _, expected := range []string{"biodiesel plant", "buyer procurement purchase", "tender RFP e-procurement", "importer import data", "raw material feedstock consumption", "industrial applications manufacturers", "distributor wholesaler of", "Malaysia importer tender procurement"} {
+	for _, expected := range []string{"biodiesel production companies", "biodiesel plant", "buyer procurement purchase", "tender RFP e-procurement", "importer import data", "raw material feedstock consumption", "industrial applications manufacturers", "distributor wholesaler of", "Malaysia importer tender procurement"} {
 		found := false
 		for _, term := range defaults {
 			if term == expected {
@@ -100,6 +101,9 @@ func TestDemandChainLanesCoverStagesThenDemand(t *testing.T) {
 		if !found {
 			t.Errorf("expected lane %q in %v", expected, defaults)
 		}
+	}
+	if defaults[0] != "biodiesel production companies" {
+		t.Fatalf("stage company lane must be first, got %q", defaults[0])
 	}
 	for _, banned := range []string{"applications uses industries"} {
 		for _, term := range defaults {

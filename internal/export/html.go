@@ -404,6 +404,16 @@ var companyHTMLTemplate = documentTemplate("company", `
 	{{range .Chart.EntityGate.OffEntity}}<tr><td>{{.Name}}</td><td>{{.Title}}</td><td>{{.Place}}</td><td class="src">{{.Source}}</td><td>{{.Reason}}</td></tr>{{end}}
 	</tbody></table>{{end}}
 </section>{{end}}
+{{if .Chart.SearchTrace}}{{if .Chart.SearchTrace.ExcludedCount}}<section>
+	<h2>Excluded search results</h2>
+	<p class="dim">The searches returned hits the identity gate did not admit, because they do not name the company the way the gate spells it. An operating name typed differently from the legal name is the usual cause &mdash; skim the list before trusting the roster. The searches.json artifact carries the full list with snippets.</p>
+	{{range .Chart.SearchTrace.QueriesWithCappedExclusions 10}}{{if .Excluded}}
+	<h3>{{.Query}} <span class="dim">({{len .Excluded}} shown)</span></h3>
+	<table><thead><tr><th>Result</th><th>Link</th></tr></thead><tbody>
+	{{range .Excluded}}<tr><td>{{.Title}}</td><td class="src">{{.Link}}</td></tr>{{end}}
+	</tbody></table>
+	{{end}}{{end}}
+</section>{{end}}{{end}}
 {{if .Chart.Validation}}<section class="card">
 	<h2>Data freshness</h2>
 	<p class="dim">Verdicts come from the newest dated source behind each row: verified-recent means a source inside the recent window from the company's own site or from two independent domains. A dated row is a statement about the evidence, not proof of current employment.</p>

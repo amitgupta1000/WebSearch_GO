@@ -1354,7 +1354,15 @@ presented as equivalent to a domain match.
    can still be fetched if scrape budget remains.
 3. **Snippets** (`filterEntitySnippets`) — only snippets naming the company reach
    `synthesizeChart`, and `snippetNamesEntity` gates the per-candidate snippet fallback in
-   `scrapeRanked` and `searchSnippetEvidence`.
+   `scrapeRanked` and `searchSnippetEvidence`. Name matching tolerates segmentation
+   variants: a name or alias with at least two significant tokens whose spacing-free form
+   (`collapseText`) is eight or more characters also matches any segmentation of the same
+   words joined whole (`textContainsNameRun` over `wordTokens`) — "Goyum Screwpress" and
+   the legal "Goyum Screw Press" both produce the run "goyumscrewpress", while a longer
+   run-together word that merely begins with the name ("sanjaychemicalsllp.com" vs
+   "sanjay chemicals") never matches, because a hit must consume whole words on both
+   sides. Short or initialism names ("CJ Shah") keep the strict whole-word rule entirely.
+   `mentionsCompanyNear` and `namesTheEntity` apply the same fallback.
 4. **Rows** (`applyEntityVerdicts`, inside the validation pass) — a row supported by no
    entity-naming source is recorded in `EntityGate.OffEntity` with its title, department and
    failing source, and removed when the mode is `enforce`. A row whose name *is* the company
@@ -1394,7 +1402,11 @@ presented as equivalent to a domain match.
 9. **Output** — `renderEntityGateMarkdown` / the HTML template / the console panel report
    the keys, the confirmation state, the mode, the counts (queries dropped, candidates
    tagged/unmatched, snippets dropped, rows excluded, people rescued by lookup) and the
-   excluded people.
+   excluded people. The company report's *Excluded search results* appendix (Markdown and
+   HTML) also lists the search hits the gate excluded, per query and capped, pointing at
+   the searches.json artifact for the full list — so a spelling-variant miss is
+   reviewable rather than silent, and the console's Search results tab labels the same
+   hits inline.
 
 **Modes** (`ENTITY_GATE_MODE`): `enforce` (default) removes and lists; `report` labels and
 lists without removing, which is how the gate's effect is measured against `off`, where no

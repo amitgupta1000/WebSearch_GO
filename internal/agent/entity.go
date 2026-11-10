@@ -36,6 +36,13 @@ type entityKey struct {
 	tokens []*regexp.Regexp
 	// tokenValues are the same words as plain strings, for proximity checks.
 	tokenValues []string
+	// collapsed is the name with every non-alphanumeric removed and lowercased —
+	// "Goyum Screw Press" and "Goyum Screwpress" both collapse to
+	// "goyumscrewpress". It is only set for names of at least two significant
+	// tokens whose collapsed form is eight or more characters, so short or
+	// initialism names ("CJ Shah" → "cjshah") keep the strict whole-word rule and
+	// can never match inside a longer unrelated word.
+	collapsed string
 }
 
 // legalSuffixes are dropped when tokenising a company name, so "KLJ Resources
@@ -130,8 +137,25 @@ func nameEntityKey(kind, value string, confidence float64) (entityKey, bool) {
 	for _, token := range tokens {
 		compiled = append(compiled, regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(token)+`\b`))
 	}
-	return entityKey{kind: kind, value: trimmed, tokens: compiled, tokenValues: tokens, confidence: confidence}, true
+	key := entityKey{kind: kind, value: trimmed, tokens: compiled, tokenValues: tokens, confidence: confidence}
+	// Sources segment the same name differently: the operator types "Goyum
+	// Screwpress", the registry spells "Goyum Screw Press", a directory runs the
+	// words together. The collapsed form lets those variants match, but only for
+	// names long enough that the collapsed match cannot sit inside an unrelated
+	// word — short or initialism names keep the strict whole-word rule.
+	if len(tokens) >= 2 {
+		if collapsed := collapseText(trimmed); len(collapsed) >= minCollapsedNameLength {
+			key.collapsed = collapsed
+		}
+	}
+	return key, true
 }
+
+// minCollapsedNameLength is the smallest collapsed name the spelling-variant
+// fallback will match on. Below it a collapsed name can sit inside an unrelated
+// word ("samson" contains "sam son"; "cjshah" is six letters), so short names
+// stay on the strict whole-word path.
+const minCollapsedNameLength = 8
 
 // nameTokens lowercases a company name and reduces it to significant words:
 // punctuation becomes a separator, legal suffixes are dropped, and one-character
@@ -153,6 +177,53 @@ func nameTokens(value string) []string {
 		tokens = append(tokens, token)
 	}
 	return tokens
+}
+
+// collapseText reduces text to lowercase letters and digits only, so names that
+// differ only in spacing, punctuation or segmentation compare equal: "Goyum
+// Screw Press", "Goyum Screwpress" and "goyum-screw-press" all collapse to
+// "goyumscrewpress".
+func collapseText(value string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r - ('A' - 'a')
+		default:
+			return -1
+		}
+	}, value)
+}
+
+// wordTokens splits lowercase text into alphanumeric words; every separator
+// (space, punctuation, URL syntax) is a boundary. It backs the spelling-variant
+// fallback, where a match must span whole words on both sides.
+func wordTokens(text string) []string {
+	return strings.FieldsFunc(text, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	})
+}
+
+// textContainsNameRun reports whether some contiguous run of word tokens, joined,
+// equals the collapsed name — "goyum"+"screwpress" and "goyum"+"screw"+"press" both
+// produce "goyumscrewpress", while a longer run-together word that merely begins
+// with the name ("sanjaychemicalsllp" vs "sanjay chemicals") never does, because a
+// match has to consume whole words on both sides.
+func textContainsNameRun(words []string, collapsed string) bool {
+	for start := 0; start < len(words); start++ {
+		joined := ""
+		for end := start; end < len(words); end++ {
+			if len(joined)+len(words[end]) > len(collapsed) {
+				break
+			}
+			joined += words[end]
+			if joined == collapsed {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // normalizeRegistrationID reduces a registry identifier to comparable form: the
@@ -180,6 +251,7 @@ func (m *entityMatcher) matchText(text string) (models.EntityMatch, bool) {
 	}
 	lowered := strings.ToLower(text)
 	normalizedID := ""
+	var textWords []string
 	for _, key := range m.keys {
 		switch key.kind {
 		case models.EntityKeyDomain:
@@ -203,6 +275,20 @@ func (m *entityMatcher) matchText(text string) (models.EntityMatch, bool) {
 			}
 			if matched {
 				return entityMatchOf(key, key.value), true
+			}
+			// Spelling-variant fallback: "Goyum Screwpress" (as typed) and
+			// "Goyum Screw Press" (as registered) are the same company. The
+			// comparison joins whole words on both sides, so any segmentation of
+			// the full name matches ("goyum"+"screwpress", "goyum"+"screw"+"press")
+			// while a longer run-together word that merely begins with the name
+			// ("sanjaychemicalsllp" vs "sanjay chemicals") never does.
+			if key.collapsed != "" {
+				if textWords == nil {
+					textWords = wordTokens(lowered)
+				}
+				if textContainsNameRun(textWords, key.collapsed) {
+					return entityMatchOf(key, key.value), true
+				}
 			}
 		}
 	}
@@ -271,6 +357,22 @@ func (m *entityMatcher) nameKeyTokens() []string {
 	return tokens
 }
 
+// nameKeyCollapsedValues returns the collapsed spelling-variant forms of the name
+// and alias keys, for proximity checks that must tolerate the same variants the
+// snippet gate does.
+func (m *entityMatcher) nameKeyCollapsedValues() []string {
+	if m == nil {
+		return nil
+	}
+	values := make([]string, 0, 2)
+	for _, key := range m.keys {
+		if (key.kind == models.EntityKeyName || key.kind == models.EntityKeyAlias) && key.collapsed != "" {
+			values = append(values, key.collapsed)
+		}
+	}
+	return values
+}
+
 // mentionsCompanyNear reports whether the company is named within companyMentionWindow
 // runes of the person's name in this text.
 //
@@ -285,6 +387,7 @@ func mentionsCompanyNear(text, personName string, matcher *entityMatcher) bool {
 	}
 	personTokens := nameTokens(personName)
 	companyTokens := matcher.nameKeyTokens()
+	companyCollapsed := matcher.nameKeyCollapsedValues()
 	if len(personTokens) == 0 || len(companyTokens) == 0 {
 		return false
 	}
@@ -317,6 +420,18 @@ func mentionsCompanyNear(text, personName string, matcher *entityMatcher) bool {
 					break
 				}
 			}
+			if !complete {
+				// The mention may spell the company with different segmentation
+				// ("Goyum Screw Press" for a "Goyum Screwpress" brief); the run
+				// still has to consume whole words inside the window.
+				windowWords := wordTokens(window)
+				for _, collapsedKey := range companyCollapsed {
+					if textContainsNameRun(windowWords, collapsedKey) {
+						complete = true
+						break
+					}
+				}
+			}
 			if complete {
 				return true
 			}
@@ -344,6 +459,12 @@ func (m *entityMatcher) namesTheEntity(personName string) bool {
 				matched = false
 				break
 			}
+		}
+		if !matched && key.collapsed != "" && textContainsNameRun(wordTokens(strings.ToLower(personName)), key.collapsed) {
+			// A registry row carrying the company's name in the other spelling
+			// ("Goyum Screw Press Pvt Ltd" for a "Goyum Screwpress" brief) is the
+			// entity, not a person.
+			matched = true
 		}
 		if matched {
 			return true

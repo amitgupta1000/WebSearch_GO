@@ -86,6 +86,24 @@ func (t *SearchTrace) ExcludedCount() int {
 	return excluded
 }
 
+// QueriesWithCappedExclusions returns the trace's queries with each query's
+// excluded hits truncated to limit entries, for report renderers that include an
+// appendix without reprinting the whole searches.json artifact. Kept hits and the
+// query text are shared, not copied.
+func (t *SearchTrace) QueriesWithCappedExclusions(limit int) []QueryTrace {
+	if t == nil || limit <= 0 {
+		return nil
+	}
+	queries := make([]QueryTrace, 0, len(t.Queries))
+	for _, query := range t.Queries {
+		if len(query.Excluded) > limit {
+			query.Excluded = query.Excluded[:limit]
+		}
+		queries = append(queries, query)
+	}
+	return queries
+}
+
 // ScrapeResult represents the extracted text content of a webpage.
 type ScrapeResult struct {
 	URL               string    `json:"url"`

@@ -988,9 +988,9 @@ func stageNames(stages []models.ValueChainStage) string {
 	return strings.Join(names, ", ")
 }
 
-// demandChainLanes orders the discovery lanes: each stage's operator vocabulary
-// first (the chain's whole point), then product-shaped demand lanes, then
-// geography-scoped importer/tender lanes.
+// demandChainLanes orders the discovery lanes: each stage's explicit
+// product-plus-sector company query first, then its operator vocabulary, then
+// product-shaped demand lanes and geography-scoped importer/tender lanes.
 func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainStage) []demandLane {
 	lanes := make([]demandLane, 0, len(chain)*3+8)
 	// Deeper discovery budgets earn a wider operator vocabulary per stage, so
@@ -1001,9 +1001,20 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 		vocabularyCap = 3
 	}
 	for _, stage := range chain {
+		stageName := strings.TrimSpace(stage.Name)
+		if stageName != "" {
+			// This lane deliberately combines the requested product with the
+			// consuming sector, giving search a direct path to likely operators
+			// even when the model's operator vocabulary is weak or equipment-
+			// oriented.
+			lanes = append(lanes, demandLane{
+				term:  stageName + " companies",
+				stage: stage.Name,
+			})
+		}
 		vocabularyCount := 0
-		stageCap := vocabularyCap
-		if stage.Distance > models.StageDistanceDirect && stageCap > 1 {
+		stageCap := vocabularyCap - 1
+		if stage.Distance > models.StageDistanceDirect && stageCap > 0 {
 			// A derived (step-2) stage sits one transformation further from
 			// the product than a direct consumer: its operator vocabulary
 			// earns one fewer lane, so the budget favours the strongest

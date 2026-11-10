@@ -123,6 +123,7 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 	}
 
 	builder.WriteString(renderEntityGateMarkdown(chart.EntityGate))
+	builder.WriteString(renderExcludedResultsMarkdown(chart.SearchTrace))
 	builder.WriteString(renderValidationMarkdown(chart.Validation))
 	builder.WriteString(renderTimingsMarkdown(chart.Timings))
 	builder.WriteString(renderSourcesMarkdown(chart.Sources))
@@ -178,6 +179,42 @@ func renderEntityGateMarkdown(gate *models.EntityGate) string {
 			fmt.Fprintf(&builder, "| %s | %s | %s | %s | %s |\n",
 				markdownCell(row.Name), markdownCell(row.Title), markdownCell(row.Place),
 				markdownCell(row.Source), markdownCell(row.Reason))
+		}
+		builder.WriteString("\n")
+	}
+	return builder.String()
+}
+
+// excludedResultsPerQuery caps how many excluded hits one query lists in the
+// report appendix; the searches.json artifact carries the full list with snippets.
+const excludedResultsPerQuery = 8
+
+// renderExcludedResultsMarkdown lists the search hits the identity gate excluded,
+// per query. The gate exists to keep other companies' pages out of the roster,
+// but its name match can miss a spelling variant — an operating name typed
+// differently from the legal name ("Goyum Screwpress" vs "Goyum Screw Press") —
+// so the exclusions are presented for review instead of vanishing: a reader who
+// recognizes the company's own page here knows the variant needs an alias, and
+// the searches.json artifact carries the uncapped list.
+func renderExcludedResultsMarkdown(trace *models.SearchTrace) string {
+	if trace == nil || trace.ExcludedCount() == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString("## Excluded search results\n\n")
+	builder.WriteString("These search hits were returned but not used: the identity gate kept only sources that name the company, and these did not name it the way the gate spells it. A legal or operating name spelled differently (or run together) is the usual cause — skim the list before trusting the roster, and add the variant as an alias if one of these is the company's own page.\n\n")
+	for _, query := range trace.Queries {
+		if len(query.Excluded) == 0 {
+			continue
+		}
+		fmt.Fprintf(&builder, "### %s\n\n", markdownCell(query.Query))
+		builder.WriteString("| Result | Link |\n| :--- | :--- |\n")
+		for index, hit := range query.Excluded {
+			if index == excludedResultsPerQuery {
+				fmt.Fprintf(&builder, "| …and %d more (full list in the searches.json artifact) |  |\n", len(query.Excluded)-excludedResultsPerQuery)
+				break
+			}
+			fmt.Fprintf(&builder, "| %s | %s |\n", markdownCell(hit.Title), markdownCell(hit.Link))
 		}
 		builder.WriteString("\n")
 	}

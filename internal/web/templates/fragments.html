@@ -538,6 +538,7 @@
 			<span class="text-slate-500">({{len .SearchTrace.Queries}} queries · {{.SearchTrace.KeptCount}} kept · {{.SearchTrace.ExcludedCount}} excluded)</span>
 		</summary>
 		<div class="mt-3 space-y-2 text-xs">
+			<p class="text-slate-500">Kept hits named the company; excluded hits did not name it the way the gate spells it &mdash; an operating name typed differently from the legal name (for example &quot;Goyum Screwpress&quot; vs &quot;Goyum Screw Press&quot;) is the usual cause. Skim the excluded list before trusting the roster.</p>
 			{{range .SearchTrace.Queries}}
 			<div class="bg-slate-950 border border-slate-800 rounded-lg p-2 space-y-1">
 				<div class="flex items-start justify-between gap-2">
