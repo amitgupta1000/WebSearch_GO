@@ -338,6 +338,10 @@ func main() {
 	mux.HandleFunc("GET /api/events", srv.handleEvents)
 	mux.HandleFunc("GET /api/exports", srv.handleExportDownload)
 	mux.HandleFunc("GET /healthz", srv.handleHealth)
+	// Cloud Run's Knative queue-proxy reserves /healthz for its own readiness
+	// endpoint and answers it at the edge before the container sees it, so the
+	// same probe is exposed on an unreserved path for the deployed service.
+	mux.HandleFunc("GET /api/health", srv.handleHealth)
 
 	// Size the write timeout for the longest possible run so a browser-rendered
 	// research stream is never cut off mid-flight, and a legal run's own budget
