@@ -815,20 +815,131 @@ const constructedRegistryMarker = "constructed registry URL"
 // registry pages and directory URLs carry.
 var companyRegistrationNumberPattern = regexp.MustCompile(`(?i)\b[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}\b`)
 
-// companyRegistrationNumber returns the Indian CIN for the run: the operator's
-// registration id when it is a CIN, else the first CIN the kept search results
-// published (Economictimes, ZaubaCorp and TheCompanyCheck URLs carry it).
+// companyRegistrationNumberProximity is how much text around a CIN occurrence
+// may carry the company's name for the CIN to be attributed to it: registry
+// snippets pair the name and the CIN within a few words, while a page that
+// names the company in one sentence and prints another firm's CIN in a table
+// must not match.
+const companyRegistrationNumberProximity = 100
+
+// companyRegistrationNumber returns the Indian CIN that belongs to the
+// researched company: the operator's registration id when it is a CIN, else a
+// CIN the run's hits published, attributed to the company. Search hits carry
+// many companies' CINs — group members, peers, unrelated firms — so the number
+// is never just the first one found: it must sit in the URL as the directory
+// slug's company page (/company/klj-resources-ltd/L67120WB1986PLC041487) or be
+// paired with the name inside a snippet window.
 func companyRegistrationNumber(brief models.CompanyBrief, results []models.SearchResult) string {
 	if id := strings.ToUpper(strings.TrimSpace(brief.RegistrationID)); companyRegistrationNumberPattern.MatchString(id) {
 		return id
 	}
+	names := append([]string{brief.CompanyName}, brief.Aliases...)
 	for _, result := range results {
-		haystack := strings.ToUpper(result.Title + " " + result.Snippet + " " + result.Link)
-		if cin := companyRegistrationNumberPattern.FindString(haystack); cin != "" {
+		if cin := companyCINFromURL(result.Link, names); cin != "" {
+			return cin
+		}
+	}
+	for _, result := range results {
+		if cin := companyCINFromText(result.Title+" "+result.Snippet, names); cin != "" {
 			return cin
 		}
 	}
 	return ""
+}
+
+// companyCINFromURL extracts a CIN whose place in the URL names the company:
+// directory pages put the company's slug immediately before the CIN as its own
+// segment, or end a single slug segment with it
+// (KLJ-RESOURCES-LIMITED-L67120WB1986PLC041487).
+func companyCINFromURL(link string, names []string) string {
+	parts := strings.Split(strings.ToLower(link), "/")
+	for i, part := range parts {
+		match := companyRegistrationNumberPattern.FindStringIndex(part)
+		if match == nil {
+			continue
+		}
+		cin := strings.ToUpper(companyRegistrationNumberPattern.FindString(part))
+		if match[0] == 0 && match[1] == len(part) {
+			// The CIN is its own segment: the preceding one is the company slug.
+			if i > 0 && slugNamesCompany(parts[i-1], names) {
+				return cin
+			}
+			continue
+		}
+		// The CIN sits mid-segment: the slug prefix must name the company.
+		if slugNamesCompany(part[:match[0]], names) {
+			return cin
+		}
+	}
+	return ""
+}
+
+// companyCINFromText extracts a CIN the text pairs with the company name: every
+// significant name token must sit within the proximity window around the CIN.
+func companyCINFromText(text string, names []string) string {
+	lowered := strings.ToLower(text)
+	for _, match := range companyRegistrationNumberPattern.FindAllStringIndex(lowered, -1) {
+		start := match[0] - companyRegistrationNumberProximity
+		if start < 0 {
+			start = 0
+		}
+		end := match[1] + companyRegistrationNumberProximity
+		if end > len(lowered) {
+			end = len(lowered)
+		}
+		window := lowered[start:end]
+		for _, name := range names {
+			tokens := nameTokens(name)
+			if len(tokens) == 0 {
+				continue
+			}
+			present := true
+			for _, token := range tokens {
+				if !strings.Contains(window, token) {
+					present = false
+					break
+				}
+			}
+			if present {
+				return strings.ToUpper(companyRegistrationNumberPattern.FindString(lowered[match[0]:match[1]]))
+			}
+		}
+	}
+	return ""
+}
+
+// slugNamesCompany checks that a URL slug names the company: hyphens are
+// separators, and every significant name token must appear as one of the slug's
+// words — "klj-resources-ltd" carries klj and resources, while a group member's
+// slug ("k-l-j-polymers-and-chemicals-limited") does not.
+func slugNamesCompany(slug string, names []string) bool {
+	fields := strings.Fields(strings.ReplaceAll(strings.ToLower(slug), "-", " "))
+	if len(fields) == 0 {
+		return false
+	}
+	words := make(map[string]bool, len(fields))
+	for _, field := range fields {
+		if len(field) >= 2 {
+			words[field] = true
+		}
+	}
+	for _, name := range names {
+		tokens := nameTokens(name)
+		if len(tokens) == 0 {
+			continue
+		}
+		present := true
+		for _, token := range tokens {
+			if !words[token] {
+				present = false
+				break
+			}
+		}
+		if present {
+			return true
+		}
+	}
+	return false
 }
 
 // registrySlugVariants renders the company name the way WeeDoo's company-page
@@ -876,10 +987,11 @@ func isCompanyRegistryURL(targetURL string) bool {
 // first the registry URLs the run's own search hits surfaced, then — because
 // the search provider barely indexes WeeDoo and site: queries usually return
 // nothing — the directory URL constructed from the company name and its CIN
-// (the operator's registration id, or a CIN a registry snippet published).
-// Every candidate still has to pass the entity gate or, for a constructed URL,
-// name the company once fetched.
-func companyRegistryCandidates(brief models.CompanyBrief, results []models.SearchResult, matcher *entityMatcher) []models.SearchResult {
+// (the operator's registration id, a CIN a registry snippet published, or a
+// CIN the browser-backed WeeDoo search resolved). Every candidate still has to
+// pass the entity gate or, for a constructed URL, name the company once
+// fetched.
+func companyRegistryCandidates(brief models.CompanyBrief, results []models.SearchResult, matcher *entityMatcher, resolveCIN func(string) (string, bool)) []models.SearchResult {
 	candidates := make([]models.SearchResult, 0, maxCompanyRegistryPages)
 	seen := make(map[string]bool)
 	for _, result := range results {
@@ -900,6 +1012,13 @@ func companyRegistryCandidates(brief models.CompanyBrief, results []models.Searc
 		return candidates
 	}
 	cin := companyRegistrationNumber(brief, results)
+	if cin == "" && resolveCIN != nil {
+		if resolved, ok := resolveCIN(brief.CompanyName); ok {
+			if upper := strings.ToUpper(strings.TrimSpace(resolved)); companyRegistrationNumberPattern.MatchString(upper) {
+				cin = upper
+			}
+		}
+	}
 	if cin == "" {
 		return candidates
 	}
@@ -1842,7 +1961,13 @@ func (ca *CompanyAgent) scrapeRankedWithBrief(ctx context.Context, sessionID str
 	// related-entity segment scrapes by hand. The pass is entity-gated like every
 	// other source and spends the ordinary scrape budget, because it runs on the
 	// same deadline that protects the lookup passes.
-	registry := companyRegistryCandidates(brief, searchResults, matcher)
+	registry := companyRegistryCandidates(brief, searchResults, matcher, func(companyName string) (string, bool) {
+		client, ok := ca.engine.WeeDooSearch()
+		if !ok {
+			return "", false
+		}
+		return client.LookupCompanyCIN(ctx, companyName)
+	})
 	constructed := make(map[string]bool)
 	registryURLs := make([]string, 0, len(registry))
 	for _, target := range registry {

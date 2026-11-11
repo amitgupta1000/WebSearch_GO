@@ -11,6 +11,47 @@ import (
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
 
+// TestWeeDooRegistryDINFindsTheRowDIN pins the directors-table extraction: the
+// DIN sits on the director's row ("Appointment | Name | DIN | Designation"),
+// while dates and masked numbers never match, and only WeeDoo hits are scanned.
+func TestWeeDooRegistryDINFindsTheRowDIN(t *testing.T) {
+	registry := models.SearchResult{
+		Title: "WeeDoo company page",
+		Link:  "https://weedoo.in/company/KLJ-RESOURCES-LTD/L67120WB1986PLC041487",
+		Snippet: "Directors\nAppointment\tDirector name\tDIN\tDesignation\n" +
+			"10/10/1997\tDilip Kumar Karn\t00061804\tDirector\n" +
+			"01/10/2005\tHemant Jain\t00506995\tManaging Director\n" +
+			"16/01/2018\tSuresh Chand Jalther\t*****2690R\tCFO\n",
+	}
+	other := models.SearchResult{Title: "economictimes", Link: "https://economictimes.indiatimes.com/company/x", Snippet: "Hemant Jain 12345678"}
+	if got := weeDooRegistryDIN([]models.SearchResult{other, registry}, "Hemant Jain"); got != "00506995" {
+		t.Fatalf("expected the row DIN, got %q", got)
+	}
+	// Masked DINs and dates never match, even on the director's own row.
+	if got := weeDooRegistryDIN([]models.SearchResult{registry}, "Suresh Chand Jalther"); got != "" {
+		t.Fatalf("a masked DIN must not resolve, got %q", got)
+	}
+	// Non-WeeDoo hits are ignored.
+	if got := weeDooRegistryDIN([]models.SearchResult{other}, "Hemant Jain"); got != "" {
+		t.Fatalf("non-registry hits must not resolve a DIN, got %q", got)
+	}
+	// A plain-fetch extraction that strips newlines turns a whole page into one
+	// line: every director's tokens match, and the first table DIN must not be
+	// attributed to a director whose own row carries no DIN.
+	mega := models.SearchResult{
+		Title: "WeeDoo company page",
+		Link:  "https://weedoo.in/company/OTHER/OTHERCIN",
+		Snippet: "Directors Appointment Director name DIN Designation 10/10/1997 Dilip Kumar Karn 00061804 Director " +
+			"16/01/2018 Suresh Chand Jalther *****2690R CFO",
+	}
+	if got := weeDooRegistryDIN([]models.SearchResult{mega}, "Suresh Chand Jalther"); got != "" {
+		t.Fatalf("a distant DIN on a flattened page must not resolve, got %q", got)
+	}
+	if got := weeDooRegistryDIN([]models.SearchResult{mega}, "Dilip Kumar Karn"); got != "00061804" {
+		t.Fatalf("expected the row DIN for the director it belongs to, got %q", got)
+	}
+}
+
 func TestResolvePersonIdentityExtractsDINAndEvidence(t *testing.T) {
 	query := models.RelatedEntityQuery{CompanyName: "KLJ Resources Limited"}
 	identity := resolvePersonIdentity(

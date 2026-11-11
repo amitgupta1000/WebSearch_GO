@@ -524,8 +524,13 @@ so the result can answer post-run questions:
      with DINs, addresses and group links that its Google snippet truncates — the enrichment the
      related-entity segment already scrapes by hand. Because the search provider barely indexes
     WeeDoo, the pass also **constructs** the directory URL from the company name and its CIN
-    (the operator's registration id, or a CIN a registry snippet published) and verifies the
-    fetched page names the company before admitting it. The pass is entity-gated (a directory page
+    (the operator's registration id, a CIN a registry snippet published — attributed by URL
+     slug adjacency or name-proximity, never by hit order — or a CIN resolved through
+     **WeeDoo's own search bar**: the browser-backed typeahead pairs each suggestion with the
+     company's CIN, the discovery Google cannot do) and verifies the fetched page names the
+     company before admitting it. WeeDoo's pages are read **in the browser** when the plain
+     fetch under-extracts them to the site navigation: the directors and DIN table only
+     survives a real render. The pass is entity-gated (a directory page
      about another company is excluded like any other source) and spends the ordinary scrape
      budget, on the same deadline that protects the lookup passes. Registry candidates also
      sort above general `leadership` pages in the scrape ladder, so a page the enrichment pass

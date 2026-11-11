@@ -113,6 +113,13 @@ type Engine struct {
 	// step caps.
 	hardURLsPerRun int
 	hardURLBudget  time.Duration
+	// weeDoo is the browser-backed WeeDoo search used by the registry
+	// enrichment, created lazily on first use and shared across runs. It is
+	// gated by weeDooEnabled so tests stay hermetic; the server enables it.
+	weeDooEnabled bool
+	weeDooOnce    sync.Once
+	weeDooSearch  *tools.WeeDooBrowserClient
+	weeDooErr     error
 	// validateEvidence turns on the freshness pass over a finished chart, and the
 	// three fields below bound and time-box it: how many reverse lookups a run
 	// may spend, the age that counts as stale, and the age that counts as recent.
@@ -168,6 +175,17 @@ func (e *Engine) EntityGateRemoves() bool {
 
 // EngineOption customizes an Engine after its required dependencies are set.
 type EngineOption func(*Engine)
+
+// WithWeeDooSearch enables the browser-backed WeeDoo search the registry
+// enrichment falls back to when no CIN is attributable from the brief or the
+// hits. It is off by default so unit tests stay hermetic; the server enables it.
+func WithWeeDooSearch(enabled bool) EngineOption {
+	return func(e *Engine) {
+		if e != nil {
+			e.weeDooEnabled = enabled
+		}
+	}
+}
 
 // WithProfileScraping allows professional-profile sources to be fetched
 // directly. It is off by default.
@@ -275,6 +293,44 @@ func (e *Engine) HardURLsAvailable() bool {
 	}
 	_, ok := e.scraper.(HardURLScraper)
 	return ok
+}
+
+// weeDooSearchTimeout bounds one browser-backed WeeDoo search: navigation, the
+// typeahead wait and reading the suggestion.
+const weeDooSearchTimeout = 45 * time.Second
+
+// WeeDooSearch returns the browser-backed WeeDoo search client, creating it on
+// first use and sharing it across runs. The second return is false when
+// browser features are disabled or the browser cannot start, in which case
+// callers skip the WeeDoo enrichment rather than block on it.
+func (e *Engine) WeeDooSearch() (*tools.WeeDooBrowserClient, bool) {
+	if e == nil || !e.weeDooEnabled || !e.hardURLsEnabled {
+		return nil, false
+	}
+	e.weeDooOnce.Do(func() {
+		client, err := tools.NewWeeDooBrowserClient(weeDooSearchTimeout)
+		if err != nil {
+			log.Printf("[ENGINE] WeeDoo browser search unavailable: %v", err)
+			e.weeDooErr = err
+			return
+		}
+		e.weeDooSearch = client
+	})
+	if e.weeDooErr != nil {
+		return nil, false
+	}
+	return e.weeDooSearch, true
+}
+
+// CloseWeeDooSearch shuts the shared WeeDoo browser down, if it was started.
+func (e *Engine) CloseWeeDooSearch() {
+	if e == nil {
+		return
+	}
+	e.weeDooOnce.Do(func() {})
+	if e.weeDooSearch != nil {
+		_ = e.weeDooSearch.Close()
+	}
 }
 
 // SessionCookiesFor reports whether the run holds a session for the target's host. It is what

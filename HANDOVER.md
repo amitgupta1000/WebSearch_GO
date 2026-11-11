@@ -5,7 +5,46 @@
 - Repository: `amitgupta1000/WebSearch_GO`
 - Latest commit: `1677dae` — `Narrow company research focus defaults`
 - Worktree was clean after the commit.
-- Full Go test suite passed: `472/472`.
+- Full Go test suite passed: `472/472` (now larger: WeeDoo browser search + DIN attribution tests).
+
+## WeeDoo integration (related-entity + company modes), live-verified
+
+- **Search-bar discovery** (`tools/weedoo.go`, `WeeDooBrowserClient`): WeeDoo is a
+  client-rendered SPA the search provider barely indexes, so a CIN-less run resolves the
+  company through WeeDoo's own search bar in the shared Playwright browser — the typeahead
+  pairs each suggestion with the company's CIN (element-scoped extraction, so the homepage's
+  showcase CINs are never attributed). Live: KLJ Resources Limited -> L67120WB1986PLC041487.
+  Enabled via `agent.WithWeeDooSearch` in `cmd/server/main.go` (off by default so unit tests
+  stay hermetic; `WEEDOO_ENRICHMENT=0` disables).
+- **CIN attribution hardened** (`company.go`): a CIN is taken only when it sits in the URL as
+  the company's slug page (`/company/klj-resources-ltd/<CIN>`) or is paired with the name
+  inside a 100-char snippet window. This replaced token-anywhere matching, which had grabbed a
+  subsidiary's CIN (U24110MH2005PTC152375) from a KLJ-named page.
+- **Browser-rendered pages** (`FetchCompanyPageText`): WeeDoo's server-rendered pages are
+  trimmed to ~1.5KB of navigation by the goquery extractor, so the registry enrichment reads
+  them in the browser whenever the render yields more text (7560 vs 1522 chars live). The
+  rendered registry page carries the full directors/DIN table.
+- **Identity gates**: `containsCompanyIdentity` now uses the entity matcher (spelling variants,
+  collapsed slugs like Klj-Resources-Ltd) instead of exact substring.
+- **DIN resolution**: the directors table prints Appointment/Name/DIN/Designation rows, so
+  `weeDooRegistryDIN` pairs a leader with the eight-digit run on their row (name must sit
+  within 60 chars before the digits — flattened plain-fetch extractions otherwise pair every
+  director with the first table DIN); `labelledDINFor` makes the labelled DIN extraction
+  name-adjacent for the same reason. Masked rows resolve to nothing.
+- **Per-leader director pages**: constructed /director/<NAME>/<DIN>, rendered in the browser,
+  and moved to the FRONT of the per-leader evidence payload (`reorderWeeDooFirst`) so the
+  bounded window always carries the other-directorship lists. Live: 8 director pages fetched
+  with correct DINs; Dilip Kumar Karn's other companies flow into leadership-derived relations
+  citing the WeeDoo page.
+- Registry hits are also PREPENDED to the direct/leader extraction payloads (they were
+  previously appended and could fall beyond the bounded-evidence count caps), and WeeDoo
+  registry/director hits keep a 6000-rune snippet budget in `boundedRelatedEvidence` (the
+  ordinary 1200-rune cap cut the directors table off).
+- Known remaining tuning item: the affiliation extraction under-reports (emits a subset of the
+  director-page companies; common-name leaders pick up namesake noise despite the prompt
+  nudge).
+- Probe scripts: `scripts/weedoo-browser-probe.py`, `weedoo-search-bar-probe.py`,
+  `weedoo-page-text-probe.py`, `weedoo-director-probe.py`.
 
 ## Company mode behavior
 

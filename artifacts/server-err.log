@@ -1,28 +1,115 @@
-2026/11/11 16:06:05 Cookie jar: no COOKIE_FILE_PATH set, so logged-in-only pages (LinkedIn person profiles) cannot be opened. Export a logged-in session as JSON — a browser extension (Cookie-Editor / EditThisCookie) or `npx playwright open --save-storage=linkedin.json` — and set COOKIE_FILE_PATH to it
-2026/11/11 16:06:05 Cache backend: redis (redis-14963.fcrce171.ap-south-1-1.ec2.cloud.redislabs.com:14963, prefix "websearch-go:")
-2026/11/11 16:06:05 Output artifacts: gs://crystal-crm-store, prefix WebSearch_GO/, formats md+pdf
-2026/11/11 16:06:05 Evidence validation: true (up to 10 reverse lookups, stale after 36 months, recent within 18 months)
-2026/11/11 16:06:05 Entity gate:  (sources must name the company, its domain, an alias or its registration id)
-2026/11/11 16:06:05 Legal mode: IndianKanoon + Casemine (native, render fallback) + Juristway (anonymous), up to 16 queries (+8 page(s) each), 8 document fetches, 6 concurrent searches, 4m0s budget
-2026/11/11 16:06:06 Browser rendering available (per-run toggle: true, hard-URL handler: true)
-2026/11/11 16:06:06 🚀 WebSearch_GO server starting on http://localhost:8080
-2026/11/11 16:06:08 [AGENT][sess_437aab8c57e87475][step 1] thinking: Searching WeeDoo related-company evidence
-2026/11/11 16:06:08 [AGENT][sess_437aab8c57e87475][step 2] thinking: Searching WeeDoo director and appointment evidence
-2026/11/11 16:06:09 [AGENT][sess_437aab8c57e87475][step 3] thinking: Searching direct group, parent, subsidiary, and affiliate relationships
-2026/11/11 16:06:09 [AGENT][sess_437aab8c57e87475][step 4] thinking: Searching holding and promoter-group relationships
-2026/11/11 16:06:09 [AGENT][sess_437aab8c57e87475][step 5] thinking: Searching company group structure
-2026/11/11 16:06:09 [AGENT][sess_437aab8c57e87475][step 6] thinking: Searching related-company disclosures
-2026/11/11 16:06:09 [AGENT][sess_437aab8c57e87475][step 7] thinking: Searching annual-report corporate structure
-2026/11/11 16:06:09 [AGENT][sess_437aab8c57e87475][step 8] thinking: Searching group membership statements
-2026/11/11 16:06:09 [AGENT][sess_437aab8c57e87475][step 9] thinking: Searching source-profile relationship evidence from economictimes.indiatimes.com
-2026/11/11 16:06:09 [AGENT][sess_437aab8c57e87475][step 10] thinking: Searching source-profile relationship evidence from zaubacorp.com
-2026/11/11 16:06:09 [AGENT][sess_437aab8c57e87475][step 11] thinking: Searching source-profile relationship evidence from thecompanycheck.com
-2026/11/11 16:06:09 [AGENT][sess_437aab8c57e87475][step 12] thinking: Searching source-profile relationship evidence from tracxn.com
-2026/11/11 16:06:10 [AGENT][sess_437aab8c57e87475][step 13] thinking: Searching source-profile relationship evidence from weedoo.in
-2026/11/11 16:06:10 [AGENT][sess_437aab8c57e87475][step 14] thinking: Searching company-linked leadership
-2026/11/11 16:06:10 [AGENT][sess_437aab8c57e87475][step 15] thinking: Searching LinkedIn-indexed leadership
-2026/11/11 16:06:10 [AGENT][sess_437aab8c57e87475][step 16] thinking: Searching regional leadership directories
-2026/11/11 16:06:26 [EXPORT] md -> gs://crystal-crm-store/WebSearch_GO/related-entities/20261111-103626-klj-resources-limited.md (5641 bytes)
-2026-11-11T10:36:26.969Z pw:api setting frame content, waiting until "domcontentloaded"
-2026/11/11 16:06:27 [EXPORT] pdf -> gs://crystal-crm-store/WebSearch_GO/related-entities/20261111-103626-klj-resources-limited.pdf (504844 bytes)
-2026/11/11 16:06:27 [AGENT][sess_437aab8c57e87475][step 0] complete: Found 8 direct relationship(s), 7 leader(s), and 59 leadership relationship(s)
+2026/11/11 17:29:51 Cookie jar: no COOKIE_FILE_PATH set, so logged-in-only pages (LinkedIn person profiles) cannot be opened. Export a logged-in session as JSON — a browser extension (Cookie-Editor / EditThisCookie) or `npx playwright open --save-storage=linkedin.json` — and set COOKIE_FILE_PATH to it
+2026/11/11 17:29:51 Cache backend: redis (redis-14963.fcrce171.ap-south-1-1.ec2.cloud.redislabs.com:14963, prefix "websearch-go:")
+2026/11/11 17:29:51 Output artifacts: gs://crystal-crm-store, prefix WebSearch_GO/, formats md+pdf
+2026/11/11 17:29:51 Evidence validation: true (up to 10 reverse lookups, stale after 36 months, recent within 18 months)
+2026/11/11 17:29:51 Entity gate:  (sources must name the company, its domain, an alias or its registration id)
+2026/11/11 17:29:51 Legal mode: IndianKanoon + Casemine (native, render fallback) + Juristway (anonymous), up to 16 queries (+8 page(s) each), 8 document fetches, 6 concurrent searches, 4m0s budget
+2026/11/11 17:29:52 Browser rendering available (per-run toggle: true, hard-URL handler: true)
+2026/11/11 17:29:52 🚀 WebSearch_GO server starting on http://localhost:8080
+2026/11/11 17:29:54 [AGENT][sess_ffb1c48491a447b6][step 1] thinking: Searching WeeDoo related-company evidence
+2026/11/11 17:29:54 [AGENT][sess_ffb1c48491a447b6][step 2] thinking: Searching WeeDoo director and appointment evidence
+2026/11/11 17:29:54 [AGENT][sess_ffb1c48491a447b6][step 3] thinking: Searching direct group, parent, subsidiary, and affiliate relationships
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 4] thinking: Searching holding and promoter-group relationships
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 5] thinking: Searching company group structure
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 6] thinking: Searching related-company disclosures
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 7] thinking: Searching annual-report corporate structure
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 8] thinking: Searching group membership statements
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 9] thinking: Searching source-profile relationship evidence from economictimes.indiatimes.com
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 10] thinking: Searching source-profile relationship evidence from zaubacorp.com
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 11] thinking: Searching source-profile relationship evidence from thecompanycheck.com
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 12] thinking: Searching source-profile relationship evidence from tracxn.com
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 13] thinking: Searching source-profile relationship evidence from weedoo.in
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 14] thinking: Searching company-linked leadership
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 15] thinking: Searching LinkedIn-indexed leadership
+2026/11/11 17:29:55 [AGENT][sess_ffb1c48491a447b6][step 16] thinking: Searching regional leadership directories
+2026-11-11T11:59:56.723Z pw:api navigating to "https://weedoo.in/", waiting until "domcontentloaded"
+2026-11-11T11:59:57.022Z pw:api   "commit" event fired
+2026-11-11T11:59:57.023Z pw:api   navigated to "https://weedoo.in/"
+2026-11-11T11:59:57.308Z pw:api   "domcontentloaded" event fired
+2026-11-11T11:59:57.326Z pw:api   "load" event fired
+2026-11-11T11:59:57.383Z pw:api   navigated to "https://weedoo.in/"
+2026-11-11T11:59:57.989Z pw:api   "networkidle" event fired
+2026-11-11T11:59:57.992Z pw:api waiting for locator('input[placeholder*="company name" i]').first()
+2026-11-11T11:59:58.011Z pw:api   locator resolved to <input value="" type="text" required="" data-v-76617260="" placeholder="Enter company name or CIN/LLPIN/FCRN"/>
+2026-11-11T11:59:58.012Z pw:api   fill("KLJ Resources Limited")
+2026-11-11T11:59:58.013Z pw:api attempting fill action
+2026-11-11T11:59:58.013Z pw:api   waiting for element to be visible, enabled and editable
+2026/11/11 17:30:01 [WEEDOO] typeahead resolved "KLJ Resources Limited" -> CIN L67120WB1986PLC041487 (row "Klj Resources Ltd\nL67120WB1986PLC041487 •\nActive")
+2026/11/11 17:30:01 [RELATED][session sess_ffb1c48491a447b6] WeeDoo search resolved "KLJ Resources Limited" -> CIN L67120WB1986PLC041487
+2026-11-11T12:00:01.193Z pw:api navigating to "https://weedoo.in/company/KLJ-RESOURCES-LIMITED/L67120WB1986PLC041487", waiting until "domcontentloaded"
+2026-11-11T12:00:01.738Z pw:api   "commit" event fired
+2026-11-11T12:00:01.739Z pw:api   navigated to "https://weedoo.in/company/KLJ-RESOURCES-LTD/L67120WB1986PLC041487"
+2026-11-11T12:00:02.169Z pw:api   "domcontentloaded" event fired
+2026-11-11T12:00:02.234Z pw:api   "load" event fired
+2026-11-11T12:00:02.303Z pw:api   navigated to "https://weedoo.in/company/KLJ-RESOURCES-LTD/L67120WB1986PLC041487"
+2026-11-11T12:00:03.773Z pw:api   "networkidle" event fired
+2026/11/11 17:30:03 [RELATED][session sess_ffb1c48491a447b6] WeeDoo registry page https://weedoo.in/company/KLJ-RESOURCES-LIMITED/L67120WB1986PLC041487 read in the browser (7560 chars vs 1522 from the plain fetch)
+2026/11/11 17:30:03 [AGENT][sess_ffb1c48491a447b6][step 0] thinking: WeeDoo registry enrichment: fetched the company page for KLJ Resources Limited (directors, DINs, appointment dates, other directorships).
+2026-11-11T12:00:27.262Z pw:api navigating to "https://weedoo.in/director/KALPANA-SETH/06949098", waiting until "domcontentloaded"
+2026-11-11T12:00:27.375Z pw:api   "commit" event fired
+2026-11-11T12:00:27.375Z pw:api   navigated to "https://weedoo.in/director/KALPANA-SETH/06949098"
+2026-11-11T12:00:27.551Z pw:api navigating to "https://weedoo.in/director/DILIP-KUMAR-KARN/00061804", waiting until "domcontentloaded"
+2026-11-11T12:00:27.793Z pw:api   "commit" event fired
+2026-11-11T12:00:27.795Z pw:api   navigated to "https://weedoo.in/director/DILIP-KUMAR-KARN/00061804"
+2026-11-11T12:00:27.854Z pw:api navigating to "https://weedoo.in/director/BABULAL-BHUTORIA/07143965", waiting until "domcontentloaded"
+2026-11-11T12:00:27.864Z pw:api navigating to "https://weedoo.in/director/HEMANT-JAIN/00506995", waiting until "domcontentloaded"
+2026-11-11T12:00:28.057Z pw:api   "commit" event fired
+2026-11-11T12:00:28.058Z pw:api   navigated to "https://weedoo.in/director/HEMANT-JAIN/00506995"
+2026-11-11T12:00:28.078Z pw:api   "commit" event fired
+2026-11-11T12:00:28.079Z pw:api   navigated to "https://weedoo.in/director/BABULAL-BHUTORIA/07143965"
+2026-11-11T12:00:28.097Z pw:api   "domcontentloaded" event fired
+2026-11-11T12:00:28.099Z pw:api   "load" event fired
+2026-11-11T12:00:28.158Z pw:api   navigated to "https://weedoo.in/director/KALPANA-SETH/06949098"
+2026-11-11T12:00:28.233Z pw:api navigating to "https://weedoo.in/director/RAM-PARKASH-MAKAN/08574991", waiting until "domcontentloaded"
+2026-11-11T12:00:28.244Z pw:api navigating to "https://weedoo.in/director/SONALI-JAIN/03526793", waiting until "domcontentloaded"
+2026-11-11T12:00:28.364Z pw:api navigating to "https://weedoo.in/director/KAMLENDRA-NAVRATANSINGH-CHAUHAN/09695105", waiting until "domcontentloaded"
+2026-11-11T12:00:28.538Z pw:api   "commit" event fired
+2026-11-11T12:00:28.538Z pw:api   navigated to "https://weedoo.in/director/RAM-PARKASH-MAKAN/08574991"
+2026-11-11T12:00:28.543Z pw:api   "commit" event fired
+2026-11-11T12:00:28.543Z pw:api   navigated to "https://weedoo.in/director/SONALI-JAIN/03526793"
+2026-11-11T12:00:28.674Z pw:api   "domcontentloaded" event fired
+2026-11-11T12:00:28.676Z pw:api   "load" event fired
+2026-11-11T12:00:28.719Z pw:api   "commit" event fired
+2026-11-11T12:00:28.720Z pw:api   navigated to "https://weedoo.in/director/KAMLENDRA-NAVRATANSINGH-CHAUHAN/09695105"
+2026-11-11T12:00:28.727Z pw:api   navigated to "https://weedoo.in/director/DILIP-KUMAR-KARN/00061804"
+2026-11-11T12:00:28.944Z pw:api   "domcontentloaded" event fired
+2026-11-11T12:00:28.946Z pw:api   "load" event fired
+2026-11-11T12:00:28.983Z pw:api   navigated to "https://weedoo.in/director/HEMANT-JAIN/00506995"
+2026-11-11T12:00:29.128Z pw:api   "domcontentloaded" event fired
+2026-11-11T12:00:29.129Z pw:api   "load" event fired
+2026-11-11T12:00:29.151Z pw:api   "networkidle" event fired
+2026/11/11 17:30:29 [RELATED] WeeDoo director page https://weedoo.in/director/KALPANA-SETH/06949098 fetched (171 chars plain, 2442 total)
+2026-11-11T12:00:29.170Z pw:api   navigated to "https://weedoo.in/director/BABULAL-BHUTORIA/07143965"
+2026-11-11T12:00:29.617Z pw:api   "networkidle" event fired
+2026/11/11 17:30:29 [RELATED] WeeDoo director page https://weedoo.in/director/DILIP-KUMAR-KARN/00061804 fetched (643 chars plain, 3856 total)
+2026-11-11T12:00:29.695Z pw:api   "domcontentloaded" event fired
+2026-11-11T12:00:29.696Z pw:api   "load" event fired
+2026-11-11T12:00:29.733Z pw:api   navigated to "https://weedoo.in/director/RAM-PARKASH-MAKAN/08574991"
+2026-11-11T12:00:29.852Z pw:api   "domcontentloaded" event fired
+2026-11-11T12:00:29.852Z pw:api   "load" event fired
+2026-11-11T12:00:29.896Z pw:api   navigated to "https://weedoo.in/director/SONALI-JAIN/03526793"
+2026-11-11T12:00:29.898Z pw:api   "domcontentloaded" event fired
+2026-11-11T12:00:29.899Z pw:api   "load" event fired
+2026-11-11T12:00:29.912Z pw:api   "networkidle" event fired
+2026/11/11 17:30:29 [RELATED] WeeDoo director page https://weedoo.in/director/HEMANT-JAIN/00506995 fetched (330 chars plain, 2888 total)
+2026-11-11T12:00:29.941Z pw:api   navigated to "https://weedoo.in/director/KAMLENDRA-NAVRATANSINGH-CHAUHAN/09695105"
+2026-11-11T12:00:30.079Z pw:api   "networkidle" event fired
+2026/11/11 17:30:30 [RELATED] WeeDoo director page https://weedoo.in/director/BABULAL-BHUTORIA/07143965 fetched (284 chars plain, 2212 total)
+2026-11-11T12:00:30.467Z pw:api   "networkidle" event fired
+2026/11/11 17:30:30 [RELATED] WeeDoo director page https://weedoo.in/director/RAM-PARKASH-MAKAN/08574991 fetched (285 chars plain, 2213 total)
+2026-11-11T12:00:30.606Z pw:api   "networkidle" event fired
+2026/11/11 17:30:30 [RELATED] WeeDoo director page https://weedoo.in/director/SONALI-JAIN/03526793 fetched (317 chars plain, 2245 total)
+2026-11-11T12:00:30.683Z pw:api   "networkidle" event fired
+2026/11/11 17:30:30 [RELATED] WeeDoo director page https://weedoo.in/director/KAMLENDRA-NAVRATANSINGH-CHAUHAN/09695105 fetched (321 chars plain, 2249 total)
+2026-11-11T12:00:31.425Z pw:api navigating to "https://weedoo.in/director/PRAVEEN-BHATNAGAR/01193544", waiting until "domcontentloaded"
+2026-11-11T12:00:31.530Z pw:api   "commit" event fired
+2026-11-11T12:00:31.531Z pw:api   navigated to "https://weedoo.in/director/PRAVEEN-BHATNAGAR/01193544"
+2026-11-11T12:00:32.413Z pw:api   "domcontentloaded" event fired
+2026-11-11T12:00:32.416Z pw:api   "load" event fired
+2026-11-11T12:00:32.452Z pw:api   navigated to "https://weedoo.in/director/PRAVEEN-BHATNAGAR/01193544"
+2026-11-11T12:00:33.159Z pw:api   "networkidle" event fired
+2026/11/11 17:30:33 [RELATED] WeeDoo director page https://weedoo.in/director/PRAVEEN-BHATNAGAR/01193544 fetched (244 chars plain, 2646 total)
+2026/11/11 17:30:37 [EXPORT] md -> gs://crystal-crm-store/WebSearch_GO/related-entities/20261111-120036-klj-resources-limited.md (2709 bytes)
+2026-11-11T12:00:37.626Z pw:api setting frame content, waiting until "domcontentloaded"
+2026/11/11 17:30:38 [EXPORT] pdf -> gs://crystal-crm-store/WebSearch_GO/related-entities/20261111-120036-klj-resources-limited.pdf (486620 bytes)
+2026/11/11 17:30:38 [AGENT][sess_ffb1c48491a447b6][step 0] complete: Found 0 direct relationship(s), 9 leader(s), and 27 leadership relationship(s)

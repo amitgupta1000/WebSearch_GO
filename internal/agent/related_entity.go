@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"regexp"
 	"sort"
 	"strings"
@@ -85,8 +86,10 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 	// and its CIN (the operator's registration id, or a CIN the run's own hits
 	// published) instead of being relied on from site: queries.
 	registryHits := a.weeDooRegistryHits(ctx, sessionID, query, trace, eventCh)
-	directHits = append(directHits, registryHits...)
-	leadHits = append(leadHits, registryHits...)
+	// The registry page is the priority source: it leads both payloads so the
+	// bounded evidence windows always carry it, whatever the provider returned.
+	directHits = append(append([]models.SearchResult{}, registryHits...), directHits...)
+	leadHits = append(append([]models.SearchResult{}, registryHits...), leadHits...)
 	report := &models.RelatedEntityReport{
 		CompanyName: query.CompanyName, Domain: query.Domain, RegistrationID: query.RegistrationID,
 		EntityConfirmed: strings.TrimSpace(query.Domain) != "" || strings.TrimSpace(query.RegistrationID) != "",
@@ -214,9 +217,23 @@ func flattenTrace(trace *models.SearchTrace, start, end int) []models.SearchResu
 // name the company — a wrong guess — is dropped, and the fetch is recorded on
 // the trace so the artifact shows the enrichment.
 func (a *RelatedEntityAgent) weeDooRegistryHits(ctx context.Context, sessionID string, query models.RelatedEntityQuery, trace *models.SearchTrace, eventCh chan<- models.AgentEvent) []models.SearchResult {
-	brief := models.CompanyBrief{CompanyName: query.CompanyName, RegistrationID: query.RegistrationID}
+	brief := models.CompanyBrief{CompanyName: query.CompanyName, RegistrationID: query.RegistrationID, Aliases: query.Aliases}
 	cin := companyRegistrationNumber(brief, flattenTrace(trace, 0, len(trace.Queries)))
 	if cin == "" {
+		// No attributed CIN in the brief or the hits: resolve it through
+		// WeeDoo's own search bar in the browser, the discovery the search
+		// provider cannot do.
+		if client, ok := a.engine.WeeDooSearch(); ok {
+			if resolved, ok := client.LookupCompanyCIN(ctx, query.CompanyName); ok {
+				if upper := strings.ToUpper(strings.TrimSpace(resolved)); companyRegistrationNumberPattern.MatchString(upper) {
+					cin = upper
+					log.Printf("[RELATED][session %s] WeeDoo search resolved %q -> CIN %s", sessionID, query.CompanyName, cin)
+				}
+			}
+		}
+	}
+	if cin == "" {
+		log.Printf("[RELATED][session %s] WeeDoo registry enrichment skipped: no CIN in the brief or the run's hits", sessionID)
 		return nil
 	}
 	hits := make([]models.SearchResult, 0, 1)
@@ -225,12 +242,24 @@ func (a *RelatedEntityAgent) weeDooRegistryHits(ctx context.Context, sessionID s
 			break // the first slug spelling that resolves is enough
 		}
 		url := "https://weedoo.in/company/" + slug + "/" + cin
-		page, err := a.engine.ScrapeCached(ctx, url)
-		if err != nil || page == nil || strings.TrimSpace(page.Content) == "" {
-			continue
+		var title, text string
+		if page, err := a.engine.ScrapeCached(ctx, url); err == nil && page != nil {
+			title, text = page.Title, strings.TrimSpace(page.Content)
 		}
-		content := truncateRunes(strings.TrimSpace(page.Content), relatedEntitySnippetMaxRunes)
-		if !containsCompanyIdentity(page.Title+" "+content, query) {
+		content := truncateRunes(text, weeDooRegistrySnippetMaxRunes)
+		// Prefer the browser render for WeeDoo pages: the plain fetch's
+		// extraction trims them to the site navigation, cutting off the
+		// directors and DIN table — the reason the registry is a priority
+		// source — even when the fetch passes the identity gate.
+		if client, ok := a.engine.WeeDooSearch(); ok {
+			if rendered, rerr := client.FetchCompanyPageText(ctx, url); rerr == nil && len(strings.TrimSpace(rendered)) > len(content) {
+				log.Printf("[RELATED][session %s] WeeDoo registry page %s read in the browser (%d chars vs %d from the plain fetch)", sessionID, url, len(rendered), len(content))
+				title = firstNonEmpty(title, "WeeDoo company page")
+				content = truncateRunes(strings.TrimSpace(rendered), weeDooRegistrySnippetMaxRunes)
+			}
+		}
+		if !containsCompanyIdentity(title+" "+content, query) {
+			log.Printf("[RELATED][session %s] WeeDoo registry page %s does not name the company; dropped", sessionID, url)
 			continue // a constructed URL that resolved to another company
 		}
 		Emit(eventCh, models.AgentEvent{
@@ -238,7 +267,7 @@ func (a *RelatedEntityAgent) weeDooRegistryHits(ctx context.Context, sessionID s
 			Content: fmt.Sprintf("WeeDoo registry enrichment: fetched the company page for %s (directors, DINs, appointment dates, other directorships).", query.CompanyName),
 		})
 		hits = append(hits, models.SearchResult{
-			Title:   firstNonEmpty(page.Title, "WeeDoo company page"),
+			Title:   firstNonEmpty(title, "WeeDoo company page"),
 			Link:    url,
 			Snippet: content,
 		})
@@ -254,6 +283,108 @@ func (a *RelatedEntityAgent) weeDooRegistryHits(ctx context.Context, sessionID s
 	return hits
 }
 
+// weeDooRegistrySnippetMaxRunes is the snippet budget for WeeDoo registry and
+// director pages. These pages are the priority enrichment — the directors and
+// DIN table sits a few thousand characters into the rendered page — so they
+// carry a larger budget than ordinary search snippets.
+const weeDooRegistrySnippetMaxRunes = 6000
+
+// weeDooRegistryDIN extracts a director's DIN from a WeeDoo registry page: the
+// directors table prints "Appointment <tab> Name <tab> DIN <tab> Designation",
+// so the eight-digit DIN sits on the same line as the name rather than next to
+// a "DIN" label. The name must sit directly before the digits: plain-fetch
+// extractions strip newlines and turn a whole page into one line, where every
+// director's tokens match and the first table DIN would otherwise win.
+func weeDooRegistryDIN(hits []models.SearchResult, director string) string {
+	tokens := nameTokens(director)
+	if len(tokens) == 0 {
+		return ""
+	}
+	for _, hit := range hits {
+		if !strings.Contains(strings.ToLower(hit.Link), "weedoo.in") {
+			continue
+		}
+		for _, line := range strings.Split(hit.Snippet, "\n") {
+			lowered := strings.ToLower(line)
+			present := true
+			for _, token := range tokens {
+				if !strings.Contains(lowered, token) {
+					present = false
+					break
+				}
+			}
+			if !present {
+				continue
+			}
+			for _, match := range bareDigitRunPattern.FindAllStringIndex(line, -1) {
+				run := line[match[0]:match[1]]
+				if len(run) != 8 {
+					continue
+				}
+				windowStart := match[0] - weeDooDINDistance
+				if windowStart < 0 {
+					windowStart = 0
+				}
+				window := lowered[windowStart:match[0]]
+				rowPresent := true
+				for _, token := range tokens {
+					if !strings.Contains(window, token) {
+						rowPresent = false
+						break
+					}
+				}
+				if rowPresent {
+					return run
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// weeDooDINDistance is how far before the digits the director's name may sit on
+// a registry table row ("… Hemant Jain <tab> 00506995").
+const weeDooDINDistance = 60
+
+// labelledDINFor extracts a DIN labelled for this director: the "DIN <digits>"
+// label must sit next to the director's name, because board listings name many
+// directors and the first labelled number is not necessarily theirs.
+func labelledDINFor(text, director string) string {
+	tokens := nameTokens(director)
+	if len(tokens) == 0 {
+		return ""
+	}
+	lowered := strings.ToLower(text)
+	for _, match := range directorIdentificationNumberPattern.FindAllStringSubmatchIndex(lowered, -1) {
+		dinStart, dinEnd := match[2], match[3]
+		windowStart := dinStart - weeDooDINDistance
+		if windowStart < 0 {
+			windowStart = 0
+		}
+		windowEnd := dinEnd + weeDooDINDistance
+		if windowEnd > len(lowered) {
+			windowEnd = len(lowered)
+		}
+		window := lowered[windowStart:windowEnd]
+		present := true
+		for _, token := range tokens {
+			if !strings.Contains(window, token) {
+				present = false
+				break
+			}
+		}
+		if present {
+			return lowered[dinStart:dinEnd]
+		}
+	}
+	return ""
+}
+
+// bareDigitRunPattern matches any contiguous digit run; weeDooRegistryDIN keeps
+// only runs of exactly eight digits, so masked numbers (*****2690R), dates
+// (10/10/1997) and longer runs never match.
+var bareDigitRunPattern = regexp.MustCompile(`\d+`)
+
 // weeDooDirectorHit fetches the WeeDoo director page for a resolved DIN: the
 // page lists every company the director is associated with — exactly the
 // other-company involvement this segment is looking for. The slug is the
@@ -267,13 +398,28 @@ func (a *RelatedEntityAgent) weeDooDirectorHit(ctx context.Context, name, din st
 		return nil
 	}
 	url := "https://weedoo.in/director/" + variants[0] + "/" + strings.TrimSpace(din)
-	page, err := a.engine.ScrapeCached(ctx, url)
-	if err != nil || page == nil || strings.TrimSpace(page.Content) == "" {
+	var title, text string
+	if page, err := a.engine.ScrapeCached(ctx, url); err == nil && page != nil {
+		title, text = page.Title, strings.TrimSpace(page.Content)
+	}
+	plainLen := len(text)
+	// Prefer the browser render: the plain fetch's extraction trims WeeDoo's
+	// server-rendered pages, and the other-directorship lists are what this hit
+	// exists for.
+	if client, ok := a.engine.WeeDooSearch(); ok {
+		if rendered, rerr := client.FetchCompanyPageText(ctx, url); rerr == nil && len(strings.TrimSpace(rendered)) > len(text) {
+			text = strings.TrimSpace(rendered)
+		} else if rerr != nil {
+			log.Printf("[RELATED] WeeDoo director page %s render unavailable: %v", url, rerr)
+		}
+	}
+	log.Printf("[RELATED] WeeDoo director page %s fetched (%d chars plain, %d total)", url, plainLen, len(text))
+	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	content := truncateRunes(strings.TrimSpace(page.Content), relatedEntitySnippetMaxRunes)
+	content := truncateRunes(text, weeDooRegistrySnippetMaxRunes)
 	return &models.SearchResult{
-		Title:   firstNonEmpty(page.Title, "WeeDoo director page"),
+		Title:   firstNonEmpty(title, "WeeDoo director page"),
 		Link:    url,
 		Snippet: content,
 	}
@@ -366,7 +512,14 @@ func boundedRelatedEvidence(hits []models.SearchResult, limit int) []models.Sear
 			continue
 		}
 		seen[key] = true
-		hit.Snippet = truncateRunes(strings.TrimSpace(hit.Snippet), relatedEntitySnippetMaxRunes)
+		// WeeDoo registry and director pages keep their larger snippet budget:
+		// their directors and DIN table sits a few thousand characters in, and
+		// trimming to the ordinary snippet size would cut it off.
+		maxRunes := relatedEntitySnippetMaxRunes
+		if strings.Contains(strings.ToLower(hit.Link), "weedoo.in") {
+			maxRunes = weeDooRegistrySnippetMaxRunes
+		}
+		hit.Snippet = truncateRunes(strings.TrimSpace(hit.Snippet), maxRunes)
 		out = append(out, hit)
 		if len(out) >= limit {
 			break
@@ -485,6 +638,23 @@ func layoutRelatedGraph(graph *models.RelatedEntityGraph) {
 	}
 }
 
+// weeDooRegistryEvidence returns the registry enrichment hits recorded on the
+// trace: the leadership pass needs them per leader, both for identity grounding
+// (the registry page names the company and its board) and for the directors
+// table whose rows carry the DINs the director pages are constructed from.
+func weeDooRegistryEvidence(report *models.RelatedEntityReport) []models.SearchResult {
+	if report == nil {
+		return nil
+	}
+	var hits []models.SearchResult
+	for _, queryTrace := range report.SearchTrace.Queries {
+		if strings.HasPrefix(queryTrace.Purpose, "WeeDoo registry enrichment") {
+			hits = append(hits, queryTrace.Kept...)
+		}
+	}
+	return hits
+}
+
 func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.RelatedEntityQuery, report *models.RelatedEntityReport) error {
 	type outcome struct {
 		index    int
@@ -503,7 +673,10 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 			for index := range jobs {
 				leader := report.Leadership[index]
 				identityQueries, affiliationQueries := relatedPersonQueries(query, leader)
-				var personHits []models.SearchResult
+				// Seed the leader's hits with the WeeDoo registry page: it
+				// grounds the leader at the company and carries the directors
+				// table with the DIN rows.
+				personHits := append([]models.SearchResult{}, weeDooRegistryEvidence(report)...)
 				var traces []models.QueryTrace
 				for _, planned := range identityQueries {
 					hits, err := a.engine.SearchCached(ctx, planned.Query, a.engine.MaxSearchResults())
@@ -542,8 +715,14 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 				// WeeDoo's director page lists every other company the director
 				// is associated with — constructed from the resolved DIN, since
 				// the search provider barely indexes WeeDoo. Its content feeds
-				// the other-company extraction below.
-				if directorHit := a.weeDooDirectorHit(ctx, leader.Name, identity.DIN); directorHit != nil {
+				// the other-company extraction below. The registry page prints
+				// the DIN on the director's table row, so resolve it there when
+				// no other hit carried a labelled DIN.
+				din := identity.DIN
+				if din == "" {
+					din = weeDooRegistryDIN(personHits, leader.Name)
+				}
+				if directorHit := a.weeDooDirectorHit(ctx, leader.Name, din); directorHit != nil {
 					personHits = append(personHits, *directorHit)
 					traces = append(traces, models.QueryTrace{
 						Query: directorHit.Link, Purpose: "WeeDoo director page (other companies)",
@@ -566,12 +745,16 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 				var extracted struct {
 					Companies []relatedCompanyExtraction `json:"companies"`
 				}
+				// WeeDoo registry and director pages are the priority evidence for
+				// a leader: lead the payload with them so the bounded evidence
+				// window always carries the board table and the
+				// other-directorship lists, whatever the provider returned.
 				payload, marshalErr := json.Marshal(struct {
 					Person string
 					Hits   []models.SearchResult
-				}{leader.Name, boundedRelatedEvidence(personHits, relatedEntityLeaderEvidence)})
+				}{leader.Name, boundedRelatedEvidence(reorderWeeDooFirst(personHits), relatedEntityLeaderEvidence)})
 				if marshalErr == nil {
-					prompt := `Extract companies other than the primary company that this person is explicitly connected to in the snippets. Return JSON with a companies array; return {"companies":[]} when evidence is insufficient. Include relationship, role, current/former status, confidence, and evidence. Do not report name-only matches.`
+					prompt := `Extract companies other than the primary company that this person is explicitly connected to in the snippets. Return JSON with a companies array; return {"companies":[]} when evidence is insufficient. Include relationship, role, current/former status, confidence, and evidence. Do not report name-only matches. Prefer registry directorship pages — they list every company the person serves with role and status — over profile pages about people who merely share the name.`
 					marshalErr = a.engine.llmClient.GenerateStructured(ctx, prompt, string(payload), &extracted)
 				}
 				if marshalErr != nil {
@@ -668,6 +851,22 @@ func relatedPersonQueries(query models.RelatedEntityQuery, leader models.Leaders
 	return identity, affiliation
 }
 
+// reorderWeeDooFirst moves the WeeDoo registry and director pages to the front
+// of a leader's hits: the bounded evidence windows then always carry the board
+// table and the other-directorship lists, whatever the search provider returned.
+func reorderWeeDooFirst(hits []models.SearchResult) []models.SearchResult {
+	weedoo := make([]models.SearchResult, 0, 2)
+	rest := make([]models.SearchResult, 0, len(hits))
+	for _, hit := range hits {
+		if strings.Contains(strings.ToLower(hit.Link), "weedoo.in") {
+			weedoo = append(weedoo, hit)
+		} else {
+			rest = append(rest, hit)
+		}
+	}
+	return append(weedoo, rest...)
+}
+
 func resolvePersonIdentity(leader models.LeadershipSubject, query models.RelatedEntityQuery, hits []models.SearchResult) *models.PersonIdentity {
 	identity := &models.PersonIdentity{CanonicalName: leader.Name, Confidence: 0.35}
 	seen := map[string]bool{}
@@ -678,10 +877,12 @@ func resolvePersonIdentity(leader models.LeadershipSubject, query models.Related
 			identity.Attributes = appendUnique(identity.Attributes, "company-linked evidence")
 		}
 
-		if match := directorIdentificationNumberPattern.FindStringSubmatch(text); len(match) == 2 {
-			identity.DIN = match[1]
-			identity.Confidence = 1.0
-			identity.Attributes = appendUnique(identity.Attributes, "DIN")
+		if identity.DIN == "" {
+			if din := labelledDINFor(text, leader.Name); din != "" {
+				identity.DIN = din
+				identity.Confidence = 1.0
+				identity.Attributes = appendUnique(identity.Attributes, "DIN")
+			}
 		}
 		if strings.TrimSpace(hit.Link) != "" && !seen[hit.Link] {
 			seen[hit.Link] = true
@@ -697,15 +898,15 @@ func resolvePersonIdentity(leader models.LeadershipSubject, query models.Related
 	return identity
 }
 
+// containsCompanyIdentity reports whether a text names the researched company,
+// using the entity matcher's tolerant matching — the same spelling-variant
+// rules the entity gate applies to kept hits. WeeDoo's pages spell names in
+// collapsed slugs ("Klj-Resources-Ltd") that an exact-substring check rejects.
 func containsCompanyIdentity(text string, query models.RelatedEntityQuery) bool {
-	lowerText := strings.ToLower(text)
-	identities := append([]string{query.CompanyName}, query.Aliases...)
-	for _, identity := range identities {
-		if value := strings.TrimSpace(identity); value != "" && strings.Contains(lowerText, strings.ToLower(value)) {
-			return true
-		}
-	}
-	return false
+	brief := models.CompanyBrief{CompanyName: query.CompanyName, RegistrationID: query.RegistrationID, Aliases: query.Aliases}
+	matcher := newEntityMatcher(brief)
+	_, matched := matcher.matchText(text)
+	return matched
 }
 
 func appendUnique(values []string, value string) []string {

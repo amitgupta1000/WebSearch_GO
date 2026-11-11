@@ -242,6 +242,7 @@ func main() {
 		agent.WithHardURLLimits(cfg.HardURLsPerRun, cfg.HardURLBudget),
 		agent.WithValidation(cfg.ValidateEvidence, cfg.ValidationLookups, cfg.ValidationStaleMonths, cfg.ValidationRecentMonths),
 		agent.WithEntityGate(cfg.EntityGateMode),
+		agent.WithWeeDooSearch(os.Getenv("WEEDOO_ENRICHMENT") != "0"),
 	}
 	// Finished runs are written to the configured destination as Markdown and PDF.
 	// A nil exporter simply means the runs are not saved.

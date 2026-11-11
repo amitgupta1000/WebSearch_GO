@@ -142,7 +142,7 @@ func TestCompanyRegistryCandidatesAreEntityGatedAndCapped(t *testing.T) {
 		{Title: "Unrelated directory page", Link: "https://weedoo.in/company/sanjay-chlorides-2", Snippet: "Sanjay Chlorides directors"},
 		{Title: "Not a registry page", Link: "https://kljresources.in/about", Snippet: "KLJ Resources Limited about us"},
 	}
-	candidates := companyRegistryCandidates(brief, results, matcher)
+	candidates := companyRegistryCandidates(brief, results, matcher, nil)
 	if len(candidates) != 3 {
 		t.Fatalf("expected the three-page cap, got %d (%+v)", len(candidates), candidates)
 	}
@@ -153,6 +153,59 @@ func TestCompanyRegistryCandidatesAreEntityGatedAndCapped(t *testing.T) {
 		if !isCompanyRegistryURL(candidate.Link) {
 			t.Fatalf("only registry pages may be selected, got %+v", candidate)
 		}
+	}
+}
+
+// TestCompanyRegistrationNumberAttributesTheCINToTheCompany pins the
+// attribution guard: hits carry many companies' CINs, and only a CIN that sits
+// in the URL as the company's slug page or is paired with the name inside a
+// snippet window may be used — a group member's slug ("k-l-j-polymers...")
+// never matches "KLJ Resources Limited", and neither does a KLJ-named page
+// that prints another firm's CIN far away from its name.
+func TestCompanyRegistrationNumberAttributesTheCINToTheCompany(t *testing.T) {
+	results := []models.SearchResult{
+		{ // another company's registry page — its CIN must not be taken
+			Title:   "K L J Polymers and Chemicals Limited",
+			Link:    "https://www.zaubacorp.com/K-L-J-POLYMERS-AND-CHEMICALS-LIMITED-U24119DL1989PLC036883",
+			Snippet: "Directors of K L J Polymers and Chemicals Limited",
+		},
+		{ // the researched company's own registry page
+			Title:   "KLJ Resources Ltd Share Price",
+			Link:    "https://economictimes.indiatimes.com/company/klj-resources-ltd/L67120WB1986PLC041487",
+			Snippet: "KLJ Resources Limited",
+		},
+	}
+	brief := models.CompanyBrief{CompanyName: "KLJ Resources Limited", Domain: "kljresources.in", EntityConfirmed: true}
+	if got := companyRegistrationNumber(brief, results); got != "L67120WB1986PLC041487" {
+		t.Fatalf("expected the attributed company CIN, got %q", got)
+	}
+	if got := companyRegistrationNumber(brief, results[:1]); got != "" {
+		t.Fatalf("a CIN from another company's page must not be attributed, got %q", got)
+	}
+	// The live failure this guards against: a subsidiary directory hit names
+	// KLJ in its snippet, but the CIN it carries belongs to the subsidiary and
+	// sits far from the name — attribution must reject it so the browser-backed
+	// WeeDoo search gets its chance instead.
+	distant := []models.SearchResult{
+		{
+			Title: "KLJ Resources Limited - Subsidiaries and Group",
+			Link:  "https://www.tofler.in/klj-resources-limited/company/KLJ",
+			Snippet: "KLJ Resources Limited operates through several subsidiaries across the country. Detailed financial records: Bhiwadi Textile Mills Limited, recorded 2025. CIN U24110MH2005PTC152375 belongs to another entity entirely.",
+		},
+	}
+	if got := companyRegistrationNumber(brief, distant); got != "" {
+		t.Fatalf("a distant CIN on a KLJ-named page must not be attributed, got %q", got)
+	}
+	// A snippet that pairs the name and the CIN closely is attributed.
+	paired := []models.SearchResult{
+		{
+			Title:   "KLJ Resources Ltd company information",
+			Link:    "https://www.falconebiz.com/company/KLJ-RESOURCES-LTD",
+			Snippet: "KLJ Resources Ltd CIN L67120WB1986PLC041487 registered in Kolkata, West Bengal.",
+		},
+	}
+	if got := companyRegistrationNumber(brief, paired); got != "L67120WB1986PLC041487" {
+		t.Fatalf("expected the snippet-paired CIN, got %q", got)
 	}
 }
 
@@ -198,7 +251,7 @@ func TestCompanyRegistryCandidatesConstructURLsFromTheCIN(t *testing.T) {
 		{Title: "KLJ Resources Ltd", Link: "https://economictimes.indiatimes.com/company/klj-resources-ltd/L67120WB1986PLC041487", Snippet: "KLJ Resources Limited"},
 	}
 	matcher := newEntityMatcher(brief)
-	candidates := companyRegistryCandidates(brief, results, matcher)
+	candidates := companyRegistryCandidates(brief, results, matcher, nil)
 	if len(candidates) != 2 {
 		t.Fatalf("expected the two constructed registry URLs, got %+v", candidates)
 	}
@@ -213,6 +266,35 @@ func TestCompanyRegistryCandidatesConstructURLsFromTheCIN(t *testing.T) {
 	}
 }
 
+// TestCompanyRegistryCandidatesResolveTheCINThroughWeeDoo pins the last-resort
+// discovery: with no CIN in the brief or the hits, the browser-backed WeeDoo
+// search resolves the name and the directory URL is constructed from it.
+func TestCompanyRegistryCandidatesResolveTheCINThroughWeeDoo(t *testing.T) {
+	brief := models.CompanyBrief{CompanyName: "KLJ Resources Limited", Domain: "kljresources.in", EntityConfirmed: true}
+	matcher := newEntityMatcher(brief)
+	resolved := 0
+	resolveCIN := func(companyName string) (string, bool) {
+		resolved++
+		if companyName != "KLJ Resources Limited" {
+			t.Fatalf("unexpected lookup target %q", companyName)
+		}
+		return "L67120WB1986PLC041487", true
+	}
+	candidates := companyRegistryCandidates(brief, nil, matcher, resolveCIN)
+	if resolved != 1 {
+		t.Fatalf("expected exactly one WeeDoo resolution, got %d", resolved)
+	}
+	if len(candidates) != 2 ||
+		candidates[0].Link != "https://weedoo.in/company/KLJ-RESOURCES-LIMITED/L67120WB1986PLC041487" ||
+		candidates[1].Link != "https://weedoo.in/company/KLJ-RESOURCES-LTD/L67120WB1986PLC041487" {
+		t.Fatalf("expected constructed URLs from the resolved CIN, got %+v", candidates)
+	}
+	// A resolver that cannot resolve produces no constructed candidates.
+	if empty := companyRegistryCandidates(brief, nil, matcher, func(string) (string, bool) { return "", false }); len(empty) != 0 {
+		t.Fatalf("expected no candidates without a CIN, got %+v", empty)
+	}
+}
+
 // TestScrapeRankedFetchesWeeDooRegistryFirst runs the scrape phase end to end:
 // the WeeDoo page the searches surfaced is fetched as priority registry
 // evidence with its full page content, recorded on the scrape report, and is
@@ -220,7 +302,7 @@ func TestCompanyRegistryCandidatesConstructURLsFromTheCIN(t *testing.T) {
 func TestScrapeRankedFetchesWeeDooRegistryFirst(t *testing.T) {
 	store := cache.NewMemoryCache(50)
 	t.Cleanup(func() { store.Close() })
-	engine := NewEngine(&mockLLM{}, &mockSearcher{}, &mockScraper{}, store, 5, 3, 20)
+	engine := NewEngine(&mockLLM{}, &mockSearcher{}, &mockScraper{}, store, 5, 3, 20, WithWeeDooSearch(false))
 	agent := NewCompanyAgent(engine)
 	brief := models.CompanyBrief{CompanyName: "KLJ Resources Limited", Domain: "kljresources.in", EntityConfirmed: true}
 	matcher := agent.entityMatcherFor(brief)
