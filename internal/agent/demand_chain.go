@@ -308,6 +308,9 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 // vocabulary, so the discovery lanes pull in plenty of them. They are evidence,
 // and stay in the appendix, never in the company rosters.
 func isDemandDocumentTitle(title string) bool {
+	if isResearchDocumentTitle(title) {
+		return true
+	}
 	lowered := strings.ToLower(strings.TrimSpace(title))
 	for _, marker := range []string{
 		"market", "report", "forecast", "patent", "cost analysis", "feasibility",

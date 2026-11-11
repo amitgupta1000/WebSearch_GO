@@ -125,7 +125,12 @@ match is pre-selected and focused), and never dead-ends:
 - **Related entities** (`POST /api/resolve-entity`, `mode=related_entity`): confirms the
   company, searches direct corporate relationships first, then searches up to eight
   company-linked leaders for external company involvement. It performs a cache-first preflight
-  over the full plan and reports cache/result counts. Extraction must cite evidence: every
+  over the full plan and reports cache/result counts. WeeDoo is fetched directly as a
+  priority: the company page is constructed from the company name and its CIN (the operator's
+  registration id, or a CIN the run's hits published — the search provider barely indexes
+  WeeDoo), listing every director with DIN and appointment dates; and once a leader's DIN is
+  resolved, their WeeDoo director page is fetched to surface the other companies they are
+  associated with. Extraction must cite evidence: every
   reported relationship or leader carries the hit URL that states it, claims the model
   returns uncited are grounded deterministically from the run's own hits — or dropped when no
   hit mentions them — and evidence may arrive as JSON objects, plain strings, or missing

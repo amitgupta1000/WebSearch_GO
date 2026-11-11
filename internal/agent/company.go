@@ -805,6 +805,66 @@ func searchSnippetEvidence(ranked []models.RankedResult, results []models.Search
 // same three-page cap the related-entity segment uses.
 const maxCompanyRegistryPages = 3
 
+// constructedRegistryMarker marks a registry candidate that was constructed
+// from the company name and CIN rather than found by a search hit; the fetched
+// page must name the company before its content becomes evidence.
+const constructedRegistryMarker = "constructed registry URL"
+
+// companyRegistrationNumberPattern matches an Indian CIN — 21 characters: L/U,
+// five digits, two letters, four digits, three letters, six digits — which
+// registry pages and directory URLs carry.
+var companyRegistrationNumberPattern = regexp.MustCompile(`(?i)\b[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}\b`)
+
+// companyRegistrationNumber returns the Indian CIN for the run: the operator's
+// registration id when it is a CIN, else the first CIN the kept search results
+// published (Economictimes, ZaubaCorp and TheCompanyCheck URLs carry it).
+func companyRegistrationNumber(brief models.CompanyBrief, results []models.SearchResult) string {
+	if id := strings.ToUpper(strings.TrimSpace(brief.RegistrationID)); companyRegistrationNumberPattern.MatchString(id) {
+		return id
+	}
+	for _, result := range results {
+		haystack := strings.ToUpper(result.Title + " " + result.Snippet + " " + result.Link)
+		if cin := companyRegistrationNumberPattern.FindString(haystack); cin != "" {
+			return cin
+		}
+	}
+	return ""
+}
+
+// registrySlugVariants renders the company name the way WeeDoo's company-page
+// slugs spell it — uppercase, non-alphanumerics collapsed to hyphens — with the
+// Limited/Ltd suffix spelled both ways, since registries index both forms.
+func registrySlugVariants(company string) []string {
+	name := strings.ToUpper(strings.TrimSpace(company))
+	if name == "" {
+		return nil
+	}
+	slug := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		default:
+			return '-'
+		}
+	}, name)
+	slug = strings.Trim(slug, "-")
+	for strings.Contains(slug, "--") {
+		slug = strings.ReplaceAll(slug, "--", "-")
+	}
+	if slug == "" {
+		return nil
+	}
+	variants := []string{slug}
+	ltd := strings.Replace(slug, "-LIMITED-", "-LTD-", 1)
+	if ltd == slug && strings.HasSuffix(slug, "-LIMITED") {
+		ltd = strings.TrimSuffix(slug, "-LIMITED") + "-LTD"
+	}
+	if ltd != slug {
+		variants = append(variants, ltd)
+	}
+	return variants
+}
+
 // isCompanyRegistryURL reports whether a URL is a WeeDoo registry page — the
 // Indian company directory whose pages list directors, DINs, addresses and
 // group links.
@@ -812,11 +872,14 @@ func isCompanyRegistryURL(targetURL string) bool {
 	return strings.Contains(strings.ToLower(targetURL), "weedoo.")
 }
 
-// companyRegistryCandidates picks the WeeDoo registry pages among the run's
-// search results that the entity gate accepts, in trace order, capped at
-// maxCompanyRegistryPages: a directory page about another company is excluded
-// exactly like any other source.
-func companyRegistryCandidates(results []models.SearchResult, matcher *entityMatcher) []models.SearchResult {
+// companyRegistryCandidates assembles the WeeDoo registry pages to fetch:
+// first the registry URLs the run's own search hits surfaced, then — because
+// the search provider barely indexes WeeDoo and site: queries usually return
+// nothing — the directory URL constructed from the company name and its CIN
+// (the operator's registration id, or a CIN a registry snippet published).
+// Every candidate still has to pass the entity gate or, for a constructed URL,
+// name the company once fetched.
+func companyRegistryCandidates(brief models.CompanyBrief, results []models.SearchResult, matcher *entityMatcher) []models.SearchResult {
 	candidates := make([]models.SearchResult, 0, maxCompanyRegistryPages)
 	seen := make(map[string]bool)
 	for _, result := range results {
@@ -833,7 +896,39 @@ func companyRegistryCandidates(results []models.SearchResult, matcher *entityMat
 		seen[normalizeURL(link)] = true
 		candidates = append(candidates, result)
 	}
+	if len(candidates) >= maxCompanyRegistryPages {
+		return candidates
+	}
+	cin := companyRegistrationNumber(brief, results)
+	if cin == "" {
+		return candidates
+	}
+	for _, slug := range registrySlugVariants(brief.CompanyName) {
+		if len(candidates) >= maxCompanyRegistryPages {
+			break
+		}
+		link := "https://weedoo.in/company/" + slug + "/" + cin
+		if seen[normalizeURL(link)] {
+			continue
+		}
+		seen[normalizeURL(link)] = true
+		candidates = append(candidates, models.SearchResult{
+			Title:   "WeeDoo registry page for " + brief.CompanyName,
+			Link:    link,
+			Snippet: constructedRegistryMarker + " (company name + CIN)",
+		})
+	}
 	return candidates
+}
+
+// constructedPageNamesCompany verifies a constructed WeeDoo URL after the
+// fetch: the page must name the company — through the entity matcher, or a
+// plain name check when the gate is off — before its content becomes evidence.
+func constructedPageNamesCompany(matcher *entityMatcher, brief models.CompanyBrief, scrape *models.ScrapeResult) bool {
+	if matcher != nil {
+		return matcher.match(scrape.CanonicalURL, scrape.Title, scrape.Content).Matched
+	}
+	return strings.Contains(strings.ToLower(scrape.Content), strings.ToLower(strings.TrimSpace(brief.CompanyName)))
 }
 
 // allSearchSnippetEvidence keeps the public snippet for every collected result.
@@ -1747,15 +1842,23 @@ func (ca *CompanyAgent) scrapeRankedWithBrief(ctx context.Context, sessionID str
 	// related-entity segment scrapes by hand. The pass is entity-gated like every
 	// other source and spends the ordinary scrape budget, because it runs on the
 	// same deadline that protects the lookup passes.
-	registry := companyRegistryCandidates(searchResults, matcher)
-	if len(registry) > 0 {
-		registryURLs := make([]string, 0, len(registry))
-		for _, target := range registry {
-			registryURLs = append(registryURLs, target.Link)
+	registry := companyRegistryCandidates(brief, searchResults, matcher)
+	constructed := make(map[string]bool)
+	registryURLs := make([]string, 0, len(registry))
+	for _, target := range registry {
+		if strings.Contains(target.Snippet, constructedRegistryMarker) {
+			constructed[normalizeURL(target.Link)] = true
 		}
+		registryURLs = append(registryURLs, target.Link)
+	}
+	if len(registryURLs) > 0 {
 		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolCall, Step: 8, ToolName: "web_scraper",
 			ToolInput: registryURLs[0], Content: fmt.Sprintf("Scraping %d priority WeeDoo registry page(s)...", len(registryURLs))})
+		successes := 0
 		for index, outcome := range ca.engine.ScrapeCachedBatch(scrapeCtx, registryURLs) {
+			if successes >= maxCompanyRegistryPages {
+				break
+			}
 			target := registry[index]
 			entry := models.ScrapeReportEntry{URL: target.Link, SourceType: "company_registry", Status: "failed"}
 			if outcome.Err != nil {
@@ -1766,6 +1869,14 @@ func (ca *CompanyAgent) scrapeRankedWithBrief(ctx context.Context, sessionID str
 			scrape := outcome.Result
 			if scrape == nil || strings.TrimSpace(scrape.Content) == "" {
 				entry.Reason = "no usable registry page"
+				report = append(report, entry)
+				continue
+			}
+			if constructed[normalizeURL(target.Link)] && !constructedPageNamesCompany(matcher, brief, scrape) {
+				// A constructed URL is a guess until the page itself proves it:
+				// the fetched content must name the company, or the entry is
+				// recorded as a miss and dropped.
+				entry.Reason = "constructed registry page does not name the company"
 				report = append(report, entry)
 				continue
 			}
@@ -1782,6 +1893,7 @@ func (ca *CompanyAgent) scrapeRankedWithBrief(ctx context.Context, sessionID str
 			evidence = append(evidence, ca.evidenceWithOCR(scrapeCtx, item, scrape, &entry))
 			sources = append(sources, target.Link)
 			usableScrapes++
+			successes++
 			report = append(report, entry)
 		}
 	}

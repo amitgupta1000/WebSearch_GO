@@ -522,7 +522,10 @@ so the result can answer post-run questions:
    - **WeeDoo registry pages are fetched first, as a bounded priority source**
      (`company_registry`, up to three pages): an Indian company's directory page lists directors
      with DINs, addresses and group links that its Google snippet truncates — the enrichment the
-     related-entity segment already scrapes by hand. The pass is entity-gated (a directory page
+     related-entity segment already scrapes by hand. Because the search provider barely indexes
+    WeeDoo, the pass also **constructs** the directory URL from the company name and its CIN
+    (the operator's registration id, or a CIN a registry snippet published) and verifies the
+    fetched page names the company before admitting it. The pass is entity-gated (a directory page
      about another company is excluded like any other source) and spends the ordinary scrape
      budget, on the same deadline that protects the lookup passes. Registry candidates also
      sort above general `leadership` pages in the scrape ladder, so a page the enrichment pass

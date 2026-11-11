@@ -78,6 +78,15 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 
 	directHits := flattenTrace(trace, 0, len(companyQueries))
 	leadHits := flattenTrace(trace, len(companyQueries), len(allQueries))
+	// WeeDoo is the priority registry source: its company page lists every
+	// director with DIN, appointment date and role, and its director pages list
+	// the other companies each director is associated with. The search provider
+	// barely indexes WeeDoo, so the page is constructed from the company name
+	// and its CIN (the operator's registration id, or a CIN the run's own hits
+	// published) instead of being relied on from site: queries.
+	registryHits := a.weeDooRegistryHits(ctx, sessionID, query, trace, eventCh)
+	directHits = append(directHits, registryHits...)
+	leadHits = append(leadHits, registryHits...)
 	report := &models.RelatedEntityReport{
 		CompanyName: query.CompanyName, Domain: query.Domain, RegistrationID: query.RegistrationID,
 		EntityConfirmed: strings.TrimSpace(query.Domain) != "" || strings.TrimSpace(query.RegistrationID) != "",
@@ -195,6 +204,79 @@ func flattenTrace(trace *models.SearchTrace, start, end int) []models.SearchResu
 		hits = append(hits, query.Kept...)
 	}
 	return hits
+}
+
+// weeDooRegistryHits fetches the WeeDoo company page constructed from the
+// company name and its CIN, and returns it as search-shaped hits for both the
+// direct-relationship and leadership extraction: the page lists every director
+// with DIN, appointment date and role, and links each director's other
+// companies. The first slug spelling that resolves wins. A page that does not
+// name the company — a wrong guess — is dropped, and the fetch is recorded on
+// the trace so the artifact shows the enrichment.
+func (a *RelatedEntityAgent) weeDooRegistryHits(ctx context.Context, sessionID string, query models.RelatedEntityQuery, trace *models.SearchTrace, eventCh chan<- models.AgentEvent) []models.SearchResult {
+	brief := models.CompanyBrief{CompanyName: query.CompanyName, RegistrationID: query.RegistrationID}
+	cin := companyRegistrationNumber(brief, flattenTrace(trace, 0, len(trace.Queries)))
+	if cin == "" {
+		return nil
+	}
+	hits := make([]models.SearchResult, 0, 1)
+	for _, slug := range registrySlugVariants(query.CompanyName) {
+		if len(hits) > 0 {
+			break // the first slug spelling that resolves is enough
+		}
+		url := "https://weedoo.in/company/" + slug + "/" + cin
+		page, err := a.engine.ScrapeCached(ctx, url)
+		if err != nil || page == nil || strings.TrimSpace(page.Content) == "" {
+			continue
+		}
+		content := truncateRunes(strings.TrimSpace(page.Content), relatedEntitySnippetMaxRunes)
+		if !containsCompanyIdentity(page.Title+" "+content, query) {
+			continue // a constructed URL that resolved to another company
+		}
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID, Type: models.EventThinking,
+			Content: fmt.Sprintf("WeeDoo registry enrichment: fetched the company page for %s (directors, DINs, appointment dates, other directorships).", query.CompanyName),
+		})
+		hits = append(hits, models.SearchResult{
+			Title:   firstNonEmpty(page.Title, "WeeDoo company page"),
+			Link:    url,
+			Snippet: content,
+		})
+	}
+	if len(hits) == 0 {
+		return nil
+	}
+	trace.Queries = append(trace.Queries, models.QueryTrace{
+		Query:   hits[0].Link,
+		Purpose: "WeeDoo registry enrichment (constructed from company name + CIN)",
+		Kept:    hits,
+	})
+	return hits
+}
+
+// weeDooDirectorHit fetches the WeeDoo director page for a resolved DIN: the
+// page lists every company the director is associated with — exactly the
+// other-company involvement this segment is looking for. The slug is the
+// director's name as WeeDoo spells it; a miss is simply skipped.
+func (a *RelatedEntityAgent) weeDooDirectorHit(ctx context.Context, name, din string) *models.SearchResult {
+	if strings.TrimSpace(din) == "" {
+		return nil
+	}
+	variants := registrySlugVariants(name)
+	if len(variants) == 0 {
+		return nil
+	}
+	url := "https://weedoo.in/director/" + variants[0] + "/" + strings.TrimSpace(din)
+	page, err := a.engine.ScrapeCached(ctx, url)
+	if err != nil || page == nil || strings.TrimSpace(page.Content) == "" {
+		return nil
+	}
+	content := truncateRunes(strings.TrimSpace(page.Content), relatedEntitySnippetMaxRunes)
+	return &models.SearchResult{
+		Title:   firstNonEmpty(page.Title, "WeeDoo director page"),
+		Link:    url,
+		Snippet: content,
+	}
 }
 
 func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEntityQuery, directHits, leaderHits []models.SearchResult, report *models.RelatedEntityReport) error {
@@ -456,6 +538,17 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 					}
 					personHits = append(personHits, hits...)
 					traces = append(traces, models.QueryTrace{Query: dinQuery.Query, Purpose: dinQuery.Purpose, Kept: hits})
+				}
+				// WeeDoo's director page lists every other company the director
+				// is associated with — constructed from the resolved DIN, since
+				// the search provider barely indexes WeeDoo. Its content feeds
+				// the other-company extraction below.
+				if directorHit := a.weeDooDirectorHit(ctx, leader.Name, identity.DIN); directorHit != nil {
+					personHits = append(personHits, *directorHit)
+					traces = append(traces, models.QueryTrace{
+						Query: directorHit.Link, Purpose: "WeeDoo director page (other companies)",
+						Kept: []models.SearchResult{*directorHit},
+					})
 				}
 				for _, planned := range affiliationQueries {
 					hits, err := a.engine.SearchCached(ctx, planned.Query, a.engine.MaxSearchResults())
@@ -787,7 +880,7 @@ func normalizeRelated(items []models.RelatedCompany, primary string) []models.Re
 	out := make([]models.RelatedCompany, 0, len(items))
 	for _, item := range items {
 		item.Name = strings.TrimSpace(item.Name)
-		if item.Name == "" || strings.EqualFold(item.Name, primary) || seen[strings.ToLower(item.Name)] {
+		if item.Name == "" || strings.EqualFold(item.Name, primary) || isResearchDocumentTitle(item.Name) || seen[strings.ToLower(item.Name)] {
 			continue
 		}
 		if !hasRelatedEvidenceURL(item.Evidence) {

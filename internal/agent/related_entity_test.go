@@ -57,6 +57,7 @@ func TestNormalizeRelatedRequiresEvidenceURL(t *testing.T) {
 	items := normalizeRelated([]models.RelatedCompany{
 		{Name: "No Source Co", Confidence: 0.9},
 		{Name: "Sourced Co", Confidence: 0.8, Evidence: []models.RelatedEntityEvidence{{URL: "https://example.com"}}},
+		{Name: "India Chemicals Market Research Report", Confidence: 0.9, Evidence: []models.RelatedEntityEvidence{{URL: "https://example.com/report"}}},
 	}, "Primary Co")
 	if len(items) != 1 || items[0].Name != "Sourced Co" {
 		t.Fatalf("expected only URL-backed relationship, got %+v", items)
@@ -180,5 +181,63 @@ func TestExtractRescuesEvidenceFromHitsWhenTheModelOmitsIt(t *testing.T) {
 	}
 	if len(report.Leadership[0].Evidence) == 0 || !strings.Contains(report.Leadership[0].Evidence[0].URL, "example.com/hemant") {
 		t.Fatalf("expected the leader to carry rescued URL evidence, got %+v", report.Leadership[0].Evidence)
+	}
+}
+
+// TestWeeDooRegistryHitsConstructsAndGates pins the related-entity registry
+// enrichment: the WeeDoo company page is constructed from the CIN the run's
+// hits published, its content feeds both extractions, the trace records it —
+// and a fetched page that does not name the company is dropped.
+func TestWeeDooRegistryHitsConstructsAndGates(t *testing.T) {
+	store := cache.NewMemoryCache(10)
+	t.Cleanup(func() { store.Close() })
+	query := models.RelatedEntityQuery{CompanyName: "KLJ Resources Limited"}
+	trace := &models.SearchTrace{Queries: []models.QueryTrace{{
+		Query: `site:weedoo.in "KLJ Resources Limited"`,
+		Kept: []models.SearchResult{{
+			Title: "KLJ Resources Ltd", Link: "https://economictimes.indiatimes.com/company/klj-resources-ltd/L67120WB1986PLC041487", Snippet: "KLJ Resources Limited",
+		}},
+	}}}
+
+	registryAgent := NewRelatedEntityAgent(NewEngine(&mockLLM{}, &mockSearcher{}, &registryScraperMock{}, store, 5, 3, 10))
+	hits := registryAgent.weeDooRegistryHits(context.Background(), "sess_test", query, trace, nil)
+	if len(hits) != 1 {
+		t.Fatalf("expected the constructed registry page as a hit, got %+v", hits)
+	}
+	if hits[0].Link != "https://weedoo.in/company/KLJ-RESOURCES-LIMITED/L67120WB1986PLC041487" {
+		t.Fatalf("unexpected constructed URL: %q", hits[0].Link)
+	}
+	if len(trace.Queries) != 2 || !strings.Contains(trace.Queries[1].Purpose, "WeeDoo registry enrichment") {
+		t.Fatalf("expected the enrichment recorded on the trace, got %+v", trace.Queries)
+	}
+
+	// A fetched page that does not name the company is dropped. A separate cache
+	// store, so the registry agent's fetched page is not replayed from cache.
+	store2 := cache.NewMemoryCache(10)
+	t.Cleanup(func() { store2.Close() })
+	plainAgent := NewRelatedEntityAgent(NewEngine(&mockLLM{}, &mockSearcher{}, &mockScraper{}, store2, 5, 3, 10))
+	trace2 := &models.SearchTrace{Queries: append([]models.QueryTrace(nil), trace.Queries[:1]...)}
+	if got := plainAgent.weeDooRegistryHits(context.Background(), "sess_test", query, trace2, nil); got != nil {
+		t.Fatalf("a page that does not name the company must stay out, got %+v", got)
+	}
+}
+
+// TestWeeDooDirectorHitBuildsURLOnlyWithDIN pins the per-leader enrichment:
+// the director page is constructed from the resolved DIN and the director's
+// name slug, and is skipped entirely without a DIN.
+func TestWeeDooDirectorHitBuildsURLOnlyWithDIN(t *testing.T) {
+	store := cache.NewMemoryCache(10)
+	t.Cleanup(func() { store.Close() })
+	agent := NewRelatedEntityAgent(NewEngine(&mockLLM{}, &mockSearcher{}, &registryScraperMock{}, store, 5, 3, 10))
+
+	hit := agent.weeDooDirectorHit(context.Background(), "Hemant Jain", "00506995")
+	if hit == nil {
+		t.Fatal("expected the director page hit")
+	}
+	if hit.Link != "https://weedoo.in/director/HEMANT-JAIN/00506995" {
+		t.Fatalf("unexpected director page URL: %q", hit.Link)
+	}
+	if agent.weeDooDirectorHit(context.Background(), "Hemant Jain", "") != nil {
+		t.Fatal("without a DIN there is no director page to construct")
 	}
 }

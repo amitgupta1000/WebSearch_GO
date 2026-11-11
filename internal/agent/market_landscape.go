@@ -221,7 +221,7 @@ func marketCandidate(hit models.SearchResult, lane string, query models.MarketLa
 	}
 	sourceTier := marketSourceTier(domain)
 	evidenceType := "company-page"
-	if sourceTier == "news" || sourceTier == "social" || isGenericMarketTitle(name) || !hasMarketActivityEvidence(hit, query.Activity) || !hasCompanyIdentitySignal(name, domain) {
+	if sourceTier == "news" || sourceTier == "social" || sourceTier == "research" || isGenericMarketTitle(name) || isResearchDocumentTitle(name) || !hasMarketActivityEvidence(hit, query.Activity) || !hasCompanyIdentitySignal(name, domain) {
 		evidenceType = "discovery-lead"
 	}
 	return &models.MarketLandscapeCompany{
@@ -286,7 +286,7 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 	for _, candidate := range extracted {
 		candidate.Name = strings.TrimSpace(candidate.Name)
 		key := normalizeMarketName(candidate.Name)
-		if !isPlausibleMarketLeadName(candidate.Name) || seenNames[key] {
+		if !isPlausibleMarketLeadName(candidate.Name) || isResearchDocumentTitle(candidate.Name) || seenNames[key] {
 			rejected++
 			continue
 		}
@@ -484,7 +484,7 @@ func truncateMarketText(value string, max int) string {
 
 func marketVerificationEvidence(hit models.SearchResult, company, activity, purpose string) (models.MarketLandscapeEvidence, bool) {
 	tier := marketSourceTier(hostname(hit.Link))
-	if !isQualifyingMarketTier(tier) || !hasMarketActivityEvidence(hit, activity) || !mentionsMarketCompany(hit, company) {
+	if !isQualifyingMarketTier(tier) || isResearchDocumentTitle(company) || !hasMarketActivityEvidence(hit, activity) || !mentionsMarketCompany(hit, company) {
 		return models.MarketLandscapeEvidence{}, false
 	}
 	return models.MarketLandscapeEvidence{
@@ -536,6 +536,9 @@ func marketStatus(company *models.MarketLandscapeCompany) string {
 
 func marketSourceTier(domain string) string {
 	domain = strings.ToLower(domain)
+	if isResearchPublisherDomain(domain) {
+		return "research"
+	}
 	for _, marker := range []string{"reuters.", "bloomberg.", "news.", "oilprice."} {
 		if strings.Contains(domain, marker) {
 			return "news"
@@ -565,6 +568,38 @@ func marketSourceTier(domain string) string {
 
 func isQualifyingMarketTier(tier string) bool {
 	return tier == "official" || tier == "regulatory" || tier == "directory" || tier == "trade"
+}
+
+func isResearchPublisherDomain(domain string) bool {
+	domain = strings.ToLower(strings.TrimPrefix(domain, "www."))
+	for _, marker := range []string{
+		"researchandmarkets", "marketsandmarkets", "grandviewresearch",
+		"fortunebusinessinsights", "mordorintelligence", "imarcgroup",
+		"gminsights", "precedenceresearch", "expertmarketresearch",
+		"transparencymarketresearch", "alliedmarketresearch", "statista",
+		"credenceresearch", "industryarc", "factmr", "valuemarketresearch",
+	} {
+		if strings.Contains(domain, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isResearchDocumentTitle(title string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(title))
+	for _, marker := range []string{
+		"market report", "market research", "industry report", "industry analysis",
+		"research report", "sample report", "market forecast", "industry forecast",
+		"market outlook", "industry outlook", "size and share", "cost analysis",
+		"feasibility study", "white paper", "whitepaper", "journal", "patent",
+		"study on", "analysis of", "report on",
+	} {
+		if strings.Contains(lowered, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func isGenericMarketTitle(title string) bool {

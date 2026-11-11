@@ -82,6 +82,20 @@ func TestMarketSourceAndTitleClassification(t *testing.T) {
 	if got := marketSourceTier("www.facebook.com"); got != "social" {
 		t.Fatalf("got %q, want social", got)
 	}
+	if got := marketSourceTier("www.grandviewresearch.com"); got != "research" {
+		t.Fatalf("got %q, want research", got)
+	}
+	if !isResearchDocumentTitle("India Soap Manufacturers Market Research Report") {
+		t.Fatal("expected a research report title to be classified as non-company evidence")
+	}
+	candidate := marketCandidate(models.SearchResult{
+		Title: "India Soap Manufacturers Market Research Report",
+		Snippet: "Market size and forecast for soap manufacturers.",
+		Link: "https://www.grandviewresearch.com/industry-analysis/soap",
+	}, "manufacturer", models.MarketLandscapeQuery{Activity: "soap"})
+	if candidate == nil || candidate.EvidenceType != "discovery-lead" {
+		t.Fatalf("research report must remain a lead, got %+v", candidate)
+	}
 	if !isGenericMarketTitle("Top 10 Oil Companies in the Middle East") {
 		t.Fatal("expected list headline to be a discovery lead")
 	}
