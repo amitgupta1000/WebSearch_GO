@@ -157,6 +157,7 @@ type DeepSearchReport struct {
 	Warnings     []string            `json:"warnings,omitempty"`
 	StartedAt    time.Time           `json:"started_at"`
 	CompletedAt  time.Time           `json:"completed_at"`
+	Exports      []ExportArtifact    `json:"exports,omitempty"`
 }
 
 // CitedURLs returns every URL the synthesis claims as support.

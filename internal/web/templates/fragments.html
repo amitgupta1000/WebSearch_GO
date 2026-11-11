@@ -210,6 +210,7 @@
 		</div>
 		<div class="text-right text-xs text-slate-500">{{.QueriesUsed}} queries · {{.SearchHits}} hits · {{.PagesScraped}} pages read</div>
 	</div>
+	{{template "export_files" .Exports}}
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
 	<div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
 		<h4 class="text-sm font-semibold text-slate-300">Summary</h4>
@@ -241,6 +242,7 @@
 		</div>
 		<div class="text-right text-xs text-slate-500">{{.QueriesUsed}} queries · {{.SearchHits}} hits · {{.ArticlesScraped}} scraped</div>
 	</div>
+	{{template "export_files" .Exports}}
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
 	<div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
 		<div class="lg:col-span-2 bg-slate-950 border border-slate-800 rounded-xl p-4 prose prose-invert max-w-none"><h4 class="text-sm font-semibold text-slate-300">Synthesized report</h4><p class="text-sm text-slate-300 whitespace-pre-line leading-relaxed mt-2">{{.Synthesis.Article}}</p></div>

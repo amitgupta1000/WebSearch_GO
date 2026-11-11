@@ -198,6 +198,9 @@ type RunExporter interface {
 	ExportLegal(ctx context.Context, report *models.LegalReport) []models.ExportArtifact
 	ExportMarketLandscape(ctx context.Context, report *models.MarketLandscapeReport) []models.ExportArtifact
 	ExportDemandChain(ctx context.Context, report *models.DemandChainReport) []models.ExportArtifact
+	ExportNews(ctx context.Context, report *models.NewsReport) []models.ExportArtifact
+	ExportDeepSearch(ctx context.Context, report *models.DeepSearchReport) []models.ExportArtifact
+	ExportRelatedEntity(ctx context.Context, report *models.RelatedEntityReport) []models.ExportArtifact
 }
 
 // WithExporter attaches an artifact exporter.
@@ -704,6 +707,33 @@ func (e *Engine) ExportDemandChain(ctx context.Context, report *models.DemandCha
 	exportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exportTimeout)
 	defer cancel()
 	return e.exporter.ExportDemandChain(exportCtx, report)
+}
+
+func (e *Engine) ExportNews(ctx context.Context, report *models.NewsReport) []models.ExportArtifact {
+	if e == nil || e.exporter == nil || report == nil || !e.exporter.Enabled() {
+		return nil
+	}
+	exportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exportTimeout)
+	defer cancel()
+	return e.exporter.ExportNews(exportCtx, report)
+}
+
+func (e *Engine) ExportDeepSearch(ctx context.Context, report *models.DeepSearchReport) []models.ExportArtifact {
+	if e == nil || e.exporter == nil || report == nil || !e.exporter.Enabled() {
+		return nil
+	}
+	exportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exportTimeout)
+	defer cancel()
+	return e.exporter.ExportDeepSearch(exportCtx, report)
+}
+
+func (e *Engine) ExportRelatedEntity(ctx context.Context, report *models.RelatedEntityReport) []models.ExportArtifact {
+	if e == nil || e.exporter == nil || report == nil || !e.exporter.Enabled() {
+		return nil
+	}
+	exportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exportTimeout)
+	defer cancel()
+	return e.exporter.ExportRelatedEntity(exportCtx, report)
 }
 
 // exportSummary describes a run's artifacts for the agent log, and returns "" when

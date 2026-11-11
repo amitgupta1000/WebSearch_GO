@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // RelatedEntityQuery starts a bounded search from a confirmed company identity.
 type RelatedEntityQuery struct {
 	CompanyName    string
@@ -100,6 +102,8 @@ type RelatedEntityReport struct {
 	SearchHits           int                     `json:"search_hits"`
 	ReviewEvidence       []RelatedEntityEvidence `json:"review_evidence,omitempty"`
 	RocketReachDiscovery []RocketReachDiscovery  `json:"rocketreach_discovery,omitempty"`
+	Exports              []ExportArtifact        `json:"exports,omitempty"`
+	CompletedAt          time.Time               `json:"completed_at,omitempty"`
 }
 
 type RocketReachDiscovery struct {

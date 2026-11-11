@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -97,6 +98,8 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 	if len(report.Leadership) == 0 {
 		report.Warnings = append(report.Warnings, "No company-linked directors or senior executives were identified in the returned snippets.")
 	}
+	report.CompletedAt = time.Now().UTC()
+	report.Exports = a.engine.ExportRelatedEntity(ctx, report)
 	Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventComplete, Content: fmt.Sprintf("Found %d direct relationship(s), %d leader(s), and %d leadership relationship(s)", len(report.DirectRelationships), len(report.Leadership), len(report.LeadershipRelations))})
 	return report, nil
 }

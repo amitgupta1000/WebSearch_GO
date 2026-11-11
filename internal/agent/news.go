@@ -230,6 +230,7 @@ func (a *NewsAgent) Research(ctx context.Context, researchID string, query model
 		}
 	}
 	report.CompletedAt = a.now().UTC()
+	report.Exports = a.engine.ExportNews(ctx, report)
 	emitAgentEvent(eventCh, models.EventComplete, fmt.Sprintf("News report complete: %d article(s), %d chunk(s)", report.ArticlesSelected, report.ChunksCollected), "", "")
 	return report, nil
 }

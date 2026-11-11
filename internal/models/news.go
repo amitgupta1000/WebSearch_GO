@@ -83,19 +83,20 @@ type NewsSynthesis struct {
 
 // NewsReport is the auditable result of a News Agent run.
 type NewsReport struct {
-	ResearchID       string        `json:"research_id"`
-	Query            string        `json:"query"`
-	AsOf             time.Time     `json:"as_of"`
-	WindowStart      time.Time     `json:"window_start"`
-	Articles         []NewsArticle `json:"articles,omitempty"`
-	RejectedArticles []NewsArticle `json:"rejected_articles,omitempty"`
-	Synthesis        NewsSynthesis `json:"synthesis"`
-	QueriesUsed      int           `json:"queries_used"`
-	SearchHits       int           `json:"search_hits"`
-	ArticlesSelected int           `json:"articles_selected"`
-	ArticlesScraped  int           `json:"articles_scraped"`
-	ChunksCollected  int           `json:"chunks_collected"`
-	Warnings         []string      `json:"warnings,omitempty"`
-	StartedAt        time.Time     `json:"started_at"`
-	CompletedAt      time.Time     `json:"completed_at"`
+	ResearchID       string           `json:"research_id"`
+	Query            string           `json:"query"`
+	AsOf             time.Time        `json:"as_of"`
+	WindowStart      time.Time        `json:"window_start"`
+	Articles         []NewsArticle    `json:"articles,omitempty"`
+	RejectedArticles []NewsArticle    `json:"rejected_articles,omitempty"`
+	Synthesis        NewsSynthesis    `json:"synthesis"`
+	QueriesUsed      int              `json:"queries_used"`
+	SearchHits       int              `json:"search_hits"`
+	ArticlesSelected int              `json:"articles_selected"`
+	ArticlesScraped  int              `json:"articles_scraped"`
+	ChunksCollected  int              `json:"chunks_collected"`
+	Warnings         []string         `json:"warnings,omitempty"`
+	StartedAt        time.Time        `json:"started_at"`
+	CompletedAt      time.Time        `json:"completed_at"`
+	Exports          []ExportArtifact `json:"exports,omitempty"`
 }

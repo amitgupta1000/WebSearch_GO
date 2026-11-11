@@ -79,6 +79,7 @@ type document struct {
 	Legal        *models.LegalReport
 	Market       *models.MarketLandscapeReport
 	Chain        *models.DemandChainReport
+	Body         template.HTML
 	Timings      []models.PhaseTiming
 }
 

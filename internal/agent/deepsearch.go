@@ -138,7 +138,7 @@ func (a *DeepSearchAgent) Research(ctx context.Context, researchID string, query
 		fmt.Sprintf("Composed %d query(ies) across %d sub-question(s)", deepComposedCount(report.QueryPlan), len(report.QueryPlan.Entries)),
 		"compose", deepQueryPlanSummary(report.QueryPlan))
 
-		// Round state: URLs already seen, the run-level scrape budget, and the
+	// Round state: URLs already seen, the run-level scrape budget, and the
 	// reviewer's rerun queries tagged for the round that should run them.
 	// All are only touched on this goroutine: a round's searches run
 	// concurrently, but their results are consumed after the round joins.
@@ -450,6 +450,7 @@ func deepFinish(ctx context.Context, eng *Engine, report *models.DeepSearchRepor
 			report.Warnings = append(report.Warnings, "Pages were read but no grounded answers could be extracted from them; no report was synthesized.")
 		}
 		report.CompletedAt = completedAt
+		report.Exports = eng.ExportDeepSearch(ctx, report)
 		emitAgentEvent(eventCh, models.EventComplete, "Deep search finished without usable evidence", "", "")
 		return nil
 	}
@@ -458,6 +459,7 @@ func deepFinish(ctx context.Context, eng *Engine, report *models.DeepSearchRepor
 		return err
 	}
 	report.CompletedAt = completedAt
+	report.Exports = eng.ExportDeepSearch(ctx, report)
 	emitAgentEvent(eventCh, models.EventComplete,
 		fmt.Sprintf("Deep search complete: %d round(s), %d source(s), %d answer pair(s), %d finding(s)",
 			report.RoundsRun, len(report.Sources), len(report.QAPairs), len(report.Synthesis.Findings)), "", "")
@@ -866,13 +868,3 @@ func deepCleanList(values []string, capValue int) []string {
 	}
 	return cleaned
 }
-
-
-
-
-
-
-
-
-
-

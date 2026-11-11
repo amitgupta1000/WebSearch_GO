@@ -63,6 +63,36 @@ func (e *Exporter) ExportDemandChain(ctx context.Context, report *models.DemandC
 		reportFooter(demandChainReportTitle(report), generatedStamp(report.CompletedAt)), nil)
 }
 
+// ExportNews renders and stores a finished news report.
+func (e *Exporter) ExportNews(ctx context.Context, report *models.NewsReport) []models.ExportArtifact {
+	if !e.Enabled() || report == nil {
+		return nil
+	}
+	return e.exportRun(ctx, "news", report.Query,
+		renderNewsMarkdown(report), renderNewsHTML(report),
+		reportFooter(newsReportTitle(report), generatedStamp(report.CompletedAt)), nil)
+}
+
+// ExportDeepSearch renders and stores a finished deep-search report.
+func (e *Exporter) ExportDeepSearch(ctx context.Context, report *models.DeepSearchReport) []models.ExportArtifact {
+	if !e.Enabled() || report == nil {
+		return nil
+	}
+	return e.exportRun(ctx, "deep-search", report.Question,
+		renderDeepSearchMarkdown(report), renderDeepSearchHTML(report),
+		reportFooter(deepSearchReportTitle(report), generatedStamp(report.CompletedAt)), nil)
+}
+
+// ExportRelatedEntity renders and stores a finished related-entity report.
+func (e *Exporter) ExportRelatedEntity(ctx context.Context, report *models.RelatedEntityReport) []models.ExportArtifact {
+	if !e.Enabled() || report == nil {
+		return nil
+	}
+	return e.exportRun(ctx, "related-entities", report.CompanyName,
+		renderRelatedEntityMarkdown(report), renderRelatedEntityHTML(report),
+		reportFooter(relatedEntityReportTitle(report), generatedStamp(report.CompletedAt)), report.SearchTrace)
+}
+
 // exportRun writes every enabled format, reporting one artifact per attempt: a
 // failed PDF must not hide the Markdown that was stored successfully. The search
 // trace — every query with its kept and excluded hits — is stored alongside them
