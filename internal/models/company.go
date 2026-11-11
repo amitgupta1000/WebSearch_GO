@@ -27,7 +27,7 @@ type OrgChart struct {
 	// Exports lists the output files written for this run (Markdown and PDF).
 	Exports []ExportArtifact `json:"exports,omitempty"`
 	// SearchTrace is the raw search evidence the run collected — every planned query with
-	// its kept and excluded hits — behind the Search results tab and the searches.json
+	// its kept and excluded hits — behind the Search results tab and the report appendix
 	// artifact. Attached by the agent.
 	SearchTrace *SearchTrace `json:"search_trace,omitempty"`
 	// RocketReachDiscovery records strictly employer-matched RR candidates that

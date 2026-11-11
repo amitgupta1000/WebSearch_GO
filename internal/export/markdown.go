@@ -186,7 +186,7 @@ func renderEntityGateMarkdown(gate *models.EntityGate) string {
 }
 
 // excludedResultsPerQuery caps how many excluded hits one query lists in the
-// report appendix; the searches.json artifact carries the full list with snippets.
+// report appendix; the export keeps the report concise.
 const excludedResultsPerQuery = 8
 
 // renderExcludedResultsMarkdown lists the search hits the identity gate excluded,
@@ -195,7 +195,7 @@ const excludedResultsPerQuery = 8
 // differently from the legal name ("Goyum Screwpress" vs "Goyum Screw Press") —
 // so the exclusions are presented for review instead of vanishing: a reader who
 // recognizes the company's own page here knows the variant needs an alias, and
-// the searches.json artifact carries the uncapped list.
+// the report appendix carries the selected evidence.
 func renderExcludedResultsMarkdown(trace *models.SearchTrace) string {
 	if trace == nil || trace.ExcludedCount() == 0 {
 		return ""
@@ -211,7 +211,7 @@ func renderExcludedResultsMarkdown(trace *models.SearchTrace) string {
 		builder.WriteString("| Result | Link |\n| :--- | :--- |\n")
 		for index, hit := range query.Excluded {
 			if index == excludedResultsPerQuery {
-				fmt.Fprintf(&builder, "| …and %d more (full list in the searches.json artifact) |  |\n", len(query.Excluded)-excludedResultsPerQuery)
+				fmt.Fprintf(&builder, "| …and %d more (additional results omitted) |  |\n", len(query.Excluded)-excludedResultsPerQuery)
 				break
 			}
 			fmt.Fprintf(&builder, "| %s | %s |\n", markdownCell(hit.Title), markdownCell(hit.Link))

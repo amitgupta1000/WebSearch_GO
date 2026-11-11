@@ -125,7 +125,11 @@ match is pre-selected and focused), and never dead-ends:
 - **Related entities** (`POST /api/resolve-entity`, `mode=related_entity`): confirms the
   company, searches direct corporate relationships first, then searches up to eight
   company-linked leaders for external company involvement. It performs a cache-first preflight
-  over the full plan and reports cache/result counts. Direct and leadership-derived
+  over the full plan and reports cache/result counts. Extraction must cite evidence: every
+  reported relationship or leader carries the hit URL that states it, claims the model
+  returns uncited are grounded deterministically from the run's own hits — or dropped when no
+  hit mentions them — and evidence may arrive as JSON objects, plain strings, or missing
+  without failing the extraction. Direct and leadership-derived
   relationships are reported separately and are never folded into the primary company identity;
   returned snippets remain visible for review when classification is inconclusive. This mode
   does not call RocketReach.
@@ -246,8 +250,7 @@ discovery pass between the company track and the person track:
    listed as *not searched* with how they were discovered. The report marks them
    **discovered**, and the pass reports its own queries and yield as a source line.
 
-Exports write a Markdown document and a PDF under the `legal/` prefix, plus the run's
-`-searches.json` trace.
+Exports write only a Markdown document and a PDF under the `legal/` prefix.
 
 ```bash
 curl -X POST "http://localhost:8080/api/research?sync=1" \
@@ -500,11 +503,9 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
   operators of those consuming stages plus tender/import/input-language lanes, and verifies
   consumption with claim-typed evidence. Its artifacts land under `demand-chain/` with the value
   chain leading both documents.
-- **Search results** (`<run>-searches.json`) accompany every run: every query it issued, with
-  each hit split into what the identity/entity gate kept and what it excluded. The console's
-  **Search results** panel previews it per query and links the download; the file is written
-  regardless of the configured output formats, because the rendered artifacts quote the
-  findings while this one carries the findings themselves.
+- **Search results** remain available in the console per query, with each hit split into what
+  the identity/entity gate kept and what it excluded. Exported runs contain only the Markdown
+  and PDF report artifacts.
 - **PDF** is printed from the same content by the Chromium the scraper already runs, so no
   PDF library is involved. The document is self-contained (inline styling, no remote assets).
 - **Names are `<timestamp>-<subject>.md`**, which sorts chronologically and keeps an

@@ -48,6 +48,10 @@ const printCSS = `
   .meta { color: ` + brandSecondary + `; font-size: 9pt; margin: 2mm 0 0; }
   .dim { color: ` + brandSecondary + `; }
   .src { color: ` + brandSecondary + `; font-size: 8.5pt; word-break: break-all; }
+  .report-text { overflow-wrap: anywhere; word-break: break-word; font-family: ` + brandSansStack + `; font-size: 11pt; line-height: 1.58; }
+  .report-text p { margin: 0 0 4mm; }
+  .report-text h1 { margin-top: 0; }
+  .report-text h2 { margin-top: 7mm; }
   table { width: 100%; border-collapse: collapse; margin: 3mm 0 5mm; }
   th, td { text-align: left; padding: 2.2mm 2.5mm; border-bottom: 1px solid #e9e2da; vertical-align: top; }
   th { background: ` + brandCream + `; border-top: 2px solid ` + brandAccentSoft + `; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.05em; color: ` + brandAccent + `; }
@@ -407,7 +411,7 @@ var companyHTMLTemplate = documentTemplate("company", `
 </section>{{end}}
 {{if .Chart.SearchTrace}}{{if .Chart.SearchTrace.ExcludedCount}}<section>
 	<h2>Excluded search results</h2>
-	<p class="dim">The searches returned hits the identity gate did not admit, because they do not name the company the way the gate spells it. An operating name typed differently from the legal name is the usual cause &mdash; skim the list before trusting the roster. The searches.json artifact carries the full list with snippets.</p>
+	<p class="dim">The searches returned hits the identity gate did not admit, because they do not name the company the way the gate spells it. An operating name typed differently from the legal name is the usual cause &mdash; skim the list before trusting the roster.</p>
 	{{range .Chart.SearchTrace.QueriesWithCappedExclusions 10}}{{if .Excluded}}
 	<h3>{{.Query}} <span class="dim">({{len .Excluded}} shown)</span></h3>
 	<table><thead><tr><th>Result</th><th>Link</th></tr></thead><tbody>

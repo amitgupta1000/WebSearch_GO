@@ -2,7 +2,6 @@ package export
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -13,10 +12,7 @@ import (
 	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
-// TestExportWritesTheSearchTrace pins the downloadable half: a run with a search trace
-// stores a third artifact, <name>-searches.json, whose payload decodes back into the trace —
-// the file the Search results tab links to.
-func TestExportWritesTheSearchTrace(t *testing.T) {
+func TestExportWritesOnlyMarkdownAndPDF(t *testing.T) {
 	destination := newRecordingDestination()
 	exporter := New(destination, nil, "WebSearch_GO/", []string{FormatMarkdown})
 	profile := sampleProfile()
@@ -27,39 +23,14 @@ func TestExportWritesTheSearchTrace(t *testing.T) {
 	}}
 
 	artifacts := exporter.ExportPerson(context.Background(), profile)
-	if len(artifacts) != 2 { // markdown only (no PDF renderer) + the searches JSON
-		t.Fatalf("expected the markdown and the searches artifact, got %+v", artifacts)
-	}
-	var searches *models.ExportArtifact
-	for index := range artifacts {
-		if artifacts[index].Format == FormatJSON {
-			searches = &artifacts[index]
-		}
-	}
-	if searches == nil {
-		t.Fatalf("expected a json search-trace artifact, got %+v", artifacts)
-	}
-	if !strings.HasSuffix(searches.Name, "-searches.json") {
-		t.Errorf("expected the searches artifact named <run>-searches.json, got %q", searches.Name)
-	}
-	if searches.ContentType != "application/json; charset=utf-8" {
-		t.Errorf("expected the searches artifact stored as json, got %q", searches.ContentType)
-	}
-	payload, ok := destination.objects[searches.Name]
-	if !ok {
-		t.Fatalf("expected the searches payload recorded at %q", searches.Name)
-	}
-	var decoded models.SearchTrace
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		t.Fatalf("the searches payload must decode as a search trace: %v", err)
-	}
-	if len(decoded.Queries) != 1 || decoded.Queries[0].Query != "Asha Rao KLJ Resources" || len(decoded.Queries[0].Kept) != 1 {
-		t.Fatalf("expected the trace round-tripped, got %+v", decoded)
+	if len(artifacts) != 1 || artifacts[0].Format != FormatMarkdown {
+		t.Fatalf("expected only the markdown artifact, got %+v", artifacts)
 	}
 
-	// A run that recorded no trace stores only its rendered artifacts.
-	if bare := exporter.ExportPerson(context.Background(), sampleProfile()); len(bare) != 1 {
-		t.Errorf("expected no searches artifact without a trace, got %+v", bare)
+	for name := range destination.objects {
+		if strings.HasSuffix(name, ".json") {
+			t.Errorf("export wrote a JSON artifact %q", name)
+		}
 	}
 }
 

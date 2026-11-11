@@ -44,7 +44,7 @@ func TestCompanyMarkdownListsExcludedSearchResults(t *testing.T) {
 	}
 
 	// More excluded hits than the per-query cap truncate with a pointer to the
-	// searches.json artifact rather than reprinting the whole trace.
+	// report appendix rather than reprinting the whole trace.
 	overflow := sampleChart()
 	excluded := make([]models.SearchResult, 0, excludedResultsPerQuery+2)
 	for index := 0; index < excludedResultsPerQuery+2; index++ {
@@ -57,7 +57,7 @@ func TestCompanyMarkdownListsExcludedSearchResults(t *testing.T) {
 		{Query: `"goyum screwpress" Ludhiana`, Excluded: excluded},
 	}}
 	overflowMarkdown := renderCompanyMarkdown(overflow)
-	if !strings.Contains(overflowMarkdown, "…and 2 more (full list in the searches.json artifact)") {
+	if !strings.Contains(overflowMarkdown, "…and 2 more (additional results omitted)") {
 		t.Errorf("expected a truncation note for the hits past the cap")
 	}
 	if strings.Contains(overflowMarkdown, "Hit 9") {

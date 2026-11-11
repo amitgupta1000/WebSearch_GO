@@ -12,15 +12,24 @@ import (
 	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
+// rocketReachSource is the RocketReach surface the person agent needs: the paid
+// person lookup and the free disambiguating search. *tools.RocketReachClient
+// satisfies it; tests script it.
+type rocketReachSource interface {
+	Enabled() bool
+	Lookup(ctx context.Context, name, company, linkedinURL string) (*tools.RocketReachProfile, error)
+	Search(ctx context.Context, conditions map[string][]string) ([]tools.RocketReachProfile, error)
+}
+
 // PersonAgent conducts disambiguation, online footprint analysis, and dossier compilation.
 type PersonAgent struct {
 	engine      *Engine
-	rocketReach *tools.RocketReachClient
+	rocketReach rocketReachSource
 }
 
 // NewPersonAgent initializes the person research specialist agent.
 func NewPersonAgent(engine *Engine, rocketReach ...*tools.RocketReachClient) *PersonAgent {
-	var client *tools.RocketReachClient
+	var client rocketReachSource
 	if len(rocketReach) > 0 {
 		client = rocketReach[0]
 	}
@@ -88,7 +97,7 @@ func (pa *PersonAgent) ResearchPerson(
 	// planResults carries every query's gate-passing snippets in plan order, so the fetch
 	// phase can pick pages from all of the searches rather than the first one's. searchTrace
 	// records what each search returned — kept and excluded, before cross-query dedupe —
-	// behind the Search results tab and the searches.json artifact.
+	// behind the Search results tab and the report appendix.
 	type planSearch struct {
 		entry   personPlanEntry
 		results []models.SearchResult
@@ -616,6 +625,14 @@ Rules:
 	return &profile, nil
 }
 
+// lookupRocketReach runs the priority RocketReach pipeline before any other
+// search: one authoritative record can spare the run most of its web
+// research. The direct lookup (the operator's seed profile first, then the name
+// plus the confirmed employer) escalates through RocketReach's free search
+// endpoint when it misses, so a same-named profile at the confirmed employer is
+// found and enriched instead of the miss quietly abandoning the source. Paid
+// contact enrichment is spent only on the one profile the confirmed identity
+// matches.
 func (pa *PersonAgent) lookupRocketReach(ctx context.Context, sessionID string, query models.PersonQuery, eventCh chan<- models.AgentEvent) *tools.RocketReachProfile {
 	if pa.rocketReach == nil || !pa.rocketReach.Enabled() {
 		Emit(eventCh, models.AgentEvent{
@@ -645,6 +662,12 @@ func (pa *PersonAgent) lookupRocketReach(ctx context.Context, sessionID string, 
 		return nil
 	}
 	if result == nil {
+		// The one-shot lookup missed. The free search endpoint can still find
+		// the right profile among same-named people, and only the matched
+		// candidate costs a lookup credit.
+		result = pa.searchRocketReachCandidate(ctx, sessionID, query, eventCh)
+	}
+	if result == nil {
 		Emit(eventCh, models.AgentEvent{
 			SessionID: sessionID,
 			Type:      models.EventToolResult,
@@ -661,6 +684,86 @@ func (pa *PersonAgent) lookupRocketReach(ctx context.Context, sessionID string, 
 			result.LinkedInURL != "", len(result.JobHistory), len(result.Education), len(result.Skills), len(result.Emails), len(result.Phones)),
 	})
 	return result
+}
+
+// searchRocketReachCandidate finds the person through RocketReach's free search
+// endpoint when the direct lookup misses, and fetches the full profile for the
+// one candidate worth a paid lookup. Search results carry summary facts only, so
+// the selected candidate's full record — contact details included — comes back
+// with a second lookup pinned to its LinkedIn URL; if that paid fetch fails, the
+// search profile itself is still the structured record the run wants.
+func (pa *PersonAgent) searchRocketReachCandidate(ctx context.Context, sessionID string, query models.PersonQuery, eventCh chan<- models.AgentEvent) *tools.RocketReachProfile {
+	name := strings.TrimSpace(query.Name)
+	if name == "" {
+		return nil
+	}
+	conditions := map[string][]string{"name": []string{name}}
+	if company := strings.TrimSpace(query.Company); company != "" {
+		conditions["current_employer"] = []string{company}
+	}
+	if location := strings.TrimSpace(query.Location); location != "" {
+		conditions["location"] = []string{location}
+	}
+	profiles, err := pa.rocketReach.Search(ctx, conditions)
+	if err != nil {
+		log.Printf("[PERSON][session %s] RocketReach search fallback unavailable: %v", sessionID, err)
+		return nil
+	}
+	candidate := selectRocketReachCandidate(profiles, query)
+	if candidate == nil {
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID, Type: models.EventToolResult, Step: 1,
+			ToolName: "rocketreach_lookup",
+			Content:  fmt.Sprintf("search fallback returned %d profile(s) but none matched the confirmed identity; no lookup credit charged", len(profiles)),
+		})
+		return nil
+	}
+	Emit(eventCh, models.AgentEvent{
+		SessionID: sessionID, Type: models.EventThinking, Step: 1,
+		Content: fmt.Sprintf("RocketReach search fallback pinned the employer-matched profile for %s; fetching its full record...", candidate.Name),
+	})
+	result, err := pa.rocketReach.Lookup(ctx, candidate.Name, candidate.CurrentEmployer, candidate.LinkedInURL)
+	if err != nil {
+		log.Printf("[PERSON][session %s] RocketReach candidate lookup unavailable: %v", sessionID, err)
+		return candidate
+	}
+	return result
+}
+
+// selectRocketReachCandidate picks the one profile worth a paid lookup: the
+// operator's confirmed seed profile first, then the first profile whose stated
+// employer matches the confirmed company. Without a company or a seed the
+// identity is unconfirmed, so only a lone exactly-named profile is safe to
+// take — an ambiguous set is left alone rather than guessed at.
+func selectRocketReachCandidate(profiles []tools.RocketReachProfile, query models.PersonQuery) *tools.RocketReachProfile {
+	seed := strings.ToLower(strings.TrimSpace(query.SeedURL))
+	company := strings.TrimSpace(query.Company)
+	for index := range profiles {
+		profile := &profiles[index]
+		if seed != "" && strings.EqualFold(strings.TrimSpace(profile.LinkedInURL), strings.TrimSpace(query.SeedURL)) {
+			return profile
+		}
+	}
+	for index := range profiles {
+		profile := &profiles[index]
+		if company != "" && rocketReachEmployerMatches(profile.CurrentEmployer, company) {
+			return profile
+		}
+	}
+	if company == "" && seed == "" {
+		var matched *tools.RocketReachProfile
+		count := 0
+		for index := range profiles {
+			if strings.EqualFold(strings.TrimSpace(profiles[index].Name), strings.TrimSpace(query.Name)) {
+				matched = &profiles[index]
+				count++
+			}
+		}
+		if count == 1 {
+			return matched
+		}
+	}
+	return nil
 }
 
 func applyRocketReachContact(profile *models.PersonProfile, result *tools.RocketReachProfile) {

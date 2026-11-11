@@ -65,5 +65,7 @@ func renderRelatedEntityHTML(report *models.RelatedEntityReport) string {
 		relatedEntityReportTitle(report),
 		nonEmpty(report.CompanyName, "Related entities"),
 		renderRelatedEntityMarkdown(report),
+		report.CompletedAt,
+		"related-entities",
 	)
 }

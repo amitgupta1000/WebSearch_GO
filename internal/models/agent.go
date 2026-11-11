@@ -47,7 +47,7 @@ type SearchResult struct {
 // SearchTrace captures the raw search evidence a run collected: every query issued, and the
 // hits it returned split into what the identity/entity gates kept and what they excluded. It
 // is attached by the agent, never by the model, and it is the data behind the dossier's
-// Search results tab and the run's -searches.json artifact — the same material the cache
+// Search results tab — the same material the cache
 // persists, made downloadable per run.
 type SearchTrace struct {
 	Queries []QueryTrace `json:"queries"`
@@ -88,7 +88,7 @@ func (t *SearchTrace) ExcludedCount() int {
 
 // QueriesWithCappedExclusions returns the trace's queries with each query's
 // excluded hits truncated to limit entries, for report renderers that include an
-// appendix without reprinting the whole searches.json artifact. Kept hits and the
+// appendix without reprinting the whole trace. Kept hits and the
 // query text are shared, not copied.
 func (t *SearchTrace) QueriesWithCappedExclusions(limit int) []QueryTrace {
 	if t == nil || limit <= 0 {

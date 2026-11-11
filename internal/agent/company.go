@@ -801,6 +801,41 @@ func searchSnippetEvidence(ranked []models.RankedResult, results []models.Search
 	return evidence
 }
 
+// maxCompanyRegistryPages bounds the WeeDoo enrichment in company mode: the
+// same three-page cap the related-entity segment uses.
+const maxCompanyRegistryPages = 3
+
+// isCompanyRegistryURL reports whether a URL is a WeeDoo registry page — the
+// Indian company directory whose pages list directors, DINs, addresses and
+// group links.
+func isCompanyRegistryURL(targetURL string) bool {
+	return strings.Contains(strings.ToLower(targetURL), "weedoo.")
+}
+
+// companyRegistryCandidates picks the WeeDoo registry pages among the run's
+// search results that the entity gate accepts, in trace order, capped at
+// maxCompanyRegistryPages: a directory page about another company is excluded
+// exactly like any other source.
+func companyRegistryCandidates(results []models.SearchResult, matcher *entityMatcher) []models.SearchResult {
+	candidates := make([]models.SearchResult, 0, maxCompanyRegistryPages)
+	seen := make(map[string]bool)
+	for _, result := range results {
+		if len(candidates) >= maxCompanyRegistryPages {
+			break
+		}
+		link := strings.TrimSpace(result.Link)
+		if !isCompanyRegistryURL(link) || seen[normalizeURL(link)] {
+			continue
+		}
+		if !snippetNamesEntity(result, matcher) {
+			continue
+		}
+		seen[normalizeURL(link)] = true
+		candidates = append(candidates, result)
+	}
+	return candidates
+}
+
 // allSearchSnippetEvidence keeps the public snippet for every collected result.
 // Full-page evidence remains preferred by appendUniqueEvidence, while snippets
 // preserve useful indexed facts when a page is blocked, paywalled, or simply
@@ -819,6 +854,9 @@ func allSearchSnippetEvidence(results []models.SearchResult, matcher *entityMatc
 			sourceType = "indexed_profile"
 			evidenceType = "search_snippet_fallback"
 			quality = 0.25
+		case isCompanyRegistryURL(result.Link):
+			sourceType = "company_registry"
+			quality = 0.3
 		case matchesPromotedCompanyAggregator(result.Link):
 			sourceType = "aggregator"
 			quality = 0.25
@@ -1127,7 +1165,7 @@ func (ca *CompanyAgent) searchPlan(ctx context.Context, sessionID string, plan m
 			}
 		}
 		// The trace records what this query returned and what the entity gate made of it,
-		// per query — the raw material behind the Search results tab and the searches.json
+		// per query — the raw material behind the Search results tab.
 		// artifact, so a run's findings can be audited or reused outside the UI.
 		kept, excluded := splitEntitySnippets(usable, matcher)
 		trace.Queries = append(trace.Queries, models.QueryTrace{
@@ -1381,6 +1419,13 @@ func classifySource(brief models.CompanyBrief, targetURL string) sourceProfile {
 	}
 	if strings.Contains(host, "linkedin.") {
 		return sourceProfile{sourceType: "professional_profile", quality: 0.6}
+	}
+	// WeeDoo publishes registry-style company records — directors with DINs,
+	// addresses, group and subsidiary links — the enrichment the related-entity
+	// segment scrapes by hand. Company mode fetches these as a priority source
+	// instead of leaving them at the bottom of the scrape ladder.
+	if containsAny(host, "weedoo.") && companySourceProfile(brief) == SourceProfileIndia {
+		return sourceProfile{sourceType: "company_registry", quality: 0.75}
 	}
 	if containsAny(host, "argusmedia", "spglobal", "platts") {
 		return sourceProfile{sourceType: "industry_event", quality: 0.75}
@@ -1696,6 +1741,50 @@ func (ca *CompanyAgent) scrapeRankedWithBrief(ctx context.Context, sessionID str
 	// tie a person to the company at all.
 	scrapeCtx, cancelScrape := scrapeDeadlineContext(ctx)
 	defer cancelScrape()
+	// WeeDoo registry pages are fetched first, as a bounded priority source: an
+	// Indian company's directory page lists directors with DINs, addresses and
+	// group links that its Google snippet truncates — the same enrichment the
+	// related-entity segment scrapes by hand. The pass is entity-gated like every
+	// other source and spends the ordinary scrape budget, because it runs on the
+	// same deadline that protects the lookup passes.
+	registry := companyRegistryCandidates(searchResults, matcher)
+	if len(registry) > 0 {
+		registryURLs := make([]string, 0, len(registry))
+		for _, target := range registry {
+			registryURLs = append(registryURLs, target.Link)
+		}
+		Emit(eventCh, models.AgentEvent{SessionID: sessionID, Type: models.EventToolCall, Step: 8, ToolName: "web_scraper",
+			ToolInput: registryURLs[0], Content: fmt.Sprintf("Scraping %d priority WeeDoo registry page(s)...", len(registryURLs))})
+		for index, outcome := range ca.engine.ScrapeCachedBatch(scrapeCtx, registryURLs) {
+			target := registry[index]
+			entry := models.ScrapeReportEntry{URL: target.Link, SourceType: "company_registry", Status: "failed"}
+			if outcome.Err != nil {
+				entry.Reason = outcome.Err.Error()
+				report = append(report, entry)
+				continue
+			}
+			scrape := outcome.Result
+			if scrape == nil || strings.TrimSpace(scrape.Content) == "" {
+				entry.Reason = "no usable registry page"
+				report = append(report, entry)
+				continue
+			}
+			entry.Status = "success"
+			entry.Reason = "priority registry enrichment (WeeDoo)"
+			entry.WordCount = scrape.WordCount
+			entry.QualityScore = scrape.QualityScore
+			entry.Extractor = scrape.Extractor
+			item := models.RankedResult{
+				URL: target.Link, Title: target.Title, Snippet: target.Snippet, Score: 0.9,
+				Reason: "priority registry enrichment", EvidenceType: "company_registry", SourceType: "company_registry",
+			}
+			known[normalizeURL(target.Link)] = true
+			evidence = append(evidence, ca.evidenceWithOCR(scrapeCtx, item, scrape, &entry))
+			sources = append(sources, target.Link)
+			usableScrapes++
+			report = append(report, entry)
+		}
+	}
 	// Professional profiles are attempted through the bounded ladder whenever it
 	// is available: it renders public pages under its own budget, reports a wall it
 	// cannot pass, and never solves a challenge. The ALLOW_PROFILE_SCRAPING opt-in
@@ -2444,14 +2533,16 @@ func selectScrapeCandidates(ranked []models.RankedResult, limit int, allowProfil
 			return 2
 		case "official":
 			return 3
-		case "leadership":
+		case "company_registry":
 			return 4
-		case "industry_event":
+		case "leadership":
 			return 5
+		case "industry_event":
+			return 6
 		case "external":
-			return 6
+			return 7
 		default:
-			return 6
+			return 7
 		}
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {

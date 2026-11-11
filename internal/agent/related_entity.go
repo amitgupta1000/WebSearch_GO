@@ -205,13 +205,17 @@ func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEn
 	if err != nil {
 		return fmt.Errorf("prepare direct related-entity evidence: %w", err)
 	}
-	var directExtracted struct {
-		DirectRelationships []models.RelatedCompany `json:"direct_relationships"`
-	}
-	if err := a.engine.llmClient.GenerateStructured(ctx, `Extract only explicitly stated direct corporate relationships for the primary company from the supplied Google-indexed results. Do not infer ownership from a name alone. Return JSON with direct_relationships; return an empty array when evidence is insufficient.`, string(directPayload), &directExtracted); err != nil {
+	var directExtracted relatedDirectExtraction
+	if err := a.engine.llmClient.GenerateStructured(ctx, `Extract only explicitly stated direct corporate relationships for the primary company from the supplied Google-indexed results. Do not infer ownership from a name alone. For every relationship include evidence: an array of the hit(s) that state it, each with url (required — copy the url from the supplied hits), title and snippet. Omit any relationship you cannot cite from the supplied hits. Return JSON with direct_relationships; return an empty array when evidence is insufficient.`, string(directPayload), &directExtracted); err != nil {
 		report.Warnings = append(report.Warnings, fmt.Sprintf("Direct relationship extraction failed: %v", err))
 	} else {
-		report.DirectRelationships = normalizeRelated(directExtracted.DirectRelationships, query.CompanyName)
+		relationships := make([]models.RelatedCompany, 0, len(directExtracted.DirectRelationships))
+		for _, item := range directExtracted.DirectRelationships {
+			relationship := item.RelatedCompany()
+			relationship.Evidence = attachEvidenceFromHits(relationship.Evidence, relationship.Name, query.CompanyName, directHits)
+			relationships = append(relationships, relationship)
+		}
+		report.DirectRelationships = normalizeRelated(relationships, query.CompanyName)
 	}
 
 	leaderPayload, err := json.Marshal(struct {
@@ -222,11 +226,17 @@ func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEn
 		return fmt.Errorf("prepare leadership evidence: %w", err)
 	}
 	var leaderExtracted relatedLeadershipExtraction
-	if err := a.engine.llmClient.GenerateStructured(ctx, `Extract company-linked leadership from the supplied Google-indexed results. Include only named people with an explicit role at the primary company. Prioritize director, managing director, executive director, promoter, founder, CEO, CFO, COO, partner, and managing partner. Do not infer identity from a name alone. Return JSON with leadership; return an empty array when evidence is insufficient.`, string(leaderPayload), &leaderExtracted); err != nil {
+	if err := a.engine.llmClient.GenerateStructured(ctx, `Extract company-linked leadership from the supplied Google-indexed results. Include only named people with an explicit role at the primary company. Prioritize director, managing director, executive director, promoter, founder, CEO, CFO, COO, partner, and managing partner. Do not infer identity from a name alone. For every person include evidence: an array of the hit(s) that name them in the role at the company, each with url (required — copy the url from the supplied hits), title and snippet. Omit any person you cannot cite from the supplied hits. Return JSON with leadership; return an empty array when evidence is insufficient.`, string(leaderPayload), &leaderExtracted); err != nil {
 		report.Warnings = append(report.Warnings, fmt.Sprintf("Leadership extraction failed: %v", err))
 		return nil
 	}
-	report.Leadership = normalizeLeaders(leaderExtracted.Leadership, query.CompanyName, query.MaxLeaders)
+	leaders := make([]models.LeadershipSubject, 0, len(leaderExtracted.Leadership))
+	for _, item := range leaderExtracted.Leadership {
+		leader := item.LeadershipSubject()
+		leader.Evidence = attachEvidenceFromHits(leader.Evidence, leader.Name, query.CompanyName, leaderHits)
+		leaders = append(leaders, leader)
+	}
+	report.Leadership = normalizeLeaders(leaders, query.CompanyName, query.MaxLeaders)
 	if len(report.Leadership) == 0 {
 		return nil
 	}
@@ -479,6 +489,7 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 				for _, item := range extracted.Companies {
 					company := item.RelatedCompany()
 					company.Person = leader.Name
+					company.Evidence = attachEvidenceFromHits(company.Evidence, company.Name, query.CompanyName, personHits)
 					companies = append(companies, company)
 				}
 				outcomes <- outcome{index: index, items: companies, trace: traces, identity: identity}
@@ -631,8 +642,50 @@ type relatedCompanyExtraction struct {
 	Evidence      json.RawMessage    `json:"evidence"`
 }
 
+// relatedDirectExtraction decodes the model's direct-relationship output. The
+// model may emit the bare array or the wrapped object, and evidence arrives in
+// several shapes (object arrays, plain strings, missing) that parseRelatedEvidence
+// tolerates, so one odd field never fails the whole extraction.
+type relatedDirectExtraction struct {
+	DirectRelationships []relatedCompanyExtraction `json:"direct_relationships"`
+}
+
+func (e *relatedDirectExtraction) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) > 0 && data[0] == '[' {
+		return json.Unmarshal(data, &e.DirectRelationships)
+	}
+	type extraction relatedDirectExtraction
+	var object extraction
+	if err := json.Unmarshal(data, &object); err != nil {
+		return err
+	}
+	*e = relatedDirectExtraction(object)
+	return nil
+}
+
+// relatedLeaderExtraction decodes one extracted leader tolerantly, accepting the
+// same evidence shapes the per-person extraction path does.
+type relatedLeaderExtraction struct {
+	Name       string             `json:"name"`
+	Role       string             `json:"role"`
+	Company    string             `json:"company"`
+	Confidence flexibleConfidence `json:"confidence"`
+	Evidence   json.RawMessage    `json:"evidence"`
+}
+
+func (item relatedLeaderExtraction) LeadershipSubject() models.LeadershipSubject {
+	return models.LeadershipSubject{
+		Name:       item.Name,
+		Role:       item.Role,
+		Company:    item.Company,
+		Confidence: float64(item.Confidence),
+		Evidence:   parseRelatedEvidence(item.Evidence),
+	}
+}
+
 type relatedLeadershipExtraction struct {
-	Leadership []models.LeadershipSubject `json:"leadership"`
+	Leadership []relatedLeaderExtraction `json:"leadership"`
 }
 
 func (e *relatedLeadershipExtraction) UnmarshalJSON(data []byte) error {
@@ -756,6 +809,51 @@ func hasRelatedEvidenceURL(evidence []models.RelatedEntityEvidence) bool {
 		}
 	}
 	return false
+}
+
+// attachEvidenceFromHits grounds an extracted claim the model returned without
+// URL evidence. It looks through the supplied hits for the best one — a hit
+// naming both the claim and the primary company beats a hit naming the claim —
+// and attaches it as the evidence. A claim no hit mentions stays evidence-free,
+// so the normalizer's URL requirement drops it exactly as before: a fact the
+// searches never surfaced cannot be rescued into the report.
+func attachEvidenceFromHits(evidence []models.RelatedEntityEvidence, name, company string, hits []models.SearchResult) []models.RelatedEntityEvidence {
+	if hasRelatedEvidenceURL(evidence) {
+		return evidence
+	}
+	if hit := hitMentioning(name, company, hits); hit != nil {
+		return []models.RelatedEntityEvidence{{
+			URL:     hit.Link,
+			Title:   hit.Title,
+			Snippet: truncateRunes(strings.TrimSpace(hit.Snippet), relatedEntitySnippetMaxRunes),
+		}}
+	}
+	return evidence
+}
+
+// hitMentioning picks the hit that best grounds a name: the first hit whose
+// title or snippet names both the claim and the primary company, then the first
+// hit that merely names the claim.
+func hitMentioning(name, company string, hits []models.SearchResult) *models.SearchResult {
+	nameLower := strings.ToLower(strings.TrimSpace(name))
+	companyLower := strings.ToLower(strings.TrimSpace(company))
+	if nameLower == "" {
+		return nil
+	}
+	var first *models.SearchResult
+	for index := range hits {
+		text := strings.ToLower(hits[index].Title + " " + hits[index].Snippet)
+		if !strings.Contains(text, nameLower) {
+			continue
+		}
+		if companyLower == "" || strings.Contains(text, companyLower) {
+			return &hits[index]
+		}
+		if first == nil {
+			first = &hits[index]
+		}
+	}
+	return first
 }
 
 func reviewEvidence(trace *models.SearchTrace, limit int) []models.RelatedEntityEvidence {

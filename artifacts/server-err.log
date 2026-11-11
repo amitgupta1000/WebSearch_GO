@@ -1,0 +1,28 @@
+2026/11/11 14:20:24 Cookie jar: no COOKIE_FILE_PATH set, so logged-in-only pages (LinkedIn person profiles) cannot be opened. Export a logged-in session as JSON — a browser extension (Cookie-Editor / EditThisCookie) or `npx playwright open --save-storage=linkedin.json` — and set COOKIE_FILE_PATH to it
+2026/11/11 14:20:25 Cache backend: redis (redis-14963.fcrce171.ap-south-1-1.ec2.cloud.redislabs.com:14963, prefix "websearch-go:")
+2026/11/11 14:20:25 Output artifacts: gs://crystal-crm-store, prefix WebSearch_GO/, formats md+pdf
+2026/11/11 14:20:25 Evidence validation: true (up to 10 reverse lookups, stale after 36 months, recent within 18 months)
+2026/11/11 14:20:25 Entity gate:  (sources must name the company, its domain, an alias or its registration id)
+2026/11/11 14:20:25 Legal mode: IndianKanoon + Casemine (native, render fallback) + Juristway (anonymous), up to 16 queries (+8 page(s) each), 8 document fetches, 6 concurrent searches, 4m0s budget
+2026/11/11 14:20:26 Browser rendering available (per-run toggle: true, hard-URL handler: true)
+2026/11/11 14:20:26 🚀 WebSearch_GO server starting on http://localhost:8080
+2026/11/11 14:20:33 [AGENT][sess_90d4dc15248ea11c][step 1] thinking: Searching WeeDoo related-company evidence
+2026/11/11 14:20:33 [AGENT][sess_90d4dc15248ea11c][step 2] thinking: Searching WeeDoo director and appointment evidence
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 3] thinking: Searching direct group, parent, subsidiary, and affiliate relationships
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 4] thinking: Searching holding and promoter-group relationships
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 5] thinking: Searching company group structure
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 6] thinking: Searching related-company disclosures
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 7] thinking: Searching annual-report corporate structure
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 8] thinking: Searching group membership statements
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 9] thinking: Searching source-profile relationship evidence from economictimes.indiatimes.com
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 10] thinking: Searching source-profile relationship evidence from zaubacorp.com
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 11] thinking: Searching source-profile relationship evidence from thecompanycheck.com
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 12] thinking: Searching source-profile relationship evidence from tracxn.com
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 13] thinking: Searching source-profile relationship evidence from weedoo.in
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 14] thinking: Searching company-linked leadership
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 15] thinking: Searching LinkedIn-indexed leadership
+2026/11/11 14:20:34 [AGENT][sess_90d4dc15248ea11c][step 16] thinking: Searching regional leadership directories
+2026/11/11 14:21:07 [EXPORT] md -> gs://crystal-crm-store/WebSearch_GO/related-entities/20261111-085106-klj-resources-limited.md (6221 bytes)
+2026-11-11T08:51:07.114Z pw:api setting frame content, waiting until "domcontentloaded"
+2026/11/11 14:21:08 [EXPORT] pdf -> gs://crystal-crm-store/WebSearch_GO/related-entities/20261111-085106-klj-resources-limited.pdf (508492 bytes)
+2026/11/11 14:21:08 [AGENT][sess_90d4dc15248ea11c][step 0] complete: Found 8 direct relationship(s), 8 leader(s), and 64 leadership relationship(s)

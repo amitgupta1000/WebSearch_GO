@@ -40,9 +40,9 @@ six modes:
 | Mode | What it produces | How it works |
 | :--- | :--- | :--- |
 | **Company** (`mode=company`) | A structured `OrgChart`: overview, HQ, leadership, departments, locations, sources, and optional RR discovery provenance | LLM plans a set of Google queries → results are ranked for relevance → bounded RocketReach title-group searches nominate strictly employer-matched key persons → Google/registry entity filtering and Gemini validate/synthesize the org chart from the combined evidence |
-| **Person** (`mode=person`) | A structured `PersonProfile` dossier: title, company, bio, experiences, education, skills, confidence score, and optional RocketReach contact enrichment | Priority RocketReach profile/contact lookup → disambiguated search (name + company + location) → bio-oriented pages are scraped → a secondary career search supplements snippets → Gemini synthesizes/QCs the dossier |
+| **Person** (`mode=person`) | A structured `PersonProfile` dossier: title, company, bio, experiences, education, skills, confidence score, and optional RocketReach contact enrichment | Automatic priority RocketReach pipeline first — direct lookup, and on a miss the free search endpoint disambiguates same-named profiles against the confirmed employer before one pinned lookup fetches the full record — then disambiguated search (name + company + location) → bio-oriented pages are scraped → a secondary career search supplements snippets → Gemini synthesizes/QCs the dossier |
 | **Legal** (`mode=legal`) | A structured `LegalReport`: docketed litigation findings on the confirmed company and named persons, deterministic risk position, plus same-named hits kept for review | The company identity is confirmed as in company mode → bounded case-law and regulatory searches run → every hit is tied to the identity by CIN/name/alias → Gemini classifies category/status → deterministic dockets and risk position are assembled |
-| **Related entities** (`mode=related_entity`) | A graph-first `RelatedEntityReport`: evidence-backed company and person nodes connected by labelled relationships, with raw snippets retained for review and optional RocketReach discovery provenance | Separate company search (32-query budget) from people discovery (8-query budget) → run up to four bounded RocketReach title-group searches when configured → merge strictly employer-matched candidates → launch a six-query identity/affiliation trajectory for each resolved leader, concurrently up to eight people → resolve DIN, appointment, domain, and registry signals → search other-company involvement; Gemini labels bounded evidence slices, but the report preserves the graph and raw evidence rather than depending on one monolithic extraction |
+| **Related entities** (`mode=related_entity`) | A graph-first `RelatedEntityReport`: evidence-backed company and person nodes connected by labelled relationships, with raw snippets retained for review and optional RocketReach discovery provenance | Separate company search (32-query budget) from people discovery (8-query budget) → run up to four bounded RocketReach title-group searches when configured → merge strictly employer-matched candidates → launch a six-query identity/affiliation trajectory for each resolved leader, concurrently up to eight people → resolve DIN, appointment, domain, and registry signals → search other-company involvement; Gemini labels bounded evidence slices, but the report preserves the graph and raw evidence rather than depending on one monolithic extraction. Extraction is citation-checked: every claim must carry a hit URL, an uncited claim is grounded from the run's own hits (a hit naming both the claim and the primary company wins) or dropped when no hit mentions it, and evidence tolerant decoding accepts object arrays, plain strings or missing evidence |
 | **Market landscape** (`mode=market_landscape`) | A verified producer/seller landscape with evidence and optional contact discovery | Bounded activity/geography lanes → discovery leads → company extraction and verification → deterministic confidence/status assembly |
 | **Buyer landscape** (`mode=demand_chain`) | A verified demand-chain report identifying public consumers and buying signals | Two-step value-chain inference (direct consumers of the product as an input, plus one derived step) → search operator and demand lanes → scrape and verify buyer evidence with claim-conditioned search ordering, a producer gate (supply-side self-descriptions earn no confidence) and aggregator/publisher identity gates → deterministic assembly with stage attribution and buyer-fit distance |
 | **News brief** (`mode=news`) | A current-news article, summary, chronology, conflict register, citations, and structured sentiment | Search configured whitelist hosts → bypass search cache for freshness → scrape and date articles from search metadata/JSON-LD → keep only verifiable articles from the last 24 hours → chunk and label evidence → Gemini structured synthesis with temporal conflict handling |
@@ -519,6 +519,14 @@ so the result can answer post-run questions:
      (`agent.WithProfileScraping`) also sends profiles through the normal scrape path.
      Department-level results for a company whose functional leadership is visible only on
      such profiles depend on these settings.
+   - **WeeDoo registry pages are fetched first, as a bounded priority source**
+     (`company_registry`, up to three pages): an Indian company's directory page lists directors
+     with DINs, addresses and group links that its Google snippet truncates — the enrichment the
+     related-entity segment already scrapes by hand. The pass is entity-gated (a directory page
+     about another company is excluded like any other source) and spends the ordinary scrape
+     budget, on the same deadline that protects the lookup passes. Registry candidates also
+     sort above general `leadership` pages in the scrape ladder, so a page the enrichment pass
+     could not fetch still gets the next budget slot.
    - **Blocked pages get the same bounded escalation** before falling back to snippet
      evidence, so a challenge interstitial is never mistaken for page content.
    - Every attempt (success, failure, skip) lands in `chart.ScrapeReport`, which the
@@ -655,7 +663,7 @@ worker pool, mirroring the engine's `ScrapeCachedBatch` shape:
 - **Determinism under concurrency:** workers write outcomes into slices indexed
   by plan position, and the fold into the findings buckets and the search trace
   happens serially in plan order after the pool drains — so the report and the
-  `-searches.json` artifact are identical on every run however the workers
+  report appendix are identical on every run however the workers
   interleaved. Live `tool_call`/`tool_result` events do interleave; each is
   self-describing.
 - **Budget under concurrency:** the shared query allowance is a mutex-guarded
@@ -1422,7 +1430,7 @@ presented as equivalent to a domain match.
    tagged/unmatched, snippets dropped, rows excluded, people rescued by lookup) and the
    excluded people. The company report's *Excluded search results* appendix (Markdown and
    HTML) also lists the search hits the gate excluded, per query and capped, pointing at
-   the searches.json artifact for the full list — so a spelling-variant miss is
+   the report appendix for the selected evidence — so a spelling-variant miss is
    reviewable rather than silent, and the console's Search results tab labels the same
    hits inline.
 
@@ -2032,7 +2040,7 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 | 12 | Synthesis | Gemini → `OrgChart` from evidence + filtered snippets + profile candidates + entity `promptLine` + directory claims | — | run fails (no fallback) |
 | 13 | QC review | verdict + optional follow-ups | ≤2 follow-ups (3 iterations total); needs ≥60 s | recorded `unavailable` |
 | 14 | Freshness pass | newest source per row ⇒ verified-recent / dated / stale / undated / conflicting; then ≤10 reverse lookups ranked no-key → conflicting → name-only → stale → undated → dated | windows 18 / 36 months; *budget* 25 s; cache keyed by **session fingerprint** | row excluded (`matched by company name only`) unless a lookup rescues it |
-| 15 | Report + export | entity-gate table, scrape report, md + pdf, plus `-searches.json` — every planned query with its kept and excluded hits, linked from the **Search results** tab | — | artifact written on a detached context after the deadline |
+| 15 | Report + export | entity-gate table, scrape report, md + pdf, with planned-query evidence linked from the **Search results** tab | — | artifact written on a detached context after the deadline |
 
 
 ### A2. Person mode — `PersonAgent.ResearchPerson`
@@ -2050,7 +2058,7 @@ never fetched · *budget* = time or count cap · *fallback* = what runs next on 
 | 9 | **Dossier QC** | every synthesised experience row held to the confirmed employer; a non-matching row survives only when a bounded reverse lookup (`"Name" "That employer"`) ties them; the headline employer is corrected to the confirmed one; identical repeated rows collapse to one; two rows at different employers overlapping by more than a handover year are **both flagged** on the row (concurrent roles or a blended row) | lookups ≤ `VALIDATION_LOOKUPS_PER_RUN`, gated by `VALIDATE_EVIDENCE`, ≥ 15 s of run budget each; overlap threshold 2 shared years | dropped / corrected rows are listed in the **Identity check**; flags render on the rows |
 | 10 | **Same-named people** | the excluded evidence is regrouped multilaterally — one group per employer a same-named person's source states, plus unattributed name-only material — ordered strongest-first, most relevant snippets per group | caps: 8 groups × 4 snippets (`person_gate.go`) | rendered in the dossier (console, md, pdf); the console offers a re-run per employer |
 | 1 | RocketReach enrichment | When the operator explicitly runs a person dossier, use the confirmed LinkedIn URL when available, otherwise name + current employer; retrieve the structured profile, LinkedIn URL, and contact fields before web research and feed them into synthesis | one lookup per explicit person run; no lookup from company/related-entity discovery | provider failure is a warning; the dossier remains usable |
-| 12 | Export | md + pdf, with **Identity check**, **Same-named people**, optional **Contact enrichment**, and **Research trace** sections; experience rows carry their source; plus `-searches.json` — every planned query with its kept and excluded hits, linked from the **Search results** tab | — | written on a detached context |
+| 12 | Export | md + pdf, with **Identity check**, **Same-named people**, optional **Contact enrichment**, and **Research trace** sections; experience rows carry their source; planned-query evidence remains linked from the **Search results** tab | — | written on a detached context |
 
 Not present in person mode: the freshness pass and image OCR, and the 55 s scrape reserve (its
 bound is `RESEARCH_TIMEOUT_SECONDS` plus per-request timeouts). The entity gate's counterpart —

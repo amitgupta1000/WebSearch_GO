@@ -23,15 +23,8 @@ import (
 const (
 	markdownContentType = "text/markdown; charset=utf-8"
 	pdfContentType      = "application/pdf"
-	searchesContentType = "application/json; charset=utf-8"
-
 	FormatMarkdown = "md"
 	FormatPDF      = "pdf"
-	// FormatJSON is the raw search-evidence artifact (-searches.json): every query the run
-	// issued with its kept and excluded hits. Unlike md and pdf it is not format-gated by
-	// configuration — a run's findings are always downloadable, which is the point of the
-	// Search results tab.
-	FormatJSON = "json"
 )
 
 // Destination stores one rendered artifact and reports where it landed.

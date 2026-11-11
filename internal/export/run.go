@@ -2,7 +2,6 @@ package export
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -93,12 +92,9 @@ func (e *Exporter) ExportRelatedEntity(ctx context.Context, report *models.Relat
 		reportFooter(relatedEntityReportTitle(report), generatedStamp(report.CompletedAt)), report.SearchTrace)
 }
 
-// exportRun writes every enabled format, reporting one artifact per attempt: a
-// failed PDF must not hide the Markdown that was stored successfully. The search
-// trace — every query with its kept and excluded hits — is stored alongside them
-// whenever the run recorded one, because the rendered artifacts quote the findings
-// while the trace carries the findings themselves. The footer is the branded
-// running footer Chromium prints on every PDF page when the renderer supports it.
+// exportRun writes only the enabled Markdown and PDF artifacts, reporting one
+// artifact per attempt: a failed PDF must not hide the Markdown that was stored
+// successfully.
 func (e *Exporter) exportRun(ctx context.Context, scope, subject, markdown, html, footer string, searches *models.SearchTrace) []models.ExportArtifact {
 	base := fmt.Sprintf("%s%s/%s-%s", e.prefix, scope, e.now().UTC().Format("20060102-150405"), slugify(subject))
 
@@ -108,14 +104,6 @@ func (e *Exporter) exportRun(ctx context.Context, scope, subject, markdown, html
 	}
 	if e.formats[FormatPDF] {
 		artifacts = append(artifacts, e.writePDF(ctx, base+".pdf", html, footer))
-	}
-	if searches != nil && len(searches.Queries) > 0 {
-		data, err := json.MarshalIndent(searches, "", "  ")
-		if err != nil {
-			log.Printf("[WARN] encoding the %s search trace failed: %v", scope, err)
-		} else {
-			artifacts = append(artifacts, e.write(ctx, FormatJSON, base+"-searches.json", searchesContentType, data))
-		}
 	}
 	return artifacts
 }
@@ -169,7 +157,7 @@ func (e *Exporter) write(ctx context.Context, role, objectName, contentType stri
 
 // formatForRole maps an artifact role onto the format label used by the UI.
 func formatForRole(role string) string {
-	if role == FormatPDF || role == FormatJSON {
+	if role == FormatPDF {
 		return role
 	}
 	return FormatMarkdown
