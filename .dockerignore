@@ -4,6 +4,7 @@
 .copilot
 docs
 scripts
+!scripts/weedoo-diagnose.js
 coverage.out
 *.test
 *.exe
