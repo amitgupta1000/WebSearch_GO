@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,41 @@ func NewPersonAgent(engine *Engine, rocketReach ...*tools.RocketReachClient) *Pe
 }
 
 // ResearchPerson conducts deep multi-source research to construct a professional dossier.
+// personDirectorURLPattern matches the registry director pages whose URL
+// carries the person's DIN: zaubacorp's /<NAME-SLUG>-<DIN> and WeeDoo's
+// /director/<NAME-SLUG>/<DIN>.
+var personDirectorURLPattern = regexp.MustCompile(`(?i)(?:zaubacorp\.com/([a-z0-9-]+?)-|weedoo\.in/director/([a-z0-9-]+?)/)(\d{8})(?:[/?#]|$)`)
+
+// harvestPersonDIN freezes the (name, DIN) pair from the run's own search
+// results — kept and gate-excluded alike, because the director page that
+// reveals the DIN may name a group company the gate counts as a different
+// employer. The slug must name the researched person (initials-aware, so "K L
+// Jain" freezes on "kanhaiya-lal-jain"), and a namesake's slug never does.
+func harvestPersonDIN(results []models.SearchResult, personName string) (string, string) {
+	for _, result := range results {
+		match := personDirectorURLPattern.FindStringSubmatch(result.Link)
+		if match == nil {
+			continue
+		}
+		slug := match[1]
+		if slug == "" {
+			slug = match[2]
+		}
+		if !personNamesMatch(strings.ReplaceAll(slug, "-", " "), personName) {
+			continue
+		}
+		return match[3], strings.ToUpper(slug)
+	}
+	// A labelled DIN in a hit's text freezes too, when it sits next to the
+	// person's name.
+	for _, result := range results {
+		if din := labelledDINFor(result.Title+" "+result.Snippet, personName); din != "" {
+			return din, ""
+		}
+	}
+	return "", ""
+}
+
 func (pa *PersonAgent) ResearchPerson(
 	ctx context.Context,
 	sessionID string,
@@ -235,6 +271,26 @@ func (pa *PersonAgent) ResearchPerson(
 		})
 		return nil, fmt.Errorf("every planned search failed")
 	}
+	// FREEZE the identity before the fetch phase: the registry director pages
+	// (WeeDoo, zaubacorp) carry the person's DIN in their URL, and the freeze
+	// scans kept and gate-excluded hits alike — the director page that reveals
+	// the DIN may name a group company the gate counted as a different
+	// employer. Once frozen, every DIN-bearing source is identity-confirmed.
+	allResults := make([]models.SearchResult, 0, 32)
+	for _, batch := range planResults {
+		allResults = append(allResults, batch.results...)
+	}
+	allResults = append(allResults, gateExcluded...)
+	frozenDIN, frozenSlug := harvestPersonDIN(allResults, personName)
+	if frozenDIN != "" {
+		gate.anchorIdentity(frozenDIN)
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID,
+			Type:      models.EventThinking,
+			Step:      3,
+			Content:   fmt.Sprintf("Registry identity frozen: %s / DIN %s — director pages from WeeDoo and zaubacorp will be read directly.", personName, frozenDIN),
+		})
+	}
 	Emit(eventCh, models.AgentEvent{
 		SessionID: sessionID,
 		Type:      models.EventToolResult,
@@ -265,6 +321,33 @@ func (pa *PersonAgent) ResearchPerson(
 	seenCandidate := make(map[string]bool, len(fetchTargets))
 	for _, target := range fetchTargets {
 		seenCandidate[strings.ToLower(target.Link)] = true
+	}
+	// The frozen (name, DIN) pair makes the registry director pages
+	// deterministic: both sites are fetched directly, ahead of the
+	// search-derived pages, because they are identity-anchored by construction
+	// (the URL carries the frozen DIN) and list every company the person
+	// serves.
+	if frozenDIN != "" && frozenSlug != "" {
+		registryTargets := []models.SearchResult{
+			{
+				Title: "WeeDoo director page for " + personName,
+				Link:  "https://weedoo.in/director/" + frozenSlug + "/" + frozenDIN,
+			},
+			{
+				Title: "zaubacorp director page for " + personName,
+				Link:  "https://www.zaubacorp.com/" + frozenSlug + "-" + frozenDIN,
+			},
+		}
+		registry := make([]models.SearchResult, 0, len(registryTargets))
+		for _, target := range registryTargets {
+			if !seenCandidate[strings.ToLower(target.Link)] {
+				seenCandidate[strings.ToLower(target.Link)] = true
+				registry = append(registry, target)
+			}
+		}
+		// Keep the confirmed seed first, registry pages second, and re-slot the
+		// search-derived candidates after them.
+		fetchTargets = append(registry, fetchTargets...)
 	}
 	addCandidate := func(sr models.SearchResult, verdict personVerdict) {
 		key := strings.ToLower(sr.Link)

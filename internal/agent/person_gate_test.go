@@ -15,6 +15,71 @@ import (
 // employer is a different person. A court-case or news headline that merely carries the name
 // is not a stated employer, and a past employer in the body is a career history, not a
 // contradiction.
+// TestHarvestPersonDINFreezesOnTheNameSlug pins the registry freeze: the
+// director-page URLs (zaubacorp's /<SLUG>-<DIN>, WeeDoo's /director/<SLUG>/<DIN>)
+// freeze the (name, DIN) pair when the slug names the researched person —
+// initials-aware — while a namesake's slug never does, and a labelled DIN in a
+// hit's text freezes as the fallback.
+func TestHarvestPersonDINFreezesOnTheNameSlug(t *testing.T) {
+	results := []models.SearchResult{
+		{Title: "Kanhaiya Lal Jain — director", Link: "https://www.zaubacorp.com/KANHAIYA-LAL-JAIN-00033519", Snippet: "director of KLJ Plasticizers"},
+		{Title: "Kanhaiya Lal Jain", Link: "https://weedoo.in/director/KANHAIYA-LAL-JAIN/00033519", Snippet: "other companies"},
+	}
+	if din, slug := harvestPersonDIN(results, "Kanhaiya Lal Jain"); din != "00033519" || slug != "KANHAIYA-LAL-JAIN" {
+		t.Fatalf("expected the zaubacorp slug to freeze, got %q / %q", din, slug)
+	}
+	// The operator typed initials; the registry slug spells the name out.
+	initials := []models.SearchResult{{
+		Title: "Kanhaiya Lal Jain — director",
+		Link:  "https://weedoo.in/director/KANHAIYA-LAL-JAIN/00033519",
+	}}
+	if din, slug := harvestPersonDIN(initials, "K L Jain"); din != "00033519" || slug != "KANHAIYA-LAL-JAIN" {
+		t.Fatalf("expected the initials query to freeze on the full-name slug, got %q / %q", din, slug)
+	}
+	// A namesake's slug never freezes: Kavita Jain is not K L Jain.
+	namesake := []models.SearchResult{{
+		Title: "Kavita Jain — director",
+		Link:  "https://www.zaubacorp.com/KAVITA-JAIN-01234567",
+	}}
+	if din, _ := harvestPersonDIN(namesake, "K L Jain"); din != "" {
+		t.Fatalf("a namesake's slug must not freeze, got %q", din)
+	}
+	// The labelled-DIN fallback: a hit whose text pairs the name with a DIN.
+	labelled := []models.SearchResult{{
+		Title:   "Suresh Chand Jalther appointments",
+		Link:    "https://www.tofler.in/suresh-chand-jalther",
+		Snippet: "Suresh Chand Jalther, DIN 06961204, director on two boards.",
+	}}
+	if din, _ := harvestPersonDIN(labelled, "Suresh Chand Jalther"); din != "06961204" {
+		t.Fatalf("expected the labelled DIN to freeze, got %q", din)
+	}
+}
+
+// TestPersonGateAnchorsTheFrozenDIN pins the gate rule: once the identity is
+// frozen on a DIN, a source carrying that DIN is about the person by
+// construction — a director page that lists other companies is identity, not a
+// contradicting employer — while sources without the DIN stay gated.
+func TestPersonGateAnchorsTheFrozenDIN(t *testing.T) {
+	gate := newPersonGate(models.PersonQuery{Name: "K L Jain", Company: "KLJ Resources Limited"})
+	// Before the freeze: a director page naming another group company conflicts.
+	before := gate.classify("https://www.zaubacorp.com/KANHAIYA-LAL-JAIN-00033519",
+		"Kanhaiya Lal Jain - Director - KLJ Plasticizers", "Board of directors.")
+	if before.Status != personVerdictConflicting && before.Status != personVerdictNameOnly {
+		t.Fatalf("pre-freeze the page is a claim, got %s", before.Status)
+	}
+	gate.anchorIdentity("00033519")
+	after := gate.classify("https://www.zaubacorp.com/KANHAIYA-LAL-JAIN-00033519",
+		"Kanhaiya Lal Jain - Director - KLJ Plasticizers", "Board of directors.")
+	if after.Status != personVerdictConfirmed {
+		t.Fatalf("expected the frozen DIN to confirm the page, got %+v", after)
+	}
+	// A source without the DIN stays gated.
+	unrelated := gate.classify("https://x/other", "Kavita Jain - Director - OtherFirm Ltd", "Profile.")
+	if unrelated.Status != personVerdictUnrelated {
+		t.Fatalf("expected the namesake to stay unrelated, got %+v", unrelated)
+	}
+}
+
 // TestPersonGateMatchesInitialsRenderings pins the initials rule for the
 // dossier: the operator typed "K L Jain", a source about "Kanhaiya Lal Jain"
 // names the same person — the words before the surname start with the initials,

@@ -41,6 +41,7 @@ type personGate struct {
 	company  string
 	location string
 	seedURL  string
+	din      string
 }
 
 func newPersonGate(query models.PersonQuery) *personGate {
@@ -95,10 +96,27 @@ func mentionsCompany(haystack, company string) bool {
 	return containsAllTokens(haystack, core)
 }
 
+// anchorIdentity freezes the person's DIN once the registry director pages
+// (WeeDoo, zaubacorp) reveal it: from then on, a source that carries the
+// frozen DIN is about this person by construction, whatever employer its
+// headline states — a director page legitimately lists other companies.
+func (g *personGate) anchorIdentity(din string) {
+	if strings.TrimSpace(din) != "" {
+		g.din = strings.TrimSpace(din)
+	}
+}
+
 // classify decides whether one source is about the confirmed person.
 func (g *personGate) classify(targetURL, title, text string) personVerdict {
 	haystack := strings.ToLower(title + " " + text)
 	if g.seedURL != "" && strings.EqualFold(strings.TrimSpace(targetURL), g.seedURL) {
+		return personVerdict{Status: personVerdictConfirmed}
+	}
+	// The frozen DIN is the strongest identity signal: a source whose URL or
+	// text carries it is about this person by construction — registry
+	// director pages list every company the person serves, so an employer in
+	// the headline is a directorship, not a contradiction.
+	if g.din != "" && strings.Contains(strings.ToLower(targetURL)+" "+haystack, g.din) {
 		return personVerdict{Status: personVerdictConfirmed}
 	}
 	if !g.namedIn(haystack) {
