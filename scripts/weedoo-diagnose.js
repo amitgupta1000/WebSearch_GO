@@ -119,10 +119,21 @@ async function challengeWaitStrategy(name, url, stealth) {
     let cleared = false;
     while (Date.now() < deadline) {
       await page.waitForTimeout(3000);
-      const check = await page.evaluate(
-        "() => ({ title: document.title, text: (document.body ? document.body.innerText : '').length,"
-        + " dins: ((document.documentElement.innerHTML.match(/\\b\\d{8}\\b/g) || []).length),"
-        + " input: !!document.querySelector('input[placeholder*=\"company name\" i]') })");
+      let check = null;
+      try {
+        check = await page.evaluate(
+          "() => ({ title: document.title, text: (document.body ? document.body.innerText : '').length,"
+          + " dins: ((document.documentElement.innerHTML.match(/\\b\\d{8}\\b/g) || []).length),"
+          + " input: !!document.querySelector('input[placeholder*=\"company name\" i]') })");
+      } catch (error) {
+        // The challenge navigation destroys the execution context mid-poll;
+        // treat it as not-yet-cleared and keep waiting.
+        record.checks.push({ at: Math.round((Date.now() - started) / 1000), note: 'context lost during challenge navigation' });
+        continue;
+      }
+      if (!check) {
+        continue;
+      }
       const at = Math.round((Date.now() - started) / 1000);
       record.checks.push({ at, title: String(check.title).slice(0, 60), text: check.text, dins: check.dins, input: check.input });
       if (check.input || check.dins >= 5 || check.text > 2000) {
@@ -133,10 +144,14 @@ async function challengeWaitStrategy(name, url, stealth) {
     record.cleared = cleared;
     record.cleared_after_seconds = cleared ? Math.round((Date.now() - started) / 1000) : null;
     if (cleared) {
-      record.title = (await page.title() || '').slice(0, 120);
-      record.text_length = await page.evaluate("() => (document.body ? document.body.innerText : '').length");
-      record.din_count = ((await page.content()).match(/\b\d{8}\b/g) || []).length;
-      record.search_input_present = (await page.locator(SEARCH_INPUT_SELECTOR).count()) > 0;
+      try {
+        record.title = (await page.title() || '').slice(0, 120);
+        record.text_length = await page.evaluate("() => (document.body ? document.body.innerText : '').length");
+        record.din_count = ((await page.content()).match(/\b\d{8}\b/g) || []).length;
+        record.search_input_present = (await page.locator(SEARCH_INPUT_SELECTOR).count()) > 0;
+      } catch (error) {
+        record.read_error = String(error).slice(0, 200);
+      }
     }
   } catch (error) {
     record.error = String(error).slice(0, 300);
