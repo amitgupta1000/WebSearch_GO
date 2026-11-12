@@ -45,14 +45,14 @@ var (
 type scriptedDeepLLM struct {
 	mu sync.Mutex
 	// scripted stages, consumed in order and then reused.
-	reviews     []models.DeepSearchReview
-	extraPairs  []models.DeepSearchQAPair // appended to every extraction
-	synthesis   models.DeepSearchSynthesis
+	reviews    []models.DeepSearchReview
+	extraPairs []models.DeepSearchQAPair // appended to every extraction
+	synthesis  models.DeepSearchSynthesis
 	// observability
-	planSystemPrompt   string
+	planSystemPrompt    string
 	composeSystemPrompt string
-	focusSystemNote    string
-	counts             map[string]int
+	focusSystemNote     string
+	counts              map[string]int
 }
 
 func (s *scriptedDeepLLM) GenerateStructured(_ context.Context, systemPrompt, userPrompt string, target any) error {
@@ -524,5 +524,3 @@ func TestDeepSearchAgentEmitsEvents(t *testing.T) {
 		}
 	}
 }
-
-

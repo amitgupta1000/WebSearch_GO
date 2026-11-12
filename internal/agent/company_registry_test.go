@@ -188,8 +188,8 @@ func TestCompanyRegistrationNumberAttributesTheCINToTheCompany(t *testing.T) {
 	// WeeDoo search gets its chance instead.
 	distant := []models.SearchResult{
 		{
-			Title: "KLJ Resources Limited - Subsidiaries and Group",
-			Link:  "https://www.tofler.in/klj-resources-limited/company/KLJ",
+			Title:   "KLJ Resources Limited - Subsidiaries and Group",
+			Link:    "https://www.tofler.in/klj-resources-limited/company/KLJ",
 			Snippet: "KLJ Resources Limited operates through several subsidiaries across the country. Detailed financial records: Bhiwadi Textile Mills Limited, recorded 2025. CIN U24110MH2005PTC152375 belongs to another entity entirely.",
 		},
 	}

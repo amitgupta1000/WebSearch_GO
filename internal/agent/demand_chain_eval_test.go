@@ -36,8 +36,8 @@ import (
 // are deliberately structural (stage-level), not company-name-level, so the
 // harness measures the pipeline rather than one run's discovery luck.
 type demandEvalExpectation struct {
-	activity    string
-	researchID  string
+	activity   string
+	researchID string
 	// countries scopes the run; empty means global. Country lanes (importer/
 	// tender) only exist under a geography, so tender-driven buyers such as
 	// GNFC can only surface in a scoped run.

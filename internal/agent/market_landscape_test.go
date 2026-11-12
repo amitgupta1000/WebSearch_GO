@@ -89,9 +89,9 @@ func TestMarketSourceAndTitleClassification(t *testing.T) {
 		t.Fatal("expected a research report title to be classified as non-company evidence")
 	}
 	candidate := marketCandidate(models.SearchResult{
-		Title: "India Soap Manufacturers Market Research Report",
+		Title:   "India Soap Manufacturers Market Research Report",
 		Snippet: "Market size and forecast for soap manufacturers.",
-		Link: "https://www.grandviewresearch.com/industry-analysis/soap",
+		Link:    "https://www.grandviewresearch.com/industry-analysis/soap",
 	}, "manufacturer", models.MarketLandscapeQuery{Activity: "soap"})
 	if candidate == nil || candidate.EvidenceType != "discovery-lead" {
 		t.Fatalf("research report must remain a lead, got %+v", candidate)
