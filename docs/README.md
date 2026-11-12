@@ -126,10 +126,15 @@ match is pre-selected and focused), and never dead-ends:
   company, searches direct corporate relationships first, then searches up to eight
   company-linked leaders for external company involvement. It performs a cache-first preflight
   over the full plan and reports cache/result counts. WeeDoo is fetched directly as a
-  priority: the company page is constructed from the company name and its CIN (the operator's
-  registration id, or a CIN the run's hits published — the search provider barely indexes
-  WeeDoo), listing every director with DIN and appointment dates; and once a leader's DIN is
-  resolved, their WeeDoo director page is fetched to surface the other companies they are
+  priority: because the search provider barely indexes WeeDoo, the company page is constructed
+  from the company name and its CIN — the operator's registration id, a CIN a registry snippet
+  published (attributed by URL slug adjacency or name proximity, never by hit order), or a CIN
+  resolved through **WeeDoo's own search bar in the browser** (the typeahead pairs each
+  suggestion with the company's CIN) — listing every director with DIN and appointment dates.
+  The page is read in the browser when the plain fetch trims it to navigation, so the
+  directors/DIN table survives; and once a leader's DIN is resolved (name-adjacent to the
+  digits on their directors-table row), their WeeDoo director page is fetched — also
+  browser-rendered — to surface the other companies they are
   associated with. Extraction must cite evidence: every
   reported relationship or leader carries the hit URL that states it, claims the model
   returns uncited are grounded deterministically from the run's own hits — or dropped when no
@@ -815,7 +820,8 @@ The scraper is deliberately conservative, and several of these rules surprise pe
 | `POST` | `/api/rerun` | Form fields: `session_id`, optional `use_browser`. Re-runs a completed company session's retained brief in a new session, which is how a thin result is escalated with browser rendering. |
 | `POST` | `/api/question` | Form fields: `session_id`, `question`. Answers a question from retained evidence or runs a fresh focused search when needed. |
 | `GET` | `/api/events` | Server-Sent Events (SSE) stream for live step logs & final synthesis. |
-| `GET` | `/healthz` | Liveness probe |
+| `GET` | `/healthz` | Liveness probe (`ok`). On Cloud Run the Knative queue-proxy answers this path at the edge before the container sees it. |
+| `GET` | `/api/health` | The same liveness probe on an unreserved path — use this one for Cloud Run health checks. |
 
 ## Security headers
 
@@ -894,6 +900,12 @@ Cloud Run route rather than unsigned `storage.googleapis.com` links. Firebase Ho
 is only needed for a separately built static frontend; in that architecture, configure
 Firebase rewrites for `/api/**` to the Cloud Run service and keep the authenticated
 artifact route on Cloud Run.
+
+Deploy with the repository-root `deploy-gcp.ps1`: it builds the browser-enabled
+image through Cloud Build (`cloudbuild.browser.yaml`) and deploys the `websearch-go`
+service with browser fallback enabled. Health-check the deployed service on
+`/api/health` — `/healthz` is answered by Cloud Run's Knative queue-proxy at the edge
+and never reaches the container.
 
 ### Python companion dependencies
 

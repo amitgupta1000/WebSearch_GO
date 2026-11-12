@@ -45,6 +45,10 @@
   nudge).
 - Probe scripts: `scripts/weedoo-browser-probe.py`, `weedoo-search-bar-probe.py`,
   `weedoo-page-text-probe.py`, `weedoo-director-probe.py`.
+- **Deployed**: `deploy-gcp.ps1` built and shipped this to Cloud Run
+  (`websearch-go`, asia-south1). Health-check the service on `/api/health` — Cloud Run's
+  Knative queue-proxy reserves `/healthz` at the edge, so the container never sees it
+  (fixed in `d49a27a` by adding the unreserved route).
 
 ## Company mode behavior
 

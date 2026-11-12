@@ -65,8 +65,8 @@ The system is built from six cooperating layers:
 - **Shared vocabulary** (`internal/models`) — all structs that cross package boundaries.
 
 The binary is fully self-contained (templates embedded), runs on Cloud Run-style
-environments (distroless non-root Docker image, graceful SIGTERM shutdown, `/healthz`
-probe), and enforces strict budgets on cost and runtime (max scrapes, max search
+environments (distroless non-root Docker image, graceful SIGTERM shutdown, health probes on
+`/healthz` and `/api/health`), and enforces strict budgets on cost and runtime (max scrapes, max search
 results, max agent steps, per-request timeout).
 
 ## System architecture
@@ -223,7 +223,7 @@ mechanics consistent, bounded and observable.
 
 | Module / Package | Path | Functional Contribution |
 | :--- | :--- | :--- |
-| **HTTP API Entry** | `cmd/server/main.go` | Loads configuration, initializes dependencies with fail-fast checks, routes company/person research modes, serves the HTMX UI from embedded templates (`internal/web`), renders auto-escaped HTML fragments, probes Chromium once for the per-run rendering toggle, serves `POST /api/research`, `POST /api/rerun`, `POST /api/question` and the `/api/events` SSE stream, and exposes `/healthz` with graceful shutdown. |
+| **HTTP API Entry** | `cmd/server/main.go` | Loads configuration, initializes dependencies with fail-fast checks, routes company/person research modes, serves the HTMX UI from embedded templates (`internal/web`), renders auto-escaped HTML fragments, probes Chromium once for the per-run rendering toggle, serves `POST /api/research`, `POST /api/rerun`, `POST /api/question` and the `/api/events` SSE stream, and exposes health probes on `/healthz` and `/api/health` (Cloud Run's queue-proxy reserves `/healthz`) with graceful shutdown. |
 | **Shared Agent Engine** | `internal/agent/engine.go` | Provides dependency-inverted search, scrape, cache, structured-LLM, event, budget and synthesis plumbing used by the bounded domain pipelines. The domain agents decide the workflow; this package does not run a free-form ReAct loop. |
 | **Company Agent** | `internal/agent/company.go` | Orchestrates multi-phase company discovery (domain search, leadership page extraction, executive hierarchy building, and departmental/regional drill-down formatting). |
 | **Person Agent** | `internal/agent/person.go` | Accepts optional company/location disambiguation constraints, queries career footprints across public sources, and aggregates data into an end-to-end dossier. |
@@ -382,6 +382,7 @@ The only `package main` in the repo. Responsibilities:
 | `POST /api/question` | `handleQuestion` | Post-run Q&A over retained evidence, with fresh-search fallback |
 | `GET /api/events` | `handleEvents` | SSE stream of agent events + final result |
 | `GET /healthz` | `handleHealth` | Liveness probe returning `ok` |
+| `GET /api/health` | `handleHealth` | The same probe on an unreserved path — Cloud Run's Knative queue-proxy answers `/healthz` at the edge before the container sees it, so the deployed service's health check uses this route |
 
 All responses pass through `securityHeaders` (`X-Content-Type-Options: nosniff`,
 `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a CSP that allows the
@@ -1614,6 +1615,24 @@ the two cited sources.
   structured extraction is too conservative, so an empty relationship classification does not
   hide the material the search actually returned.
 
+- **Related-entity mode reads WeeDoo as a priority registry, discovered through WeeDoo's own
+  search bar.** WeeDoo is a client-rendered SPA the search provider barely indexes, so when no
+  CIN is attributable from the brief or the hits (attribution requires the CIN to sit in a hit's
+  URL as the company's slug page or be paired with the name inside a snippet window), the run
+  resolves it through the browser-backed WeeDoo search: the site's typeahead pairs each
+  suggestion with the company's CIN, extracted at element scope so the homepage's showcase CINs
+  are never attributed. The company page is then fetched (constructed from name + CIN) and read
+  **in the browser** whenever the render yields more text — WeeDoo's server-rendered pages are
+  otherwise trimmed to their navigation by the plain-fetch extractor, cutting off the directors
+  and DIN table. Each leader's DIN comes from their own directors-table row (name-adjacent
+  eight-digit run; labelled `DIN <digits>` matches are name-adjacent too; masked rows resolve to
+  nothing), and the constructed `/director/<NAME>/<DIN>` page — also browser-rendered — lists
+  every other company the director serves. WeeDoo registry and director pages are moved to the
+  FRONT of the extraction payloads and keep a larger snippet budget, so the bounded evidence
+  windows always carry the board table and the other-directorship lists. Identity gates use the
+  same tolerant entity matcher as the rest of the segment (collapsed slugs like
+  `Klj-Resources-Ltd` match `KLJ Resources Limited`).
+
 - **Legal risk is derived after retrieval.** Legal mode still retains and displays every
   identity-matched finding, groups findings into deterministic dockets, and derives the risk
   position only from recent company-law matters where the company is the responding-side party
@@ -1725,6 +1744,7 @@ those values are loaded and validated.
 | `POST` | `/api/question` | Form fields: `session_id`, `question` (≤ 500 chars). Answers from retained evidence, or runs a fresh focused search when the evidence is insufficient. |
 | `GET` | `/api/events?session_id=...` | SSE stream: `log` frames (rendered `log_entry`), then `result` (final fragment), `status` (badge HTML), and `close`. |
 | `GET` | `/healthz` | Liveness probe → `ok` |
+| `GET` | `/api/health` | The same probe on an unreserved path — Cloud Run's Knative queue-proxy answers `/healthz` at the edge before the container sees it, so the deployed service's health check uses this route |
 
 Minimal CLI usage of the sync path (no UI):
 
