@@ -92,6 +92,60 @@ async function browserStrategy(name, url, production, stealth, waitInput) {
   }
   return record;
 }
+// The Cloudflare managed challenge sometimes auto-clears in a real browser
+// once its JS runs for a while. This strategy accepts the 403 challenge
+// document and polls for the real app surfacing: the search input on the
+// homepage, or DIN-shaped numbers / substantial text on the company page.
+async function challengeWaitStrategy(name, url, stealth) {
+  const record = { strategy: name, url, kind: 'browser-challenge-wait' };
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const options = stealth
+      ? { locale: 'en-IN', timezoneId: 'Asia/Kolkata', userAgent: BROWSER_UA }
+      : {};
+    const context = await browser.newContext(options);
+    if (stealth) {
+      await context.addInitScript(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        + "Object.defineProperty(navigator, 'languages', {get: () => ['en-IN', 'en']});"
+        + "Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});");
+    }
+    const page = await context.newPage();
+    const started = Date.now();
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 })
+      .catch((error) => { record.goto_error = String(error).slice(0, 200); });
+    const deadline = Date.now() + 75000;
+    record.checks = [];
+    let cleared = false;
+    while (Date.now() < deadline) {
+      await page.waitForTimeout(3000);
+      const check = await page.evaluate(
+        "() => ({ title: document.title, text: (document.body ? document.body.innerText : '').length,"
+        + " dins: ((document.documentElement.innerHTML.match(/\\b\\d{8}\\b/g) || []).length),"
+        + " input: !!document.querySelector('input[placeholder*=\"company name\" i]') })");
+      const at = Math.round((Date.now() - started) / 1000);
+      record.checks.push({ at, title: String(check.title).slice(0, 60), text: check.text, dins: check.dins, input: check.input });
+      if (check.input || check.dins >= 5 || check.text > 2000) {
+        cleared = true;
+        break;
+      }
+    }
+    record.cleared = cleared;
+    record.cleared_after_seconds = cleared ? Math.round((Date.now() - started) / 1000) : null;
+    if (cleared) {
+      record.title = (await page.title() || '').slice(0, 120);
+      record.text_length = await page.evaluate("() => (document.body ? document.body.innerText : '').length");
+      record.din_count = ((await page.content()).match(/\b\d{8}\b/g) || []).length;
+      record.search_input_present = (await page.locator(SEARCH_INPUT_SELECTOR).count()) > 0;
+    }
+  } catch (error) {
+    record.error = String(error).slice(0, 300);
+  } finally {
+    await browser.close();
+  }
+  return record;
+}
+
 (async () => {
   const homepageOnly = process.argv.includes('--homepage-only');
   const targets = [['homepage', HOME]];
@@ -106,6 +160,10 @@ async function browserStrategy(name, url, production, stealth, waitInput) {
     if (label === 'homepage') {
       records.push(await browserStrategy(`${label}/browser-stealth`, url, false, true, true));
     }
+    // The challenge-wait strategies: the Cloudflare managed challenge may
+    // clear by itself once its JavaScript runs — poll for the real app.
+    records.push(await challengeWaitStrategy(`${label}/challenge-wait`, url, false));
+    records.push(await challengeWaitStrategy(`${label}/challenge-wait-stealth`, url, true));
   }
 
   for (const record of records) console.log(JSON.stringify(record));
