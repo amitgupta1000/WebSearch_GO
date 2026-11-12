@@ -1,3 +1,5 @@
+param([string]$Query = '')
+
 $ErrorActionPreference = 'Stop'
 $root = 'c:\WebSearch_GO'
 $port = 8080
@@ -9,10 +11,12 @@ if (Test-Path $envFile) {
 # LIVE=1 targets the deployed Cloud Run service instead of localhost.
 $base = "http://localhost:$port"
 if ($env:LIVE -eq '1') { $base = 'https://websearch-go-451921002283.asia-south1.run.app' }
-# QUERY overrides the researched company (suffix -2 keeps artifact files apart).
+# QUERY (parameter or environment) researches any company; the suffix keeps
+# artifact files apart per company.
 $researched = 'KLJ Resources Limited'
-if ($env:QUERY) { $researched = $env:QUERY }
-$suffix = if ($env:QUERY) { '-' + ($env:QUERY -replace '[^A-Za-z0-9]+', '-').ToLower().Trim('-') } else { '' }
+if ($Query) { $researched = $Query }
+elseif ($env:QUERY) { $researched = $env:QUERY }
+$suffix = if ($researched -ne 'KLJ Resources Limited') { '-' + ($researched -replace '[^A-Za-z0-9]+', '-').ToLower().Trim('-') } else { '' }
 
 $body = @{ mode = 'related_entity'; query = $researched }
 $statusFile = Join-Path $root "artifacts\related-test-status$suffix.txt"
