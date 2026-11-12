@@ -37,6 +37,8 @@ try {
         --project $Project `
         --image $image `
         --region $Region `
+        --memory 2Gi `
+        --cpu 2 `
         --env-vars-file $browserEnvFile `
         --set-secrets "GOOGLE_API_KEY=gemini_api_key:latest,SERPER_API_KEY=serper_api_key:latest,ROCKETREACH_API_KEY=rocketreach_api_key:latest,REDIS_URL=redis_url_alt:latest"
     if ($LASTEXITCODE -ne 0) {
