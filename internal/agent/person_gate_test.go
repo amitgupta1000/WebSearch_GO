@@ -15,6 +15,31 @@ import (
 // employer is a different person. A court-case or news headline that merely carries the name
 // is not a stated employer, and a past employer in the body is a career history, not a
 // contradiction.
+// TestPersonGateMatchesInitialsRenderings pins the initials rule for the
+// dossier: the operator typed "K L Jain", a source about "Kanhaiya Lal Jain"
+// names the same person — the words before the surname start with the initials,
+// in order — while a different K-initial name does not sneak in.
+func TestPersonGateMatchesInitialsRenderings(t *testing.T) {
+	gate := newPersonGate(models.PersonQuery{Name: "K L Jain", Company: "Kanhaiya Industries"})
+	cases := []struct {
+		name  string
+		title string
+		text  string
+		want  string
+	}{
+		{"full-name spelling of the same person", "Kanhaiya Lal Jain - Director - Kanhaiya Industries", "Annual report 2024.", personVerdictMatched},
+		{"two-letter initials run", "Kl Jain, Managing Director of Kanhaiya Industries", "Founded 1986.", personVerdictMatched},
+		{"full name in the body", "Board of directors", "The board is led by Kanhaiya Lal Jain, director of Kanhaiya Industries.", personVerdictMatched},
+		{"different K-name is unrelated", "Kavita Jain - Director - OtherFirm Ltd", "Profile page.", personVerdictUnrelated},
+		{"initials of another person", "R K Sharma - Director - Kanhaiya Industries", "Board listing.", personVerdictUnrelated},
+	}
+	for _, test := range cases {
+		if verdict := gate.classify("https://x/"+test.name, test.title, test.text); verdict.Status != test.want {
+			t.Errorf("%s: expected %s, got %s", test.name, test.want, verdict.Status)
+		}
+	}
+}
+
 func TestPersonGateClassifiesSources(t *testing.T) {
 	gate := newPersonGate(models.PersonQuery{Name: "Jane Doe", Company: "Acme Corporation", Location: "Mumbai"})
 	cases := []struct {

@@ -49,6 +49,15 @@
   (`websearch-go`, asia-south1). Health-check the service on `/api/health` — Cloud Run's
   Knative queue-proxy reserves `/healthz` at the edge, so the container never sees it
   (fixed in `d49a27a` by adding the unreserved route).
+- **Person identity hygiene** (`validate.go`, `company.go`, `related_entity.go`,
+  `person_gate.go`): title conflicts only fire for **singular offices** (chairman, managing
+  director, the C-suite, company secretary — `singularLeadershipTitles` + the
+  "chief … officer" pattern); multiple directors are normal board practice and never a
+  conflict. Person names match across initials renderings: `personNamesMatch` aligns
+  "K L Jain"/"Kl Jain"/"K.L. Jain" positionally with "Kanhaiya Lal Jain" (surname must match
+  exactly), and the roster/leadership dedupe plus the person gate (`personNamedInText`)
+  apply it — the fuller name wins as the display name, and the initials variant does not
+  spawn a second search branch.
 
 ## Company mode behavior
 

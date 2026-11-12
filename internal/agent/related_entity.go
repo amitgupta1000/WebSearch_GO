@@ -1053,11 +1053,24 @@ func parseRelatedEvidence(raw json.RawMessage) []models.RelatedEntityEvidence {
 }
 
 func normalizeLeaders(leaders []models.LeadershipSubject, company string, limit int) []models.LeadershipSubject {
-	seen := map[string]bool{}
 	out := make([]models.LeadershipSubject, 0, limit)
 	for _, leader := range leaders {
 		leader.Name = strings.TrimSpace(leader.Name)
-		if leader.Name == "" || seen[strings.ToLower(leader.Name)] {
+		if leader.Name == "" {
+			continue
+		}
+		// An initials rendering of an already-kept leader ("K L Jain" for
+		// "Kanhaiya Lal Jain") is the same person: keep one row and let the
+		// fuller name stand as the display name.
+		variant := false
+		for index := range out {
+			if personNamesMatch(out[index].Name, leader.Name) {
+				variant = true
+				out[index].Name = fullerPersonName(out[index].Name, leader.Name)
+				break
+			}
+		}
+		if variant {
 			continue
 		}
 		if !hasRelatedEvidenceURL(leader.Evidence) {
@@ -1067,7 +1080,6 @@ func normalizeLeaders(leaders []models.LeadershipSubject, company string, limit 
 		if leader.Confidence <= 0 {
 			leader.Confidence = 0.5
 		}
-		seen[strings.ToLower(leader.Name)] = true
 		out = append(out, leader)
 		if len(out) == limit {
 			break

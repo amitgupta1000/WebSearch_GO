@@ -214,6 +214,76 @@ func TestValidateChartFlagsTwoPeopleClaimingOneTitle(t *testing.T) {
 	}
 }
 
+// TestLeadershipTitleConflictsExemptDirectors pins the governance rule: boards
+// have many directors, so two people claiming "Director" — in any of its
+// variants — are normal practice and never a conflict. Conflicts are reserved
+// for singular offices: two Managing Directors, two Chairmen, and compound
+// Chairman-and-Managing-Director claims.
+func TestLeadershipTitleConflictsExemptDirectors(t *testing.T) {
+	conflict := func(titles ...string) (map[int]string, []string) {
+		chart := &models.OrgChart{}
+		for _, title := range titles {
+			chart.Leadership = append(chart.Leadership, models.Employee{Name: "Person", Title: title})
+		}
+		return leadershipTitleConflicts(chart)
+	}
+	if _, conflicts := conflict("Director", "Director"); len(conflicts) != 0 {
+		t.Fatalf("two directors are normal practice, got %v", conflicts)
+	}
+	if _, conflicts := conflict("Whole-time Director", "Director", "Additional Director"); len(conflicts) != 0 {
+		t.Fatalf("a multi-director board is normal practice, got %v", conflicts)
+	}
+	if _, conflicts := conflict("Vice President", "Vice President"); len(conflicts) != 0 {
+		t.Fatalf("VPs are plural by design, got %v", conflicts)
+	}
+	for _, singular := range [][]string{
+		{"Managing Director", "MD"},
+		{"Chairman", "Chairperson"},
+		{"Chairman & Managing Director", "Managing Director"},
+		{"Chief Executive Officer", "CEO"},
+		{"Company Secretary", "CS"},
+	} {
+		rowConflicts, conflicts := conflict(singular...)
+		if len(conflicts) != 1 || len(rowConflicts) != len(singular) {
+			t.Fatalf("two people claiming %v must conflict, got %v", singular, conflicts)
+		}
+	}
+}
+
+// TestPersonNamesMatchInitials pins the initials rule: "K L Jain" and "Kl
+// Jain" both name "Kanhaiya Lal Jain" — initials align positionally with the
+// full given names and the surname matches — while different surnames,
+// different initials, and bare surnames never match.
+func TestPersonNamesMatchInitials(t *testing.T) {
+	matching := [][2]string{
+		{"K L Jain", "Kanhaiya Lal Jain"},
+		{"Kl Jain", "Kanhaiya Lal Jain"},
+		{"K.L. Jain", "Kanhaiya Lal Jain"},
+		{"Kanhaiya L Jain", "Kanhaiya Lal Jain"},
+		{"H Jain", "Hemant Jain"},
+		{"Sh. H Jain", "Hemant Jain"},
+		{"K L Jain", "K L Jain"},
+	}
+	for _, pair := range matching {
+		if !personNamesMatch(pair[0], pair[1]) {
+			t.Fatalf("expected %q and %q to name the same person", pair[0], pair[1])
+		}
+	}
+	different := [][2]string{
+		{"K L Jain", "Sanjay Kumar Jain"},
+		{"K L Jain", "Kanhaiya Kumar Jain"},
+		{"K L Jain", "Kanhaiya Lal Kumar Jain"},
+		{"K L Jain", "Kavita Sharma"},
+		{"Jain", "Kanhaiya Lal Jain"},
+		{"K L Jain", ""},
+	}
+	for _, pair := range different {
+		if personNamesMatch(pair[0], pair[1]) {
+			t.Fatalf("expected %q and %q to be different people", pair[0], pair[1])
+		}
+	}
+}
+
 // TestValidateChartPromotesOnADatedRecentMention covers the reverse-search half:
 // one snippet-only lookup finds a dated recent mention, the row is promoted, and
 // the roster is untouched — validation never introduces people.

@@ -922,3 +922,36 @@ func TestDedupeChartEmployeesPrefersLeadership(t *testing.T) {
 		t.Fatalf("expected John duplicate removed from second department, got %+v", chart.Departments[1].Members)
 	}
 }
+
+// TestDedupeChartEmployeesMergesInitialsVariants pins the person-name rule:
+// "K L Jain" and "Kanhaiya Lal Jain" are the same director, not two people —
+// one row survives, and the fuller name wins as the display name.
+func TestDedupeChartEmployeesMergesInitialsVariants(t *testing.T) {
+	chart := &models.OrgChart{
+		Leadership: []models.Employee{
+			{Name: "K L Jain", Title: "Director", Bio: "short bio"},
+			{Name: "Kanhaiya Lal Jain", Title: "Director", Bio: "a considerably longer biography with more detail"},
+		},
+		Departments: []models.Department{
+			{Name: "Board", Members: []models.Employee{
+				{Name: "K.L. Jain", Title: "Director"},
+			}},
+		},
+	}
+
+	dedupeChartEmployees(chart)
+
+	if len(chart.Leadership) != 1 {
+		t.Fatalf("expected the initials variant to merge, got %+v", chart.Leadership)
+	}
+	row := chart.Leadership[0]
+	if row.Name != "Kanhaiya Lal Jain" {
+		t.Fatalf("expected the fuller name as the display name, got %q", row.Name)
+	}
+	if row.Bio != "a considerably longer biography with more detail" {
+		t.Fatalf("expected the richer bio to survive the merge, got %q", row.Bio)
+	}
+	if len(chart.Departments[0].Members) != 0 {
+		t.Fatalf("expected the department variant removed, got %+v", chart.Departments[0].Members)
+	}
+}

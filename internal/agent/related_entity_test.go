@@ -94,6 +94,30 @@ func TestRocketReachEmployerMatchesRejectsFuzzyUnrelatedEmployer(t *testing.T) {
 	}
 }
 
+// TestNormalizeLeadersMergesInitialsVariants pins the leadership rule: "K L
+// Jain" and "Kanhaiya Lal Jain" are one director, not two — the fuller name
+// stands as the display name, and the variant does not spawn its own branch.
+func TestNormalizeLeadersMergesInitialsVariants(t *testing.T) {
+	evidence := func(url string) []models.RelatedEntityEvidence {
+		return []models.RelatedEntityEvidence{{URL: url, Title: "board listing", Snippet: "director of the company"}}
+	}
+	leaders := normalizeLeaders([]models.LeadershipSubject{
+		{Name: "K L Jain", Role: "Director", Evidence: evidence("https://weedoo.in/company/KLJ-RESOURCES-LTD/L67120WB1986PLC041487")},
+		{Name: "Kanhaiya Lal Jain", Role: "Director", Evidence: evidence("https://economictimes.indiatimes.com/company/klj-resources-ltd/L67120WB1986PLC041487")},
+		{Name: "Hemant Jain", Role: "Managing Director", Evidence: evidence("https://weedoo.in/director/HEMANT-JAIN/00506995")},
+	}, "KLJ Resources Limited", 8)
+
+	if len(leaders) != 2 {
+		t.Fatalf("expected the initials variant merged into one leader, got %+v", leaders)
+	}
+	if leaders[0].Name != "Kanhaiya Lal Jain" {
+		t.Fatalf("expected the fuller name as the display name, got %q", leaders[0].Name)
+	}
+	if leaders[1].Name != "Hemant Jain" {
+		t.Fatalf("expected the unrelated leader kept, got %+v", leaders[1])
+	}
+}
+
 func TestNormalizeRelatedRequiresEvidenceURL(t *testing.T) {
 	items := normalizeRelated([]models.RelatedCompany{
 		{Name: "No Source Co", Confidence: 0.9},

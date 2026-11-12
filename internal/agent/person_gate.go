@@ -47,11 +47,18 @@ func newPersonGate(query models.PersonQuery) *personGate {
 	name := strings.TrimSpace(query.Name)
 	return &personGate{
 		name:     name,
-		tokens:   nameTokens(name),
+		tokens:   personNameTokens(name),
 		company:  strings.TrimSpace(query.Company),
 		location: strings.TrimSpace(query.Location),
 		seedURL:  strings.TrimSpace(query.SeedURL),
 	}
+}
+
+// personNameTokens keeps every significant token of a person's name, including
+// single-letter initials — "K L Jain" keeps k, l and jain, where the company
+// tokenizer would drop the initials as noise and any Jain would then match.
+func personNameTokens(name string) []string {
+	return strings.Fields(normalizePersonName(name))
 }
 
 // personVerdict is the gate's decision for one source.
@@ -94,7 +101,7 @@ func (g *personGate) classify(targetURL, title, text string) personVerdict {
 	if g.seedURL != "" && strings.EqualFold(strings.TrimSpace(targetURL), g.seedURL) {
 		return personVerdict{Status: personVerdictConfirmed}
 	}
-	if !containsAllTokens(haystack, g.tokens) {
+	if !g.namedIn(haystack) {
 		return personVerdict{Status: personVerdictUnrelated}
 	}
 	if g.company != "" && mentionsCompany(haystack, g.company) {
@@ -112,6 +119,113 @@ func (g *personGate) classify(targetURL, title, text string) personVerdict {
 	return personVerdict{Status: personVerdictNameOnly}
 }
 
+// namedIn reports whether the haystack names the confirmed person: every name
+// token appears, or the name is written with initials that align to the full
+// name's leading words — "K L Jain" names a source about "Kanhaiya Lal Jain".
+// For an initials-form name the alignment check is the ONLY acceptance rule:
+// single-letter tokens as substrings would match almost any page.
+func (g *personGate) namedIn(haystack string) bool {
+	if g.initialsForm() {
+		return personNamedInText(haystack, g.tokens)
+	}
+	long := g.longTokens()
+	if len(long) > 0 && containsAllTokens(haystack, long) {
+		return true
+	}
+	return personNamedInText(haystack, g.tokens)
+}
+
+// initialsForm reports whether every non-surname token is an initial run
+// ("K L Jain", "Kl Jain") — at least one such token must exist.
+func (g *personGate) initialsForm() bool {
+	if len(g.tokens) < 2 {
+		return false
+	}
+	for _, token := range g.tokens[:len(g.tokens)-1] {
+		if len(token) > 2 {
+			return false
+		}
+	}
+	return true
+}
+
+// longTokens keeps the full-word tokens (three letters or more, including the
+// surname) — the ones a substring test can meaningfully require.
+func (g *personGate) longTokens() []string {
+	long := make([]string, 0, len(g.tokens))
+	for _, token := range g.tokens {
+		if len(token) > 2 {
+			long = append(long, token)
+		}
+	}
+	return long
+}
+
+// personNamedInText matches an initials rendering of the person inside free
+// text: the surname appears as a word, and the words immediately before it
+// carry the person's initials, in order — "Kanhaiya Lal Jain" carries the
+// initials k and l before "jain"; the single word "Kl" carries both. Full
+// given words must appear as words; initials as word prefixes. A two-letter
+// initial run ("Kl") counts as two letters.
+func personNamedInText(haystack string, tokens []string) bool {
+	if len(tokens) < 2 {
+		return false
+	}
+	surname := tokens[len(tokens)-1]
+	positions := personNamePositions(tokens)
+	words := strings.Fields(haystack)
+	// Expand two-letter words ("kl" → k, l) so an initials run written as one
+	// word aligns with its positions; other words pass through untouched.
+	expanded := make([]string, 0, len(words)+4)
+	for _, word := range words {
+		w := strings.Trim(word, ".,'\")")
+		if len(w) == 2 {
+			expanded = append(expanded, w[:1], w[1:])
+			continue
+		}
+		expanded = append(expanded, w)
+	}
+	for index, word := range expanded {
+		if word != surname || index < len(positions) {
+			continue
+		}
+		window := expanded[index-len(positions) : index]
+		matched := true
+		for position, token := range positions {
+			w := window[position]
+			if len(token) > 2 {
+				if w != token {
+					matched = false
+					break
+				}
+				continue
+			}
+			if !strings.HasPrefix(w, token) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
+// personNamePositions expands two-letter initial runs into single letters, so
+// "Kl" aligns as the two positions k and l.
+func personNamePositions(tokens []string) []string {
+	positions := make([]string, 0, len(tokens)+2)
+	for _, token := range tokens[:len(tokens)-1] {
+		if len(token) == 2 {
+			positions = append(positions, token[:1], token[1:])
+			continue
+		}
+		positions = append(positions, token)
+	}
+	return positions
+}
+
 // statedHeadlineEmployer reads the employer a headline states for the person, or "" when it
 // states none. Only an employer in a role context counts — "<role> at <X>", or a segment that
 // follows a recognised role — because a court-case or news headline that merely carries the
@@ -120,7 +234,7 @@ func (g *personGate) classify(targetURL, title, text string) personVerdict {
 func statedHeadlineEmployer(title string, tokens []string) string {
 	segments := splitPersonHeadline(title)
 	for index, segment := range segments {
-		if !containsAllTokens(segment, tokens) || isPersonTitleNoise(segment) {
+		if (!containsAllTokens(segment, tokens) && !personNamedInText(strings.ToLower(segment), tokens)) || isPersonTitleNoise(segment) {
 			continue
 		}
 		_, tail := splitPersonNameSegment(segment, tokens)

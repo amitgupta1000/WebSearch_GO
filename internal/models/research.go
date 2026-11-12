@@ -226,7 +226,7 @@ type ValidationReport struct {
 	// RowsUnverified counts rows the current-status lookups could not confirm:
 	// they stay in the chart carrying an "unable to verify" remark, and the
 	// freshness section reports them separately from the date buckets.
-	RowsUnverified int `json:"rows_unverified,omitempty"`
+	RowsUnverified int      `json:"rows_unverified,omitempty"`
 	Conflicts      []string `json:"conflicts,omitempty"`
 	// ExcludedRows records people removed from the current chart by
 	// current-employment checks: verified historical associations only, never
@@ -247,7 +247,9 @@ const (
 	VerificationDated = "dated"
 	// VerificationStale means the newest source is older than the stale window.
 	VerificationStale = "stale"
-	// VerificationConflicting means another person claims the same title.
+	// VerificationConflicting means another person claims the same singular
+	// title (chairman, managing director, the C-suite) — multiple directors
+	// are normal board practice and are not a conflict.
 	VerificationConflicting = "conflicting"
 	// VerificationUndated means no source carried a date at all.
 	VerificationUndated = "undated"

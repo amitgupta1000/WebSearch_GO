@@ -462,9 +462,12 @@ func (ca *CompanyAgent) synthesizeChart(ctx context.Context, brief models.Compan
 	return &chart, nil
 }
 
-// dedupeChartEmployees keeps one canonical row per normalized person name.
-// Leadership wins over department membership because it is the more specific
-// placement; duplicate rows are merged rather than emitted twice.
+// dedupeChartEmployees keeps one canonical row per person. Names are keyed by
+// their normalized form, and initials renderings of the same person ("K L
+// Jain" for "Kanhaiya Lal Jain") merge into the kept row — the fuller name
+// wins as the display name. Leadership wins over department membership because
+// it is the more specific placement; duplicate rows are merged rather than
+// emitted twice.
 func dedupeChartEmployees(chart *models.OrgChart) {
 	if chart == nil {
 		return
@@ -480,6 +483,13 @@ func dedupeChartEmployees(chart *models.OrgChart) {
 		if existing, ok := seen[key]; ok {
 			seen[key] = mergeEmployee(existing, employee)
 			leadership[leadershipIndex[key]] = seen[key]
+			continue
+		}
+		if variantKey, ok := personVariantKey(employee.Name, seen); ok {
+			merged := mergeEmployee(seen[variantKey], employee)
+			merged.Name = fullerPersonName(seen[variantKey].Name, employee.Name)
+			seen[variantKey] = merged
+			leadership[leadershipIndex[variantKey]] = merged
 			continue
 		}
 		seen[key] = employee
@@ -500,11 +510,38 @@ func dedupeChartEmployees(chart *models.OrgChart) {
 				seen[key] = mergeEmployee(existing, employee)
 				continue
 			}
+			if variantKey, ok := personVariantKey(employee.Name, seen); ok {
+				merged := mergeEmployee(seen[variantKey], employee)
+				merged.Name = fullerPersonName(seen[variantKey].Name, employee.Name)
+				seen[variantKey] = merged
+				continue
+			}
 			seen[key] = employee
 			members = append(members, employee)
 		}
 		department.Members = members
 	}
+}
+
+// personVariantKey finds the kept person this name is an initials rendering of
+// ("K L Jain" for "Kanhaiya Lal Jain"), or false when the name is new.
+func personVariantKey(name string, seen map[string]models.Employee) (string, bool) {
+	for key, employee := range seen {
+		if personNamesMatch(employee.Name, name) {
+			return key, true
+		}
+	}
+	return "", false
+}
+
+// fullerPersonName returns the fuller rendering: "Kanhaiya Lal Jain" beats the
+// initials form "K L Jain" (token counts are equal once initials expand, so
+// the longer normalized spelling is the fuller one).
+func fullerPersonName(a, b string) string {
+	if len(normalizePersonName(a)) >= len(normalizePersonName(b)) {
+		return a
+	}
+	return b
 }
 
 func mergeEmployee(primary, duplicate models.Employee) models.Employee {

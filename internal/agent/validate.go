@@ -122,6 +122,70 @@ func normalizePersonName(name string) string {
 	return strings.Join(kept, " ")
 }
 
+// personNamesMatch reports whether two renderings of a person's name are the
+// same person. The surname must match exactly, and the given names must align
+// positionally: an equal token, or an initial run ("k", "kl") whose letters
+// start the full name at that position — "K L Jain" and "Kl Jain" both name
+// "Kanhaiya Lal Jain". Bare surnames and different-length given names never
+// match: initials are ambiguous enough already.
+func personNamesMatch(a, b string) bool {
+	left := personNameParts(a)
+	right := personNameParts(b)
+	if len(left) < 2 || len(right) < 2 {
+		return false // a bare surname matches too many people
+	}
+	if left[len(left)-1] != right[len(right)-1] {
+		return false // the surname must match exactly
+	}
+	leftGiven, rightGiven := left[:len(left)-1], right[:len(right)-1]
+	if len(leftGiven) != len(rightGiven) {
+		return false
+	}
+	for index := range leftGiven {
+		if !givenNamesCompatible(leftGiven[index], rightGiven[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+// personNameParts normalizes a name and expands short given tokens into their
+// letters, so "kl" compares as the two initials k and l. The surname stays the
+// final token.
+func personNameParts(name string) []string {
+	parts := strings.Fields(normalizePersonName(name))
+	if len(parts) < 2 {
+		return parts
+	}
+	expanded := make([]string, 0, len(parts)+1)
+	for _, part := range parts[:len(parts)-1] {
+		if len(part) == 2 {
+			expanded = append(expanded, part[:1], part[1:])
+			continue
+		}
+		expanded = append(expanded, part)
+	}
+	return append(expanded, parts[len(parts)-1])
+}
+
+// givenNamesCompatible compares one given-name position: equal tokens, or an
+// initial run matching the start of the full name at the same position.
+func givenNamesCompatible(shortish, other string) bool {
+	if shortish == other {
+		return true
+	}
+	return initialRunMatches(shortish, other) || initialRunMatches(other, shortish)
+}
+
+// initialRunMatches reports whether short is an initial run for long: one or
+// two letters that start the full token, and strictly shorter than it.
+func initialRunMatches(short, long string) bool {
+	if len(short) == 0 || len(short) > 2 || len(short) >= len(long) {
+		return false
+	}
+	return strings.HasPrefix(long, short)
+}
+
 // mentions reports whether an evidence item names a person. It requires every
 // token of the normalised name to appear, and no corroboration at all for a
 // single-token name — a first name alone matches too much to count as a second
@@ -274,22 +338,26 @@ func newestSourceDate(sources []rowSource) time.Time {
 
 // titleAbbreviations are expanded before comparing titles, so "CFO" and "Chief
 // Financial Officer" are recognised as the same claim and their holders as
-// conflicting.
+// conflicting; "Chair"/"Chairperson" and "CS" fold into their full offices the
+// same way.
 var titleAbbreviations = map[string]string{
-	"cfo":  "chief financial officer",
-	"ceo":  "chief executive officer",
-	"coo":  "chief operating officer",
-	"cto":  "chief technology officer",
-	"cio":  "chief information officer",
-	"chro": "chief human resources officer",
-	"md":   "managing director",
-	"vp":   "vice president",
-	"svp":  "senior vice president",
-	"evp":  "executive vice president",
-	"gm":   "general manager",
-	"dgm":  "deputy general manager",
-	"agm":  "assistant general manager",
-	"hr":   "human resources",
+	"cfo":         "chief financial officer",
+	"ceo":         "chief executive officer",
+	"coo":         "chief operating officer",
+	"cto":         "chief technology officer",
+	"cio":         "chief information officer",
+	"chro":        "chief human resources officer",
+	"md":          "managing director",
+	"cs":          "company secretary",
+	"chair":       "chairman",
+	"chairperson": "chairman",
+	"vp":          "vice president",
+	"svp":         "senior vice president",
+	"evp":         "executive vice president",
+	"gm":          "general manager",
+	"dgm":         "deputy general manager",
+	"agm":         "assistant general manager",
+	"hr":          "human resources",
 }
 
 // normalizeTitle reduces a title to a comparable claim.
@@ -312,17 +380,22 @@ func normalizeTitle(title string) string {
 	return strings.Join(expanded, " ")
 }
 
-// leadershipTitleConflicts finds leadership titles claimed by more than one
-// person — the two-CFO chart that QC scored 1.00 — and returns the message for
-// each affected row plus the sorted list of conflicts.
+// leadershipTitleConflicts finds leadership titles that only one person can
+// hold, claimed by more than one person — the two-CFO chart that QC scored
+// 1.00 — and returns the message for each affected row plus the sorted list of
+// conflicts. Multiple directors are never a conflict: a board is plural by
+// design, so "Director", "Whole-time Director" and the like are exempt;
+// conflicts are reserved for singular offices — Chairman, Managing Director,
+// the C-suite, Company Secretary and their compounds.
 func leadershipTitleConflicts(chart *models.OrgChart) (map[int]string, []string) {
 	byTitle := make(map[string][]int)
 	for index := range chart.Leadership {
 		title := normalizeTitle(chart.Leadership[index].Title)
-		if title == "" {
+		if title == "" || !isSingularLeadershipTitle(title) {
 			continue
 		}
-		byTitle[title] = append(byTitle[title], index)
+		key := canonicalSingularTitle(title)
+		byTitle[key] = append(byTitle[key], index)
 	}
 
 	rowConflict := make(map[int]string)
@@ -336,7 +409,7 @@ func leadershipTitleConflicts(chart *models.OrgChart) (map[int]string, []string)
 			names = append(names, strings.TrimSpace(chart.Leadership[index].Name))
 		}
 		sort.Strings(names)
-		message := fmt.Sprintf("%d people claim the title %q: %s",
+		message := fmt.Sprintf("%d people claim the singular title %q: %s",
 			len(names), strings.TrimSpace(chart.Leadership[indexes[0]].Title), strings.Join(names, ", "))
 		conflicts = append(conflicts, message)
 		for _, index := range indexes {
@@ -345,6 +418,44 @@ func leadershipTitleConflicts(chart *models.OrgChart) (map[int]string, []string)
 	}
 	sort.Strings(conflicts)
 	return rowConflict, conflicts
+}
+
+// singularLeadershipTitles are the offices a company fills exactly once, the
+// normalized (abbreviation-expanded, lowercase) forms two different people
+// cannot hold at the same time. Directorships of every kind are deliberately
+// absent: boards have many directors.
+var singularLeadershipTitles = map[string]bool{
+	"chairman": true, "chairperson": true, "chair": true,
+	"executive chairman": true, "non executive chairman": true,
+	"vice chairman": true, "vice chairperson": true,
+	"managing director":              true,
+	"chairman managing director":     true,
+	"chairman and managing director": true,
+	"chairman cum managing director": true,
+	"president":                      true,
+	"company secretary":              true,
+	"compliance officer":             true, "principal officer": true,
+	"statutory director": true,
+}
+
+// isSingularLeadershipTitle reports whether a normalized title is an office
+// only one person can hold. Any "chief … officer" claim qualifies — the
+// abbreviation map expands CFO/CEO/COO/CTO/CIO/CHRO into that shape already.
+func isSingularLeadershipTitle(normalized string) bool {
+	if singularLeadershipTitles[normalized] {
+		return true
+	}
+	return strings.HasPrefix(normalized, "chief ") && strings.HasSuffix(normalized, " officer")
+}
+
+// canonicalSingularTitle collapses compound renderings of one office —
+// "Chairman & Managing Director" claims the same singular seat as "Managing
+// Director" — so their holders group together for the conflict check.
+func canonicalSingularTitle(normalized string) string {
+	if strings.Contains(normalized, "managing director") && strings.Contains(normalized, "chairman") {
+		return "managing director"
+	}
+	return normalized
 }
 
 // asOfLayout is how a date is written into a chart row and the artifacts.
@@ -385,6 +496,23 @@ func unresolvedRows(rows []rosterRow, gateActive bool) []lookupCandidate {
 			continue
 		}
 		if existing, ok := byName[key]; ok {
+			existing.rows = append(existing.rows, row)
+			if rank < existing.rank {
+				existing.rank = rank
+			}
+			continue
+		}
+		// An initials rendering of a person already queued ("K L Jain" for
+		// "Kanhaiya Lal Jain") is the same lookup target, not a second one.
+		variantKey := ""
+		for existingKey, candidate := range byName {
+			if personNamesMatch(candidate.name, row.employee.Name) {
+				variantKey = existingKey
+				break
+			}
+		}
+		if variantKey != "" {
+			existing := byName[variantKey]
 			existing.rows = append(existing.rows, row)
 			if rank < existing.rank {
 				existing.rank = rank
