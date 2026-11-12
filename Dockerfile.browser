@@ -8,11 +8,22 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-w -s" -o websearch ./cmd/server
 
+# playwright-go needs its Node driver on disk at runtime — the browser base
+# image ships Chromium and the browsers, but not the Go binding's driver.
+# --version only downloads the driver; the upstream CLI's install command
+# would also pull browsers the base image already carries.
+RUN go run github.com/mxschmitt/playwright-go/cmd/playwright --version
+
 # Keep this version aligned with github.com/mxschmitt/playwright-go v0.6201.1.
 FROM mcr.microsoft.com/playwright:v1.62.1-noble
 
 WORKDIR /app
 COPY --from=builder /app/websearch /app/websearch
+# Ship the downloaded driver and point the binding at it: the driver's default
+# directory is $HOME/.cache/ms-playwright-go/<version>, which the non-root
+# runtime user does not share with the builder.
+COPY --from=builder /root/.cache/ms-playwright-go /app/ms-playwright-go
+ENV PLAYWRIGHT_DRIVER_PATH=/app/ms-playwright-go/1.62.1
 RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
 
 EXPOSE 8080
