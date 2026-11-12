@@ -58,6 +58,17 @@
   exactly), and the roster/leadership dedupe plus the person gate (`personNamedInText`)
   apply it — the fuller name wins as the display name, and the initials variant does not
   spawn a second search branch.
+- **zaubacorp at the registry tier** (`company.go`, `related_entity.go`): zaubacorp pages
+  classify as `company_registry` (quality 0.85, India profile) alongside WeeDoo — the top
+  third-party tier, above leadership/external/indexed sources; only the company's own pages
+  outrank them. The company page is also constructible (`zaubacorp.com/<SLUG>-<CIN>`) and
+  joins the priority registry pass after the WeeDoo URLs, and frozen leaders get their
+  zaubacorp director page (`/<NAME-SLUG>-<DIN>`) fetched after the WeeDoo director page —
+  both pages server-rendered with the directors/DIN table (now extracted via the leaf-table
+  fix). RocketReach ordering is unchanged: RR discovery runs before web research in company
+  and market/demand modes, and the RR person lookup is the first operation in person mode;
+  WeeDoo/zaubacorp follow RR and now outrank every other third-party source in the scrape
+  order.
 - **Name+DIN freeze before any person search** (`related_entity.go`): the Business Network
   section of the WeeDoo company page is parsed as the FIRST option — its Direct/Ultimate
   child companies (with LEI codes) become a network hit that feeds the direct branch without
