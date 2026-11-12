@@ -1219,9 +1219,12 @@ func extractHTML(targetURL, contentType string, body []byte, extractor string, t
 	images := extractImages(contentRoot, targetURL)
 	// Select only "leaf" content blocks. Excluding any element that itself
 	// contains one of the content tags prevents nested duplicates (e.g. an
-	// <article> whose text was previously re-emitted for every child <p>),
-	// which inflated the context sent to the LLM by 2-10x.
-	contentRoot.Find("h1, h2, h3, h4, p, li, article, section").
+	// <article> whose text was previously re-emitted for every child <p>), which
+	// inflated the context sent to the LLM by 2-10x. Leaf <table> elements are
+	// included so tabular registry data — directors with DINs, GST and ISIN
+	// tables, financial rows — reaches the LLM: registry pages carry their most
+	// valuable facts in <td> cells that p/li selectors never see.
+	contentRoot.Find("h1, h2, h3, h4, p, li, article, section, table").
 		Not(":has(h1, h2, h3, h4, p, li, article, section)").
 		Each(func(_ int, sel *goquery.Selection) {
 			text := strings.TrimSpace(sel.Text())
