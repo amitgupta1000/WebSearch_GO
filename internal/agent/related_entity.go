@@ -733,6 +733,52 @@ func layoutRelatedGraph(graph *models.RelatedEntityGraph) {
 	}
 }
 
+// zaubaDirectorHit fetches the zaubacorp director page for a frozen (name,
+// DIN) pair: the URL is constructible as /<NAME-SLUG>-<DIN>, the page is
+// server-rendered (the directors table survives extraction), and it lists the
+// director's companies with appointment dates. The page is admitted only when
+// it carries the DIN and names the director — a zaubacorp miss renders a
+// generic page and must not become evidence.
+func (a *RelatedEntityAgent) zaubaDirectorHit(ctx context.Context, name, din string) *models.SearchResult {
+	if strings.TrimSpace(din) == "" {
+		return nil
+	}
+	variants := registrySlugVariants(name)
+	if len(variants) == 0 {
+		return nil
+	}
+	din = strings.TrimSpace(din)
+	url := "https://www.zaubacorp.com/" + variants[0] + "-" + din
+	var title, text string
+	if page, err := a.engine.ScrapeCached(ctx, url); err == nil && page != nil {
+		title, text = page.Title, strings.TrimSpace(page.Content)
+	}
+	if strings.TrimSpace(text) == "" || !strings.Contains(text, din) {
+		return nil // a page that does not carry the frozen DIN is not this director
+	}
+	if !personNamesInText(text, name) {
+		return nil
+	}
+	content := truncateRunes(text, weeDooRegistrySnippetMaxRunes)
+	return &models.SearchResult{
+		Title:   firstNonEmpty(title, "zaubacorp director page"),
+		Link:    url,
+		Snippet: content,
+	}
+}
+
+// personNamesInText reports whether the text names the person: the full name's
+// tokens, or an initials rendering aligned through the words before the
+// surname.
+func personNamesInText(text, name string) bool {
+	lowered := strings.ToLower(text)
+	tokens := personNameTokens(name)
+	if containsAllTokens(lowered, tokens) {
+		return true
+	}
+	return personNamedInText(lowered, tokens)
+}
+
 // weeDooRegistryEvidence returns the registry enrichment hits recorded on the
 // trace: the leadership pass needs them per leader, both for identity grounding
 // (the registry page names the company and its board) and for the directors
@@ -884,6 +930,16 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 					traces = append(traces, models.QueryTrace{
 						Query: directorHit.Link, Purpose: "WeeDoo director page (other companies)",
 						Kept: []models.SearchResult{*directorHit},
+					})
+				}
+				// zaubacorp's director page (frozen name+DIN URL, server-rendered,
+				// directors table now extracted) is the second authoritative
+				// source for the leader's other companies.
+				if zaubaHit := a.zaubaDirectorHit(ctx, leader.Name, din); zaubaHit != nil {
+					personHits = append(personHits, *zaubaHit)
+					traces = append(traces, models.QueryTrace{
+						Query: zaubaHit.Link, Purpose: "zaubacorp director page (frozen name+DIN)",
+						Kept: []models.SearchResult{*zaubaHit},
 					})
 				}
 				for _, planned := range affiliationQueries {

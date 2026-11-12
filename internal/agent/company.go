@@ -1074,6 +1074,26 @@ func companyRegistryCandidates(brief models.CompanyBrief, results []models.Searc
 			Snippet: constructedRegistryMarker + " (company name + CIN)",
 		})
 	}
+	// zaubacorp mirrors WeeDoo: the company page is constructible from the
+	// name and the CIN (zaubacorp.com/<SLUG>-<CIN>) and is server-rendered
+	// with the directors/DIN table. It joins the priority registry pass after
+	// WeeDoo — WeeDoo stays the first option for the frozen identity source.
+	for _, slug := range registrySlugVariants(brief.CompanyName) {
+		if len(candidates) >= maxCompanyRegistryPages {
+			break
+		}
+		zlink := "https://www.zaubacorp.com/" + slug + "-" + cin
+		if seen[normalizeURL(zlink)] {
+			continue
+		}
+		seen[normalizeURL(zlink)] = true
+		candidates = append(candidates, models.SearchResult{
+			Title:   "zaubacorp company page for " + brief.CompanyName,
+			Link:    zlink,
+			Snippet: constructedRegistryMarker + " (zaubacorp)",
+		})
+		break // the Limited-form slug is zaubacorp's canonical rendering
+	}
 	return candidates
 }
 
@@ -1671,12 +1691,14 @@ func classifySource(brief models.CompanyBrief, targetURL string) sourceProfile {
 	if strings.Contains(host, "linkedin.") {
 		return sourceProfile{sourceType: "professional_profile", quality: 0.6}
 	}
-	// WeeDoo publishes registry-style company records — directors with DINs,
-	// addresses, group and subsidiary links — the enrichment the related-entity
-	// segment scrapes by hand. Company mode fetches these as a priority source
-	// instead of leaving them at the bottom of the scrape ladder.
-	if containsAny(host, "weedoo.") && companySourceProfile(brief) == SourceProfileIndia {
-		return sourceProfile{sourceType: "company_registry", quality: 0.75}
+	// WeeDoo and zaubacorp publish registry-style company records — directors
+	// with DINs, addresses, group and subsidiary links — the enrichment the
+	// related-entity segment scrapes by hand. Company mode fetches these as a
+	// priority source instead of leaving them at the bottom of the scrape
+	// ladder, and their quality sits above every other third-party source:
+	// only the company's own pages outrank them.
+	if companySourceProfile(brief) == SourceProfileIndia && containsAny(host, "weedoo.", "zaubacorp.") {
+		return sourceProfile{sourceType: "company_registry", quality: 0.85}
 	}
 	if containsAny(host, "argusmedia", "spglobal", "platts") {
 		return sourceProfile{sourceType: "industry_event", quality: 0.75}

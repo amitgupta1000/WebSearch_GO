@@ -27,6 +27,15 @@ func TestClassifySourcePrioritizesWeeDooRegistry(t *testing.T) {
 	if classified := classifySource(global, "https://weedoo.in/company/acme"); classified.sourceType == "company_registry" {
 		t.Fatal("the explicitly global source profile must not prioritise WeeDoo")
 	}
+	// zaubacorp carries the same registry records (directors with DINs) and
+	// sits in the same top tier — above every other third-party source.
+	zauba := classifySource(brief, "https://www.zaubacorp.com/KLJ-PLASTICIZERS-LIMITED-U25200DL2008PLC181088")
+	if zauba.sourceType != "company_registry" || zauba.quality < 0.85 {
+		t.Fatalf("expected the zaubacorp registry class at the top tier, got %+v", zauba)
+	}
+	if classified := classifySource(global, "https://www.zaubacorp.com/acme-U1234567890123456"); classified.sourceType == "company_registry" {
+		t.Fatal("the explicitly global source profile must not prioritise zaubacorp")
+	}
 }
 
 // TestSelectScrapeCandidatesFetchesRegistryBeforeGenericPages pins the ladder:
@@ -252,12 +261,15 @@ func TestCompanyRegistryCandidatesConstructURLsFromTheCIN(t *testing.T) {
 	}
 	matcher := newEntityMatcher(brief)
 	candidates := companyRegistryCandidates(brief, results, matcher, nil)
-	if len(candidates) != 2 {
-		t.Fatalf("expected the two constructed registry URLs, got %+v", candidates)
+	if len(candidates) != 3 {
+		t.Fatalf("expected the two WeeDoo URLs plus the zaubacorp page, got %+v", candidates)
 	}
 	if candidates[0].Link != "https://weedoo.in/company/KLJ-RESOURCES-LIMITED/L67120WB1986PLC041487" ||
 		candidates[1].Link != "https://weedoo.in/company/KLJ-RESOURCES-LTD/L67120WB1986PLC041487" {
 		t.Fatalf("unexpected constructed URLs: %+v", candidates)
+	}
+	if candidates[2].Link != "https://www.zaubacorp.com/KLJ-RESOURCES-LIMITED-L67120WB1986PLC041487" {
+		t.Fatalf("expected the zaubacorp page after WeeDoo, got %+v", candidates[2])
 	}
 	for _, candidate := range candidates {
 		if !strings.Contains(candidate.Snippet, constructedRegistryMarker) {
@@ -284,9 +296,10 @@ func TestCompanyRegistryCandidatesResolveTheCINThroughWeeDoo(t *testing.T) {
 	if resolved != 1 {
 		t.Fatalf("expected exactly one WeeDoo resolution, got %d", resolved)
 	}
-	if len(candidates) != 2 ||
+	if len(candidates) != 3 ||
 		candidates[0].Link != "https://weedoo.in/company/KLJ-RESOURCES-LIMITED/L67120WB1986PLC041487" ||
-		candidates[1].Link != "https://weedoo.in/company/KLJ-RESOURCES-LTD/L67120WB1986PLC041487" {
+		candidates[1].Link != "https://weedoo.in/company/KLJ-RESOURCES-LTD/L67120WB1986PLC041487" ||
+		candidates[2].Link != "https://www.zaubacorp.com/KLJ-RESOURCES-LIMITED-L67120WB1986PLC041487" {
 		t.Fatalf("expected constructed URLs from the resolved CIN, got %+v", candidates)
 	}
 	// A resolver that cannot resolve produces no constructed candidates.

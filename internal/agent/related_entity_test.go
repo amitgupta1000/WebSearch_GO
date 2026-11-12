@@ -290,6 +290,25 @@ func TestWeeDooRegistryHitsConstructsAndGates(t *testing.T) {
 	}
 }
 
+// TestZaubaDirectorHitGatesOnTheFrozenDIN pins the zaubacorp director-page
+// fetch: the URL is constructed from the frozen (name, DIN) pair, the page is
+// admitted only when it carries that DIN and names the director, and without a
+// DIN nothing is fetched.
+func TestZaubaDirectorHitGatesOnTheFrozenDIN(t *testing.T) {
+	store := cache.NewMemoryCache(10)
+	t.Cleanup(func() { store.Close() })
+	agent := NewRelatedEntityAgent(NewEngine(&mockLLM{}, &mockSearcher{}, &registryScraperMock{}, store, 5, 3, 10))
+
+	if agent.zaubaDirectorHit(context.Background(), "Hemant Jain", "") != nil {
+		t.Fatal("no DIN means no zaubacorp fetch")
+	}
+	// The registry mock serves KLJ-shaped content without Hemant's DIN: the
+	// page must be rejected.
+	if hit := agent.zaubaDirectorHit(context.Background(), "Hemant Jain", "00506995"); hit != nil {
+		t.Fatalf("a page without the frozen DIN must not become evidence, got %+v", hit)
+	}
+}
+
 // TestWeeDooDirectorHitBuildsURLOnlyWithDIN pins the per-leader enrichment:
 // the director page is constructed from the resolved DIN and the director's
 // name slug, and is skipped entirely without a DIN.
