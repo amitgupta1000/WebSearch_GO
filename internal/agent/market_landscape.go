@@ -221,7 +221,7 @@ func marketCandidate(hit models.SearchResult, lane string, query models.MarketLa
 	}
 	sourceTier := marketSourceTier(domain)
 	evidenceType := "company-page"
-	if sourceTier == "news" || sourceTier == "social" || sourceTier == "research" || isGenericMarketTitle(name) || isResearchDocumentTitle(name) || !hasMarketActivityEvidence(hit, query.Activity) || !hasCompanyIdentitySignal(name, domain) {
+	if classifyDiscoverySource(hit) != sourceOperator || sourceTier == "news" || sourceTier == "social" || sourceTier == "research" || isGenericMarketTitle(name) || isResearchDocumentTitle(name) || !hasMarketActivityEvidence(hit, query.Activity) || !hasCompanyIdentitySignal(name, domain) {
 		evidenceType = "discovery-lead"
 	}
 	return &models.MarketLandscapeCompany{
@@ -272,7 +272,7 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 			leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 		}
 		var batch []models.MarketLandscapeLeadCandidate
-		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. Exclude publishers, list titles, regions, projects, and generic categories. If a lead explicitly names a relevant sales, marketing, commercial, or business-development person, include the person's name in key_people; never infer people. Return a JSON array with name, country, reason, evidence_url as a string, and key_people as an array of strings.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
+		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. Reports, studies, forecasts and publisher pages are valid discovery evidence, but their titles and publishers are not companies. Never return a report title, publisher, list heading, region, project or generic category as name. For every extracted company, include source_type (operator or research_report), mention_context, supporting_quote, country, reason, evidence_url as a string, and key_people as an array of strings. A research_report candidate must be independently verified before promotion. If a lead explicitly names a relevant sales, marketing, commercial, or business-development person, include the person's name in key_people; never infer people. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
 		if err := a.engine.GenerateStructured(ctx, "You extract company names for a market research verification queue. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
 			rejected += end - start
 			extractionErrors = append(extractionErrors, err.Error())
@@ -285,6 +285,9 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 	seenNames := make(map[string]bool)
 	for _, candidate := range extracted {
 		candidate.Name = strings.TrimSpace(candidate.Name)
+		if candidate.SourceType == "" {
+			candidate.SourceType = "discovery"
+		}
 		key := normalizeMarketName(candidate.Name)
 		if !isPlausibleMarketLeadName(candidate.Name) || isResearchDocumentTitle(candidate.Name) || seenNames[key] {
 			rejected++
@@ -578,6 +581,8 @@ func isResearchPublisherDomain(domain string) bool {
 		"gminsights", "precedenceresearch", "expertmarketresearch",
 		"transparencymarketresearch", "alliedmarketresearch", "statista",
 		"credenceresearch", "industryarc", "factmr", "valuemarketresearch",
+		"emergenresearch", "wiseguyreports", "futuremarketinsights",
+		"360iresearch", "databridgemarketresearch", "researchandmarkets",
 	} {
 		if strings.Contains(domain, marker) {
 			return true

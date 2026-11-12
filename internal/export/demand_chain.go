@@ -53,11 +53,12 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 		b.WriteString("No consuming stages were established.\n\n")
 	} else {
 		fmt.Fprintf(&b, "_%s_\n\n", chainSource)
-		b.WriteString("| Stage | Steps from the product | Why it consumes the product | Operator vocabulary | Source |\n| :--- | :--- | :--- | :--- | :--- |\n")
+		b.WriteString("| Stage | Steps from the product | Why it consumes the product | Product families | Operator vocabulary | Source |\n| :--- | :--- | :--- | :--- | :--- | :--- |\n")
 		for _, stage := range report.Chain {
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n",
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n",
 				markdownCell(stage.Name), markdownCell(demandStageDistanceLabel(stage)),
 				markdownCell(stage.Rationale),
+				markdownCell(strings.Join(stage.Products, "; ")),
 				markdownCell(strings.Join(stage.Operators, "; ")), markdownCell(stage.Source))
 		}
 		b.WriteString("\n")
@@ -132,8 +133,8 @@ var demandChainHTMLTemplate = documentTemplate("demand-chain", `
 <header><h1>{{.Chain.Activity}} — Demand Chain</h1>{{if .Chain.Objective}}<p class="subtitle">{{.Chain.Objective}}</p>{{end}}</header>
 {{if .Chain.Chain}}<section>
 	<h2>Value chain</h2>
-	<table><thead><tr><th>Stage</th><th>Steps from the product</th><th>Why it consumes the product</th><th>Operator vocabulary</th><th>Source</th></tr></thead><tbody>
-	{{range .Chain.Chain}}<tr><td>{{.Name}}</td><td>{{if eq .Distance 2}}2 (derived){{else}}1 (direct){{end}}</td><td>{{.Rationale}}</td><td>{{range .Operators}}{{.}}; {{end}}</td><td>{{.Source}}</td></tr>{{end}}
+	<table><thead><tr><th>Stage</th><th>Steps from the product</th><th>Why it consumes the product</th><th>Product families</th><th>Operator vocabulary</th><th>Source</th></tr></thead><tbody>
+	{{range .Chain.Chain}}<tr><td>{{.Name}}</td><td>{{if eq .Distance 2}}2 (derived){{else}}1 (direct){{end}}</td><td>{{.Rationale}}</td><td>{{range .Products}}{{.}}; {{end}}</td><td>{{range .Operators}}{{.}}; {{end}}</td><td>{{.Source}}</td></tr>{{end}}
 	</tbody></table>
 </section>{{end}}
 <section><h2>Results — verified consumers</h2>

@@ -36,6 +36,11 @@ type MarketLandscapeLeadCandidate struct {
 	Country     string `json:"country,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 	EvidenceURL string `json:"evidence_url,omitempty"`
+	SourceType  string `json:"source_type,omitempty"`
+	// MentionContext explains why a source named the candidate; it is not
+	// treated as proof of operating identity until independently verified.
+	MentionContext  string `json:"mention_context,omitempty"`
+	SupportingQuote string `json:"supporting_quote,omitempty"`
 	// Producer records the extractor's judgement that the page describes the
 	// company as a producer, manufacturer or supplier of the target product
 	// itself — the supply side. Buyer-side runs consume it through the

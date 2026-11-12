@@ -1,0 +1,8 @@
+# Diagnostic image for the weedoo.in access matrix: Python + the matching
+# Playwright browsers, with the probe script baked in. Run as a Cloud Run Job
+# in asia-south1 to reproduce the production egress environment.
+FROM mcr.microsoft.com/playwright/python:v1.62.1-noble
+
+WORKDIR /app
+COPY scripts/weedoo-diagnose.py /app/weedoo-diagnose.py
+ENTRYPOINT ["python", "/app/weedoo-diagnose.py", "--out-dir", "/tmp"]

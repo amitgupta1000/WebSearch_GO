@@ -48,6 +48,9 @@ type ValueChainStage struct {
 	// Operators is the search vocabulary for the stage's operators, e.g.
 	// "biodiesel plant", "oil refinery".
 	Operators []string `json:"operators,omitempty"`
+	// Products are concrete product families within a broad stage. Discovery
+	// searches these before falling back to the stage label.
+	Products []string `json:"products,omitempty"`
 	// Source records where the stage came from: "model" (inferred),
 	// "operator" (supplied on the form), or "fallback" (inference failed).
 	Source string `json:"source"`

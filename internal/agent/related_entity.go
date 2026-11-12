@@ -1309,7 +1309,7 @@ func normalizeRelated(items []models.RelatedCompany, primary string) []models.Re
 		if item.Name == "" || strings.EqualFold(item.Name, primary) || isResearchDocumentTitle(item.Name) || seen[strings.ToLower(item.Name)] {
 			continue
 		}
-		if !hasRelatedEvidenceURL(item.Evidence) {
+		if !hasRelatedEvidenceURL(item.Evidence) || !hasNonResearchRelatedEvidence(item.Evidence) {
 			continue
 		}
 		if item.Confidence <= 0 {
@@ -1324,6 +1324,15 @@ func normalizeRelated(items []models.RelatedCompany, primary string) []models.Re
 func hasRelatedEvidenceURL(evidence []models.RelatedEntityEvidence) bool {
 	for _, item := range evidence {
 		if strings.TrimSpace(item.URL) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNonResearchRelatedEvidence(evidence []models.RelatedEntityEvidence) bool {
+	for _, item := range evidence {
+		if strings.TrimSpace(item.URL) != "" && !isResearchEvidenceURL(item.URL) {
 			return true
 		}
 	}

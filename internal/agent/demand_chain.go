@@ -26,10 +26,10 @@ import (
 )
 
 const (
-	demandMaxDiscoveryQueries    = 20
+	demandMaxDiscoveryQueries    = 30
 	demandMinDiscoveryQueries    = 2
-	demandMaxVerificationQueries = 70
-	demandMaxLeadsEnriched       = 24
+	demandMaxVerificationQueries = 100
+	demandMaxLeadsEnriched       = 36
 	demandMaxStages              = 7
 	// Web key-person discovery and the optional RocketReach discovery each get
 	// their own 20-search budget, carved out of the verification budget when
@@ -841,20 +841,20 @@ func normalizeDemandBudget(query *models.DemandChainQuery) {
 	if query.DiscoveryQueries < demandMinDiscoveryQueries {
 		query.DiscoveryQueries = demandMinDiscoveryQueries
 	}
-	if query.DiscoveryQueries > 60 {
-		query.DiscoveryQueries = 60
+	if query.DiscoveryQueries > 80 {
+		query.DiscoveryQueries = 80
 	}
 	if query.VerificationQueries <= 0 {
 		query.VerificationQueries = demandMaxVerificationQueries
 	}
-	if query.VerificationQueries > 250 {
-		query.VerificationQueries = 250
+	if query.VerificationQueries > 300 {
+		query.VerificationQueries = 300
 	}
 	if query.MaxLeadsEnriched <= 0 {
 		query.MaxLeadsEnriched = demandMaxLeadsEnriched
 	}
-	if query.MaxLeadsEnriched > 60 {
-		query.MaxLeadsEnriched = 60
+	if query.MaxLeadsEnriched > 80 {
+		query.MaxLeadsEnriched = 80
 	}
 	if query.MaxCompanies <= 0 || query.MaxCompanies > 50 {
 		query.MaxCompanies = 20
@@ -889,6 +889,7 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 				Distance:  models.StageDistanceDirect,
 				Source:    "operator",
 				Operators: []string{strings.TrimSpace(name) + " plant operator manufacturer"},
+				Products:  knownStageProducts(query.Activity, name),
 			})
 		}
 		emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Using %d operator-supplied consuming stage(s)", len(stages)), "", "")
@@ -899,7 +900,7 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 	// The prompt encodes the buyer definition: a buyer is a manufacturer whose
 	// process consumes the product as an input, so the chain stops at two
 	// transformation steps downstream — deeper steps are context, not buyers.
-	prompt := fmt.Sprintf("Identify the industrial manufacturing processes that are potential buyers of %q: processes that consume the product%s. Scope: at most two transformation steps downstream. Return a JSON array where each element has name (the consuming manufacturing process, e.g. \"biodiesel production\"), rationale (one line naming which input the stage consumes), operators (2-3 search phrases for the plants or companies operating that stage, e.g. \"biodiesel plant\"), and distance: 1 when the stage consumes %q directly as an input or raw material, 2 when it consumes the output of a distance-1 process. Exclude stages beyond two steps, end-use sectors that manufacture nothing, retail, logistics, trading and publication stages.", query.Activity, demandGeographyClause(query), query.Activity)
+	prompt := fmt.Sprintf("Identify the industrial manufacturing processes that are potential buyers of %q: processes that consume the product%s. Scope: at most two transformation steps downstream. Return a JSON array where each element has name (the consuming manufacturing process), rationale (one line naming which input the stage consumes), products (up to 4 concrete products made within the stage that consume the product or its immediate derivative; do not return generic category labels), operators (2-3 search phrases for the plants or companies operating that stage), and distance: 1 when the stage consumes %q directly as an input or raw material, 2 when it consumes the output of a distance-1 process. For example, decompose a generic solvent stage into concrete acetate-esters or other product families actually derived from the input. Exclude stages beyond two steps, end-use sectors that manufacture nothing, retail, logistics, trading and publication stages.", query.Activity, demandGeographyClause(query), query.Activity)
 	if err := a.engine.GenerateStructured(ctx,
 		"You infer industrial value chains for buyer research. A buyer is a manufacturer whose process consumes the product as an input; never propose stages more than two transformation steps downstream, and keep operator phrases as concrete plant vocabulary.",
 		prompt, &proposed); err != nil {
@@ -920,6 +921,10 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 	for index := range stages {
 		if len(stages[index].Operators) == 0 {
 			stages[index].Operators = []string{strings.TrimSpace(stages[index].Name) + " plant operator manufacturer"}
+		}
+		stages[index].Products = normalizeStageProducts(stages[index].Products)
+		if len(stages[index].Products) == 0 {
+			stages[index].Products = knownStageProducts(query.Activity, stages[index].Name)
 		}
 	}
 	emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Inferred %d consuming stage(s): %s", len(stages), stageNames(stages)), "", "")
@@ -979,6 +984,7 @@ func sanitizeDemandStages(proposed []models.ValueChainStage) sanitizedDemandStag
 			}
 		}
 		stage.Operators = vocabulary
+		stage.Products = normalizeStageProducts(stage.Products)
 		stages = append(stages, stage)
 		if len(stages) >= demandMaxStages {
 			break
@@ -1018,7 +1024,14 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 				term:  "largest manufacturers of " + demandStageSearchLabel(stageName),
 				stage: stage.Name,
 			})
+			for _, product := range stage.Products {
+				lanes = append(lanes, demandLane{
+					term:  "largest manufacturers of " + product,
+					stage: stage.Name,
+				})
+			}
 		}
+
 		vocabularyCount := 0
 		stageCap := vocabularyCap - 1
 		if stage.Distance > models.StageDistanceDirect && stageCap > 0 {
@@ -1078,6 +1091,33 @@ func demandStageSearchLabel(stage string) string {
 		return strings.ToLower(strings.TrimSpace(stage))
 	}
 	return label
+}
+
+func normalizeStageProducts(products []string) []string {
+	out := make([]string, 0, 4)
+	seen := make(map[string]bool)
+	for _, product := range products {
+		product = strings.TrimSpace(product)
+		key := strings.ToLower(product)
+		if product == "" || len(product) > 100 || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, product)
+		if len(out) == 4 {
+			break
+		}
+	}
+	return out
+}
+
+func knownStageProducts(activity, stage string) []string {
+	activity = strings.ToLower(strings.TrimSpace(activity))
+	stage = strings.ToLower(strings.TrimSpace(stage))
+	if strings.Contains(activity, "acetic acid") && strings.Contains(stage, "solvent") {
+		return []string{"ethyl acetate", "butyl acetate", "propyl acetate", "acetate esters"}
+	}
+	return nil
 }
 
 // selectDemandLanes keeps the two highest-value direct-demand lanes in every
@@ -1184,7 +1224,7 @@ func demandCandidate(hit models.SearchResult, lane demandLane, query models.Dema
 		sourceTier = sourceOverride
 	}
 	evidenceType := "company-page"
-	if sourceTier == "news" || sourceTier == "social" || sourceOverride != "" || isGenericMarketTitle(name) || isDemandBaitTitle(name) || !hasCompanyIdentitySignal(name, domain) {
+	if classifyDiscoverySource(hit) != sourceOperator || sourceTier == "news" || sourceTier == "social" || sourceOverride != "" || isGenericMarketTitle(name) || isDemandBaitTitle(name) || !hasCompanyIdentitySignal(name, domain) {
 		evidenceType = "discovery-lead"
 	}
 	// Product-shaped demand lanes must carry buyer language on the hit itself;

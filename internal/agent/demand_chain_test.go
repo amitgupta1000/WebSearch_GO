@@ -735,9 +735,30 @@ func TestDemandChainDefaultsAreKept(t *testing.T) {
 	normalizeDemandBudget(&deep)
 	// MaxCompanies resets to the default when out of range, like the shipped
 	// behaviour; the search budgets clamp to their runaway caps.
-	if deep.DiscoveryQueries != 60 || deep.VerificationQueries != 250 || deep.MaxLeadsEnriched != 60 || deep.MaxCompanies != 20 {
+	if deep.DiscoveryQueries != 80 || deep.VerificationQueries != 300 || deep.MaxLeadsEnriched != 80 || deep.MaxCompanies != 20 {
 		t.Fatalf("capped = %+v, want the runaway caps", deep)
 	}
+}
+
+func TestDemandChainDecomposesBroadSolventStage(t *testing.T) {
+	stages := []models.ValueChainStage{{
+		Name:     "Solvent Production",
+		Products: []string{"ethyl acetate", "butyl acetate"},
+	}}
+	lanes := demandChainLanes(models.DemandChainQuery{Activity: "acetic acid"}, stages)
+	if !containsDemandLane(lanes, "largest manufacturers of ethyl acetate") ||
+		!containsDemandLane(lanes, "largest manufacturers of butyl acetate") {
+		t.Fatalf("expected product-level solvent lanes, got %+v", lanes)
+	}
+}
+
+func containsDemandLane(lanes []demandLane, term string) bool {
+	for _, lane := range lanes {
+		if lane.term == term {
+			return true
+		}
+	}
+	return false
 }
 
 // TestDemandExtractionRejectsTitlesAndCountries pins the two deterministic
