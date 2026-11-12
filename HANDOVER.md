@@ -66,6 +66,15 @@
   search with the DIN anchored into every query, and when WeeDoo covers the company but a
   leader's DIN cannot be frozen (masked rows), that leader is skipped entirely — name-only
   related-entity searching stays off.
+- **Cloud Run caveat (live-verified)**: the mcr playwright base image lacked the Go
+  binding's Node driver — fixed by shipping the driver and pointing
+  `PLAYWRIGHT_DRIVER_PATH` at it (`b213ba1`/`7fa9864`), and the default 512Mi Cloud Run
+  memory OOM-killed the container when Chromium launched — deploy-gcp.ps1 now deploys with
+  `--memory 2Gi --cpu 2` (`70b8855`). Remaining environmental limit: weedoo.in does not
+  serve its search bar (and barely hydrates pages) to the datacenter-IP browser, so the
+  search-bar discovery and browser re-reads work locally but not reliably from Cloud Run;
+  the CIN-from-hits path (plain fetch of the server-rendered page) still works there, and
+  DINs frozen from retained evidence keep the freeze functional.
 
 ## Company mode behavior
 
