@@ -265,12 +265,15 @@ func TestWeeDooRegistryHitsConstructsAndGates(t *testing.T) {
 	}}}
 
 	registryAgent := NewRelatedEntityAgent(NewEngine(&mockLLM{}, &mockSearcher{}, &registryScraperMock{}, store, 5, 3, 10))
-	hits := registryAgent.weeDooRegistryHits(context.Background(), "sess_test", query, trace, nil)
+	hits, network := registryAgent.weeDooRegistryHits(context.Background(), "sess_test", query, trace, nil)
 	if len(hits) != 1 {
 		t.Fatalf("expected the constructed registry page as a hit, got %+v", hits)
 	}
 	if hits[0].Link != "https://weedoo.in/company/KLJ-RESOURCES-LIMITED/L67120WB1986PLC041487" {
 		t.Fatalf("unexpected constructed URL: %q", hits[0].Link)
+	}
+	if len(network) != 0 {
+		t.Fatalf("a page without a Business Network section must not produce network hits, got %+v", network)
 	}
 	if len(trace.Queries) != 2 || !strings.Contains(trace.Queries[1].Purpose, "WeeDoo registry enrichment") {
 		t.Fatalf("expected the enrichment recorded on the trace, got %+v", trace.Queries)
@@ -282,14 +285,63 @@ func TestWeeDooRegistryHitsConstructsAndGates(t *testing.T) {
 	t.Cleanup(func() { store2.Close() })
 	plainAgent := NewRelatedEntityAgent(NewEngine(&mockLLM{}, &mockSearcher{}, &mockScraper{}, store2, 5, 3, 10))
 	trace2 := &models.SearchTrace{Queries: append([]models.QueryTrace(nil), trace.Queries[:1]...)}
-	if got := plainAgent.weeDooRegistryHits(context.Background(), "sess_test", query, trace2, nil); got != nil {
-		t.Fatalf("a page that does not name the company must stay out, got %+v", got)
+	if registry, network := plainAgent.weeDooRegistryHits(context.Background(), "sess_test", query, trace2, nil); registry != nil || network != nil {
+		t.Fatalf("a page that does not name the company must stay out, got %+v / %+v", registry, network)
 	}
 }
 
 // TestWeeDooDirectorHitBuildsURLOnlyWithDIN pins the per-leader enrichment:
 // the director page is constructed from the resolved DIN and the director's
 // name slug, and is skipped entirely without a DIN.
+// TestWeeDooRegistryHitsReturnsTheBusinessNetwork pins the first-option rule:
+// the Business Network's connected companies (Direct/Ultimate children with
+// their LEI codes) become a network hit recorded on the trace — direct related
+// entities that need no person search at all.
+func TestWeeDooRegistryHitsReturnsTheBusinessNetwork(t *testing.T) {
+	store := cache.NewMemoryCache(10)
+	t.Cleanup(func() { store.Close() })
+	query := models.RelatedEntityQuery{CompanyName: "KLJ Resources Limited"}
+	trace := &models.SearchTrace{Queries: []models.QueryTrace{{
+		Query: `site:weedoo.in "KLJ Resources Limited"`,
+		Kept: []models.SearchResult{{
+			Title: "KLJ Resources Ltd", Link: "https://economictimes.indiatimes.com/company/klj-resources-ltd/L67120WB1986PLC041487", Snippet: "KLJ Resources Limited",
+		}},
+	}}}
+
+	networkScraper := networkScraperMock{}
+	agent := NewRelatedEntityAgent(NewEngine(&mockLLM{}, &mockSearcher{}, &networkScraper, store, 5, 3, 10))
+	hits, network := agent.weeDooRegistryHits(context.Background(), "sess_test", query, trace, nil)
+	if len(hits) != 1 || len(network) != 1 {
+		t.Fatalf("expected the registry page plus the Business Network hit, got %+v / %+v", hits, network)
+	}
+	if !strings.Contains(network[0].Snippet, "Direct: Lakeland Chemicals (india) Limited") ||
+		!strings.Contains(network[0].Snippet, "Ultimate: Klj Resources Pte. Ltd.") {
+		t.Fatalf("expected the connected companies in the network hit, got %q", network[0].Snippet)
+	}
+	if len(trace.Queries) != 3 || !strings.Contains(trace.Queries[2].Purpose, "WeeDoo business network") {
+		t.Fatalf("expected the network hit recorded on the trace, got %+v", trace.Queries)
+	}
+}
+
+// networkScraperMock serves a WeeDoo company page whose rendered content
+// carries the directors table and the Business Network's Direct/Ultimate
+// children table.
+type networkScraperMock struct{}
+
+func (m *networkScraperMock) ScrapeURL(ctx context.Context, targetURL string) (*models.ScrapeResult, error) {
+	content := "KLJ Resources Limited\n" +
+		"Directors\nAppointment\tDirector name\tDIN\tDesignation\n" +
+		"01/10/2005\tHemant Jain\t00506995\tManaging Director\n" +
+		"Business Network\nCurrent\n8\nOwnership\n3\n" +
+		"Showing 11 of 11 connections. See the full lists below.\n" +
+		"Directors\n8\nHemant Jain\nManaging Director\n" +
+		"Subsidiaries\n3\nLakeland Chemicals (india) Limited\nDirect\n" +
+		"Direct/Ultimate Children\nType\tLegal Name\tLEI code\n" +
+		"Direct\tLakeland Chemicals (india) Limited\t335800VMK56Z6EJD3721\n" +
+		"Ultimate\tKlj Resources Pte. Ltd.\t98450065CO9D775C9C26\n"
+	return &models.ScrapeResult{URL: targetURL, Title: "KLJ Resources Ltd — WeeDoo company page", Content: content}, nil
+}
+
 func TestWeeDooDirectorHitBuildsURLOnlyWithDIN(t *testing.T) {
 	store := cache.NewMemoryCache(10)
 	t.Cleanup(func() { store.Close() })
@@ -304,5 +356,73 @@ func TestWeeDooDirectorHitBuildsURLOnlyWithDIN(t *testing.T) {
 	}
 	if agent.weeDooDirectorHit(context.Background(), "Hemant Jain", "") != nil {
 		t.Fatal("without a DIN there is no director page to construct")
+	}
+}
+
+// TestWeeDooNetworkChildrenParsesTheConnectedCompanies pins the Business
+// Network parse: the Direct/Ultimate Children table wins (name, relation, LEI),
+// the Subsidiaries list is the fallback, and noise never becomes a company.
+func TestWeeDooNetworkChildrenParsesTheConnectedCompanies(t *testing.T) {
+	page := "Direct/Ultimate Children\nType\tLegal Name\tLEI code\n" +
+		"Direct\tLakeland Chemicals (india) Limited\t335800VMK56Z6EJD3721\n" +
+		"Ultimate\tKlj Resources Pte. Ltd.\t98450065CO9D775C9C26\n" +
+		"Address\n8 Cammac Street, Kolkata"
+	children := weeDooNetworkChildren(page)
+	if len(children) != 2 ||
+		children[0].Name != "Lakeland Chemicals (india) Limited" || children[0].Relation != "Direct" || children[0].LEI != "335800VMK56Z6EJD3721" ||
+		children[1].Name != "Klj Resources Pte. Ltd." || children[1].Relation != "Ultimate" {
+		t.Fatalf("unexpected children: %+v", children)
+	}
+
+	fallback := "Business Network\nCurrent\n8\nOwnership\n3\n" +
+		"Showing 11 of 11 connections. See the full lists below.\n" +
+		"Subsidiaries\n3\nLakeland Chemicals (india) Limited\nDirect\n" +
+		"Klj Resources Pte. Ltd.\nUltimate\n" +
+		"Latest Documents\nCategory:"
+	if children := weeDooNetworkChildren(fallback); len(children) != 2 ||
+		children[0].Name != "Lakeland Chemicals (india) Limited" || children[1].Relation != "Ultimate" {
+		t.Fatalf("unexpected Subsidiaries fallback children: %+v", children)
+	}
+
+	if children := weeDooNetworkChildren("Business Network\nCurrent\n8\nOpen full map\nDirectors\n8\nHemant Jain\nManaging Director\n"); len(children) != 0 {
+		t.Fatalf("a page without child companies must not produce children, got %+v", children)
+	}
+}
+
+// TestFrozenLeaderDINFreezesTheIdentityBeforeSearching pins the freeze order:
+// the directors-table row freezes the (name, DIN) pair first, a labelled DIN in
+// retained evidence freezes it second, and an unfrozen leader stays unfrozen —
+// name-only searching then must not run.
+func TestFrozenLeaderDINFreezesTheIdentityBeforeSearching(t *testing.T) {
+	registry := []models.SearchResult{{
+		Title: "WeeDoo company page",
+		Link:  "https://weedoo.in/company/KLJ-RESOURCES-LTD/L67120WB1986PLC041487",
+		Snippet: "Directors\nAppointment\tDirector name\tDIN\tDesignation\n" +
+			"12/08/2022\tKamlendra Navratansingh Chauhan\t09695105\tWhole-time director\n" +
+			"16/01/2018\tSuresh Chand Jalther\t*****2690R\tCFO\n",
+	}}
+	if got := frozenLeaderDIN(registry, nil, "Kamlendra Navratansingh Chauhan"); got != "09695105" {
+		t.Fatalf("expected the table row to freeze the DIN, got %q", got)
+	}
+	// The masked row freezes nothing, but a labelled DIN in retained evidence
+	// does — when it sits next to the leader's name.
+	retained := []models.SearchResult{{
+		Title:   "Suresh Chand Jalther company appointments",
+		Link:    "https://www.tofler.in/suresh-chand-jalther/din/06961204",
+		Snippet: "Suresh Chand Jalther, DIN 06961204, director on two boards.",
+	}}
+	if got := frozenLeaderDIN(registry, retained, "Suresh Chand Jalther"); got != "06961204" {
+		t.Fatalf("expected the labelled retained DIN to freeze, got %q", got)
+	}
+	// No table row, no labelled evidence: the leader stays unfrozen.
+	if got := frozenLeaderDIN(registry, nil, "Suresh Chand Jalther"); got != "" {
+		t.Fatalf("a masked row must not freeze a DIN, got %q", got)
+	}
+	// Anchoring puts the frozen DIN into every person query.
+	anchored := anchorPersonQueries([]relatedPlannedQuery{
+		{Query: `"K L Jain" "KLJ Resources Limited" appointment director`, Purpose: "person-company appointment"},
+	}, "09695105")
+	if len(anchored) != 1 || !strings.Contains(anchored[0].Query, `"09695105"`) {
+		t.Fatalf("expected the DIN anchored into the query, got %+v", anchored)
 	}
 }

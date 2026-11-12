@@ -85,10 +85,12 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 	// barely indexes WeeDoo, so the page is constructed from the company name
 	// and its CIN (the operator's registration id, or a CIN the run's own hits
 	// published) instead of being relied on from site: queries.
-	registryHits := a.weeDooRegistryHits(ctx, sessionID, query, trace, eventCh)
-	// The registry page is the priority source: it leads both payloads so the
-	// bounded evidence windows always carry it, whatever the provider returned.
-	directHits = append(append([]models.SearchResult{}, registryHits...), directHits...)
+	registryHits, networkHits := a.weeDooRegistryHits(ctx, sessionID, query, trace, eventCh)
+	// The registry page leads both payloads: its directors table freezes the
+	// leaders' identities (name + DIN). The Business Network's connected
+	// companies join the direct branch — connections the company declares
+	// itself, ahead of any person search.
+	directHits = append(append(append([]models.SearchResult{}, registryHits...), networkHits...), directHits...)
 	leadHits = append(append([]models.SearchResult{}, registryHits...), leadHits...)
 	report := &models.RelatedEntityReport{
 		CompanyName: query.CompanyName, Domain: query.Domain, RegistrationID: query.RegistrationID,
@@ -215,8 +217,10 @@ func flattenTrace(trace *models.SearchTrace, start, end int) []models.SearchResu
 // with DIN, appointment date and role, and links each director's other
 // companies. The first slug spelling that resolves wins. A page that does not
 // name the company — a wrong guess — is dropped, and the fetch is recorded on
-// the trace so the artifact shows the enrichment.
-func (a *RelatedEntityAgent) weeDooRegistryHits(ctx context.Context, sessionID string, query models.RelatedEntityQuery, trace *models.SearchTrace, eventCh chan<- models.AgentEvent) []models.SearchResult {
+// the trace so the artifact shows the enrichment. The Business Network section
+// is parsed separately: its connected companies (Direct/Ultimate children with
+// LEI codes) are direct related entities that need no person search at all.
+func (a *RelatedEntityAgent) weeDooRegistryHits(ctx context.Context, sessionID string, query models.RelatedEntityQuery, trace *models.SearchTrace, eventCh chan<- models.AgentEvent) ([]models.SearchResult, []models.SearchResult) {
 	brief := models.CompanyBrief{CompanyName: query.CompanyName, RegistrationID: query.RegistrationID, Aliases: query.Aliases}
 	cin := companyRegistrationNumber(brief, flattenTrace(trace, 0, len(trace.Queries)))
 	if cin == "" {
@@ -234,9 +238,10 @@ func (a *RelatedEntityAgent) weeDooRegistryHits(ctx context.Context, sessionID s
 	}
 	if cin == "" {
 		log.Printf("[RELATED][session %s] WeeDoo registry enrichment skipped: no CIN in the brief or the run's hits", sessionID)
-		return nil
+		return nil, nil
 	}
 	hits := make([]models.SearchResult, 0, 1)
+	networkHits := make([]models.SearchResult, 0, 1)
 	for _, slug := range registrySlugVariants(query.CompanyName) {
 		if len(hits) > 0 {
 			break // the first slug spelling that resolves is enough
@@ -271,16 +276,42 @@ func (a *RelatedEntityAgent) weeDooRegistryHits(ctx context.Context, sessionID s
 			Link:    url,
 			Snippet: content,
 		})
+		// The Business Network is the first option for direct related
+		// entities: the child companies it lists (with LEI codes) are
+		// connections the company itself declares — no person search, and no
+		// name-ambiguity risk.
+		if children := weeDooNetworkChildren(content); len(children) > 0 {
+			listing := make([]string, 0, len(children))
+			for _, child := range children {
+				entry := child.Relation + ": " + child.Name
+				if child.LEI != "" {
+					entry += " (LEI " + child.LEI + ")"
+				}
+				listing = append(listing, entry)
+			}
+			networkHits = append(networkHits, models.SearchResult{
+				Title:   "WeeDoo business network for " + query.CompanyName,
+				Link:    url + "#business-network",
+				Snippet: "Business network of " + query.CompanyName + " — connected companies:\n" + strings.Join(listing, "\n"),
+			})
+		}
 	}
 	if len(hits) == 0 {
-		return nil
+		return nil, nil
 	}
 	trace.Queries = append(trace.Queries, models.QueryTrace{
 		Query:   hits[0].Link,
 		Purpose: "WeeDoo registry enrichment (constructed from company name + CIN)",
 		Kept:    hits,
 	})
-	return hits
+	if len(networkHits) > 0 {
+		trace.Queries = append(trace.Queries, models.QueryTrace{
+			Query:   networkHits[0].Link,
+			Purpose: "WeeDoo business network (connected companies)",
+			Kept:    networkHits,
+		})
+	}
+	return hits, networkHits
 }
 
 // weeDooRegistrySnippetMaxRunes is the snippet budget for WeeDoo registry and
@@ -288,6 +319,70 @@ func (a *RelatedEntityAgent) weeDooRegistryHits(ctx context.Context, sessionID s
 // DIN table sits a few thousand characters into the rendered page — so they
 // carry a larger budget than ordinary search snippets.
 const weeDooRegistrySnippetMaxRunes = 6000
+
+// weeDooChildCompany is one connection the Business Network lists: a company
+// related to the researched one, with how (Direct/Ultimate child) and its LEI
+// code when the page publishes one.
+type weeDooChildCompany struct {
+	Name     string
+	Relation string
+	LEI      string
+}
+
+// weeDooNetworkChildren parses the connected companies from a rendered WeeDoo
+// company page: the "Direct/Ultimate Children" table first (Type <tab> Legal
+// Name <tab> LEI code), then the Business Network's Subsidiaries list — pairs
+// of <name> / Direct|Ultimate under a "Subsidiaries" + count header — when the
+// table is absent. The plain fetch flattens the tabs, so this parses the
+// browser render the registry enrichment already prefers.
+func weeDooNetworkChildren(pageText string) []weeDooChildCompany {
+	lines := strings.Split(pageText, "\n")
+	children := make([]weeDooChildCompany, 0, 4)
+	for _, line := range lines {
+		parts := strings.Split(line, "\t")
+		if len(parts) != 3 {
+			continue
+		}
+		relation := strings.TrimSpace(parts[0])
+		if relation != "Direct" && relation != "Ultimate" {
+			continue
+		}
+		name := strings.TrimSpace(parts[1])
+		lei := strings.TrimSpace(parts[2])
+		if name == "" || lei == "" || strings.EqualFold(name, "legal name") || len(lei) < 15 {
+			continue
+		}
+		children = append(children, weeDooChildCompany{Name: name, Relation: relation, LEI: lei})
+	}
+	if len(children) > 0 {
+		return children
+	}
+	for index, line := range lines {
+		if strings.TrimSpace(line) != "Subsidiaries" || index+1 >= len(lines) {
+			continue
+		}
+		count := strings.TrimSpace(lines[index+1])
+		if !weeDooCountLine.MatchString(count) {
+			continue
+		}
+		for cursor := index + 2; cursor+1 < len(lines); cursor += 2 {
+			name := strings.TrimSpace(lines[cursor])
+			relation := strings.TrimSpace(lines[cursor+1])
+			if name == "" || (relation != "Direct" && relation != "Ultimate") {
+				break
+			}
+			children = append(children, weeDooChildCompany{Name: name, Relation: relation})
+		}
+		if len(children) > 0 {
+			break
+		}
+	}
+	return children
+}
+
+// weeDooCountLine matches the connection count under a Business Network list
+// header ("Directors", "Subsidiaries").
+var weeDooCountLine = regexp.MustCompile(`^\d+$`)
 
 // weeDooRegistryDIN extracts a director's DIN from a WeeDoo registry page: the
 // directors table prints "Appointment <tab> Name <tab> DIN <tab> Designation",
@@ -655,6 +750,37 @@ func weeDooRegistryEvidence(report *models.RelatedEntityReport) []models.SearchR
 	return hits
 }
 
+// frozenLeaderDIN resolves the (name, DIN) pair before any person search: the
+// WeeDoo directors table pairs the leader with their DIN at the source, and a
+// labelled DIN in the already-retained evidence freezes it too. An empty
+// result means the leader's identity is not frozen and name-only searching
+// must not run.
+func frozenLeaderDIN(registryEvidence, retained []models.SearchResult, leaderName string) string {
+	if din := weeDooRegistryDIN(registryEvidence, leaderName); din != "" {
+		return din
+	}
+	for _, hit := range retained {
+		if din := labelledDINFor(hit.Title+" "+hit.Snippet, leaderName); din != "" {
+			return din
+		}
+	}
+	return ""
+}
+
+// anchorPersonQueries appends the frozen DIN to every person query: results
+// that mention both the name and the DIN are about this person, which is what
+// keeps name-only searching from conflating namesakes.
+func anchorPersonQueries(queries []relatedPlannedQuery, din string) []relatedPlannedQuery {
+	anchored := make([]relatedPlannedQuery, 0, len(queries))
+	for _, planned := range queries {
+		anchored = append(anchored, relatedPlannedQuery{
+			Query:   planned.Query + " " + quote(din),
+			Purpose: planned.Purpose,
+		})
+	}
+	return anchored
+}
+
 func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.RelatedEntityQuery, report *models.RelatedEntityReport) error {
 	type outcome struct {
 		index    int
@@ -672,11 +798,34 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 			defer wg.Done()
 			for index := range jobs {
 				leader := report.Leadership[index]
+				registryEvidence := weeDooRegistryEvidence(report)
+				// FREEZE the identity before any person search: the WeeDoo
+				// directors table pairs the leader with their DIN at the
+				// source, and a labelled DIN in the already-retained evidence
+				// freezes it too. Name-only searching for an unfrozen leader
+				// is what conflated namesakes into wrong related entities.
+				frozenDIN := frozenLeaderDIN(registryEvidence, flattenTrace(report.SearchTrace, 0, len(report.SearchTrace.Queries)), leader.Name)
 				identityQueries, affiliationQueries := relatedPersonQueries(query, leader)
+				if frozenDIN == "" && len(registryEvidence) > 0 {
+					// WeeDoo covers this company, so an unfrozen leader has no
+					// verified identity: no person searches at all — the
+					// Business Network in the retained evidence is the record,
+					// and its connected companies already flowed into the
+					// direct branch.
+					log.Printf("[RELATED] leader %q skipped: no DIN frozen from the WeeDoo directors table or retained evidence; name-only related-entity searching stays off", leader.Name)
+					outcomes <- outcome{index: index, identity: &models.PersonIdentity{CanonicalName: leader.Name, Confidence: 0.5}}
+					continue
+				}
+				if frozenDIN != "" {
+					// DIN-anchored searching: results that mention both the
+					// name and the DIN are about this person.
+					identityQueries = anchorPersonQueries(identityQueries, frozenDIN)
+					affiliationQueries = anchorPersonQueries(affiliationQueries, frozenDIN)
+				}
 				// Seed the leader's hits with the WeeDoo registry page: it
 				// grounds the leader at the company and carries the directors
 				// table with the DIN rows.
-				personHits := append([]models.SearchResult{}, weeDooRegistryEvidence(report)...)
+				personHits := append([]models.SearchResult{}, registryEvidence...)
 				var traces []models.QueryTrace
 				for _, planned := range identityQueries {
 					hits, err := a.engine.SearchCached(ctx, planned.Query, a.engine.MaxSearchResults())
@@ -692,8 +841,18 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 					continue
 				}
 				identity := resolvePersonIdentity(leader, query, personHits)
+				if identity.DIN == "" && frozenDIN != "" {
+					identity.DIN = frozenDIN
+					identity.Confidence = 1.0
+					identity.Attributes = appendUnique(identity.Attributes, "DIN")
+				}
 				personHits = append(personHits, a.fetchWeeDooEvidence(ctx, personHits)...)
 				identity = resolvePersonIdentity(leader, query, personHits)
+				if identity.DIN == "" && frozenDIN != "" {
+					identity.DIN = frozenDIN
+					identity.Confidence = 1.0
+					identity.Attributes = appendUnique(identity.Attributes, "DIN")
+				}
 				if identity.Confidence < relatedEntityIdentityConfidence {
 					outcomes <- outcome{index: index, trace: traces, identity: identity,
 						err: fmt.Errorf("identity confidence %.2f is below the %.2f threshold", identity.Confidence, relatedEntityIdentityConfidence)}
@@ -713,11 +872,9 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 					traces = append(traces, models.QueryTrace{Query: dinQuery.Query, Purpose: dinQuery.Purpose, Kept: hits})
 				}
 				// WeeDoo's director page lists every other company the director
-				// is associated with — constructed from the resolved DIN, since
-				// the search provider barely indexes WeeDoo. Its content feeds
-				// the other-company extraction below. The registry page prints
-				// the DIN on the director's table row, so resolve it there when
-				// no other hit carried a labelled DIN.
+				// is associated with — constructed from the frozen name+DIN
+				// pair, since the search provider barely indexes WeeDoo. Its
+				// content feeds the other-company extraction below.
 				din := identity.DIN
 				if din == "" {
 					din = weeDooRegistryDIN(personHits, leader.Name)

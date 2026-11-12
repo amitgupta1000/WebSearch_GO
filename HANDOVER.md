@@ -58,6 +58,14 @@
   exactly), and the roster/leadership dedupe plus the person gate (`personNamedInText`)
   apply it — the fuller name wins as the display name, and the initials variant does not
   spawn a second search branch.
+- **Name+DIN freeze before any person search** (`related_entity.go`): the Business Network
+  section of the WeeDoo company page is parsed as the FIRST option — its Direct/Ultimate
+  child companies (with LEI codes) become a network hit that feeds the direct branch without
+  any person search. Per leader, `frozenLeaderDIN` freezes the (name, DIN) pair from the
+  directors table (or a labelled DIN in retained evidence) BEFORE searching; frozen leaders
+  search with the DIN anchored into every query, and when WeeDoo covers the company but a
+  leader's DIN cannot be frozen (masked rows), that leader is skipped entirely — name-only
+  related-entity searching stays off.
 
 ## Company mode behavior
 
