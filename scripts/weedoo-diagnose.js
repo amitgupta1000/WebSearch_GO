@@ -164,6 +164,7 @@ async function challengeWaitStrategy(name, url, stealth) {
 }
 
 (async () => {
+  console.log('[ARGV]', JSON.stringify(process.argv));
   // --inertia-test runs the sitemap + X-Inertia JSON recipe instead of the
   // rendering matrix.
   if (process.argv.includes('--inertia-test')) {
