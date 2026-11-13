@@ -5,11 +5,11 @@
 //   node /app/weedoo-diagnose.js [--homepage-only]
 'use strict';
 
-const { chromium } = require('playwright');
-
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const SEARCH_INPUT_SELECTOR = 'input[placeholder*="company name" i]';
 const CHALLENGE_MARKERS = ['just a moment', 'cf-challenge', 'attention required', 'captcha', 'access denied'];
+// playwright is required lazily inside the browser strategies — the inertia
+// test mode runs on plain HTTP and must work wherever node exists.
 const HOME = process.env.DIAGNOSE_HOME || 'https://weedoo.in/';
 const COMPANY = process.env.DIAGNOSE_COMPANY || 'https://weedoo.in/company/KLJ-RESOURCES-LTD/L67120WB1986PLC041487';
 
@@ -40,6 +40,7 @@ async function httpStrategy(name, url, ua) {
 }
 
 async function browserStrategy(name, url, production, stealth, waitInput) {
+  const { chromium } = require('playwright'); // lazy require
   const record = { strategy: name, url, kind: 'browser' };
   const browser = await chromium.launch({ headless: true });
   try {
@@ -97,6 +98,7 @@ async function browserStrategy(name, url, production, stealth, waitInput) {
 // document and polls for the real app surfacing: the search input on the
 // homepage, or DIN-shaped numbers / substantial text on the company page.
 async function challengeWaitStrategy(name, url, stealth) {
+  const { chromium } = require('playwright'); // lazy require
   const record = { strategy: name, url, kind: 'browser-challenge-wait' };
   const browser = await chromium.launch({ headless: true });
   try {
@@ -162,6 +164,12 @@ async function challengeWaitStrategy(name, url, stealth) {
 }
 
 (async () => {
+  // --inertia-test runs the sitemap + X-Inertia JSON recipe instead of the
+  // rendering matrix.
+  if (process.argv.includes('--inertia-test')) {
+    await inertiaTestMain();
+    return;
+  }
   const homepageOnly = process.argv.includes('--homepage-only');
   const targets = [['homepage', HOME]];
   if (!homepageOnly) targets.push(['company-page', COMPANY]);
@@ -199,3 +207,128 @@ async function challengeWaitStrategy(name, url, stealth) {
     console.log(line);
   }
 })().catch((error) => { console.error('MATRIX FAILED:', error); process.exit(1); });
+
+// === X-Inertia JSON route (the user-verified recipe) ===
+// A browser User-Agent passes Cloudflare; the X-Inertia header turns company
+// and director pages into structured JSON (props.company) instead of HTML —
+// no browser needed. A cache-busting query is required because Cloudflare
+// caches HTML and ignores the Vary: X-Inertia header.
+
+function inertiaHeaders() {
+  return {
+    'User-Agent': BROWSER_UA,
+    'X-Inertia': 'true',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Accept': 'text/html, application/xhtml+xml',
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
+}
+
+function cacheBust(url) {
+  return url + (url.includes('?') ? '&' : '?') + 'x=' + Date.now();
+}
+
+const inertiaSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchInertiaJson(url, attempt) {
+  attempt = attempt || 1;
+  const response = await fetch(cacheBust(url), { headers: inertiaHeaders() });
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const mitigated = response.headers.get('cf-mitigated') || 'none';
+  if (response.status === 403 || response.status === 429) {
+    throw new Error('HTTP ' + response.status + ' (cf-mitigated: ' + mitigated + ')');
+  }
+  if (!contentType.includes('json')) {
+    throw new Error('expected application/json, got ' + contentType.split(';')[0]);
+  }
+  const body = await response.json();
+  return body.props || body;
+}
+
+async function inertiaTestMain() {
+  const fs = require('fs');
+  const argv = process.argv.slice(2);
+  const flagValue = (flag) => {
+    const index = argv.indexOf(flag);
+    return index >= 0 && argv[index + 1] !== undefined ? argv[index + 1] : null;
+  };
+  const sitemapLimit = Number(flagValue('--sitemap-limit') || 2);
+  const sampleSize = Number(flagValue('--sample') || 5);
+  const csvPath = flagValue('--csv') || '/tmp/weedoo-inertia.csv';
+  const singleUrl = flagValue('--url');
+  const directorUrl = flagValue('--director') || 'https://weedoo.in/director/KANHAIYA-LAL-JAIN/00033519';
+
+  const rows = [];
+  if (singleUrl) {
+    try {
+      const props = await fetchInertiaJson(singleUrl);
+      const company = props.company || {};
+      rows.push({ url: singleUrl, cin: company.cin || '', name: company.name || '',
+        status: company.status || '', roc: company.roc || '',
+        directors_count: Array.isArray(company.directors) ? company.directors.length : '',
+        keys: Object.keys(company).join(';') });
+    } catch (error) {
+      rows.push({ url: singleUrl, error: String(error).slice(0, 200) });
+    }
+  } else {
+    console.log('[INERTIA] enumerating sitemaps (limit ' + sitemapLimit + ')...');
+    const indexXml = await (await fetch('https://weedoo.in/sitemaps/index.xml',
+      { headers: { 'User-Agent': BROWSER_UA } })).text();
+    const sitemaps = Array.from(indexXml.matchAll(/<loc>([^<]+)<\/loc>/g)).map((m) => m[1])
+      .filter((u) => u.includes('companies-')).slice(0, sitemapLimit);
+    console.log('[INERTIA] testing ' + sitemaps.length + ' sitemap file(s)');
+    const urls = [];
+    for (const sitemap of sitemaps) {
+      const xml = await (await fetch(sitemap, { headers: { 'User-Agent': BROWSER_UA } })).text();
+      for (const match of xml.matchAll(/<loc>(https:\/\/weedoo\.in\/company\/[^<]+)<\/loc>/g)) {
+        urls.push(match[1]);
+      }
+      await inertiaSleep(800);
+    }
+    console.log('[INERTIA] enumerated ' + urls.length + ' company URL(s); sampling ' + Math.min(sampleSize, urls.length));
+    for (const url of urls.slice(0, sampleSize)) {
+      try {
+        const props = await fetchInertiaJson(url);
+        const company = props.company || {};
+        const directors = Array.isArray(company.directors) ? company.directors : null;
+        rows.push({ url, cin: company.cin || '', name: company.name || '',
+          status: company.status || '', roc: company.roc || '',
+          directors_count: directors ? directors.length : '',
+          director_names: directors
+            ? directors.map((d) => d.name || d.director_name || '').filter(Boolean).join('; ')
+            : '' });
+      } catch (error) {
+        rows.push({ url, error: String(error).slice(0, 200) });
+      }
+      await inertiaSleep(1200);
+    }
+  }
+  if (directorUrl) {
+    try {
+      const props = await fetchInertiaJson(directorUrl);
+      const director = props.director || props.company || props;
+      rows.push({ url: directorUrl, kind: 'director-page', name: director.name || '',
+        cin: director.cin || '', keys: Object.keys(props).join(';'),
+        companies: Array.isArray(director.companies) ? director.companies.length
+          : Object.keys(director).length });
+    } catch (error) {
+      rows.push({ url: directorUrl, kind: 'director-page', error: String(error).slice(0, 200) });
+    }
+  }
+
+  const columns = ['url', 'kind', 'cin', 'name', 'status', 'roc', 'directors_count',
+    'director_names', 'keys', 'companies', 'error'];
+  const escapeCsv = (value) => {
+    const text = value === undefined || value === null ? '' : String(value);
+    return text.includes(',') || text.includes('"') || text.includes('\n')
+      ? '"' + text.replace(/"/g, '""') + '"' : text;
+  };
+  const csvLines = [columns.join(',')];
+  for (const row of rows) {
+    csvLines.push(columns.map((column) => escapeCsv(row[column])).join(','));
+  }
+  fs.writeFileSync(csvPath, csvLines.join('\n') + '\n');
+  console.log(csvLines.join('\n'));
+  console.log('[INERTIA] CSV written to ' + csvPath + '; '
+    + rows.filter((r) => r.cin).length + '/' + rows.length + ' fetched as structured JSON');
+}
