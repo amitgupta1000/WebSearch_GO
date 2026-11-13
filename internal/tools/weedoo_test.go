@@ -1,84 +1,8 @@
 package tools
 
 import (
-	"net/http"
 	"testing"
 )
-
-// TestWeeDooProxyRoutingScopesToWeeDooHosts pins the per-host proxy contract:
-// weedoo.in (and its subdomains) route through WEEDOO_PROXY_URL with the
-// credentials surviving the parse, while every other host keeps the standard
-// environment behavior: the residential proxy's bandwidth is spent only on
-// the one host that needs it.
-func TestWeeDooProxyRoutingScopesToWeeDooHosts(t *testing.T) {
-	original := weedooProxyURL
-	defer func() { weedooProxyURL = original }()
-	weedooProxyURL = "http://user:secret@resi-ipv4-6.gw.tprx.io:8080"
-
-	weedooReq, err := http.NewRequest(http.MethodGet, "https://weedoo.in/company/KLJ-PLASTICIZERS-LTD/L24100GJ1985PLC036203", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := weedooProxyForRequest(weedooReq)
-	if err != nil {
-		t.Fatalf("weedoo.in proxy resolution: %v", err)
-	}
-	if got == nil || got.Host != "resi-ipv4-6.gw.tprx.io:8080" {
-		t.Fatalf("weedoo.in must route through the configured proxy, got %+v", got)
-	}
-	if got.User == nil || got.User.Username() != "user" {
-		t.Fatalf("proxy credentials must survive the parse, got %v", got)
-	}
-	if password, _ := got.User.Password(); password != "secret" {
-		t.Fatalf("proxy password must survive the parse")
-	}
-
-	subReq, err := http.NewRequest(http.MethodGet, "https://api.weedoo.in/health", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	subGot, err := weedooProxyForRequest(subReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if subGot == nil || subGot.Host != "resi-ipv4-6.gw.tprx.io:8080" {
-		t.Fatalf("weedoo.in subdomains must inherit the routing, got %+v", subGot)
-	}
-
-	otherReq, err := http.NewRequest(http.MethodGet, "https://www.zaubacorp.com/company/L24100GJ1985PLC036203", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	otherGot, err := weedooProxyForRequest(otherReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if otherGot != nil && otherGot.Host == "resi-ipv4-6.gw.tprx.io:8080" {
-		t.Fatal("non-weedoo hosts must never use the weedoo proxy")
-	}
-}
-
-// TestWeeDooProxyDisabledKeepsDefaultBehavior pins the default: with
-// WEEDOO_PROXY_URL unset the hook degrades to the environment proxy behavior,
-// so deployments without the knob are byte-for-byte unchanged, and an operator
-// setting HTTPS_PROXY globally still gets it honored.
-func TestWeeDooProxyDisabledKeepsDefaultBehavior(t *testing.T) {
-	original := weedooProxyURL
-	defer func() { weedooProxyURL = original }()
-	weedooProxyURL = ""
-
-	req, err := http.NewRequest(http.MethodGet, "https://weedoo.in/", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := weedooProxyForRequest(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil && got.Host == "resi-ipv4-6.gw.tprx.io:8080" {
-		t.Fatal("without WEEDOO_PROXY_URL the weedoo proxy must stay unused")
-	}
-}
 
 // TestWeedooCINForCompanyPairsTheNameWithTheCIN pins the suggestion parser: the
 // row's visible text pairs the company name with its CIN, and a row for another

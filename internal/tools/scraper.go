@@ -292,10 +292,10 @@ func NewScraperWithBrowser(jar *cookiejar.Jar, timeout time.Duration, enableBrow
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
-		// weedoo.in traffic routes through WEEDOO_PROXY_URL when configured
-		// (Cloudflare challenges datacenter egress on sight); every other host
-		// keeps the standard environment proxy behavior.
-		Proxy: weedooProxyForRequest,
+		// Hosts that gate on caller IP reputation (weedoo.in, linkedin.com)
+		// route through their configured egress proxy when one is set; every
+		// other host keeps the standard environment proxy behavior.
+		Proxy: scraperProxyForRequest,
 	}
 
 	if jar == nil {
@@ -321,8 +321,8 @@ func NewScraperWithBrowser(jar *cookiejar.Jar, timeout time.Duration, enableBrow
 	if timeout < browserTimeout {
 		browserTimeout = timeout
 	}
-	if weedooProxyURL != "" {
-		log.Printf("[SCRAPER] weedoo.in requests route through WEEDOO_PROXY_URL")
+	if summary := egressProxySummary(); summary != "" {
+		log.Printf("[SCRAPER] per-host egress proxies active for: %s", summary)
 	}
 	scraper := &Scraper{
 		client:         client,

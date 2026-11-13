@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -18,32 +15,6 @@ import (
 
 // weedooBaseURL is the registry site the priority registry enrichment reads.
 const weedooBaseURL = "https://weedoo.in"
-
-// weedooProxyURL is the per-host egress proxy for weedoo.in, read once from
-// WEEDOO_PROXY_URL (http://user:pass@host:port or socks5://...). Cloudflare
-// challenges Cloud Run's datacenter IPs on sight, so weedoo traffic routes
-// through a residential proxy while every other host keeps its direct path
-// (or the standard HTTP(S)_PROXY environment behavior). Empty by default:
-// without the knob nothing changes for any host.
-var weedooProxyURL = strings.TrimSpace(os.Getenv("WEEDOO_PROXY_URL"))
-
-// weedooProxyForRequest is the http.Transport.Proxy hook: weedoo.in requests
-// go through WEEDOO_PROXY_URL when it is set, everything else falls back to
-// the standard environment proxy behavior. Scoping the routing to one host is
-// what keeps the residential proxy's bandwidth budget — and its cost — to the
-// traffic that actually needs it.
-func weedooProxyForRequest(req *http.Request) (*url.URL, error) {
-	if req == nil || req.URL == nil {
-		return http.ProxyFromEnvironment(req)
-	}
-	if weedooProxyURL != "" {
-		host := req.URL.Hostname()
-		if host == "weedoo.in" || strings.HasSuffix(host, ".weedoo.in") {
-			return url.Parse(weedooProxyURL)
-		}
-	}
-	return http.ProxyFromEnvironment(req)
-}
 
 // weedooTypeaheadWait is how long the search bar's typeahead gets to return
 // suggestions after the company name is typed.
