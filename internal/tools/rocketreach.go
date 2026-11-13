@@ -14,6 +14,7 @@ const (
 	rocketReachLookupURL = "https://api.rocketreach.co/api/v2/person/lookup"
 	rocketReachSearchURL = "https://api.rocketreach.co/api/v2/person/search"
 	rocketReachMaxPages  = 3
+	rocketReachCompanyPageSize = 100
 )
 
 // RocketReachClient performs explicitly requested contact lookups. Search
@@ -86,13 +87,25 @@ func NewRocketReachClient(apiKey string) *RocketReachClient {
 // Search discovers profiles without requesting contact details. Search calls
 // do not perform paid contact enrichment.
 func (c *RocketReachClient) Search(ctx context.Context, query map[string][]string) ([]RocketReachProfile, error) {
+	return c.search(ctx, query, 0)
+}
+
+// SearchCompany uses RocketReach's company-first people search: the caller
+// supplies company and structured facets such as department or experience.
+// It returns profile summaries only; contact enrichment remains a separate
+// explicit lookup.
+func (c *RocketReachClient) SearchCompany(ctx context.Context, query map[string][]string) ([]RocketReachProfile, error) {
+	return c.search(ctx, query, rocketReachCompanyPageSize)
+}
+
+func (c *RocketReachClient) search(ctx context.Context, query map[string][]string, pageSize int) ([]RocketReachProfile, error) {
 	if !c.Enabled() {
 		return nil, fmt.Errorf("RocketReach is not configured")
 	}
 	start := 1
 	var profiles []RocketReachProfile
 	for page := 0; page < rocketReachMaxPages; page++ {
-		result, err := c.searchPage(ctx, query, start)
+		result, err := c.searchPage(ctx, query, start, pageSize)
 		if err != nil {
 			return nil, err
 		}
@@ -105,11 +118,13 @@ func (c *RocketReachClient) Search(ctx context.Context, query map[string][]strin
 	return profiles, nil
 }
 
-func (c *RocketReachClient) searchPage(ctx context.Context, query map[string][]string, start int) (*rocketReachSearchResponse, error) {
+func (c *RocketReachClient) searchPage(ctx context.Context, query map[string][]string, start, pageSize int) (*rocketReachSearchResponse, error) {
 	body, err := json.Marshal(struct {
 		Query map[string][]string `json:"query"`
 		Start int                 `json:"start,omitempty"`
-	}{Query: query, Start: start})
+		PageSize int              `json:"page_size,omitempty"`
+		OrderBy string             `json:"order_by,omitempty"`
+	}{Query: query, Start: start, PageSize: pageSize, OrderBy: "relevance"})
 	if err != nil {
 		return nil, fmt.Errorf("encode RocketReach search request: %w", err)
 	}

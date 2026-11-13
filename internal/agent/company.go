@@ -307,12 +307,7 @@ func (ca *CompanyAgent) discoverRocketReach(ctx context.Context, sessionID strin
 	if ca.rocketReach == nil || !ca.rocketReach.Enabled() {
 		return nil, nil, nil, nil
 	}
-	titleGroups := [][]string{
-		{"director", "chief executive officer", "chief financial officer", "chief operating officer", "managing director"},
-		{"procurement", "purchasing", "supply chain", "manager", "general manager", "deputy general manager", "vice president", "vice-president", "additional director", "executive director"},
-		{"finance", "legal", "operations", "manager", "general manager", "deputy general manager", "vice president", "vice-president", "additional director", "executive director"},
-		{"founder", "chairman", "president", "vice president"},
-	}
+	searchQuery, queryLabel := rocketReachCompanySearchQuery(brief)
 	var results []models.SearchResult
 	var discovery []models.RocketReachDiscovery
 	var validationEvidence []models.Evidence
@@ -320,90 +315,159 @@ func (ca *CompanyAgent) discoverRocketReach(ctx context.Context, sessionID strin
 	seen := map[string]bool{}
 	validated := 0
 	const maxValidationCandidates = 8
-	for _, titles := range titleGroups {
-		titleLabel := strings.Join(titles, ", ")
+	Emit(eventCh, models.AgentEvent{
+		SessionID: sessionID, Type: models.EventToolCall, ToolName: "rocketreach_search",
+		Content: "Searching RocketReach employees at " + brief.CompanyName + " (" + queryLabel + ")",
+	})
+	profiles, err := ca.rocketReach.SearchCompany(ctx, searchQuery)
+	if err != nil {
 		Emit(eventCh, models.AgentEvent{
-			SessionID: sessionID, Type: models.EventToolCall, ToolName: "rocketreach_search",
-			Content: "Searching RocketReach key persons for " + brief.CompanyName + " (" + titleLabel + ")",
+			SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_search",
+			Content: fmt.Sprintf("RocketReach company discovery unavailable: %v", err),
 		})
-		profiles, err := ca.rocketReach.Search(ctx, map[string][]string{
-			"current_employer": {brief.CompanyName},
-			"current_title":    titles,
+		return nil, nil, nil, nil
+	}
+	Emit(eventCh, models.AgentEvent{
+		SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_search",
+		Content: fmt.Sprintf("RocketReach returned %d profile(s) for %s; retaining strict employer matches", len(profiles), brief.CompanyName),
+	})
+	for _, profile := range profiles {
+		name := strings.TrimSpace(profile.Name)
+		employer := strings.TrimSpace(profile.CurrentEmployer)
+		if name == "" || !rocketReachEmployerMatches(employer, brief.CompanyName) {
+			continue
+		}
+		key := fmt.Sprintf("%d\x00%s\x00%s", profile.ID, strings.ToLower(name), strings.ToLower(employer))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		link := strings.TrimSpace(profile.LinkedInURL)
+		snippet := fmt.Sprintf("%s is listed at %s as %s", name, employer, strings.TrimSpace(profile.CurrentTitle))
+		results = append(results, models.SearchResult{
+			Title: name + " - " + strings.TrimSpace(profile.CurrentTitle),
+			Link:  link, Snippet: snippet,
 		})
-		if err != nil {
+		discovery = append(discovery, models.RocketReachDiscovery{
+			ProfileID: profile.ID, Name: name, Title: profile.CurrentTitle,
+			Employer: employer, Location: profile.Location, LinkedInURL: link,
+			CareerHistory: rocketReachCareerHistory(profile.JobHistory),
+			Query:         brief.CompanyName + " / " + queryLabel,
+		})
+
+		// Indexed validation is additive and deliberately bounded: a profile is
+		// retained on the strict employer match even when Google has no co-mention.
+		if validated >= maxValidationCandidates {
+			continue
+		}
+		validated++
+		validationQuery := fmt.Sprintf("%q %q", name, brief.CompanyName)
+		Emit(eventCh, models.AgentEvent{
+			SessionID: sessionID, Type: models.EventToolCall, ToolName: "rocketreach_candidate_validation",
+			Content: "Checking RocketReach candidate on the web: " + name,
+		})
+		validationHits, validationErr := ca.engine.SearchCached(ctx, validationQuery, ca.engine.MaxSearchResults())
+		validationTrace = append(validationTrace, models.QueryTrace{
+			Query: validationQuery, Purpose: "additive web validation of RocketReach candidate", Kept: validationHits,
+		})
+		if validationErr != nil {
 			Emit(eventCh, models.AgentEvent{
-				SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_search",
-				Content: fmt.Sprintf("RocketReach company discovery unavailable: %v", err),
+				SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_candidate_validation",
+				Content: fmt.Sprintf("Web validation unavailable for %s; RR employer match retained: %v", name, validationErr),
 			})
 			continue
 		}
-		Emit(eventCh, models.AgentEvent{
-			SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_search",
-			Content: fmt.Sprintf("RocketReach returned %d profile(s) for %s", len(profiles), brief.CompanyName),
-		})
-		for _, profile := range profiles {
-			name := strings.TrimSpace(profile.Name)
-			employer := strings.TrimSpace(profile.CurrentEmployer)
-			if name == "" || !rocketReachEmployerMatches(employer, brief.CompanyName) {
-				continue
-			}
-			key := strings.ToLower(name + "\x00" + employer)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			if validated >= maxValidationCandidates {
-				continue
-			}
-			validationQuery := fmt.Sprintf("%q %q", name, brief.CompanyName)
-			Emit(eventCh, models.AgentEvent{
-				SessionID: sessionID, Type: models.EventToolCall, ToolName: "rocketreach_candidate_validation",
-				Content: "Validating RocketReach candidate with indexed search: " + name,
+		for _, hit := range validationHits {
+			validationEvidence = append(validationEvidence, models.Evidence{
+				URL: hit.Link, Title: hit.Title, Content: hit.Snippet,
+				EvidenceType: "indexed_candidate_validation", SourceType: "google",
+				Score: 0.8, QualityScore: 0.8,
 			})
-			validationHits, validationErr := ca.engine.SearchCached(ctx, validationQuery, ca.engine.MaxSearchResults())
-			validationTrace = append(validationTrace, models.QueryTrace{
-				Query: validationQuery, Purpose: "indexed validation of RocketReach candidate", Kept: validationHits,
-			})
-			if validationErr != nil {
-				Emit(eventCh, models.AgentEvent{
-					SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_candidate_validation",
-					Content: fmt.Sprintf("Validation unavailable for %s: %v", name, validationErr),
-				})
-				continue
-			}
-			if !hasRocketReachCandidateEvidence(name, brief.CompanyName, validationHits) {
-				Emit(eventCh, models.AgentEvent{
-					SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_candidate_validation",
-					Content: "Rejected RocketReach candidate without corroborating indexed evidence: " + name,
-				})
-				continue
-			}
-			validated++
-			for _, hit := range validationHits {
-				validationEvidence = append(validationEvidence, models.Evidence{
-					URL: hit.Link, Title: hit.Title, Content: hit.Snippet,
-					EvidenceType: "indexed_candidate_validation", SourceType: "google",
-					Score: 0.8, QualityScore: 0.8,
-				})
-			}
+		}
+		if hasRocketReachCandidateEvidence(name, brief.CompanyName, validationHits) {
 			Emit(eventCh, models.AgentEvent{
 				SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_candidate_validation",
-				Content: fmt.Sprintf("Validated RocketReach candidate %s with %d indexed hit(s)", name, len(validationHits)),
+				Content: fmt.Sprintf("Web-validated RocketReach candidate %s with %d indexed hit(s)", name, len(validationHits)),
 			})
-			link := strings.TrimSpace(profile.LinkedInURL)
-			snippet := fmt.Sprintf("%s is listed at %s as %s", name, employer, strings.TrimSpace(profile.CurrentTitle))
-			results = append(results, models.SearchResult{
-				Title: name + " - " + strings.TrimSpace(profile.CurrentTitle),
-				Link:  link, Snippet: snippet,
-			})
-			discovery = append(discovery, models.RocketReachDiscovery{
-				ProfileID: profile.ID, Name: name, Title: profile.CurrentTitle,
-				Employer: employer, LinkedInURL: link,
-				Query: brief.CompanyName + " / " + titleLabel,
+		} else {
+			Emit(eventCh, models.AgentEvent{
+				SessionID: sessionID, Type: models.EventToolResult, ToolName: "rocketreach_candidate_validation",
+				Content: "No indexed co-mention for " + name + "; strict RR employer match retained as unverified.",
 			})
 		}
 	}
 	return results, discovery, validationEvidence, validationTrace
+}
+
+func rocketReachCompanySearchQuery(brief models.CompanyBrief) (map[string][]string, string) {
+	query := map[string][]string{"current_employer": {brief.CompanyName}}
+	functions := append([]string(nil), brief.RocketReachFunctions...)
+	if len(functions) == 0 {
+		functions = append(functions, brief.ResearchPreferences.AreasOfInterest...)
+	}
+	functions = normalizedRocketReachFacets(functions)
+	managementLevels := normalizedRocketReachFacets(brief.RocketReachManagementLevels)
+	experience := strings.TrimSpace(brief.RocketReachExperience)
+	if len(functions) > 0 {
+		query["department"] = functions
+	}
+	if len(managementLevels) > 0 {
+		query["management_levels"] = managementLevels
+	}
+	if experience != "" {
+		query["years_experience"] = []string{experience}
+	}
+	if location := strings.TrimSpace(brief.RocketReachLocation); location != "" {
+		query["location"] = []string{location}
+	}
+	if len(functions) == 0 && len(managementLevels) == 0 && experience == "" {
+		query["management_levels"] = []string{"cxo", "vp", "director", "manager"}
+	}
+	parts := make([]string, 0, 3)
+	if len(functions) > 0 {
+		parts = append(parts, "functions="+strings.Join(functions, ", "))
+	}
+	if experience != "" {
+		parts = append(parts, "experience="+experience)
+	}
+	if len(managementLevels) > 0 {
+		parts = append(parts, "levels="+strings.Join(managementLevels, ", "))
+	}
+	if location := strings.TrimSpace(brief.RocketReachLocation); location != "" {
+		parts = append(parts, "location="+location)
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "management levels=cxo, vp, director, manager")
+	}
+	return query, strings.Join(parts, "; ")
+}
+
+func normalizedRocketReachFacets(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		normalized = append(normalized, value)
+	}
+	return normalized
+}
+
+func rocketReachCareerHistory(history []tools.RocketReachJob) []models.RocketReachCareerEntry {
+	if len(history) == 0 {
+		return nil
+	}
+	converted := make([]models.RocketReachCareerEntry, 0, len(history))
+	for _, job := range history {
+		converted = append(converted, models.RocketReachCareerEntry{
+			Title: job.Title, Company: job.Company, Location: job.Location,
+			StartDate: job.StartDate, EndDate: job.EndDate, Description: job.Description,
+		})
+	}
+	return converted
 }
 
 func hasRocketReachCandidateEvidence(name, company string, hits []models.SearchResult) bool {

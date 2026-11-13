@@ -60,14 +60,18 @@ type CompanyProfile struct {
 // research roster. Status is deliberately limited to verified or unverified so
 // the UI does not imply stronger certainty than the run established.
 type CompanyResearchRow struct {
-	Name             string `json:"name"`
-	LinkedInURL      string `json:"linkedin_url,omitempty"`
-	Designation      string `json:"designation,omitempty"`
-	Source           string `json:"source,omitempty"`
-	Classification   string `json:"classification"`
-	Status           string `json:"status"`
-	Verification     string `json:"verification,omitempty"`
-	VerificationNote string `json:"verification_note,omitempty"`
+	Name             string                   `json:"name"`
+	LinkedInURL      string                   `json:"linkedin_url,omitempty"`
+	Designation      string                   `json:"designation,omitempty"`
+	Location         string                   `json:"location,omitempty"`
+	CareerHistory    []RocketReachCareerEntry `json:"career_history,omitempty"`
+	Source           string                   `json:"source,omitempty"`
+	Classification   string                   `json:"classification"`
+	Status           string                   `json:"status"`
+	Verification     string                   `json:"verification,omitempty"`
+	VerificationNote string                   `json:"verification_note,omitempty"`
+	ResearchQuery    string                   `json:"research_query,omitempty"`
+	RocketReachID    int                      `json:"rocketreach_id,omitempty"`
 }
 
 // TimingTotalMillis is the summed duration of every recorded phase, used for the

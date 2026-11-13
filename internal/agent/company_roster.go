@@ -81,10 +81,14 @@ func buildCompanyResearchRoster(chart *models.OrgChart, state *models.CompanyRes
 				Name:             discovery.Name,
 				LinkedInURL:      discovery.LinkedInURL,
 				Designation:      discovery.Title,
+				Location:         discovery.Location,
+				CareerHistory:    discovery.CareerHistory,
 				Source:           "rocketreach.co",
 				Classification:   "RocketReach discovery",
 				Status:           researchRosterUnverified,
 				VerificationNote: discovery.Employer,
+				ResearchQuery:    discovery.Query,
+				RocketReachID:    discovery.ProfileID,
 			})
 		}
 	}
@@ -96,6 +100,7 @@ func researchRosterEmployee(employee models.Employee, classification string) mod
 		Name:             employee.Name,
 		LinkedInURL:      linkedinURLFromSource(employee.PublicSource),
 		Designation:      employee.Title,
+		Location:         employee.Location,
 		Source:           employee.PublicSource,
 		Classification:   classification,
 		Status:           researchRosterStatus(employee.Verification),
@@ -130,14 +135,27 @@ func mergeResearchRosterRow(primary *models.CompanyResearchRow, duplicate models
 	if primary.Designation == "" {
 		primary.Designation = duplicate.Designation
 	}
+	if primary.Location == "" {
+		primary.Location = duplicate.Location
+	}
+	if len(primary.CareerHistory) == 0 {
+		primary.CareerHistory = duplicate.CareerHistory
+	}
 	if primary.Source == "" {
 		primary.Source = duplicate.Source
 	}
+
 	if primary.Verification == "" {
 		primary.Verification = duplicate.Verification
 	}
 	if primary.VerificationNote == "" {
 		primary.VerificationNote = duplicate.VerificationNote
+	}
+	if primary.ResearchQuery == "" {
+		primary.ResearchQuery = duplicate.ResearchQuery
+	}
+	if primary.RocketReachID == 0 {
+		primary.RocketReachID = duplicate.RocketReachID
 	}
 	if primary.Status != researchRosterVerified && duplicate.Status == researchRosterVerified {
 		primary.Status = researchRosterVerified

@@ -93,6 +93,45 @@ func TestRocketReachSearchSendsStructuredDiscoveryQuery(t *testing.T) {
 	}
 }
 
+func TestRocketReachCompanySearchUsesLargeSummaryPage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Query    map[string][]string `json:"query"`
+			PageSize int                 `json:"page_size"`
+			OrderBy  string              `json:"order_by"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body.PageSize != 100 || body.OrderBy != "relevance" ||
+			body.Query["department"][0] != "finance" ||
+			body.Query["management_levels"][0] != "director" ||
+			body.Query["years_experience"][0] != "10+" ||
+			body.Query["location"][0] != "Mumbai, India" {
+			t.Fatalf("company query = %#v, page_size=%d, order_by=%q", body.Query, body.PageSize, body.OrderBy)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"profiles":[{"id":8,"name":"Jane Doe","job_history":[{"title":"Manager","company":"Earlier Co"}]}]}`))
+	}))
+	defer server.Close()
+
+	client := NewRocketReachClient("test-key")
+	client.searchURL = server.URL
+	profiles, err := client.SearchCompany(context.Background(), map[string][]string{
+		"current_employer":  {"Acme"},
+		"department":        {"finance"},
+		"management_levels": {"director"},
+		"years_experience":  {"10+"},
+		"location":          {"Mumbai, India"},
+	})
+	if err != nil {
+		t.Fatalf("SearchCompany failed: %v", err)
+	}
+	if len(profiles) != 1 || len(profiles[0].JobHistory) != 1 {
+		t.Fatalf("profiles = %+v, want one profile with career history", profiles)
+	}
+}
+
 func TestRocketReachSearchFetchesThreePages(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {

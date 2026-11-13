@@ -28,6 +28,33 @@ func TestRocketReachCandidateRequiresIndexedCompanyEvidence(t *testing.T) {
 	}
 }
 
+func TestRocketReachCompanySearchQueryMirrorsFacets(t *testing.T) {
+	query, label := rocketReachCompanySearchQuery(models.CompanyBrief{
+		CompanyName:                 "Acme",
+		RocketReachFunctions:        []string{"Finance", "finance"},
+		RocketReachManagementLevels: []string{"Director", "VP"},
+		RocketReachExperience:       "10+",
+		RocketReachLocation:         "Mumbai, India",
+	})
+	if !reflect.DeepEqual(query["current_employer"], []string{"Acme"}) ||
+		!reflect.DeepEqual(query["department"], []string{"finance"}) ||
+		!reflect.DeepEqual(query["management_levels"], []string{"director", "vp"}) ||
+		!reflect.DeepEqual(query["years_experience"], []string{"10+"}) ||
+		!reflect.DeepEqual(query["location"], []string{"Mumbai, India"}) {
+		t.Fatalf("query = %#v", query)
+	}
+	if !strings.Contains(label, "functions=finance") || !strings.Contains(label, "levels=director, vp") {
+		t.Fatalf("label = %q", label)
+	}
+}
+
+func TestRocketReachCompanySearchDefaultsManagementLevels(t *testing.T) {
+	query, _ := rocketReachCompanySearchQuery(models.CompanyBrief{CompanyName: "Acme"})
+	if !reflect.DeepEqual(query["management_levels"], []string{"cxo", "vp", "director", "manager"}) {
+		t.Fatalf("management levels = %#v", query["management_levels"])
+	}
+}
+
 type qcMockLLM struct {
 	reviewCalls int
 }

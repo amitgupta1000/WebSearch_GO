@@ -19,12 +19,16 @@ type ResearchPreferences struct {
 
 // CompanyBrief identifies a company and the user's research scope.
 type CompanyBrief struct {
-	CompanyName             string `json:"company_name"`
-	UseRocketReachDiscovery bool   `json:"use_rocketreach_discovery,omitempty"`
-	SourceProfile           string `json:"source_profile,omitempty"`
-	PersonOfInterest        string `json:"person_of_interest,omitempty"`
-	RelatedPersonDomain     string `json:"related_person_domain,omitempty"`
-	RelatedMaxLeaders       int    `json:"related_max_leaders,omitempty"`
+	CompanyName                 string   `json:"company_name"`
+	UseRocketReachDiscovery     bool     `json:"use_rocketreach_discovery,omitempty"`
+	RocketReachFunctions        []string `json:"rocketreach_functions,omitempty"`
+	RocketReachManagementLevels []string `json:"rocketreach_management_levels,omitempty"`
+	RocketReachExperience       string   `json:"rocketreach_years_experience,omitempty"`
+	RocketReachLocation         string   `json:"rocketreach_location,omitempty"`
+	SourceProfile               string   `json:"source_profile,omitempty"`
+	PersonOfInterest            string   `json:"person_of_interest,omitempty"`
+	RelatedPersonDomain         string   `json:"related_person_domain,omitempty"`
+	RelatedMaxLeaders           int      `json:"related_max_leaders,omitempty"`
 	// Domain is the entity's primary domain. It is what query anchoring uses
 	// (`site:<domain> …`), so extra domains never multiply the searches.
 	Domain   string `json:"domain,omitempty"`

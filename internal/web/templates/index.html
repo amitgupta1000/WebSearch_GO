@@ -337,6 +337,35 @@
                         <input type="checkbox" name="use_rocketreach_discovery" value="1" class="mt-0.5 accent-indigo-500">
                         <span><strong>Use RocketReach for key-person discovery</strong><br><span class="text-[11px] text-slate-500">Opt in to RocketReach profile discovery for employer-matched leadership candidates. Contact details are not fetched automatically.</span></span>
                     </label>
+                    <div class="sm:col-span-2 lg:col-span-2">
+                        <label class="text-xs font-medium text-slate-400">RocketReach functions <span class="font-normal text-slate-500">(optional)</span></label>
+                        <input type="text" name="rocketreach_functions" placeholder="e.g. finance; procurement; sales"
+                               class="field w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 text-sm mt-1">
+                        <span class="block text-[11px] text-slate-500 mt-1">Uses RR department facets instead of title keywords.</span>
+                    </div>
+                    <div class="sm:col-span-2 lg:col-span-2">
+                        <label class="text-xs font-medium text-slate-400">RocketReach experience <span class="font-normal text-slate-500">(optional)</span></label>
+                        <input type="text" name="rocketreach_years_experience" placeholder="e.g. 10+, 3-7, &lt;5"
+                               class="field w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 text-sm mt-1">
+                        <span class="block text-[11px] text-slate-500 mt-1">RR supports operators such as 10+, &lt;5, and 3-7.</span>
+                    </div>
+                    <div class="sm:col-span-2 lg:col-span-2">
+                        <label class="text-xs font-medium text-slate-400">RocketReach management levels <span class="font-normal text-slate-500">(optional)</span></label>
+                        <select name="rocketreach_management_levels" multiple
+                                class="field w-full min-h-20 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-indigo-500 text-sm mt-1">
+                            <option value="cxo">CxO</option>
+                            <option value="vp">VP</option>
+                            <option value="director">Director</option>
+                            <option value="manager">Manager</option>
+                        </select>
+                        <span class="block text-[11px] text-slate-500 mt-1">Leave blank to use all four leadership levels.</span>
+                    </div>
+                    <div class="sm:col-span-2 lg:col-span-2">
+                        <label class="text-xs font-medium text-slate-400">RocketReach person location <span class="font-normal text-slate-500">(optional)</span></label>
+                        <input type="text" name="rocketreach_location" placeholder="e.g. Mumbai, India"
+                               class="field w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 text-sm mt-1">
+                        <span class="block text-[11px] text-slate-500 mt-1">Filters the person’s location, not the employer’s registered address.</span>
+                    </div>
                 </div>
 
                 {{if .BrowserToggle}}

@@ -107,12 +107,25 @@ type RelatedEntityReport struct {
 }
 
 type RocketReachDiscovery struct {
-	ProfileID   int    `json:"profile_id,omitempty"`
-	Name        string `json:"name"`
+	ProfileID     int                      `json:"profile_id,omitempty"`
+	Name          string                   `json:"name"`
+	Title         string                   `json:"title,omitempty"`
+	Employer      string                   `json:"employer,omitempty"`
+	Location      string                   `json:"location,omitempty"`
+	LinkedInURL   string                   `json:"linkedin_url,omitempty"`
+	CareerHistory []RocketReachCareerEntry `json:"career_history,omitempty"`
+	Query         string                   `json:"query"`
+}
+
+// RocketReachCareerEntry contains the non-contact employment history returned
+// by a RocketReach search response, when available.
+type RocketReachCareerEntry struct {
 	Title       string `json:"title,omitempty"`
-	Employer    string `json:"employer,omitempty"`
-	LinkedInURL string `json:"linkedin_url,omitempty"`
-	Query       string `json:"query"`
+	Company     string `json:"company,omitempty"`
+	Location    string `json:"location,omitempty"`
+	StartDate   string `json:"start_date,omitempty"`
+	EndDate     string `json:"end_date,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // RelatedEntityCache records the mandatory cache preflight for a run.
