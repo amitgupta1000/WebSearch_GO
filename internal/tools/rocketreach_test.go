@@ -59,6 +59,28 @@ func TestRocketReachLookupPrefersLinkedInURL(t *testing.T) {
 	}
 }
 
+func TestRocketReachLookupByIDUsesExactProfileIdentifier(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if query.Get("id") != "123" || query.Get("name") != "" || query.Get("current_employer") != "" {
+			t.Errorf("lookup query = %s, want only id", url.Values(query).Encode())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":123,"name":"Jane Doe","job_history":[{"title":"Director","company":"Acme"}],"emails":[{"email":"jane@acme.test"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewRocketReachClient("test-key")
+	client.baseURL = server.URL
+	profile, err := client.LookupByID(context.Background(), 123)
+	if err != nil {
+		t.Fatalf("LookupByID failed: %v", err)
+	}
+	if profile == nil || profile.ID != 123 || len(profile.JobHistory) != 1 || len(profile.Emails) != 1 {
+		t.Fatalf("profile = %+v, want exact profile with career and contact data", profile)
+	}
+}
+
 func TestRocketReachSearchSendsStructuredDiscoveryQuery(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.Header.Get("Api-Key") != "test-key" {

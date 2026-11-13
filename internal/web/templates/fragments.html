@@ -263,7 +263,7 @@
 {{end}}
 
 {{define "market_rocketreach_result"}}
-{{if .Error}}<div class="text-[11px] text-amber-300">{{.Error}}</div>{{else if .Profile}}<div class="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-2 text-[11px] text-slate-300"><div class="text-emerald-300 font-medium">{{.Profile.Name}}</div>{{if .Profile.CurrentTitle}}<div>{{.Profile.CurrentTitle}} · {{.Profile.CurrentEmployer}}</div>{{end}}{{range .Profile.Emails}}{{if ne .Grade "F"}}<div>{{.Email}} <span class="text-slate-500">({{.Grade}})</span></div>{{end}}{{end}}{{range .Profile.Phones}}<div>{{.Number}}</div>{{end}}{{if .Profile.LinkedInURL}}<a class="text-indigo-300 hover:underline" href="{{.Profile.LinkedInURL}}" target="_blank" rel="noreferrer">LinkedIn</a>{{end}}</div>{{end}}
+{{if .Error}}<div class="text-[11px] text-amber-300">{{.Error}}</div>{{else if .Profile}}<div class="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-2 text-[11px] text-slate-300"><div class="text-emerald-300 font-medium">{{.Profile.Name}}</div>{{if .Profile.CurrentTitle}}<div>{{.Profile.CurrentTitle}} · {{.Profile.CurrentEmployer}}</div>{{end}}{{range .Profile.Emails}}{{if ne .Grade "F"}}<div>{{.Email}} <span class="text-slate-500">({{.Grade}})</span></div>{{end}}{{end}}{{range .Profile.Phones}}<div>{{.Number}}</div>{{end}}{{if .Profile.JobHistory}}<div class="mt-1 text-slate-400">Career history:</div><ul class="ml-3 list-disc">{{range .Profile.JobHistory}}<li>{{.Title}}{{if .Company}} · {{.Company}}{{end}}{{if or .StartDate .EndDate}} ({{.StartDate}}–{{.EndDate}}){{end}}</li>{{end}}</ul>{{end}}{{if .Profile.Education}}<div class="mt-1 text-slate-400">Education:</div>{{range .Profile.Education}}<div>{{if .Institution}}{{.Institution}}{{else}}{{.School}}{{end}}{{if .Degree}} · {{.Degree}}{{end}}</div>{{end}}{{end}}{{if .Profile.LinkedInURL}}<a class="text-indigo-300 hover:underline" href="{{.Profile.LinkedInURL}}" target="_blank" rel="noreferrer">LinkedIn</a>{{end}}</div>{{end}}
 {{end}}
 
 {{define "workflow_console"}}
@@ -643,6 +643,8 @@
 							<form hx-post="/api/market-landscape/rocketreach" hx-target="#rr-roster-result-{{$index}}" hx-swap="innerHTML" class="shrink-0">
 								<input type="hidden" name="person_name" value="{{.Name}}">
 								<input type="hidden" name="company_name" value="{{$.Chart.CompanyName}}">
+								<input type="hidden" name="linkedin_url" value="{{.LinkedInURL}}">
+								<input type="hidden" name="rocketreach_id" value="{{.RocketReachID}}">
 								<button type="submit" class="text-[10px] text-indigo-300 border border-indigo-500/30 hover:border-indigo-400 rounded px-2 py-1 whitespace-nowrap">Fetch RR</button>
 							</form>
 						</div>

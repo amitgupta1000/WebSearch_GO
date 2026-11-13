@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	rocketReachLookupURL = "https://api.rocketreach.co/api/v2/person/lookup"
-	rocketReachSearchURL = "https://api.rocketreach.co/api/v2/person/search"
-	rocketReachMaxPages  = 3
+	rocketReachLookupURL       = "https://api.rocketreach.co/api/v2/person/lookup"
+	rocketReachSearchURL       = "https://api.rocketreach.co/api/v2/person/search"
+	rocketReachMaxPages        = 3
 	rocketReachCompanyPageSize = 100
 )
 
@@ -120,10 +121,10 @@ func (c *RocketReachClient) search(ctx context.Context, query map[string][]strin
 
 func (c *RocketReachClient) searchPage(ctx context.Context, query map[string][]string, start, pageSize int) (*rocketReachSearchResponse, error) {
 	body, err := json.Marshal(struct {
-		Query map[string][]string `json:"query"`
-		Start int                 `json:"start,omitempty"`
-		PageSize int              `json:"page_size,omitempty"`
-		OrderBy string             `json:"order_by,omitempty"`
+		Query    map[string][]string `json:"query"`
+		Start    int                 `json:"start,omitempty"`
+		PageSize int                 `json:"page_size,omitempty"`
+		OrderBy  string              `json:"order_by,omitempty"`
 	}{Query: query, Start: start, PageSize: pageSize, OrderBy: "relevance"})
 	if err != nil {
 		return nil, fmt.Errorf("encode RocketReach search request: %w", err)
@@ -182,6 +183,22 @@ func (c *RocketReachClient) Lookup(ctx context.Context, name, company, linkedinU
 			params.Set("current_employer", strings.TrimSpace(company))
 		}
 	}
+	return c.lookupWithParams(ctx, params)
+}
+
+// LookupByID retrieves the exact profile returned by person_search. Using the
+// profile ID avoids ambiguity when a display name or employer has aliases.
+func (c *RocketReachClient) LookupByID(ctx context.Context, id int) (*RocketReachProfile, error) {
+	if !c.Enabled() {
+		return nil, fmt.Errorf("RocketReach is not configured")
+	}
+	if id <= 0 {
+		return nil, fmt.Errorf("RocketReach lookup requires a positive profile ID")
+	}
+	return c.lookupWithParams(ctx, url.Values{"id": []string{strconv.Itoa(id)}})
+}
+
+func (c *RocketReachClient) lookupWithParams(ctx context.Context, params url.Values) (*RocketReachProfile, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"?"+params.Encode(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create RocketReach lookup request: %w", err)

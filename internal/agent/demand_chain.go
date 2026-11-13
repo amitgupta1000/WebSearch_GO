@@ -402,67 +402,14 @@ func demandIsProducerWithoutDemand(company *models.MarketLandscapeCompany) bool 
 	return demandHasProducerSignal(company) && !demandHasDirectDemandClaim(company)
 }
 
-// demandAggregatorMarkers are the domain fragments of tender portals, B2B
-// marketplaces and trade aggregators: they publish demand, they do not
-// exercise it, so their pages neither verify a company nor pass as one.
-var demandAggregatorMarkers = []string{
-	"tender", "rfp", "rfq", "eprocure", "e-procurement", "bidding",
-	"indiamart", "tradeindia", "alibaba", "made-in-china", "exportersindia",
-	"tradekey", "ec21", "go4worldbusiness", "exporthub",
-}
-
-// demandPublisherMarkers are the domain fragments of academic publishers and
-// repositories: bibliography, not buyers.
-var demandPublisherMarkers = []string{
-	"mdpi", "pubs.acs", "wiley", "sciencedirect", "springer", "researchgate",
-	"semanticscholar", "ssrn", "ieee", "journals", "scholar", "ncbi",
-	"nature.com", "sciencedaily", "scribd", "slideshare", "amazon.", "books.google",
-}
-
-// demandConsultancyMarkers are the domains of market-research vendors and
-// consultancies: they write about demand, they do not exercise it.
-var demandConsultancyMarkers = []string{
-	"imarc", "mordorintelligence", "statista", "credence", "grandviewresearch",
-	"marketsandmarkets", "gminsights", "fortunebusinessinsights", "researchandmarkets",
-	"intratec", "databridge", "alliedmarket", "persistencemarket", "techsci",
-	"stratview", "nextmove", "marketresearch", "transparencymarketresearch",
-}
-
-// demandInstitutionMarkers are the domains of conferences, associations and
-// bodies: commentary and community, not buyers.
-var demandInstitutionMarkers = []string{
-	"conference", "confintl", "symposium", "associa", "society", "council",
-	"federation", "institute", "iea.", "unep", "oecd",
-}
-
 // demandSourceOverride reclassifies aggregator, publisher, consultancy and
-// institution domains for the buyer side. The returned tier never qualifies,
-// so such pages stay in the run as demand signals and leads while being
-// unable to present as companies themselves. Empty when the shared tier
-// classifier stands.
+// institution domains for the buyer side. It is the shared discovery-source
+// classifier (entity_source.go) under the name the buyer code reads; the labels
+// are the same, so a vendor added for one landscape mode is known to both.
+// The returned tier never qualifies, so such pages stay in the run as demand
+// signals and leads while being unable to present as companies themselves.
 func demandSourceOverride(domain string) string {
-	domain = strings.ToLower(strings.TrimPrefix(domain, "www."))
-	for _, marker := range demandAggregatorMarkers {
-		if strings.Contains(domain, marker) {
-			return "aggregator"
-		}
-	}
-	for _, marker := range demandPublisherMarkers {
-		if strings.Contains(domain, marker) {
-			return "publisher"
-		}
-	}
-	for _, marker := range demandConsultancyMarkers {
-		if strings.Contains(domain, marker) {
-			return "consultancy"
-		}
-	}
-	for _, marker := range demandInstitutionMarkers {
-		if strings.Contains(domain, marker) {
-			return "institution"
-		}
-	}
-	return ""
+	return sharedSourceOverride(domain)
 }
 
 // demandSourceName catches a candidate whose *name* is an aggregator page,

@@ -12,6 +12,8 @@ tracks and synthesizes structured results with Gemini:
 - **Related Entity mode** — confirms a company, checks the usual sources for direct group or
   subsidiary relationships, then follows directors and C-suite leaders into other companies.
 - **Market Landscape mode** — discovers and verifies producer/seller companies by activity and geography.
+  Roster names are the company segment of a page title, never the whole title: report titles, article
+  headlines and publisher names stay in the evidence appendix instead of masquerading as companies.
 - **Buyer Landscape mode** — finds public consumers and demand signals through value-chain stages.
 - **News mode** — assembles a whitelist-only, last-24-hours news brief with citations, conflict handling,
   and structured sentiment.

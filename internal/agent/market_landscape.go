@@ -20,6 +20,9 @@ const (
 	marketPeopleQueryReserve     = 40
 	marketMaxResults             = 10
 	marketMaxCandidates          = 40
+	// Verification spends three searches per company, so the candidate cap is
+	// what the verification budget can actually clear (3 x 10 = 30).
+	marketMaxVerifiedCompanies = 10
 )
 
 // MarketLandscapeAgent owns the additive, vector-free market workflow.
@@ -215,13 +218,25 @@ func marketCandidate(hit models.SearchResult, lane string, query models.MarketLa
 		return nil
 	}
 	domain := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
-	name := strings.TrimSpace(hit.Title)
-	if name == "" {
+	title := strings.TrimSpace(hit.Title)
+	if title == "" {
+		title = domain
+	}
+	// The page title is a *source* for the name, never the name itself: it is
+	// folded to its company segment, and the raw title stays in the evidence
+	// where a reader can audit it.
+	name := marketCanonicalName(title, domain)
+	usableName := name != ""
+	if !usableName {
+		// No company segment (report, listicle, publisher page): the domain is
+		// the placeholder identity. The raw title still travels in the evidence
+		// record for audit and for the extractor to read.
 		name = domain
 	}
-	sourceTier := marketSourceTier(domain)
+	sourceTier := marketDiscoveryTier(domain)
+	articleShaped := marketDocumentTitle(title) || marketHeadlineTitle(title) || marketPublisherSuffix(title)
 	evidenceType := "company-page"
-	if classifyDiscoverySource(hit) != sourceOperator || sourceTier == "news" || sourceTier == "social" || sourceTier == "research" || isGenericMarketTitle(name) || isResearchDocumentTitle(name) || !hasMarketActivityEvidence(hit, query.Activity) || !hasCompanyIdentitySignal(name, domain) {
+	if classifyDiscoverySource(hit) != sourceOperator || !isQualifyingMarketTier(sourceTier) || articleShaped || !usableName || isGenericMarketTitle(title) || !hasMarketActivityEvidence(hit, query.Activity) || !hasCompanyIdentitySignal(title, domain) {
 		evidenceType = "discovery-lead"
 	}
 	return &models.MarketLandscapeCompany{
@@ -272,8 +287,8 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 			leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 		}
 		var batch []models.MarketLandscapeLeadCandidate
-		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. Reports, studies, forecasts and publisher pages are valid discovery evidence, but their titles and publishers are not companies. Never return a report title, publisher, list heading, region, project or generic category as name. For every extracted company, include source_type (operator or research_report), mention_context, supporting_quote, country, reason, evidence_url as a string, and key_people as an array of strings. A research_report candidate must be independently verified before promotion. If a lead explicitly names a relevant sales, marketing, commercial, or business-development person, include the person's name in key_people; never infer people. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
-		if err := a.engine.GenerateStructured(ctx, "You extract company names for a market research verification queue. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
+		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. Name the operator, never the page: a report, study, forecast, listicle, publisher name, site name, navigation label, region, project or generic category is not a company. If a lead is a news article or a report, return the subject company's trading name exactly as the source writes it, with its tagline removed - never the headline. Never return a headline that contains an action verb (opens, launches, announces, plans, acquires, sells) as a name. For every extracted company, include source_type (operator, news_article or research_report), mention_context, supporting_quote, country, reason, evidence_url as a string, and key_people as an array of strings. A research_report or news_article candidate must be independently verified before promotion. If a lead explicitly names a relevant sales, marketing, commercial, or business-development person, include the person's name in key_people; never infer people. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
+		if err := a.engine.GenerateStructured(ctx, "You extract company names for a market research verification queue. Return the operating company's own trading name only: never a report title, headline, publisher, site name or category. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
 			rejected += end - start
 			extractionErrors = append(extractionErrors, err.Error())
 			continue
@@ -283,13 +298,23 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 
 	uniqueExtracted := make([]models.MarketLandscapeLeadCandidate, 0, len(extracted))
 	seenNames := make(map[string]bool)
+	leadTitles := make([]string, 0, len(enrichedLeads))
+	for _, lead := range enrichedLeads {
+		if strings.TrimSpace(lead.Title) != "" {
+			leadTitles = append(leadTitles, lead.Title)
+		}
+	}
 	for _, candidate := range extracted {
 		candidate.Name = strings.TrimSpace(candidate.Name)
 		if candidate.SourceType == "" {
 			candidate.SourceType = "discovery"
 		}
-		key := normalizeMarketName(candidate.Name)
-		if !isPlausibleMarketLeadName(candidate.Name) || isResearchDocumentTitle(candidate.Name) || seenNames[key] {
+		// A name is a company name or it is nothing: strip page decoration,
+		// then reject documents, headlines, publisher echoes and query echoes.
+		cleaned := marketLeadName(candidate.Name, "")
+		candidate.Name = cleaned
+		key := marketNameKey(cleaned)
+		if cleaned == "" || !marketLeadNameAcceptable(cleaned, query) || marketNameEchoesLead(cleaned, leadTitles) || key == "" || seenNames[key] {
 			rejected++
 			continue
 		}
@@ -304,7 +329,7 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 		verificationBudget -= marketPeopleQueryReserve
 	}
 	for index, lead := range uniqueExtracted {
-		if index >= 10 || queriesUsed >= verificationBudget {
+		if index >= marketMaxVerifiedCompanies || queriesUsed >= verificationBudget {
 			break
 		}
 		for _, purpose := range []string{"official site", "facility operator", "registry trade source"} {
@@ -464,15 +489,54 @@ func isPlausiblePersonName(name string) bool {
 	return len(parts) >= 2 && len(name) <= 120
 }
 
+// isPlausibleMarketLeadName is the name-hygiene gate both landscape modes apply
+// to extractor output: a real name survives, a document or a headline does not.
 func isPlausibleMarketLeadName(name string) bool {
-	lowered := strings.ToLower(strings.TrimSpace(name))
-	if len(lowered) < 3 || len(lowered) > 140 {
+	cleaned := strings.TrimSpace(name)
+	lowered := strings.ToLower(cleaned)
+	if len(lowered) < 2 || len(lowered) > 120 {
 		return false
 	}
-	for _, marker := range []string{"top ", "companies", "projects", "middle east", "southeast asia", "news", "report", "oil blending"} {
-		if lowered == marker || strings.HasPrefix(lowered, marker) {
-			return false
+	// A sentence is a headline or a description, not a name.
+	if len(strings.Fields(cleaned)) > 12 {
+		return false
+	}
+	// Reuse the shared name hygiene: documents, headlines and publisher echoes
+	// are evidence, never roster names.
+	return marketLeadName(cleaned, "") != ""
+}
+
+// marketLeadNameAcceptable adds the producer-side check that the extractor did
+// not simply restate the query (its activity, a geography, category words).
+func marketLeadNameAcceptable(name string, query models.MarketLandscapeQuery) bool {
+	return isPlausibleMarketLeadName(name) && !marketNameIsQueryEcho(name, query)
+}
+
+// marketNameIsQueryEcho reports whether a proposed name is the query restated —
+// the activity, a geography, or a heap of generic category words — rather than
+// a company. Every word must be query or category vocabulary to qualify, so
+// "Acme Blending" survives while "oil blending in Singapore" does not.
+func marketNameIsQueryEcho(name string, query models.MarketLandscapeQuery) bool {
+	words := strings.Fields(marketWordText(name))
+	if len(words) == 0 {
+		return false
+	}
+	allowed := make(map[string]bool)
+	queryText := append(append([]string{}, query.Countries...), query.Regions...)
+	queryText = append(queryText, query.Activity)
+	for _, value := range queryText {
+		for _, word := range strings.Fields(marketWordText(value)) {
+			allowed[word] = true
 		}
+	}
+	for _, word := range strings.Fields(marketWordText("manufacturer manufacturers supplier suppliers producer producers company companies facility facilities plant plants terminal terminals operator operators blending blend")) {
+		allowed[word] = true
+	}
+	for _, word := range words {
+		if allowed[word] || marketConnectorWords[word] || marketGenericNameWords[word] || marketIndustryWords[word] || marketTitleNoise[word] {
+			continue
+		}
+		return false
 	}
 	return true
 }
@@ -486,8 +550,8 @@ func truncateMarketText(value string, max int) string {
 }
 
 func marketVerificationEvidence(hit models.SearchResult, company, activity, purpose string) (models.MarketLandscapeEvidence, bool) {
-	tier := marketSourceTier(hostname(hit.Link))
-	if !isQualifyingMarketTier(tier) || isResearchDocumentTitle(company) || !hasMarketActivityEvidence(hit, activity) || !mentionsMarketCompany(hit, company) {
+	tier := marketDiscoveryTier(hostname(hit.Link))
+	if !isQualifyingMarketTier(tier) || marketDocumentTitle(company) || marketHeadlineTitle(company) || marketPublisherSuffix(company) || !hasMarketActivityEvidence(hit, activity) || !mentionsMarketCompany(hit, company) {
 		return models.MarketLandscapeEvidence{}, false
 	}
 	return models.MarketLandscapeEvidence{
@@ -497,8 +561,14 @@ func marketVerificationEvidence(hit models.SearchResult, company, activity, purp
 }
 
 func mergeMarketCompany(companies map[string]*models.MarketLandscapeCompany, candidate *models.MarketLandscapeCompany) {
+	candidateKey := marketNameKey(candidate.Name)
 	for _, existing := range companies {
-		if strings.EqualFold(existing.Name, candidate.Name) || (existing.Domain != "" && existing.Domain == candidate.Domain) {
+		existingKey := marketNameKey(existing.Name)
+		// One company, one row: spelling variants ("Acme" / "Acme Ltd."), the
+		// same normalized name, or the same domain all merge.
+		if strings.EqualFold(existing.Name, candidate.Name) ||
+			(existingKey != "" && existingKey == candidateKey) ||
+			(existing.Domain != "" && existing.Domain == candidate.Domain) {
 			existing.Evidence = append(existing.Evidence, candidate.Evidence...)
 			existing.Confidence = minFloat(0.98, existing.Confidence+0.1)
 			if candidate.EvidenceType == "company-page" {
@@ -511,8 +581,9 @@ func mergeMarketCompany(companies map[string]*models.MarketLandscapeCompany, can
 }
 
 func findMarketCompany(companies []*models.MarketLandscapeCompany, name string) *models.MarketLandscapeCompany {
+	key := marketNameKey(name)
 	for _, company := range companies {
-		if normalizeMarketName(company.Name) == normalizeMarketName(name) {
+		if strings.EqualFold(company.Name, name) || (key != "" && marketNameKey(company.Name) == key) {
 			return company
 		}
 	}
@@ -542,10 +613,8 @@ func marketSourceTier(domain string) string {
 	if isResearchPublisherDomain(domain) {
 		return "research"
 	}
-	for _, marker := range []string{"reuters.", "bloomberg.", "news.", "oilprice."} {
-		if strings.Contains(domain, marker) {
-			return "news"
-		}
+	if isNewsSourceDomain(domain) {
+		return "news"
 	}
 	for _, marker := range []string{"facebook.", "youtube.", "twitter.", "x.com"} {
 		if strings.Contains(domain, marker) {
@@ -569,21 +638,31 @@ func marketSourceTier(domain string) string {
 	return "official"
 }
 
+// marketDiscoveryTier is the producer-side tier: the shared base tier plus the
+// publisher/aggregator override. A page that writes *about* companies can never
+// qualify as one. It is deliberately not folded into marketSourceTier because
+// the buyer mode accepts aggregator-hosted tender records as buyer evidence.
+func marketDiscoveryTier(domain string) string {
+	if override := sharedSourceOverride(domain); override != "" {
+		return override
+	}
+	return marketSourceTier(domain)
+}
+
 func isQualifyingMarketTier(tier string) bool {
 	return tier == "official" || tier == "regulatory" || tier == "directory" || tier == "trade"
 }
 
 func isResearchPublisherDomain(domain string) bool {
 	domain = strings.ToLower(strings.TrimPrefix(domain, "www."))
-	for _, marker := range []string{
-		"researchandmarkets", "marketsandmarkets", "grandviewresearch",
-		"fortunebusinessinsights", "mordorintelligence", "imarcgroup",
-		"gminsights", "precedenceresearch", "expertmarketresearch",
-		"transparencymarketresearch", "alliedmarketresearch", "statista",
-		"credenceresearch", "industryarc", "factmr", "valuemarketresearch",
-		"emergenresearch", "wiseguyreports", "futuremarketinsights",
-		"360iresearch", "databridgemarketresearch", "researchandmarkets",
-	} {
+	// The consultancy list is the shared one (entity_source.go): every market
+	// research vendor either landscape mode should refuse lives there once.
+	for _, marker := range sourceConsultancyMarkers {
+		if strings.Contains(domain, marker) {
+			return true
+		}
+	}
+	for _, marker := range []string{"marketinsights", "researchand", "industryresearch", "marketpublishers", "researchreport"} {
 		if strings.Contains(domain, marker) {
 			return true
 		}
@@ -618,6 +697,11 @@ func isGenericMarketTitle(title string) bool {
 }
 
 func hasCompanyIdentitySignal(title, domain string) bool {
+	// A name and its domain share a brand token in either direction:
+	// "Gulf Oil Middle East" <-> gulfoilltd.com, "KLJ Resources" <-> kljresources.com.
+	if marketBrandMatchesDomain(title, domain) {
+		return true
+	}
 	name := strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(domain, "www."), ".", " "))
 	for _, token := range strings.Fields(strings.ReplaceAll(name, "-", " ")) {
 		if len(token) >= 5 && strings.Contains(strings.ToLower(title), token) {
@@ -642,18 +726,34 @@ func hasMarketActivityEvidence(hit models.SearchResult, activity string) bool {
 	return false
 }
 
+// mentionsMarketCompany reports whether a hit actually names the company. The
+// old rule accepted any single five-character token, so a candidate named
+// "Global Lubricants Market Report" was "verified" by every page containing
+// "global". Now the full name must appear, or the hit must sit on the company's
+// own domain, or at least two distinctive name tokens must appear together.
 func mentionsMarketCompany(hit models.SearchResult, company string) bool {
-	text := strings.ToLower(hit.Title + " " + hit.Snippet + " " + hostname(hit.Link))
-	name := strings.ToLower(strings.TrimSpace(company))
-	if name != "" && strings.Contains(text, name) {
+	if marketBrandMatchesDomain(company, hostname(hit.Link)) {
 		return true
 	}
-	for _, token := range strings.Fields(name) {
-		if len(token) >= 5 && strings.Contains(text, token) {
-			return true
+	text := marketWordText(hit.Title + " " + hit.Snippet)
+	full := strings.TrimSpace(marketWordText(company))
+	if full != "" && marketContainsPhrase(text, full) {
+		return true
+	}
+	tokens := marketDistinctiveTokens(company)
+	if len(tokens) == 0 {
+		return false
+	}
+	matched := 0
+	for _, token := range tokens {
+		if marketContainsPhrase(text, token) {
+			matched++
 		}
 	}
-	return false
+	if len(tokens) == 1 {
+		return matched == 1
+	}
+	return matched >= 2
 }
 
 func excludedMarketDomain(domain string, exclusions []string) bool {

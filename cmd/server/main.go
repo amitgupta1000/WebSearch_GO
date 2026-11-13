@@ -675,6 +675,8 @@ type marketRocketReachView struct {
 func (s *Server) handleMarketRocketReach(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("person_name"))
 	company := strings.TrimSpace(r.FormValue("company_name"))
+	linkedinURL := strings.TrimSpace(r.FormValue("linkedin_url"))
+	profileID, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("rocketreach_id")))
 	if name == "" || company == "" {
 		s.render(w, "market_rocketreach_result", marketRocketReachView{Error: "A person name and company are required."})
 		return
@@ -683,7 +685,17 @@ func (s *Server) handleMarketRocketReach(w http.ResponseWriter, r *http.Request)
 		s.render(w, "market_rocketreach_result", marketRocketReachView{Name: name, Company: company, Error: "RocketReach is not configured."})
 		return
 	}
-	profile, err := s.rocketReach.Lookup(r.Context(), name, company, "")
+	var profile *tools.RocketReachProfile
+	var err error
+	if profileID > 0 {
+		profile, err = s.rocketReach.LookupByID(r.Context(), profileID)
+	}
+	if err == nil && profile == nil && linkedinURL != "" {
+		profile, err = s.rocketReach.Lookup(r.Context(), name, company, linkedinURL)
+	}
+	if err == nil && profile == nil {
+		profile, err = s.rocketReach.Lookup(r.Context(), name, company, "")
+	}
 	if err != nil || profile == nil {
 		message := "No RocketReach profile matched this person and company."
 		if err != nil {
