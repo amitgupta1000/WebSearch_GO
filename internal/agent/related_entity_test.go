@@ -94,6 +94,34 @@ func TestRocketReachEmployerMatchesRejectsFuzzyUnrelatedEmployer(t *testing.T) {
 	}
 }
 
+func TestDirectAssociationHitsRejectNamesakesAndResearchReports(t *testing.T) {
+	query := models.RelatedEntityQuery{
+		CompanyName: "Pure Chemicals",
+		Domain:      "purechemicals.in",
+		Country:     "India",
+	}
+	hits := directAssociationHits(query, []models.SearchResult{
+		{
+			Title:   "Pure Chemicals group structure",
+			Link:    "https://www.purechemicals.in/about/group-structure",
+			Snippet: "Pure Chemicals India lists its subsidiary Pure Chemicals Specialties.",
+		},
+		{
+			Title:   "Daiichi Pure Chemical group companies",
+			Link:    "https://www.daiichipure.co.jp/group",
+			Snippet: "Daiichi Pure Chemical group companies and affiliates.",
+		},
+		{
+			Title:   "Pure Chemicals market report",
+			Link:    "https://www.marketsandmarkets.com/Market-Reports/pure-chemicals-report",
+			Snippet: "Pure Chemicals market report and leading companies.",
+		},
+	})
+	if len(hits) != 1 || hits[0].Link != "https://www.purechemicals.in/about/group-structure" {
+		t.Fatalf("direct hits = %+v, want only the primary-domain relationship", hits)
+	}
+}
+
 // TestNormalizeLeadersMergesInitialsVariants pins the leadership rule: "K L
 // Jain" and "Kanhaiya Lal Jain" are one director, not two — the fuller name
 // stands as the display name, and the variant does not spawn its own branch.

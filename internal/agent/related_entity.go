@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 const (
@@ -33,11 +35,16 @@ var directorIdentificationNumberPattern = regexp.MustCompile(`(?i)\b(?:din|direc
 // RelatedEntityAgent discovers direct company relationships and then follows
 // confirmed leadership into other companies. It never mutates CompanyBrief.
 type RelatedEntityAgent struct {
-	engine *Engine
+	engine      *Engine
+	rocketReach *tools.RocketReachClient
 }
 
-func NewRelatedEntityAgent(engine *Engine) *RelatedEntityAgent {
-	return &RelatedEntityAgent{engine: engine}
+func NewRelatedEntityAgent(engine *Engine, rocketReach ...*tools.RocketReachClient) *RelatedEntityAgent {
+	agent := &RelatedEntityAgent{engine: engine}
+	if len(rocketReach) > 0 {
+		agent.rocketReach = rocketReach[0]
+	}
+	return agent
 }
 
 func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, query models.RelatedEntityQuery, eventCh chan<- models.AgentEvent) (*models.RelatedEntityReport, error) {
@@ -92,6 +99,8 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 	// itself, ahead of any person search.
 	directHits = append(append(append([]models.SearchResult{}, registryHits...), networkHits...), directHits...)
 	leadHits = append(append([]models.SearchResult{}, registryHits...), leadHits...)
+	directHits = directAssociationHits(query, directHits)
+	leadHits = leadershipIdentityHits(query, leadHits)
 	report := &models.RelatedEntityReport{
 		CompanyName: query.CompanyName, Domain: query.Domain, RegistrationID: query.RegistrationID,
 		EntityConfirmed: strings.TrimSpace(query.Domain) != "" || strings.TrimSpace(query.RegistrationID) != "",
@@ -188,6 +197,143 @@ func sourceHint(query models.RelatedEntityQuery) string {
 		return "zaubacorp OR thecompanycheck OR tracxn"
 	}
 	return "zoominfo OR apollo OR theorg"
+}
+
+func relatedHost(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+}
+
+func relatedHostMatchesDomain(host, domain string) bool {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	domain = strings.TrimPrefix(domain, "https://")
+	domain = strings.TrimPrefix(domain, "http://")
+	domain = strings.TrimPrefix(domain, "www.")
+	domain = strings.TrimSuffix(domain, "/")
+	return domain != "" && (host == domain || strings.HasSuffix(host, "."+domain))
+}
+
+func relatedTrustedRegistryHost(host string) bool {
+	for _, trusted := range []string{
+		"weedoo.in", "zaubacorp.com", "mca.gov.in", "sebi.gov.in",
+		"bseindia.com", "nseindia.com", "sec.gov", "companieshouse.gov.uk",
+	} {
+		if host == trusted || strings.HasSuffix(host, "."+trusted) {
+			return true
+		}
+	}
+	return false
+}
+
+func relatedAnnualReportHit(hit models.SearchResult) bool {
+	text := strings.ToLower(hit.Title + " " + hit.Snippet + " " + hit.Link)
+	for _, marker := range []string{"annual report", "annual-report", "form 10-k", "10-k filing", "corporate filing"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(hit.Link)), ".pdf")
+}
+
+// directAssociationHits is the boundary between discovery and promotion for
+// step one. Generic search, news, directories, and research reports can still
+// remain in SearchTrace, but only primary-domain, filing/registry, or explicit
+// annual-report evidence reaches the direct-relationship extractor.
+func directAssociationHits(query models.RelatedEntityQuery, hits []models.SearchResult) []models.SearchResult {
+	out := make([]models.SearchResult, 0, len(hits))
+	seen := map[string]bool{}
+	for _, hit := range hits {
+		if strings.TrimSpace(hit.Link) == "" || isResearchEvidenceURL(hit.Link) {
+			continue
+		}
+		host := relatedHost(hit.Link)
+		trusted := relatedHostMatchesDomain(host, query.Domain) || relatedTrustedRegistryHost(host)
+		if !trusted && !relatedAnnualReportHit(hit) {
+			continue
+		}
+		if !containsCompanyIdentity(hit.Title+" "+hit.Snippet, query) {
+			continue
+		}
+		if seen[hit.Link] {
+			continue
+		}
+		seen[hit.Link] = true
+		out = append(out, hit)
+	}
+	return out
+}
+
+// leadershipIdentityHits supplies step two with evidence that can establish
+// who works at the primary company. Career pages and namesake search results
+// are not enough unless they are tied back to an official, registry, filing,
+// or LinkedIn source that also names the primary company.
+func leadershipIdentityHits(query models.RelatedEntityQuery, hits []models.SearchResult) []models.SearchResult {
+	out := make([]models.SearchResult, 0, len(hits))
+	seen := map[string]bool{}
+	for _, hit := range hits {
+		if strings.TrimSpace(hit.Link) == "" || isResearchEvidenceURL(hit.Link) {
+			continue
+		}
+		host := relatedHost(hit.Link)
+		isLinkedIn := host == "linkedin.com" || strings.HasSuffix(host, ".linkedin.com")
+		trusted := relatedHostMatchesDomain(host, query.Domain) || relatedTrustedRegistryHost(host) ||
+			isLinkedIn || relatedAnnualReportHit(hit)
+		if !trusted || !containsCompanyIdentity(hit.Title+" "+hit.Snippet, query) {
+			continue
+		}
+		if seen[hit.Link] {
+			continue
+		}
+		seen[hit.Link] = true
+		out = append(out, hit)
+	}
+	return out
+}
+
+func relatedPersonEvidenceHits(query models.RelatedEntityQuery, leader models.LeadershipSubject, din string, hits []models.SearchResult, requirePrimary bool) []models.SearchResult {
+	out := make([]models.SearchResult, 0, len(hits))
+	seen := map[string]bool{}
+	for _, hit := range hits {
+		if strings.TrimSpace(hit.Link) == "" || isResearchEvidenceURL(hit.Link) ||
+			!personNamesInText(hit.Title+" "+hit.Snippet, leader.Name) {
+			continue
+		}
+		host := relatedHost(hit.Link)
+		isRegistry := relatedTrustedRegistryHost(host)
+		isLinkedIn := host == "linkedin.com" || strings.HasSuffix(host, ".linkedin.com")
+		trusted := relatedHostMatchesDomain(host, query.Domain) || isRegistry || isLinkedIn || relatedAnnualReportHit(hit)
+		if !trusted {
+			continue
+		}
+		text := hit.Title + " " + hit.Snippet
+		if requirePrimary && !containsCompanyIdentity(text, query) {
+			continue
+		}
+		if !requirePrimary && !containsCompanyIdentity(text, query) &&
+			(strings.TrimSpace(din) == "" || (!isRegistry && !relatedAnnualReportHit(hit))) {
+			continue
+		}
+		if seen[hit.Link] {
+			continue
+		}
+		seen[hit.Link] = true
+		out = append(out, hit)
+	}
+	return out
+}
+
+func relatedEvidenceSearchResults(evidence []models.RelatedEntityEvidence) []models.SearchResult {
+	hits := make([]models.SearchResult, 0, len(evidence))
+	for _, item := range evidence {
+		if strings.TrimSpace(item.URL) == "" {
+			continue
+		}
+		hits = append(hits, models.SearchResult{Title: item.Title, Link: item.URL, Snippet: item.Snippet})
+	}
+	return hits
 }
 
 func quote(value string) string {
@@ -535,6 +681,7 @@ func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEn
 		relationships := make([]models.RelatedCompany, 0, len(directExtracted.DirectRelationships))
 		for _, item := range directExtracted.DirectRelationships {
 			relationship := item.RelatedCompany()
+			relationship.Evidence = evidenceBackedByHits(relationship.Evidence, directHits)
 			relationship.Evidence = attachEvidenceFromHits(relationship.Evidence, relationship.Name, query.CompanyName, directHits)
 			relationships = append(relationships, relationship)
 		}
@@ -556,10 +703,15 @@ func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEn
 	leaders := make([]models.LeadershipSubject, 0, len(leaderExtracted.Leadership))
 	for _, item := range leaderExtracted.Leadership {
 		leader := item.LeadershipSubject()
+		leader.Evidence = evidenceBackedByHits(leader.Evidence, leaderHits)
 		leader.Evidence = attachEvidenceFromHits(leader.Evidence, leader.Name, query.CompanyName, leaderHits)
 		leaders = append(leaders, leader)
 	}
 	report.Leadership = normalizeLeaders(leaders, query.CompanyName, query.MaxLeaders)
+	if err := a.discoverRocketReach(ctx, query, report); err != nil {
+		report.Warnings = append(report.Warnings, err.Error())
+	}
+	report.Leadership = normalizeLeaders(report.Leadership, query.CompanyName, query.MaxLeaders)
 	if len(report.Leadership) == 0 {
 		return nil
 	}
@@ -593,6 +745,86 @@ func rocketReachEmployerMatches(employer, company string) bool {
 		}
 	}
 	return true
+}
+
+func rocketReachProfileMatchesCompany(profile tools.RocketReachProfile, query models.RelatedEntityQuery) bool {
+	if rocketReachEmployerMatches(profile.CurrentEmployer, query.CompanyName) {
+		return true
+	}
+	for _, job := range profile.JobHistory {
+		if rocketReachEmployerMatches(job.Company, query.CompanyName) {
+			return true
+		}
+	}
+	return false
+}
+
+func rocketReachCountryMatches(profile tools.RocketReachProfile, country string) bool {
+	country = strings.TrimSpace(strings.ToLower(country))
+	if country == "" || strings.TrimSpace(profile.Country) == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(profile.Country), country) ||
+		strings.Contains(strings.ToLower(country), strings.ToLower(profile.Country))
+}
+
+// discoverRocketReach is an optional person-identity source for step two. It
+// searches by employer and seniority, never by a person name, and only merges
+// profiles whose employer matches the primary legal name. Affiliations are
+// still searched later through the frozen identity gate.
+func (a *RelatedEntityAgent) discoverRocketReach(ctx context.Context, query models.RelatedEntityQuery, report *models.RelatedEntityReport) error {
+	if a.rocketReach == nil || !a.rocketReach.Enabled() {
+		return nil
+	}
+	profiles, err := a.rocketReach.Search(ctx, map[string][]string{
+		"current_employer": {query.CompanyName},
+		"current_title":    {"Director", "Managing Director", "CEO", "CFO", "COO", "Founder", "Chairman"},
+	})
+	if err != nil {
+		return fmt.Errorf("RocketReach leadership discovery failed: %w", err)
+	}
+	for _, profile := range profiles {
+		if strings.TrimSpace(profile.Name) == "" ||
+			!rocketReachProfileMatchesCompany(profile, query) ||
+			!rocketReachCountryMatches(profile, query.Country) {
+			continue
+		}
+		report.RocketReachDiscovery = append(report.RocketReachDiscovery, models.RocketReachDiscovery{
+			ProfileID: profile.ID, Name: profile.Name, Title: profile.CurrentTitle,
+			Employer: profile.CurrentEmployer, LinkedInURL: profile.LinkedInURL,
+			Query: query.CompanyName,
+		})
+		if strings.TrimSpace(profile.LinkedInURL) == "" {
+			continue
+		}
+		snippet := strings.TrimSpace(profile.CurrentTitle + " at " + profile.CurrentEmployer)
+		if snippet == "at " {
+			snippet = "RocketReach employer match"
+		}
+		merged := false
+		for index := range report.Leadership {
+			if personNamesInText(profile.Name, report.Leadership[index].Name) ||
+				personNamesInText(report.Leadership[index].Name, profile.Name) {
+				report.Leadership[index].Evidence = appendUniqueRelatedEvidence(report.Leadership[index].Evidence, models.RelatedEntityEvidence{
+					URL: profile.LinkedInURL, Title: "RocketReach leadership profile", Snippet: snippet, Source: "RocketReach employer match",
+				})
+				report.Leadership[index].Confidence = maxFloat(report.Leadership[index].Confidence, 0.75)
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			report.Leadership = append(report.Leadership, models.LeadershipSubject{
+				Name: profile.Name, Role: profile.CurrentTitle, Company: query.CompanyName,
+				Confidence: 0.75,
+				Evidence: []models.RelatedEntityEvidence{{
+					URL: profile.LinkedInURL, Title: "RocketReach leadership profile",
+					Snippet: snippet, Source: "RocketReach employer match",
+				}},
+			})
+		}
+	}
+	return nil
 }
 
 func boundedRelatedEvidence(hits []models.SearchResult, limit int) []models.SearchResult {
@@ -871,7 +1103,7 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 				// Seed the leader's hits with the WeeDoo registry page: it
 				// grounds the leader at the company and carries the directors
 				// table with the DIN rows.
-				personHits := append([]models.SearchResult{}, registryEvidence...)
+				personHits := append(relatedEvidenceSearchResults(leader.Evidence), registryEvidence...)
 				var traces []models.QueryTrace
 				for _, planned := range identityQueries {
 					hits, err := a.engine.SearchCached(ctx, planned.Query, a.engine.MaxSearchResults())
@@ -886,14 +1118,16 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 				if personHits == nil && len(traces) < len(identityQueries) {
 					continue
 				}
-				identity := resolvePersonIdentity(leader, query, personHits)
+				identityHits := relatedPersonEvidenceHits(query, leader, frozenDIN, personHits, true)
+				identity := resolvePersonIdentity(leader, query, identityHits)
 				if identity.DIN == "" && frozenDIN != "" {
 					identity.DIN = frozenDIN
 					identity.Confidence = 1.0
 					identity.Attributes = appendUnique(identity.Attributes, "DIN")
 				}
 				personHits = append(personHits, a.fetchWeeDooEvidence(ctx, personHits)...)
-				identity = resolvePersonIdentity(leader, query, personHits)
+				identityHits = relatedPersonEvidenceHits(query, leader, frozenDIN, personHits, true)
+				identity = resolvePersonIdentity(leader, query, identityHits)
 				if identity.DIN == "" && frozenDIN != "" {
 					identity.DIN = frozenDIN
 					identity.Confidence = 1.0
@@ -955,6 +1189,7 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 				if personHits == nil && len(traces) < len(identityQueries)+len(affiliationQueries) {
 					continue
 				}
+				relationHits := relatedPersonEvidenceHits(query, leader, identity.DIN, personHits, false)
 				var extracted struct {
 					Companies []relatedCompanyExtraction `json:"companies"`
 				}
@@ -965,7 +1200,7 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 				payload, marshalErr := json.Marshal(struct {
 					Person string
 					Hits   []models.SearchResult
-				}{leader.Name, boundedRelatedEvidence(reorderWeeDooFirst(personHits), relatedEntityLeaderEvidence)})
+				}{leader.Name, boundedRelatedEvidence(reorderWeeDooFirst(relationHits), relatedEntityLeaderEvidence)})
 				if marshalErr == nil {
 					prompt := `Extract companies other than the primary company that this person is explicitly connected to in the snippets. Return JSON with a companies array; return {"companies":[]} when evidence is insufficient. Include relationship, role, current/former status, confidence, and evidence. Do not report name-only matches. Prefer registry directorship pages — they list every company the person serves with role and status — over profile pages about people who merely share the name.`
 					marshalErr = a.engine.llmClient.GenerateStructured(ctx, prompt, string(payload), &extracted)
@@ -978,7 +1213,8 @@ func (a *RelatedEntityAgent) searchLeadership(ctx context.Context, query models.
 				for _, item := range extracted.Companies {
 					company := item.RelatedCompany()
 					company.Person = leader.Name
-					company.Evidence = attachEvidenceFromHits(company.Evidence, company.Name, query.CompanyName, personHits)
+					company.Evidence = evidenceBackedByHits(company.Evidence, relationHits)
+					company.Evidence = attachEvidenceFromHits(company.Evidence, company.Name, query.CompanyName, relationHits)
 					companies = append(companies, company)
 				}
 				outcomes <- outcome{index: index, items: companies, trace: traces, identity: identity}
@@ -1125,6 +1361,15 @@ func containsCompanyIdentity(text string, query models.RelatedEntityQuery) bool 
 func appendUnique(values []string, value string) []string {
 	for _, existing := range values {
 		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func appendUniqueRelatedEvidence(values []models.RelatedEntityEvidence, value models.RelatedEntityEvidence) []models.RelatedEntityEvidence {
+	for _, existing := range values {
+		if strings.EqualFold(strings.TrimSpace(existing.URL), strings.TrimSpace(value.URL)) {
 			return values
 		}
 	}
@@ -1337,6 +1582,25 @@ func hasNonResearchRelatedEvidence(evidence []models.RelatedEntityEvidence) bool
 		}
 	}
 	return false
+}
+
+func evidenceBackedByHits(evidence []models.RelatedEntityEvidence, hits []models.SearchResult) []models.RelatedEntityEvidence {
+	if len(evidence) == 0 {
+		return nil
+	}
+	allowed := map[string]bool{}
+	for _, hit := range hits {
+		if strings.TrimSpace(hit.Link) != "" {
+			allowed[hit.Link] = true
+		}
+	}
+	out := make([]models.RelatedEntityEvidence, 0, len(evidence))
+	for _, item := range evidence {
+		if allowed[item.URL] && !isResearchEvidenceURL(item.URL) {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // attachEvidenceFromHits grounds an extracted claim the model returned without

@@ -306,6 +306,7 @@ async function inertiaTestMain() {
     }
   } else {
     console.log('[INERTIA] enumerating sitemaps (limit ' + sitemapLimit + ')...');
+    try {
     const indexXml = await fetchTextWithRetry('https://weedoo.in/sitemaps/index.xml',
       { 'User-Agent': BROWSER_UA });
     const sitemaps = Array.from(indexXml.matchAll(/<loc>([^<]+)<\/loc>/g)).map((m) => m[1])
@@ -335,6 +336,11 @@ async function inertiaTestMain() {
         rows.push({ url, error: String(error).slice(0, 200) });
       }
       await inertiaSleep(1200);
+    }
+    } catch (error) {
+      console.log('[INERTIA] enumeration failed: ' + String(error).slice(0, 200));
+      rows.push({ url: 'https://weedoo.in/sitemaps/index.xml', kind: 'sitemap-index',
+        error: String(error).slice(0, 200) });
     }
   }
   if (directorUrl) {

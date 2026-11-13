@@ -268,7 +268,7 @@ func main() {
 	// authenticates when JURISTWAY_EMAIL/JURISTWAY_PASSWORD are configured.
 	juristwayClient := tools.NewJuristwayClient(cfg.JuristwayEmail, cfg.JuristwayPassword)
 	legalAgent := agent.NewLegalAgent(eng, tools.NewIndianKanoonClient(), tools.NewCasemineClient(scraper), juristwayClient, cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery, cfg.LegalConcurrency)
-	relatedAgent := agent.NewRelatedEntityAgent(eng)
+	relatedAgent := agent.NewRelatedEntityAgent(eng, rocketReachClient)
 	marketAgent := agent.NewMarketLandscapeAgent(eng, rocketReachClient)
 	// The buyer-side mode is a separate agent with its own phases (value-chain
 	// inference, per-stage discovery, consumption verification); it shares the
