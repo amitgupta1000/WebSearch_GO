@@ -558,6 +558,7 @@ func TestPersonQueryFromFormCarriesTheConfirmedIdentity(t *testing.T) {
 	request := postForm("/api/research", "mode=person&query=Sanjay+Kumar+Gupta"+
 		"&company_name=Sanjay+Chemicals+%28India%29+Pvt+Ltd&location=Mumbai"+
 		"&person_confirmed=1&person_source=resolved"+
+		"&require_rocketreach=1"+
 		"&person_seed_url=https%3A%2F%2Fwww.linkedin.com%2Fin%2Fsanjay-kumar-gupta"+
 		"&person_seed_title=Sanjay+Kumar+Gupta+-+Managing+Director&person_seed_snippet=Mumbai%2C+Maharashtra")
 
@@ -570,6 +571,9 @@ func TestPersonQueryFromFormCarriesTheConfirmedIdentity(t *testing.T) {
 	}
 	if query.SeedURL != "https://www.linkedin.com/in/sanjay-kumar-gupta" || query.SeedSnippet != "Mumbai, Maharashtra" {
 		t.Fatalf("expected the confirmed profile to travel as a seed, got %+v", query)
+	}
+	if !query.RequireRocketReach {
+		t.Fatal("expected the dossier request to require RocketReach")
 	}
 
 	// A run submitted without the step is still recorded honestly as typed.

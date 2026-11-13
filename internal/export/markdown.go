@@ -55,6 +55,15 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 			builder.WriteString(strings.Join(locations, "; "))
 			builder.WriteString("\n\n")
 		}
+		if address := trimmed(chart.Brief.Address); address != "" {
+			fmt.Fprintf(&builder, "**Address:** %s\n\n", address)
+		}
+		if email := trimmed(chart.Brief.PublicEmail); email != "" {
+			fmt.Fprintf(&builder, "**Email:** %s\n\n", email)
+		}
+		if telephone := trimmed(chart.Brief.Telephone); telephone != "" {
+			fmt.Fprintf(&builder, "**Telephone:** %s\n\n", telephone)
+		}
 	}
 
 	if len(chart.Leadership) > 0 {

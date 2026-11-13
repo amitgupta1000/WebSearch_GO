@@ -128,6 +128,7 @@ func TestPersonDossierEscapesAndRendersScore(t *testing.T) {
 		CurrentTitle:     payload,
 		ExecutiveSummary: payload,
 		ConfidenceScore:  0.5,
+		Warnings:         []string{"RocketReach was unavailable; continued with web-based research."},
 		Experiences:      []models.Experience{{Role: payload, Company: payload}},
 		Education:        []models.Education{{Institution: payload}},
 		KeySkills:        []string{payload},
@@ -143,6 +144,9 @@ func TestPersonDossierEscapesAndRendersScore(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Score: 50%") {
 		t.Errorf("expected rendered confidence score, got: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "RocketReach was unavailable") {
+		t.Errorf("expected RocketReach warning, got: %s", out.String())
 	}
 }
 

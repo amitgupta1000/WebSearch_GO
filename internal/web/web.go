@@ -5,6 +5,7 @@ package web
 import (
 	"embed"
 	"html/template"
+	"net/url"
 	"strings"
 )
 
@@ -18,6 +19,17 @@ var funcs = template.FuncMap{
 	"hasScheme": func(value string) bool {
 		lowered := strings.ToLower(strings.TrimSpace(value))
 		return strings.HasPrefix(lowered, "http://") || strings.HasPrefix(lowered, "https://")
+	},
+	"linkedinURL": func(value string) string {
+		parsed, err := url.Parse(strings.TrimSpace(value))
+		if err != nil {
+			return ""
+		}
+		host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+		if host != "linkedin.com" && !strings.HasSuffix(host, ".linkedin.com") {
+			return ""
+		}
+		return strings.TrimSpace(value)
 	},
 	"mul": func(value float64, multiplier float64) float64 {
 		return value * multiplier

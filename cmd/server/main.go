@@ -972,15 +972,16 @@ func personQueryFromForm(r *http.Request, name string) models.PersonQuery {
 	}
 
 	return models.PersonQuery{
-		Name:        strings.TrimSpace(name),
-		Company:     strings.TrimSpace(r.FormValue("company_name")),
-		Location:    strings.TrimSpace(r.FormValue("location")),
-		Country:     strings.TrimSpace(r.FormValue("company_country")),
-		Confirmed:   strings.TrimSpace(r.FormValue("person_confirmed")) == "1",
-		Source:      source,
-		SeedURL:     strings.TrimSpace(r.FormValue("person_seed_url")),
-		SeedTitle:   strings.TrimSpace(r.FormValue("person_seed_title")),
-		SeedSnippet: strings.TrimSpace(r.FormValue("person_seed_snippet")),
+		Name:               strings.TrimSpace(name),
+		Company:            strings.TrimSpace(r.FormValue("company_name")),
+		Location:           strings.TrimSpace(r.FormValue("location")),
+		Country:            strings.TrimSpace(r.FormValue("company_country")),
+		RequireRocketReach: strings.TrimSpace(r.FormValue("require_rocketreach")) == "1",
+		Confirmed:          strings.TrimSpace(r.FormValue("person_confirmed")) == "1",
+		Source:             source,
+		SeedURL:            strings.TrimSpace(r.FormValue("person_seed_url")),
+		SeedTitle:          strings.TrimSpace(r.FormValue("person_seed_title")),
+		SeedSnippet:        strings.TrimSpace(r.FormValue("person_seed_snippet")),
 	}
 }
 

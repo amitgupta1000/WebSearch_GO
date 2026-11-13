@@ -44,6 +44,7 @@ func TestIndexedProfileQueriesUseCompanyOnlyAggregatorSlotsAndLeadershipSlot(t *
 		"site:zaubacorp.com",
 		"site:thecompanycheck.com",
 		"site:tracxn.com",
+		"site:rocketreach.co",
 	} {
 		want := 1
 		if strings.Count(joined, host) != want {
@@ -62,6 +63,19 @@ func TestIndexedProfileQueriesUseCompanyOnlyAggregatorSlotsAndLeadershipSlot(t *
 	}
 	if strings.Contains(joined, "site:naukri.com") {
 		t.Error("Naukri must not receive a dedicated company search slot")
+	}
+}
+
+func TestRocketReachCompanyProfileURLIsDistinctFromPersonPages(t *testing.T) {
+	if !isRocketReachCompanyProfileURL("https://rocketreach.co/acme-corporation-profile_b5abc123") {
+		t.Fatal("expected RocketReach company profile URL to be accepted")
+	}
+	if isRocketReachCompanyProfileURL("https://rocketreach.co/jane-doe-email_123") {
+		t.Fatal("RocketReach person profile must not be treated as a company profile")
+	}
+	profile := classifySource(models.CompanyBrief{SourceProfile: SourceProfileIndia}, "https://rocketreach.co/acme-corporation-profile_b5abc123")
+	if profile.sourceType != "rocketreach_company_profile" || profile.quality < 0.75 {
+		t.Fatalf("unexpected RocketReach company profile classification: %+v", profile)
 	}
 }
 

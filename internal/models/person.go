@@ -24,6 +24,7 @@ type PersonProfile struct {
 	Sources                 []string                  `json:"sources"`
 	ConfidenceScore         float64                   `json:"confidence_score"`
 	LastUpdated             time.Time                 `json:"last_updated"`
+	Warnings                []string                  `json:"warnings,omitempty"`
 	// Exports lists the output files written for this run (Markdown and PDF).
 	Exports []ExportArtifact `json:"exports,omitempty"`
 	// PersonGate records what the identity check kept and excluded, so a dossier can show why
@@ -161,6 +162,10 @@ type PersonQuery struct {
 	Company  string
 	Location string
 	Country  string
+	// RequireRocketReach makes the person run fail instead of silently falling
+	// back to web-only research when a dossier was explicitly opened from a
+	// company result.
+	RequireRocketReach bool
 	// Confirmed reports that a human confirmed this identity in the confirmation step, and
 	// Source records how it arrived: "resolved" or "typed".
 	Confirmed bool

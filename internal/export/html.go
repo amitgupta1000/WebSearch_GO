@@ -364,6 +364,9 @@ var companyHTMLTemplate = documentTemplate("company", `
 {{if .Chart.Brief.BusinessDescription}}<p><strong>Business description:</strong> {{.Chart.Brief.BusinessDescription}}</p>{{end}}
 {{if .Chart.Brief.KeyProducts}}<p><strong>Key products:</strong> {{range $index, $product := .Chart.Brief.KeyProducts}}{{if $index}}, {{end}}{{$product}}{{end}}</p>{{end}}
 {{if .Chart.Brief.KeyLocations}}<p><strong>Key locations:</strong> {{range $index, $location := .Chart.Brief.KeyLocations}}{{if $index}}; {{end}}{{$location.City}}{{if $location.Country}}, {{$location.Country}}{{end}}{{end}}</p>{{end}}
+{{if .Chart.Brief.Address}}<p><strong>Address:</strong> {{.Chart.Brief.Address}}</p>{{end}}
+{{if .Chart.Brief.PublicEmail}}<p><strong>Email:</strong> {{.Chart.Brief.PublicEmail}}</p>{{end}}
+{{if .Chart.Brief.Telephone}}<p><strong>Telephone:</strong> {{.Chart.Brief.Telephone}}</p>{{end}}
 </section>{{end}}
 {{if .Chart.Leadership}}<section>
 	<h2>Executive Leadership</h2>

@@ -71,9 +71,12 @@ func TestPersonResearchRunsThePlannedSearches(t *testing.T) {
 	}}, scraper, store, 5, 3, 10)
 
 	profile, err := NewPersonAgent(engine).ResearchPerson(context.Background(), "session",
-		models.PersonQuery{Name: "Jane Doe", Company: "Acme Corporation"}, nil)
+		models.PersonQuery{Name: "Jane Doe", Company: "Acme Corporation", RequireRocketReach: true}, nil)
 	if err != nil {
 		t.Fatalf("ResearchPerson: %v", err)
+	}
+	if len(profile.Warnings) != 1 || !strings.Contains(profile.Warnings[0], "RocketReach was unavailable") {
+		t.Fatalf("expected a visible RocketReach fallback warning, got %+v", profile.Warnings)
 	}
 	if len(profile.SearchQueries) != 6 {
 		t.Fatalf("expected the six planned searches, got %v", profile.SearchQueries)

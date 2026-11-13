@@ -102,6 +102,10 @@ func (pa *PersonAgent) ResearchPerson(
 	// RocketReach is the highest-priority person source: it can provide the
 	// structured profile and contact details before LinkedIn-resistant web research.
 	rocketReachProfile := pa.lookupRocketReach(ctx, sessionID, query, eventCh)
+	rocketReachWarning := ""
+	if query.RequireRocketReach && rocketReachProfile == nil {
+		rocketReachWarning = "RocketReach was unavailable or returned no matching profile. Continued with web-based research; contact details and LinkedIn enrichment may be incomplete."
+	}
 
 	// The plan asks the confirmed identity from several directions instead of one broad
 	// question and two afterthoughts: profile, role, appointments, career history, and the
@@ -645,6 +649,9 @@ Rules:
 		return nil, fmt.Errorf("person synthesis failed: %w", err)
 	}
 	profile.PublicAccounts = personalizationAccounts
+	if rocketReachWarning != "" {
+		profile.Warnings = append(profile.Warnings, rocketReachWarning)
+	}
 
 	finishSynthesis("dossier synthesised")
 	profile.Sources = sources

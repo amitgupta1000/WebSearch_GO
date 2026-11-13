@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -39,6 +40,7 @@ var promotedCompanyAggregators = []string{
 	"thecompanycheck.com",
 	"tracxn.com",
 	"weedoo.in",
+	"rocketreach.co",
 }
 
 // globalCompanySources are reserved for the global source profile. They are not
@@ -48,7 +50,7 @@ var globalCompanySources = []string{
 	"linkedin.com",
 	"zoominfo.com",
 	"apollo.io",
-	"rocketreach.com",
+	"rocketreach.co",
 	"theorg.com",
 	"forbes.com",
 	"fortune.com",
@@ -97,6 +99,24 @@ func matchesGlobalCompanySource(targetURL string) bool {
 		}
 	}
 	return false
+}
+
+// isRocketReachCompanyProfileURL distinguishes public company records from
+// RocketReach person pages, whose contact details must not become company facts.
+func isRocketReachCompanyProfileURL(targetURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(targetURL))
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+	if host != "rocketreach.co" && !strings.HasSuffix(host, ".rocketreach.co") {
+		return false
+	}
+	path := strings.ToLower(parsed.EscapedPath())
+	if strings.Contains(path, "-email_") || strings.Contains(path, "-phone_") || strings.Contains(path, "/person/") {
+		return false
+	}
+	return strings.Contains(path, "-profile") || strings.Contains(path, "/company/")
 }
 
 // companyAcceptedProfileSources returns the alternative profile hosts the company entity gate

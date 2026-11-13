@@ -48,6 +48,9 @@ type CompanyProfile struct {
 	BusinessDescription string     `json:"business_description,omitempty"`
 	KeyProducts         []string   `json:"key_products,omitempty"`
 	KeyLocations        []Location `json:"key_locations,omitempty"`
+	Address             string     `json:"address,omitempty"`
+	PublicEmail         string     `json:"public_email,omitempty"`
+	Telephone           string     `json:"telephone,omitempty"`
 }
 
 // TimingTotalMillis is the summed duration of every recorded phase, used for the

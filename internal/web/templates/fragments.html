@@ -331,6 +331,9 @@
 		{{if .Brief.BusinessDescription}}<p class="text-sm text-slate-400 leading-relaxed">{{.Brief.BusinessDescription}}</p>{{end}}
 		{{if .Brief.KeyProducts}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Key products:</span> {{range $index, $product := .Brief.KeyProducts}}{{if $index}}, {{end}}{{$product}}{{end}}</p>{{end}}
 		{{if .Brief.KeyLocations}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Key locations:</span> {{range $index, $location := .Brief.KeyLocations}}{{if $index}}; {{end}}{{$location.City}}{{if $location.Country}}, {{$location.Country}}{{end}}{{end}}</p>{{end}}
+		{{if .Brief.Address}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Address:</span> {{.Brief.Address}}</p>{{end}}
+		{{if .Brief.PublicEmail}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Email:</span> {{.Brief.PublicEmail}}</p>{{end}}
+		{{if .Brief.Telephone}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Telephone:</span> {{.Brief.Telephone}}</p>{{end}}
 	</div>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Results</div>
@@ -366,6 +369,8 @@
 						<input type="hidden" name="query" value="{{.Name}}">
 						<input type="hidden" name="company_name" value="{{$.CompanyName}}">
 						<input type="hidden" name="location" value="{{.Location}}">
+						<input type="hidden" name="require_rocketreach" value="1">
+						{{with linkedinURL .PublicSource}}<input type="hidden" name="person_seed_url" value="{{.}}">{{end}}
 						<button type="submit" class="text-[11px] text-indigo-400 hover:text-indigo-300 whitespace-nowrap">Open dossier</button>
 					</form>
 				</div>
@@ -522,6 +527,8 @@
 								<input type="hidden" name="query" value="{{.Name}}">
 								<input type="hidden" name="company_name" value="{{$.CompanyName}}">
 								<input type="hidden" name="location" value="{{.Location}}">
+								<input type="hidden" name="require_rocketreach" value="1">
+								{{with linkedinURL .PublicSource}}<input type="hidden" name="person_seed_url" value="{{.}}">{{end}}
 								<button type="submit" class="text-[11px] text-indigo-400 hover:text-indigo-300 whitespace-nowrap">Open dossier</button>
 							</form>
 						</div>
@@ -652,6 +659,7 @@
 			<span class="text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-3 py-1 rounded-full font-medium">Score: {{.ScorePercent}}%</span>
 		</div>
 	</div>
+	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
 
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-1">Executive Summary</h4>
