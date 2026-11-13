@@ -165,9 +165,11 @@ async function challengeWaitStrategy(name, url, stealth) {
 
 (async () => {
   console.log('[ARGV]', JSON.stringify(process.argv));
-  // --inertia-test runs the sitemap + X-Inertia JSON recipe instead of the
-  // rendering matrix.
-  if (process.argv.includes('--inertia-test')) {
+  // --inertia-test (or DIAGNOSE_MODE=inertia) runs the sitemap + X-Inertia
+  // JSON recipe instead of the rendering matrix. The env var exists because
+  // Cloud Run Jobs passes --args as one concatenated string, which node
+  // cannot split back into argv.
+  if (process.argv.includes('--inertia-test') || process.env.DIAGNOSE_MODE === 'inertia') {
     await inertiaTestMain();
     return;
   }
