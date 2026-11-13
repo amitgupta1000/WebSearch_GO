@@ -233,19 +233,50 @@ function cacheBust(url) {
 
 const inertiaSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function fetchTextWithRetry(url, headers, attempt) {
+  attempt = attempt || 1;
+  try {
+    const response = await fetch(cacheBust(url), { headers });
+    if (response.status === 403 || response.status === 429) {
+      throw new Error('HTTP ' + response.status + ' (cf-mitigated: '
+        + (response.headers.get('cf-mitigated') || 'none') + ')');
+    }
+    if (!response.ok) {
+      throw new Error('HTTP ' + response.status);
+    }
+    return await response.text();
+  } catch (error) {
+    if (attempt >= 3) throw error;
+    const backoffMs = 2000 * attempt * 2; // 4s, 8s
+    console.log('[INERTIA] retry ' + attempt + '/2 for ' + url.slice(0, 90)
+      + ' after ' + backoffMs + 'ms (' + String(error).slice(0, 120) + ')');
+    await inertiaSleep(backoffMs);
+    return fetchTextWithRetry(url, headers, attempt + 1);
+  }
+}
+
 async function fetchInertiaJson(url, attempt) {
   attempt = attempt || 1;
-  const response = await fetch(cacheBust(url), { headers: inertiaHeaders() });
-  const contentType = (response.headers.get('content-type') || '').toLowerCase();
-  const mitigated = response.headers.get('cf-mitigated') || 'none';
-  if (response.status === 403 || response.status === 429) {
-    throw new Error('HTTP ' + response.status + ' (cf-mitigated: ' + mitigated + ')');
+  try {
+    const response = await fetch(cacheBust(url), { headers: inertiaHeaders() });
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    const mitigated = response.headers.get('cf-mitigated') || 'none';
+    if (response.status === 403 || response.status === 429) {
+      throw new Error('HTTP ' + response.status + ' (cf-mitigated: ' + mitigated + ')');
+    }
+    if (!contentType.includes('json')) {
+      throw new Error('expected application/json, got ' + contentType.split(';')[0]);
+    }
+    const body = await response.json();
+    return body.props || body;
+  } catch (error) {
+    if (attempt >= 3) throw error;
+    const backoffMs = 2000 * attempt * 2; // 4s, 8s
+    console.log('[INERTIA] retry ' + attempt + '/2 for ' + url.slice(0, 90)
+      + ' after ' + backoffMs + 'ms (' + String(error).slice(0, 120) + ')');
+    await inertiaSleep(backoffMs);
+    return fetchInertiaJson(url, attempt + 1);
   }
-  if (!contentType.includes('json')) {
-    throw new Error('expected application/json, got ' + contentType.split(';')[0]);
-  }
-  const body = await response.json();
-  return body.props || body;
 }
 
 async function inertiaTestMain() {
@@ -275,14 +306,14 @@ async function inertiaTestMain() {
     }
   } else {
     console.log('[INERTIA] enumerating sitemaps (limit ' + sitemapLimit + ')...');
-    const indexXml = await (await fetch('https://weedoo.in/sitemaps/index.xml',
-      { headers: { 'User-Agent': BROWSER_UA } })).text();
+    const indexXml = await fetchTextWithRetry('https://weedoo.in/sitemaps/index.xml',
+      { 'User-Agent': BROWSER_UA });
     const sitemaps = Array.from(indexXml.matchAll(/<loc>([^<]+)<\/loc>/g)).map((m) => m[1])
       .filter((u) => u.includes('companies-')).slice(0, sitemapLimit);
     console.log('[INERTIA] testing ' + sitemaps.length + ' sitemap file(s)');
     const urls = [];
     for (const sitemap of sitemaps) {
-      const xml = await (await fetch(sitemap, { headers: { 'User-Agent': BROWSER_UA } })).text();
+      const xml = await fetchTextWithRetry(sitemap, { 'User-Agent': BROWSER_UA });
       for (const match of xml.matchAll(/<loc>(https:\/\/weedoo\.in\/company\/[^<]+)<\/loc>/g)) {
         urls.push(match[1]);
       }
