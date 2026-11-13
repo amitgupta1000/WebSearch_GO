@@ -20,9 +20,19 @@ const (
 	marketPeopleQueryReserve     = 40
 	marketMaxResults             = 10
 	marketMaxCandidates          = 40
-	// Verification spends three searches per company, so the candidate cap is
-	// what the verification budget can actually clear (3 x 10 = 30).
-	marketMaxVerifiedCompanies = 10
+	// Verification spends three searches per company. The query budget is the
+	// real cap (70/3 when no people pass runs, 30/3 when one does); this bound
+	// only stops an extraction flood from queueing work the budget cannot pay
+	// for, and it is generous enough that a report's company table is not cut
+	// off at ten names.
+	marketMaxVerifiedCompanies = 24
+	// Lead enrichment reads up to this many pages, densest first, through the
+	// engine's bounded batch scraper.
+	marketMaxLeadPages = 24
+	// A company page needs its opening lines; a report or directory page needs
+	// the competitive-landscape table, which sits further down the page.
+	marketCompanyPageExcerpt = 3000
+	marketRosterPageExcerpt  = 6000
 )
 
 // MarketLandscapeAgent owns the additive, vector-free market workflow.
@@ -253,19 +263,62 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 	if len(leads) == 0 {
 		return nil, 0, 0, 0, 0, 0, 0, 0, nil
 	}
-	enrichedLeads := make([]models.MarketLandscapeEvidence, 0, len(leads))
-	pagesEnriched := 0
-	for index, lead := range leads {
-		if index >= 24 {
-			break
+	// Reading a page and promoting a page are two different questions. A
+	// market-research report, a trade directory or a news article can never be
+	// the operating company, but it very often *lists* the companies — the
+	// competitive-landscape table on a publisher page is one of the densest
+	// name sources a landscape run ever sees. So the read policy is wider than
+	// the promotion gate, and it spends the bounded scrape budget on the
+	// densest pages first.
+	ordered := append([]models.MarketLandscapeEvidence(nil), leads...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return marketLeadReadPriority(ordered[i].SourceTier, ordered[i].Title) < marketLeadReadPriority(ordered[j].SourceTier, ordered[j].Title)
+	})
+	if len(ordered) > marketMaxLeadPages {
+		ordered = ordered[:marketMaxLeadPages]
+	}
+	readable := make([]models.MarketLandscapeEvidence, 0, len(ordered))
+	targets := make([]string, 0, len(ordered))
+	for _, lead := range ordered {
+		if marketLeadReadable(lead.SourceTier, lead.Title) {
+			readable = append(readable, lead)
+			targets = append(targets, lead.URL)
 		}
+	}
+	leadByURL := make(map[string]models.MarketLandscapeEvidence, len(readable))
+	for _, lead := range readable {
+		leadByURL[lead.URL] = lead
+	}
+	// Reads run through the engine's bounded batch scraper: a deep report page
+	// must not serialise the enrichment stage, and outcomes keep lead order.
+	outcomes := a.engine.ScrapeCachedBatch(ctx, targets)
+	contentByURL := make(map[string]string, len(outcomes))
+	pagesEnriched := 0
+	for _, outcome := range outcomes {
+		if outcome.Err != nil || outcome.Result == nil {
+			continue
+		}
+		content := strings.TrimSpace(outcome.Result.Content)
+		if content == "" {
+			continue
+		}
+		lead := leadByURL[outcome.URL]
+		limit := marketCompanyPageExcerpt
+		if marketRosterSourceTier(lead.SourceTier) || marketTitleHintsRoster(lead.Title) {
+			limit = marketRosterPageExcerpt
+		}
+		contentByURL[outcome.URL] = marketPageExcerpt(content, limit)
+		pagesEnriched++
+		emitAgentEvent(eventCh, models.EventToolResult,
+			fmt.Sprintf("Read %s (%s) for company names: %d characters", hostname(outcome.URL), lead.SourceTier, len(content)),
+			"scrape", outcome.URL)
+	}
+	enrichedLeads := make([]models.MarketLandscapeEvidence, 0, len(ordered))
+	for _, lead := range ordered {
 		leadCopy := lead
-		if isQualifyingMarketTier(lead.SourceTier) {
-			page, err := a.engine.ScrapeCached(ctx, lead.URL)
-			if err == nil && page != nil && strings.TrimSpace(page.Content) != "" {
-				leadCopy.Content = truncateMarketText(page.Content, 3000)
-				pagesEnriched++
-			}
+		if content, ok := contentByURL[lead.URL]; ok {
+			leadCopy.Content = content
+			leadCopy.Status = "page read"
 		}
 		enrichedLeads = append(enrichedLeads, leadCopy)
 	}
@@ -287,7 +340,7 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 			leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 		}
 		var batch []models.MarketLandscapeLeadCandidate
-		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. Name the operator, never the page: a report, study, forecast, listicle, publisher name, site name, navigation label, region, project or generic category is not a company. If a lead is a news article or a report, return the subject company's trading name exactly as the source writes it, with its tagline removed - never the headline. Never return a headline that contains an action verb (opens, launches, announces, plans, acquires, sells) as a name. For every extracted company, include source_type (operator, news_article or research_report), mention_context, supporting_quote, country, reason, evidence_url as a string, and key_people as an array of strings. A research_report or news_article candidate must be independently verified before promotion. If a lead explicitly names a relevant sales, marketing, commercial, or business-development person, include the person's name in key_people; never infer people. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
+		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. These leads include company pages, directory pages, news articles and market-research report pages. A report or an article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a top-companies, key-players or competitive-landscape table, using the company's own trading name exactly as the page writes it and dropping any tagline. Name the operator, never the page: a report title, article headline, publisher name, site name, navigation label, region, project or generic category is not a company. Never return a headline that contains an action verb (opens, launches, announces, plans, acquires, sells) as a name. For every extracted company, include source_type (operator, news_article or research_report), mention_context, supporting_quote, country, reason, evidence_url as a string, and key_people as an array of strings. A research_report or news_article candidate must be independently verified before promotion. If a lead explicitly names a relevant sales, marketing, commercial, or business-development person, include the person's name in key_people; never infer people. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
 		if err := a.engine.GenerateStructured(ctx, "You extract company names for a market research verification queue. Return the operating company's own trading name only: never a report title, headline, publisher, site name or category. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
 			rejected += end - start
 			extractionErrors = append(extractionErrors, err.Error())
@@ -362,7 +415,12 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 					company.EvidenceSummary = strings.TrimSpace(evidence.Snippet)
 				}
 				company.Confidence = minFloat(0.98, company.Confidence+0.08)
-				if company.Domain == "" {
+				// A publisher's domain is the publisher, not the company: only
+				// an operator-owned page (its own site, or a government
+				// registry) may lend the company its domain. Otherwise one
+				// directory page listing ten firms would collapse them all
+				// into a single row on that domain.
+				if company.Domain == "" && marketOperatorOwnedTier(evidence.SourceTier) {
 					company.Domain = strings.TrimPrefix(strings.ToLower(hostname(hit.Link)), "www.")
 				}
 			}
@@ -651,6 +709,14 @@ func marketDiscoveryTier(domain string) string {
 
 func isQualifyingMarketTier(tier string) bool {
 	return tier == "official" || tier == "regulatory" || tier == "directory" || tier == "trade"
+}
+
+// marketOperatorOwnedTier reports whether the page belongs to the company
+// itself (its own site) or to a registry that is authoritative about it. Only
+// these may lend a company its domain: a directory or trade page hosts many
+// companies and is not any one of them.
+func marketOperatorOwnedTier(tier string) bool {
+	return tier == "official" || tier == "regulatory"
 }
 
 func isResearchPublisherDomain(domain string) bool {

@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
 
@@ -84,6 +87,7 @@ func TestMarketDocumentTitleIgnoresProductWordsInsideNames(t *testing.T) {
 	for _, name := range []string{
 		"Gulf Oil Middle East", "Acme Oils & Greases", "Supermarket Fresh Foods",
 		"Marketplace Logistics", "Peninsula Lubricants Limited", "Acme Industrial Services",
+		"Gulf Distributors",
 	} {
 		if marketDocumentTitle(name) {
 			t.Errorf("marketDocumentTitle(%q) = true, want a company name", name)
@@ -91,7 +95,7 @@ func TestMarketDocumentTitleIgnoresProductWordsInsideNames(t *testing.T) {
 	}
 	for _, title := range []string{
 		"Lubricant Market Overview", "Top 10 Lubricant Manufacturers",
-		"Lubricant Industry Trends 2026",
+		"Lubricant Industry Trends 2026", "Linear Alkyl Benzene (LAB) Companies",
 	} {
 		if !marketDocumentTitle(title) {
 			t.Errorf("marketDocumentTitle(%q) = false, want a document title", title)
@@ -204,6 +208,25 @@ func TestMarketLeadNameRejectsEchoesOfTheQueryAndPage(t *testing.T) {
 	if marketLeadName("Sinopec opens new lubricant blending plant in Singapore", "") != "" {
 		t.Error("a headline must never become a roster name")
 	}
+	// A listicle must not survive by dropping its list prefix.
+	if marketLeadName("Top 5 Linear Alkyl Benzene (LAB) Companies", "") != "" {
+		t.Error("a ranked-companies heading must never become a roster name")
+	}
+}
+
+// TestMarketOnlyOperatorTiersLendTheCompanyItsDomain: a directory page hosts
+// many companies, so its domain cannot become any one company's domain.
+func TestMarketOnlyOperatorTiersLendTheCompanyItsDomain(t *testing.T) {
+	for _, tier := range []string{"official", "regulatory"} {
+		if !marketOperatorOwnedTier(tier) {
+			t.Errorf("tier %q is operator-owned", tier)
+		}
+	}
+	for _, tier := range []string{"directory", "trade", "research", "consultancy", "aggregator", "news", "publisher", "institution"} {
+		if marketOperatorOwnedTier(tier) {
+			t.Errorf("tier %q publishes about companies and must not lend a domain", tier)
+		}
+	}
 }
 
 // TestMergeMarketCompanyFoldsLegalSuffixVariants keeps one company on one row.
@@ -303,5 +326,194 @@ func TestMarketLandscapeKeepsDocumentsAndHeadlinesOutOfTheRoster(t *testing.T) {
 	}
 	if report.LeadsRejected == 0 {
 		t.Error("expected the echoed report/headline/query candidates to be rejected")
+	}
+}
+
+// TestMarketPageExcerptKeepsTheCompanyTable: a report page's roster table sits
+// far past any sane prefix budget, so the excerpt must find it.
+func TestMarketPageExcerptKeepsTheCompanyTable(t *testing.T) {
+	var page strings.Builder
+	for index := 0; index < 400; index++ {
+		page.WriteString("Navigation link and marketing copy. ")
+	}
+	page.WriteString("Top 5 Linear Alkyl Benzene (LAB) Companies. Cepsa. Indorama Ventures Public Limited. ISU Chemical. Jintung Petrochemical Corp. Ltd. Sasol. ")
+	for index := 0; index < 400; index++ {
+		page.WriteString("Footer legal notice. ")
+	}
+	content := page.String()
+	if strings.Contains(truncateMarketText(content, marketCompanyPageExcerpt), "Cepsa") {
+		t.Fatal("test setup: the roster must sit beyond a plain company-page excerpt")
+	}
+	excerpt := marketPageExcerpt(content, marketRosterPageExcerpt)
+	for _, name := range []string{"Cepsa", "Indorama Ventures Public Limited", "ISU Chemical"} {
+		if !strings.Contains(excerpt, name) {
+			t.Errorf("excerpt lost the company table: %q missing from %d characters", name, len(excerpt))
+		}
+	}
+	// A short page is returned untouched.
+	if got := marketPageExcerpt("Short page about Cepsa.", 500); got != "Short page about Cepsa." {
+		t.Errorf("short page = %q, want it unchanged", got)
+	}
+}
+
+// TestMarketLeadReadPriorityReadsRosterReportsFirst: under a fixed scrape
+// budget, a report that ranks companies is read before a company homepage, and
+// a social page is never read.
+func TestMarketLeadReadPriorityReadsRosterReportsFirst(t *testing.T) {
+	report := marketLeadReadPriority("research", "Top 5 Linear Alkyl Benzene (LAB) Companies")
+	official := marketLeadReadPriority("official", "Gulf Oil Middle East | Industrial Lubricants")
+	if report >= official {
+		t.Fatalf("report priority %d must beat company page priority %d", report, official)
+	}
+	if !marketLeadReadable("research", "Linear Alkyl Benzene Market Report") {
+		t.Error("a plain report page is still worth reading for the names it cites")
+	}
+	if marketLeadReadable("social", "Acme Lubricants on LinkedIn") {
+		t.Error("social pages are login walls and must not consume the scrape budget")
+	}
+	if !marketRosterSourceTier("research") || marketRosterSourceTier("official") {
+		t.Error("roster-source classification must separate publishers from operators")
+	}
+}
+
+// marketPromptLLM records the extraction prompts it sees and returns a fixed
+// candidate list, so a test can prove what the extractor was given.
+type marketPromptLLM struct {
+	mu          sync.Mutex
+	userPrompts []string
+	candidates  []models.MarketLandscapeLeadCandidate
+}
+
+func (m *marketPromptLLM) GenerateStructured(_ context.Context, _, userPrompt string, target any) error {
+	m.mu.Lock()
+	m.userPrompts = append(m.userPrompts, userPrompt)
+	candidates := append([]models.MarketLandscapeLeadCandidate(nil), m.candidates...)
+	m.mu.Unlock()
+	if typed, ok := target.(*[]models.MarketLandscapeLeadCandidate); ok {
+		*typed = append(*typed, candidates...)
+	}
+	return nil
+}
+
+func (m *marketPromptLLM) prompts() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.userPrompts...)
+}
+
+// marketPageScraper serves a fixed page per URL.
+type marketPageScraper struct {
+	pages map[string]string
+}
+
+func (m *marketPageScraper) ScrapeURL(_ context.Context, targetURL string) (*models.ScrapeResult, error) {
+	content, ok := m.pages[targetURL]
+	if !ok {
+		return nil, fmt.Errorf("no page registered for %s", targetURL)
+	}
+	return &models.ScrapeResult{URL: targetURL, Title: "Page", Content: content}, nil
+}
+
+// marketRouteSearcher answers by the first route whose fragment appears in the
+// query, so the most specific route must be listed first. Map iteration order
+// is deliberately avoided: a verification query also contains the activity.
+type marketRouteSearcher struct {
+	routes []marketSearchRoute
+}
+
+type marketSearchRoute struct {
+	fragment string
+	hits     []models.SearchResult
+}
+
+func (m *marketRouteSearcher) Search(_ context.Context, query string, _ int) ([]models.SearchResult, error) {
+	lowered := strings.ToLower(query)
+	for _, route := range m.routes {
+		if strings.Contains(lowered, strings.ToLower(route.fragment)) {
+			return route.hits, nil
+		}
+	}
+	return nil, nil
+}
+
+// TestMarketLandscapeHarvestsCompaniesFromAReportPage is the regression for the
+// Mordor-style run: the report page is not a company, but its company table is
+// read and the names it lists are extracted and independently verified.
+func TestMarketLandscapeHarvestsCompaniesFromAReportPage(t *testing.T) {
+	const reportURL = "https://www.mordorintelligence.com/industry-reports/linear-alkyl-benzene-lab-market/companies"
+	var reportPage strings.Builder
+	for index := 0; index < 300; index++ {
+		reportPage.WriteString("Mordor Intelligence navigation and report marketing copy. ")
+	}
+	reportPage.WriteString("Top 5 Linear Alkyl Benzene (LAB) Companies. Cepsa. Indorama Ventures Public Limited. ISU Chemical. Jintung Petrochemical Corp. Ltd. Sasol. ")
+	for index := 0; index < 300; index++ {
+		reportPage.WriteString("Footer legal notice and cookie policy. ")
+	}
+	scraper := &marketPageScraper{pages: map[string]string{
+		reportURL: reportPage.String(),
+		"https://directory.example.com/lab-companies": "Directory of linear alkyl benzene manufacturers and suppliers, by region.",
+	}}
+	searcher := &marketRouteSearcher{routes: []marketSearchRoute{
+		{fragment: "cepsa", hits: []models.SearchResult{{
+			Title: "Cepsa - Company Profile", Link: "https://directory.example.com/cepsa",
+			Snippet: "Linear alkyl benzene producer and supplier.",
+		}}},
+		{fragment: "indorama", hits: []models.SearchResult{{
+			Title: "Indorama Ventures Public Limited - Company Profile", Link: "https://directory.example.com/indorama",
+			Snippet: "Linear alkyl benzene producer and supplier.",
+		}}},
+		{fragment: "isu chemical", hits: []models.SearchResult{{
+			Title: "ISU Chemical Co Ltd - Company Profile", Link: "https://directory.example.com/isu",
+			Snippet: "Linear alkyl benzene producer and supplier.",
+		}}},
+		{fragment: "linear alkyl benzene", hits: []models.SearchResult{
+			{Title: "Top 5 Linear Alkyl Benzene (LAB) Companies", Link: reportURL, Snippet: "Leading LAB producers ranked."},
+			{Title: "Linear Alkyl Benzene Companies Directory", Link: "https://directory.example.com/lab-companies", Snippet: "Directory of LAB manufacturers."},
+		}},
+	}}
+	llm := &marketPromptLLM{candidates: []models.MarketLandscapeLeadCandidate{
+		{Name: "Top 5 Linear Alkyl Benzene (LAB) Companies"},
+		{Name: "Cepsa"},
+		{Name: "Indorama Ventures Public Limited"},
+		{Name: "ISU Chemical"},
+	}}
+	engine := NewEngine(llm, searcher, scraper, cache.NewMemoryCache(32), 8, 3, 10)
+	agent := NewMarketLandscapeAgent(engine)
+	report, err := agent.Research(context.Background(), "market-report-harvest", models.MarketLandscapeQuery{
+		Activity: "linear alkyl benzene",
+	}, nil)
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	if report.PagesEnriched == 0 {
+		t.Fatal("the report page was discovered but never read")
+	}
+	// The extractor must have been given the report's page content, not just
+	// its title: that is the only way its company table reaches the roster.
+	joined := strings.Join(llm.prompts(), "\n")
+	for _, need := range []string{"Cepsa", "Indorama Ventures Public Limited", "ISU Chemical"} {
+		if !strings.Contains(joined, need) {
+			t.Errorf("extraction prompt never carried %q from the report page", need)
+		}
+	}
+	names := make(map[string]bool, len(report.Results))
+	for _, row := range report.Results {
+		names[row.Name] = true
+		if marketDocumentTitle(row.Name) || marketHeadlineTitle(row.Name) {
+			t.Errorf("the report page itself leaked into the roster: %q", row.Name)
+		}
+		// The publisher's domain is not the company's: Cepsa is not
+		// directory.example.com.
+		if strings.Contains(row.Domain, "directory.example.com") || strings.Contains(row.Domain, "mordorintelligence") {
+			t.Errorf("%q adopted its publisher's domain %q", row.Name, row.Domain)
+		}
+	}
+	for _, want := range []string{"Cepsa", "Indorama Ventures Public Limited", "ISU Chemical"} {
+		if !names[want] {
+			t.Errorf("roster = %v, want the independently verified company %q", names, want)
+		}
+	}
+	if report.LeadsRejected == 0 {
+		t.Error("the report title echoed back as a name must be rejected")
 	}
 }

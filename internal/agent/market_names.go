@@ -143,6 +143,7 @@ var marketGenericNameWords = map[string]bool{
 	"global": true, "services": true, "solutions": true, "products": true,
 	"systems": true, "technologies": true, "trading": true, "enterprise": true,
 	"enterprises": true, "ventures": true, "manufacturing": true,
+	"public": true, "tbk": true,
 }
 
 // marketIndustryWords name a product category rather than a company, so they
@@ -298,7 +299,26 @@ func marketDocumentTitle(title string) bool {
 	}
 	// "Top lubricant suppliers", "Key manufacturers" - a list marker plus a
 	// roster noun is a listicle whatever the word order.
-	return marketContainsAny(words, marketListMarkers) && marketContainsAny(words, marketRosterWords)
+	if marketContainsAny(words, marketListMarkers) && marketContainsAny(words, marketRosterWords) {
+		return true
+	}
+	// A multi-word phrase that ends in a plural role noun names a category:
+	// "Linear Alkyl Benzene (LAB) Companies". Two-word trading names such as
+	// "Gulf Distributors" are left alone.
+	fields := strings.Fields(words)
+	if len(fields) >= 4 && marketIsRosterWord(fields[len(fields)-1]) {
+		return true
+	}
+	return false
+}
+
+func marketIsRosterWord(word string) bool {
+	for _, roster := range marketRosterWords {
+		if roster == word {
+			return true
+		}
+	}
+	return false
 }
 
 // marketHeadlineTitle reports whether a string is shaped like a news headline
@@ -444,7 +464,17 @@ func marketCanonicalName(title, domain string) string {
 // marketCanonicalName it may be handed a bare name rather than a page title, so
 // it only trims decoration and rejects values that are not a company name.
 func marketLeadName(name, domain string) string {
-	cleaned := marketStripTitleDecoration(name)
+	// Gate the name as it arrived, before any decoration is stripped: "Top 5
+	// Linear Alkyl Benzene Companies" is a listicle and must not become
+	// "Linear Alkyl Benzene Companies" just because the list prefix is noise.
+	raw := strings.Join(strings.Fields(name), " ")
+	if raw == "" {
+		return ""
+	}
+	if marketDocumentTitle(raw) || marketHeadlineTitle(raw) || marketPublisherSuffix(raw) {
+		return ""
+	}
+	cleaned := marketStripTitleDecoration(raw)
 	if cleaned == "" || marketTitleNoise[strings.ToLower(cleaned)] {
 		return ""
 	}
@@ -474,12 +504,14 @@ func marketLeadName(name, domain string) string {
 // marketNameEchoesLead rejects a proposal that is simply a lead's own title
 // echoed back. No operating company's name is a full article or report title.
 func marketNameEchoesLead(name string, leadTitles []string) bool {
-	key := strings.TrimSpace(marketWordText(name))
+	key := strings.TrimSpace(marketWordText(marketStripTitleDecoration(name)))
 	if key == "" {
 		return false
 	}
 	for _, title := range leadTitles {
-		if strings.TrimSpace(marketWordText(title)) == key {
+		// Compare like with like: the candidate may have had the same list
+		// prefix stripped that the lead title carries.
+		if strings.TrimSpace(marketWordText(marketStripTitleDecoration(title))) == key {
 			return true
 		}
 	}
@@ -519,7 +551,9 @@ func marketDistinctiveTokens(name string) []string {
 	tokens := make([]string, 0, 4)
 	seen := make(map[string]bool)
 	for _, word := range strings.Fields(marketWordText(name)) {
-		if len(word) < 4 || seen[word] || marketGenericNameWords[word] || marketIndustryWords[word] {
+		// Three-letter brands are common (ISU, SK, LG); word-boundary matching
+		// keeps them from matching inside longer words.
+		if len(word) < 3 || seen[word] || marketGenericNameWords[word] || marketIndustryWords[word] || marketConnectorWords[word] {
 			continue
 		}
 		seen[word] = true
@@ -529,4 +563,107 @@ func marketDistinctiveTokens(name string) []string {
 		}
 	}
 	return tokens
+}
+
+// marketRosterMarkers are the page sections that list several companies at
+// once — the part of a report, directory or article a landscape run must read.
+var marketRosterMarkers = []string{
+	"key players", "market players", "major players", "leading companies",
+	"competitive landscape", "company profiles", "companies", "top 5",
+	"top 10", "top 20", "top 25", "largest", "suppliers", "manufacturers",
+	"producers", "vendors",
+}
+
+// marketTitleHintsRoster reports whether a lead title announces a company list.
+func marketTitleHintsRoster(title string) bool {
+	return marketContainsAny(marketWordText(title), marketRosterMarkers)
+}
+
+// marketLeadReadPriority orders lead pages for the bounded scrape budget.
+// Reading and promoting are separate questions: a report page can never be the
+// company, but a report that ranks companies is the densest name source in the
+// run, so it is read first. Social pages are never read — they are login walls
+// with no roster text.
+func marketLeadReadPriority(tier, title string) int {
+	rosterShaped := marketTitleHintsRoster(title)
+	switch tier {
+	case "research", "consultancy":
+		if rosterShaped {
+			return 0
+		}
+		return 3
+	case "directory", "trade":
+		if rosterShaped {
+			return 1
+		}
+		return 2
+	case "official", "regulatory":
+		return 2
+	case "aggregator", "news":
+		return 3
+	case "publisher", "institution":
+		return 4
+	case "social":
+		return 9
+	}
+	return 5
+}
+
+// marketLeadReadable reports whether a lead page can plausibly name companies.
+func marketLeadReadable(tier, title string) bool {
+	return marketLeadReadPriority(tier, title) < 9
+}
+
+// marketRosterSourceTier reports whether a tier publishes company rosters
+// rather than an operating company's own copy.
+func marketRosterSourceTier(tier string) bool {
+	switch tier {
+	case "research", "consultancy", "directory", "trade", "aggregator",
+		"news", "publisher", "institution":
+		return true
+	}
+	return false
+}
+
+// marketPageExcerpt trims a scraped page to the text most likely to name
+// companies. The opening characters carry the page's subject; the roster table
+// sits further down, so the excerpt keeps the opening lines *and* a window
+// around the first roster vocabulary the page uses. Without this, a 3000-char
+// prefix of a report page stops long before its company table.
+func marketPageExcerpt(content string, limit int) string {
+	content = strings.TrimSpace(content)
+	if limit <= 0 || len(content) <= limit {
+		return content
+	}
+	lower := strings.ToLower(content)
+	anchor := -1
+	for _, marker := range marketRosterMarkers {
+		if index := strings.Index(lower, marker); index >= 0 && (anchor < 0 || index < anchor) {
+			anchor = index
+		}
+	}
+	if anchor < 0 {
+		return truncateMarketText(content, limit)
+	}
+	headLimit := 1200
+	if headLimit > len(content) {
+		headLimit = len(content)
+	}
+	head := strings.TrimSpace(content[:headLimit])
+	window := limit - len(head) - 16
+	if window < 1500 {
+		window = 1500
+	}
+	start := anchor - 400
+	if start < 0 {
+		start = 0
+	}
+	end := start + window
+	if end > len(content) {
+		end = len(content)
+	}
+	if start >= end {
+		return truncateMarketText(content, limit)
+	}
+	return head + "\n...\n" + strings.TrimSpace(content[start:end])
 }
