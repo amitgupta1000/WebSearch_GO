@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net"
 	"net/http"
@@ -291,6 +292,10 @@ func NewScraperWithBrowser(jar *cookiejar.Jar, timeout time.Duration, enableBrow
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
+		// weedoo.in traffic routes through WEEDOO_PROXY_URL when configured
+		// (Cloudflare challenges datacenter egress on sight); every other host
+		// keeps the standard environment proxy behavior.
+		Proxy: weedooProxyForRequest,
 	}
 
 	if jar == nil {
@@ -315,6 +320,9 @@ func NewScraperWithBrowser(jar *cookiejar.Jar, timeout time.Duration, enableBrow
 	browserTimeout := browserFallbackTimeout
 	if timeout < browserTimeout {
 		browserTimeout = timeout
+	}
+	if weedooProxyURL != "" {
+		log.Printf("[SCRAPER] weedoo.in requests route through WEEDOO_PROXY_URL")
 	}
 	scraper := &Scraper{
 		client:         client,

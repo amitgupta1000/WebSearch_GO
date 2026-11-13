@@ -120,12 +120,22 @@ type playwrightRenderer struct {
 }
 
 func newPlaywrightRenderer(timeout time.Duration) (browserRenderer, error) {
+	return newPlaywrightRendererWithProxy(timeout, "")
+}
+
+// newPlaywrightRendererWithProxy launches the shared browser optionally through
+// an HTTP or SOCKS proxy. Playwright accepts the credentials inline in the
+// server URL ("http://user:pass@host:port"), matching WEEDOO_PROXY_URL's
+// format. Only callers whose browser visits a single host (the WeeDoo client)
+// pass a proxy — the general scraper's browser serves every host and stays
+// direct.
+func newPlaywrightRendererWithProxy(timeout time.Duration, proxyServer string) (browserRenderer, error) {
 	pw, err := playwright.Run()
 	if err != nil {
 		return nil, fmt.Errorf("start Playwright: %w", err)
 	}
 
-	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+	launchOptions := playwright.BrowserTypeLaunchOptions{
 		Headless: playwright.Bool(true),
 		// Use the full Chromium build rather than Playwright's default headless
 		// shell: the shell crashes on some hosts (the page target dies with
@@ -134,7 +144,11 @@ func newPlaywrightRenderer(timeout time.Duration) (browserRenderer, error) {
 		// gates its content behind a JavaScript interstitial.
 		Channel: playwright.String("chromium"),
 		Args:    []string{"--disable-dev-shm-usage"},
-	})
+	}
+	if proxyServer != "" {
+		launchOptions.Proxy = &playwright.Proxy{Server: proxyServer}
+	}
+	browser, err := pw.Chromium.Launch(launchOptions)
 	if err != nil {
 		_ = pw.Stop()
 		return nil, fmt.Errorf("launch Chromium: %w", err)

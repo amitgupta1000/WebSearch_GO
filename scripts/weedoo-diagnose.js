@@ -165,6 +165,8 @@ async function challengeWaitStrategy(name, url, stealth) {
 
 (async () => {
   console.log('[ARGV]', JSON.stringify(process.argv));
+  const proxyEnv = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || '';
+  console.log('[INERTIA] egress: ' + (proxyEnv ? 'via proxy ' + proxyEnv.replace(/\/\/[^@]*@/, '//***@') : 'direct (no HTTPS_PROXY set)'));
   // --inertia-test (or DIAGNOSE_MODE=inertia) runs the sitemap + X-Inertia
   // JSON recipe instead of the rendering matrix. The env var exists because
   // Cloud Run Jobs passes --args as one concatenated string, which node
