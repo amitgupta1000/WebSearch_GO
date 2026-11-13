@@ -93,11 +93,11 @@ func (a *RelatedEntityAgent) Research(ctx context.Context, sessionID string, que
 	// and its CIN (the operator's registration id, or a CIN the run's own hits
 	// published) instead of being relied on from site: queries.
 	registryHits, networkHits := a.weeDooRegistryHits(ctx, sessionID, query, trace, eventCh)
-	// The registry page leads both payloads: its directors table freezes the
-	// leaders' identities (name + DIN). The Business Network's connected
-	// companies join the direct branch — connections the company declares
-	// itself, ahead of any person search.
-	directHits = append(append(append([]models.SearchResult{}, registryHits...), networkHits...), directHits...)
+	// The registry page freezes leader identities (name + DIN) but its full
+	// text can contain suppliers, customers, and other commercial mentions.
+	// Only the structured Business Network section may enter the direct
+	// relationship branch.
+	directHits = append(append([]models.SearchResult{}, networkHits...), directHits...)
 	leadHits = append(append([]models.SearchResult{}, registryHits...), leadHits...)
 	directHits = directAssociationHits(query, directHits)
 	leadHits = leadershipIdentityHits(query, leadHits)
@@ -228,6 +228,21 @@ func relatedTrustedRegistryHost(host string) bool {
 	return false
 }
 
+func relatedDirectEvidenceHost(host, link string) bool {
+	if strings.Contains(strings.ToLower(link), "#business-network") {
+		return true
+	}
+	for _, trusted := range []string{
+		"mca.gov.in", "sebi.gov.in", "bseindia.com", "nseindia.com",
+		"sec.gov", "companieshouse.gov.uk",
+	} {
+		if host == trusted || strings.HasSuffix(host, "."+trusted) {
+			return true
+		}
+	}
+	return false
+}
+
 func relatedAnnualReportHit(hit models.SearchResult) bool {
 	text := strings.ToLower(hit.Title + " " + hit.Snippet + " " + hit.Link)
 	for _, marker := range []string{"annual report", "annual-report", "form 10-k", "10-k filing", "corporate filing"} {
@@ -250,7 +265,7 @@ func directAssociationHits(query models.RelatedEntityQuery, hits []models.Search
 			continue
 		}
 		host := relatedHost(hit.Link)
-		trusted := relatedHostMatchesDomain(host, query.Domain) || relatedTrustedRegistryHost(host)
+		trusted := relatedHostMatchesDomain(host, query.Domain) || relatedDirectEvidenceHost(host, hit.Link)
 		if !trusted {
 			continue
 		}
@@ -266,7 +281,12 @@ func directAssociationHits(query models.RelatedEntityQuery, hits []models.Search
 	return out
 }
 
-func explicitDirectRelationshipEvidence(evidence []models.RelatedEntityEvidence) bool {
+func explicitDirectRelationshipEvidence(evidence []models.RelatedEntityEvidence, primary, related string) bool {
+	primaryTokens := nameTokens(primary)
+	relatedTokens := nameTokens(related)
+	if len(primaryTokens) == 0 || len(relatedTokens) == 0 {
+		return false
+	}
 	for _, item := range evidence {
 		text := strings.ToLower(item.Title + " " + item.Snippet)
 		for _, marker := range []string{
@@ -275,8 +295,25 @@ func explicitDirectRelationshipEvidence(evidence []models.RelatedEntityEvidence)
 			"controlled by", "promoted by", "part of the", "flagship company",
 			"business network", "direct child", "ultimate child",
 		} {
-			if strings.Contains(text, marker) {
-				return true
+			for offset := 0; offset < len(text); {
+				position := strings.Index(text[offset:], marker)
+				if position < 0 {
+					break
+				}
+				position += offset
+				start := position - 240
+				if start < 0 {
+					start = 0
+				}
+				end := position + len(marker) + 240
+				if end > len(text) {
+					end = len(text)
+				}
+				window := text[start:end]
+				if containsAllTokens(window, primaryTokens) && containsAllTokens(window, relatedTokens) {
+					return true
+				}
+				offset = position + len(marker)
 			}
 		}
 	}
@@ -700,7 +737,7 @@ func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEn
 			relationship := item.RelatedCompany()
 			relationship.Evidence = evidenceBackedByHits(relationship.Evidence, directHits)
 			relationship.Evidence = attachEvidenceFromHits(relationship.Evidence, relationship.Name, query.CompanyName, directHits)
-			if !explicitDirectRelationshipEvidence(relationship.Evidence) {
+			if !explicitDirectRelationshipEvidence(relationship.Evidence, query.CompanyName, relationship.Name) {
 				continue
 			}
 			relationships = append(relationships, relationship)

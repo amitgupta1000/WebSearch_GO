@@ -120,19 +120,26 @@ func TestDirectAssociationHitsRejectNamesakesAndResearchReports(t *testing.T) {
 	if len(hits) != 1 || hits[0].Link != "https://www.purechemicals.in/about/group-structure" {
 		t.Fatalf("direct hits = %+v, want only the primary-domain relationship", hits)
 	}
+	if got := directAssociationHits(query, []models.SearchResult{{
+		Title:   "WeeDoo company page",
+		Link:    "https://weedoo.in/company/PURE-CHEMICALS/CIN",
+		Snippet: "Pure Chemicals directors and business network information.",
+	}}); len(got) != 0 {
+		t.Fatalf("the full registry page must not enter direct extraction: %+v", got)
+	}
 }
 
 func TestExplicitDirectRelationshipEvidenceRejectsCoMention(t *testing.T) {
 	if explicitDirectRelationshipEvidence([]models.RelatedEntityEvidence{{
 		Title:   "Pure Chemicals market participants",
 		Snippet: "Pure Chemicals, Wako Chemicals, and Sekisui are mentioned in the same industry list.",
-	}}) {
+	}}, "Pure Chemicals", "Wako Chemicals") {
 		t.Fatal("a co-mention must not establish a corporate relationship")
 	}
 	if !explicitDirectRelationshipEvidence([]models.RelatedEntityEvidence{{
 		Title:   "Pure Chemicals group structure",
 		Snippet: "Pure Chemicals lists Wako Chemicals as an affiliate and subsidiary.",
-	}}) {
+	}}, "Pure Chemicals", "Wako Chemicals") {
 		t.Fatal("an explicit affiliate/subsidiary statement should qualify")
 	}
 }
