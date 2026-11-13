@@ -251,7 +251,7 @@ func directAssociationHits(query models.RelatedEntityQuery, hits []models.Search
 		}
 		host := relatedHost(hit.Link)
 		trusted := relatedHostMatchesDomain(host, query.Domain) || relatedTrustedRegistryHost(host)
-		if !trusted && !relatedAnnualReportHit(hit) {
+		if !trusted {
 			continue
 		}
 		if !containsCompanyIdentity(hit.Title+" "+hit.Snippet, query) {
@@ -264,6 +264,23 @@ func directAssociationHits(query models.RelatedEntityQuery, hits []models.Search
 		out = append(out, hit)
 	}
 	return out
+}
+
+func explicitDirectRelationshipEvidence(evidence []models.RelatedEntityEvidence) bool {
+	for _, item := range evidence {
+		text := strings.ToLower(item.Title + " " + item.Snippet)
+		for _, marker := range []string{
+			"subsidiary", "affiliate", "parent company", "holding company",
+			"sister company", "associate company", "joint venture", "owned by",
+			"controlled by", "promoted by", "part of the", "flagship company",
+			"business network", "direct child", "ultimate child",
+		} {
+			if strings.Contains(text, marker) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // leadershipIdentityHits supplies step two with evidence that can establish
@@ -683,6 +700,9 @@ func (a *RelatedEntityAgent) extract(ctx context.Context, query models.RelatedEn
 			relationship := item.RelatedCompany()
 			relationship.Evidence = evidenceBackedByHits(relationship.Evidence, directHits)
 			relationship.Evidence = attachEvidenceFromHits(relationship.Evidence, relationship.Name, query.CompanyName, directHits)
+			if !explicitDirectRelationshipEvidence(relationship.Evidence) {
+				continue
+			}
 			relationships = append(relationships, relationship)
 		}
 		report.DirectRelationships = normalizeRelated(relationships, query.CompanyName)

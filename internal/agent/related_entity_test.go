@@ -122,6 +122,21 @@ func TestDirectAssociationHitsRejectNamesakesAndResearchReports(t *testing.T) {
 	}
 }
 
+func TestExplicitDirectRelationshipEvidenceRejectsCoMention(t *testing.T) {
+	if explicitDirectRelationshipEvidence([]models.RelatedEntityEvidence{{
+		Title:   "Pure Chemicals market participants",
+		Snippet: "Pure Chemicals, Wako Chemicals, and Sekisui are mentioned in the same industry list.",
+	}}) {
+		t.Fatal("a co-mention must not establish a corporate relationship")
+	}
+	if !explicitDirectRelationshipEvidence([]models.RelatedEntityEvidence{{
+		Title:   "Pure Chemicals group structure",
+		Snippet: "Pure Chemicals lists Wako Chemicals as an affiliate and subsidiary.",
+	}}) {
+		t.Fatal("an explicit affiliate/subsidiary statement should qualify")
+	}
+}
+
 // TestNormalizeLeadersMergesInitialsVariants pins the leadership rule: "K L
 // Jain" and "Kanhaiya Lal Jain" are one director, not two — the fuller name
 // stands as the display name, and the variant does not spawn its own branch.
