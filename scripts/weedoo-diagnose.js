@@ -257,6 +257,14 @@ async function fetchTextWithRetry(url, headers, attempt) {
   }
 }
 
+function describeFetchError(error) {
+	const text = String(error);
+	if (error && error.cause) {
+		return text + ' :: ' + String(error.cause).slice(0, 160);
+	}
+	return text;
+}
+
 async function fetchInertiaJson(url, attempt) {
   attempt = attempt || 1;
   try {
@@ -304,7 +312,7 @@ async function inertiaTestMain() {
         directors_count: Array.isArray(company.directors) ? company.directors.length : '',
         keys: Object.keys(company).join(';') });
     } catch (error) {
-      rows.push({ url: singleUrl, error: String(error).slice(0, 200) });
+      rows.push({ url: singleUrl, error: describeFetchError(error).slice(0, 220) });
     }
   } else {
     console.log('[INERTIA] enumerating sitemaps (limit ' + sitemapLimit + ')...');
@@ -335,14 +343,14 @@ async function inertiaTestMain() {
             ? directors.map((d) => d.name || d.director_name || '').filter(Boolean).join('; ')
             : '' });
       } catch (error) {
-        rows.push({ url, error: String(error).slice(0, 200) });
+        rows.push({ url, error: describeFetchError(error).slice(0, 220) });
       }
       await inertiaSleep(1200);
     }
     } catch (error) {
       console.log('[INERTIA] enumeration failed: ' + String(error).slice(0, 200));
       rows.push({ url: 'https://weedoo.in/sitemaps/index.xml', kind: 'sitemap-index',
-        error: String(error).slice(0, 200) });
+        error: describeFetchError(error).slice(0, 220) });
     }
   }
   if (directorUrl) {
@@ -354,7 +362,7 @@ async function inertiaTestMain() {
         companies: Array.isArray(director.companies) ? director.companies.length
           : Object.keys(director).length });
     } catch (error) {
-      rows.push({ url: directorUrl, kind: 'director-page', error: String(error).slice(0, 200) });
+      rows.push({ url: directorUrl, kind: 'director-page', error: describeFetchError(error).slice(0, 220) });
     }
   }
 
