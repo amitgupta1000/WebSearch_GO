@@ -40,7 +40,7 @@ try {
         --memory 2Gi `
         --cpu 2 `
         --env-vars-file $browserEnvFile `
-        --set-secrets "GOOGLE_API_KEY=gemini_api_key:latest,SERPER_API_KEY=serper_api_key:latest,ROCKETREACH_API_KEY=rocketreach_api_key:latest,REDIS_URL=redis_url_alt:latest"
+        --set-secrets "GOOGLE_API_KEY=gemini_api_key:latest,SERPER_API_KEY=serper_api_key:latest,ROCKETREACH_API_KEY=rocketreach_api_key:latest,REDIS_URL=redis_url_alt:latest,WEEDOO_PROXY_URL=residential_proxy_url:latest,LINKEDIN_PROXY_URL=residential_proxy_url:latest"
     if ($LASTEXITCODE -ne 0) {
         throw "Cloud Run deployment failed."
     }
