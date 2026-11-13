@@ -154,7 +154,7 @@
 		<p class="text-xs text-slate-500 mt-1">The consuming stages the search was organised around. Operator-supplied stages override the model.</p>
 	</div>
 	{{if .Chain}}<div class="grid grid-cols-1 lg:grid-cols-3 gap-3">{{range .Chain}}
-		<div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
+		<div class="bg-slate-950 border border-slate-800 rounded-xl p-4 min-w-0">
 			<div class="flex justify-between gap-2"><span class="font-semibold text-white">{{.Name}}</span><span class="text-[10px] text-slate-500">{{if eq .Distance 2}}step 2 · derived{{else}}step 1 · direct{{end}} · {{.Source}}</span></div>
 			{{if .Rationale}}<p class="text-xs text-slate-400 mt-1">{{.Rationale}}</p>{{end}}
 			{{if .Operators}}<div class="mt-2">{{range .Operators}}<span class="inline-block text-[11px] text-indigo-300 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 mr-1 mt-1">{{.}}</span>{{end}}</div>{{end}}
@@ -511,12 +511,12 @@
 				<p class="text-xs text-slate-400 mb-3">{{.Description}}</p>
 				<div class="space-y-1">
 					{{range .Members}}
-					<div class="text-xs text-slate-300 flex items-center justify-between gap-2">
-						<span>{{.Name}}</span>
-						<div class="flex items-center gap-2 shrink-0">
-							<span class="text-slate-500">{{.Title}}</span>
+					<div class="text-xs text-slate-300 flex flex-wrap items-start justify-between gap-x-2 gap-y-1 min-w-0">
+						<span class="min-w-0 flex-1 break-words">{{.Name}}</span>
+						<div class="min-w-0 flex-1 flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+							<span class="min-w-0 break-words">{{.Title}}</span>
 							{{if .PublicEmail}}<a href="mailto:{{.PublicEmail}}" class="text-indigo-400 hover:underline break-all">{{.PublicEmail}}</a>{{end}}
-							{{if .Freshness}}<span class="text-[10px] text-slate-600">{{.Freshness}}</span>{{end}}
+							{{if .Freshness}}<span class="text-[10px] text-slate-600 break-words text-right">{{.Freshness}}</span>{{end}}
 							<form onsubmit="return submitDossier(event, this)">
 								<input type="hidden" name="mode" value="person">
 								<input type="hidden" name="query" value="{{.Name}}">
