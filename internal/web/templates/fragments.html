@@ -107,7 +107,7 @@
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Results</div>
 		<p class="text-xs text-slate-500 mt-1">Only verified or corroborated companies are promoted here.</p>
 	</div>
-	{{if .Exports}}<div class="flex flex-wrap gap-2">{{range .Exports}}{{if .URL}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="inline-block text-xs text-indigo-300 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 hover:border-indigo-500">Download {{.Format}}</a>{{end}}{{end}}</div>{{end}}
+	{{template "export_files" .Exports}}
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
 	{{if .RocketReachDiscoveryEnabled}}<div class="rounded-xl border border-indigo-900/60 bg-indigo-950/20 p-3 text-xs text-indigo-300">RocketReach discovery: {{.RocketReachDiscoveryCalls}} call(s) · {{.RocketReachProfilesFound}} profile(s) returned · {{.RocketReachCandidatesPromoted}} candidate(s) promoted</div>{{end}}
 	{{if .Results}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Results}}
@@ -161,7 +161,7 @@
 			{{if .Products}}<div class="mt-2 text-[11px] text-slate-500">Product families: {{range .Products}}<span class="text-emerald-300 mr-1">{{.}}</span>{{end}}</div>{{end}}
 		</div>
 	{{end}}</div>{{end}}
-	{{if .Exports}}<div class="flex flex-wrap gap-2">{{range .Exports}}{{if .URL}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="inline-block text-xs text-indigo-300 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 hover:border-indigo-500">Download {{.Format}}</a>{{end}}{{end}}</div>{{end}}
+	{{template "export_files" .Exports}}
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
 	{{if .Results}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Results}}
 		<div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
@@ -556,7 +556,6 @@
 				</div>
 			</div>
 			{{end}}
-			{{range .Exports}}{{if and (eq .Format "json") .URL}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="inline-block text-indigo-400 hover:underline bg-slate-950 border border-slate-800 hover:border-indigo-600 rounded-lg px-2 py-1">Download full search results (JSON)</a>{{end}}{{end}}
 		</div>
 	</details>
 	{{end}}
@@ -632,29 +631,12 @@
 
 {{define "export_files"}}
 {{if .}}
-<details class="group border-t border-slate-800/60 pt-3">
-	<summary class="inline-flex items-center gap-2 cursor-pointer select-none list-none text-xs font-medium text-slate-300 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-3 py-1.5 [&amp;::-webkit-details-marker]:hidden">
-		<span class="text-slate-500 transition-transform group-open:rotate-90">&#9656;</span>
-		Saved files
-		<span class="text-slate-500">({{len .}})</span>
-	</summary>
-	<div class="flex flex-col gap-2 mt-3 text-xs">
-		{{range .}}
-		<div class="flex flex-wrap items-center gap-2">
-			<span class="px-1.5 py-0.5 text-[10px] uppercase font-semibold rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">{{.Format}}</span>
-			{{if .Failed}}
-			<span class="text-red-300 break-all">{{.Name}} &mdash; {{.Error}}</span>
-			{{else if .URL}}
-			<a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline break-all">{{.Name}}</a>
-			<span class="text-slate-500">{{.SizeLabel}}</span>
-			{{else}}
-			<span class="text-slate-300 break-all">{{.Name}}</span>
-			<span class="text-slate-500">{{.SizeLabel}}</span>
-			{{end}}
-		</div>
-		{{end}}
-	</div>
-</details>
+<div class="flex flex-wrap gap-2 border-t border-slate-800/60 pt-3">
+	{{range .}}
+		{{if and (eq .Format "pdf") .URL}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="inline-flex items-center text-xs font-medium text-indigo-300 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 hover:border-indigo-500">Download PDF</a>{{end}}
+		{{if and (eq .Format "md") .URL}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="inline-flex items-center text-xs font-medium text-indigo-300 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 hover:border-indigo-500">Download MD</a>{{end}}
+	{{end}}
+</div>
 {{end}}
 {{end}}
 
@@ -880,7 +862,6 @@
 				</div>
 			</div>
 			{{end}}
-			{{range .Exports}}{{if and (eq .Format "json") .URL}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="inline-block text-indigo-400 hover:underline bg-slate-950 border border-slate-800 hover:border-indigo-600 rounded-lg px-2 py-1">Download full search results (JSON)</a>{{end}}{{end}}
 		</div>
 	</details>
 	{{end}}
