@@ -424,6 +424,13 @@
             return false;
         }
 
+        function toggleCompanyRoster(id, button) {
+            const table = document.getElementById(id);
+            if (!table) return;
+            const showing = !table.classList.toggle('hidden');
+            button.textContent = (showing ? 'Hide table' : 'Show table') + button.textContent.replace(/^(Hide table|Show table)/, '');
+        }
+
         function toggleFields(mode) {
             const pf = document.getElementById('person-fields');
             const cf = document.getElementById('company-fields');

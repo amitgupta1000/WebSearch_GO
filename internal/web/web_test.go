@@ -210,6 +210,13 @@ func TestCompanyResultOffersBrowserRerun(t *testing.T) {
 	chart := &models.OrgChart{
 		CompanyName:  "Acme",
 		ScrapeReport: []models.ScrapeReportEntry{{URL: "https://example.com/a", Status: "failed"}},
+		ResearchRoster: []models.CompanyResearchRow{{
+			Name:           "Jane Doe",
+			LinkedInURL:    "https://www.linkedin.com/in/jane-doe",
+			Designation:    "Director",
+			Classification: "leadership",
+			Status:         "verified",
+		}},
 	}
 	view := struct {
 		Chart         *models.OrgChart
@@ -230,6 +237,9 @@ func TestCompanyResultOffersBrowserRerun(t *testing.T) {
 	}
 	if !strings.Contains(page, "could not use 1 collected source") {
 		t.Errorf("expected the unusable-source count to be surfaced, got %q", page)
+	}
+	if !strings.Contains(page, "Full research results") || !strings.Contains(page, "Download CSV") || !strings.Contains(page, "Fetch RR") {
+		t.Error("expected the full research roster controls to render")
 	}
 
 	// Without the capability the offer must disappear entirely.

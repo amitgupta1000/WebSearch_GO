@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/csv"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -335,6 +336,7 @@ func main() {
 	mux.HandleFunc("POST /api/resolve-person", srv.handleResolvePerson)
 	mux.HandleFunc("POST /api/rerun", srv.handleRerun)
 	mux.HandleFunc("POST /api/question", srv.handleQuestion)
+	mux.HandleFunc("GET /api/company-roster.csv", srv.handleCompanyRosterCSV)
 	mux.HandleFunc("GET /api/events", srv.handleEvents)
 	mux.HandleFunc("GET /api/exports", srv.handleExportDownload)
 	mux.HandleFunc("GET /healthz", srv.handleHealth)
@@ -1144,6 +1146,72 @@ func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "question_answer", answer)
+}
+
+func (s *Server) handleCompanyRosterCSV(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
+	if sessionID == "" {
+		http.Error(w, "a company research session is required", http.StatusBadRequest)
+		return
+	}
+	session, ok := s.hub.Get(sessionID)
+	if !ok || session.Mode != "company" {
+		http.Error(w, "that company research session is not available", http.StatusNotFound)
+		return
+	}
+	result, sessionErr := session.GetResult()
+	if sessionErr != nil {
+		http.Error(w, "company research has not completed successfully", http.StatusConflict)
+		return
+	}
+	chart, ok := result.(*models.OrgChart)
+	if !ok || chart == nil {
+		http.Error(w, "company research result is unavailable", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+companyRosterFilename(chart.CompanyName)+`"`)
+	writer := csv.NewWriter(w)
+	if err := writer.Write([]string{"Person", "LinkedIn URL", "Designation", "Classification", "Status", "Verification", "Verification note", "Source"}); err != nil {
+		return
+	}
+	for _, row := range chart.ResearchRoster {
+		if err := writer.Write([]string{
+			row.Name,
+			row.LinkedInURL,
+			row.Designation,
+			row.Classification,
+			row.Status,
+			row.Verification,
+			row.VerificationNote,
+			row.Source,
+		}); err != nil {
+			return
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		log.Printf("[ERROR] company roster CSV write failed for session %s: %v", sessionID, err)
+	}
+}
+
+func companyRosterFilename(companyName string) string {
+	var builder strings.Builder
+	for _, char := range strings.TrimSpace(companyName) {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') {
+			builder.WriteRune(char)
+			continue
+		}
+		if builder.Len() > 0 {
+			builder.WriteByte('_')
+		}
+	}
+	name := strings.Trim(builder.String(), "_")
+	if name == "" {
+		name = "company"
+	}
+	return name + "_research_roster.csv"
 }
 
 // handleResolveEntity renders the confirmation step for a company name: candidate

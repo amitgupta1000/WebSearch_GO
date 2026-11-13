@@ -151,6 +151,7 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 			}
 			chart.Validation = report
 			chart.EntityGate = gate
+			chart.ResearchRoster = buildCompanyResearchRoster(chart, state)
 			summary := fmt.Sprintf("Entity gate (%s): %s | %d/%d candidates named the company, %d snippets dropped, %d off-entity people removed, %d rescued by lookup",
 				ca.engine.EntityGateMode(), strings.Join(gate.Keys, ", "),
 				gate.CandidatesTagged, gate.CandidatesTagged+gate.CandidatesNone, gate.SnippetsDropped, gate.RowsOffEntity, gate.RescuedByLookup)

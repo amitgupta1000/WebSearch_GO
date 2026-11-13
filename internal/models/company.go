@@ -39,8 +39,11 @@ type OrgChart struct {
 	Validation *ValidationReport `json:"validation,omitempty"`
 	// EntityGate is the record of what the confirmed identity filtered out, so a
 	// short roster is explainable. Also attached by the agent.
-	EntityGate  *EntityGate `json:"entity_gate,omitempty"`
-	LastUpdated time.Time   `json:"last_updated"`
+	EntityGate *EntityGate `json:"entity_gate,omitempty"`
+	// ResearchRoster preserves every person classified during the run, including
+	// discoveries and validation exclusions that are not in the current org chart.
+	ResearchRoster []CompanyResearchRow `json:"research_roster,omitempty"`
+	LastUpdated    time.Time            `json:"last_updated"`
 }
 
 // CompanyProfile is the concise business brief synthesized alongside the org chart.
@@ -51,6 +54,20 @@ type CompanyProfile struct {
 	Address             string     `json:"address,omitempty"`
 	PublicEmail         string     `json:"public_email,omitempty"`
 	Telephone           string     `json:"telephone,omitempty"`
+}
+
+// CompanyResearchRow is the flat, exportable person record shown by the full
+// research roster. Status is deliberately limited to verified or unverified so
+// the UI does not imply stronger certainty than the run established.
+type CompanyResearchRow struct {
+	Name             string `json:"name"`
+	LinkedInURL      string `json:"linkedin_url,omitempty"`
+	Designation      string `json:"designation,omitempty"`
+	Source           string `json:"source,omitempty"`
+	Classification   string `json:"classification"`
+	Status           string `json:"status"`
+	Verification     string `json:"verification,omitempty"`
+	VerificationNote string `json:"verification_note,omitempty"`
 }
 
 // TimingTotalMillis is the summed duration of every recorded phase, used for the
