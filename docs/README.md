@@ -107,7 +107,10 @@ match is pre-selected and focused), and never dead-ends:
   Manager, General Manager, Deputy General Manager, Vice-President, Additional Director, and
   Executive Director). It keeps only strict employer matches, adds those candidates to
   the existing company evidence gate, and exposes their query provenance; it does not request
-  contact details.
+  contact details. The free search's career history (when it returns one) appears in the Full
+  research results roster; the per-row **Fetch RR** action performs one paid lookup, persists the
+  full profile's career history, education, skills and verified contacts into that row, and
+  caches it by RocketReach profile ID for 24 hours so repeated clicks do not spend another credit.
 - **Person** (`POST /api/resolve-person`): the people who share the typed name, read out of
   the `<name> - <role> - <employer>` headlines professional networks use, with the employer
   and place pre-filled from the profile the operator picks. That pinned context is what the
@@ -116,12 +119,20 @@ match is pre-selected and focused), and never dead-ends:
   a seed source. A people-directory hit (RocketReach, ZoomInfo, SignalHire…) is offered but flagged as a
   claim rather than a profile, and if no profile is found the name-alone path is right there.
   At the start of the dossier workflow, an explicit person run performs one priority
-  RocketReach lookup using the confirmed LinkedIn URL or name plus current employer.
-  Its structured profile facts (current role, employer, location, career history, education,
+  RocketReach lookup using the confirmed LinkedIn URL or name plus current employer. When that
+  misses, one free search filtered by current employer is followed by one unfiltered search:
+  career history can identify a former director or employee whose current employer has moved
+  on, and the paid lookup is then pinned to the profile ID the search returned. Its structured
+  profile facts (current role, employer, location, career history, education,
   skills, LinkedIn URL, and contact details) are shown in the workflow, supplied to synthesis,
   and then merged through the normal identity QC; verified email/phone fields are rendered
-  in the dossier and exports.
-  Company and related-entity runs never request those fields.
+  in the dossier and exports. A past-role match is labelled with the profile's current employer
+  so a former role is not presented as current. RocketReach-derived experience and education
+  rows carry `Provider: RocketReach` (their source link remains the provider's LinkedIn URL) and
+  dossier QC keeps them with an unverified flag instead of dropping a provider record for lack
+  of a web reverse lookup.
+  Company and related-entity runs never request those contact fields; related-entity discovery
+  may match a profile by a past employer, while company discovery keeps current employees only.
 - **Legal** (`POST /api/resolve-entity`, `mode=legal`): the same company-identity confirmation
   a company run uses — a legal check needs exactly the same "which company is this"
   discipline — plus an optional list of directors or key persons to check alongside it (see
@@ -148,9 +159,9 @@ match is pre-selected and focused), and never dead-ends:
   returned snippets remain visible for review when classification is inconclusive. This mode
   does not call RocketReach.
 
-RocketReach is a paid enrichment provider and is intentionally limited to company discovery
-and explicitly requested person dossiers. Search and lookup failures are non-fatal and are
-reported as run warnings.
+RocketReach is a paid enrichment provider and is intentionally limited to company discovery,
+the per-row **Fetch RR** roster action, and explicitly requested person dossiers. Search and
+lookup failures are non-fatal and are reported as run warnings.
 
 ### Deep search mode (open-ended questions)
 
@@ -340,26 +351,28 @@ Compactly:
 | Stage | Gate | Fallback |
 | :--- | :--- | :--- |
 | Confirmation | 2 searches + 1 aggregator pass only when <2 candidates | name-alone card |
-| Plan | 6–9 anchored searches — profile, role, appointments, career/education, regional/global aggregator `site:`, plus one X/Twitter personalization search, capped at 12 | a failed search is skipped; the run fails only when every one does |
+| Plan | 10 anchored searches (8 for a name-alone run) — four dossier questions, the regional/global aggregator `site:` query, and five bounded social-platform `site:` queries (X/Twitter, Facebook, Instagram, LinkedIn posts, YouTube), capped at 12 | a failed search is skipped; the run fails only when every one does |
 | Snippets | **identity gate**: a snippet must name the person *and* the confirmed company or location | excluded — listed in the dossier's **Identity check** |
-| Fetch targets | identity gate first: profile URLs from *every* planned search, then any gate-matched page, up to `MaxScrapes` 10 | excluded, with the stated employer in the reason |
+| Fetch targets | identity gate first: profile URLs from *every* planned search, then any gate-matched page, up to `MaxScrapes` 10; directory and social results are snippets-only, and a social URL is never fetched | excluded, with the stated employer in the reason |
 | Profile URL | session ⇒ **one cookie-authenticated fetch**; otherwise the ladder (2/run, 55 s) | ladder ⇒ snippet |
 | Other URLs | content-hash dedupe | `Blocked` ⇒ one ladder escalation |
 | Directory snippets | the aggregator `site:` query is snippets-only, never fetched | a directory naming a *different* employer is dropped |
 | Synthesis | one-person instruction in the prompt; every experience row must cite the `source` URL that supports it; empty over invented | — |
 | **Dossier QC** | a synthesised row whose employer is not the confirmed one survives only when a reverse lookup (`"Name" "That employer"`) ties them; the headline employer is corrected to the confirmed one; identical repeated rows collapse to one; two rows at different employers whose timelines overlap by more than a handover year are both **flagged** (concurrent roles or a blended row — never dropped) | dropped / corrected rows listed in the **Identity check**; overlap flags rendered on the rows; lookups capped by `VALIDATION_LOOKUPS_PER_RUN`, gated by `VALIDATE_EVIDENCE` |
 | **Same-named people** | the excluded evidence is regrouped multilaterally — one group per employer a same-named person's source states, plus the unattributed name-only material — and the most relevant snippets per group are shown in the dossier | rendered in console, md and pdf; each employer group in the console carries a **Research this person instead** action |
+| **Social signals (unverified)** | attributable public accounts and posts from the five platform queries, each carrying its identity basis (company, location, role or operator-confirmed profile), confidence and the date the snippet proves; a hit naming only the name, or a different employer, is not admitted | capped at 12 signals; snippets-only; never fetched as employment evidence; the section states **"This section may not be accurate"** on every surface (console, md, pdf) and is omitted when empty |
 
 The identity gate is person mode's counterpart of the company entity gate: the company and
 location confirmed on the card are acceptance rules, not just search terms — that is what keeps
-a same-named person at another employer out of the dossier. The plan replaced three hardcoded
-searches with eight anchored ones (nine cap), including separate public-personalization
-searches for X/Twitter, because the old budget bought one broad
-question and two afterthoughts. A snippet is held harder than a fetched page (a snippet that names the
+a same-named person at another employer out of the dossier. The plan now issues ten anchored
+searches (twelve cap): four dossier questions, the regional/global aggregator `site:` query,
+and five bounded platform queries whose results form the separate **Social signals
+(unverified)** section. A snippet is held harder than a fetched page (a snippet that names the
 person but states no employer is dropped; a fetched page that does is kept but counted as
 *name-only*), because a career history legitimately lists past employers in its body while a
-snippet is a free-floating assertion. Social snippets are kept in a separate context and cannot
-establish identity, employment, title, or sensitive attributes. Dossier QC is the post-synthesis half of the same rule:
+snippet is a free-floating assertion. Social snippets are kept in a separate context, are never
+fetched as employment evidence, and are rendered under a heading that says the section may not
+be accurate; they cannot establish identity, employment, title, or sensitive attributes. Dossier QC is the post-synthesis half of the same rule:
 the model's rows are held to the confirmed employer, with a bounded reverse lookup rescuing
 genuine past employers. The **Same-named people** section is the multilateral half of the same
 learning: a person search answers with several people who share the name, so the evidence the

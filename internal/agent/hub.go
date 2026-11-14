@@ -66,6 +66,33 @@ func (s *Session) GetCompanyContext() *models.CompanyResearchContext {
 	return s.CompanyContext
 }
 
+// UpdateCompanyChart applies update to a completed company result under the session lock and
+// reports whether the session held a company chart to update. It exists for post-run actions
+// such as the on-demand RocketReach enrichment, which must mutate the same chart the result
+// view and exports read without racing a still-running session.
+//
+// The chart is copy-on-write: the roster slice is copied and a new chart pointer is published,
+// so a reader that already obtained the previous result (a CSV download, a rendered page) keeps
+// a stable snapshot instead of observing a slice being updated underneath it.
+func (s *Session) UpdateCompanyChart(update func(*models.OrgChart) bool) bool {
+	if update == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	chart, ok := s.Result.(*models.OrgChart)
+	if !ok || chart == nil {
+		return false
+	}
+	updated := *chart
+	updated.ResearchRoster = append([]models.CompanyResearchRow(nil), chart.ResearchRoster...)
+	if !update(&updated) {
+		return false
+	}
+	s.Result = &updated
+	return true
+}
+
 // GetResult returns the completed session result and error.
 func (s *Session) GetResult() (any, error) {
 	s.mu.Lock()

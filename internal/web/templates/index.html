@@ -28,6 +28,12 @@
         .mode-card input:focus-visible + span { outline: 2px solid rgb(129 140 248); outline-offset: 3px; }
         .field { transition: border-color .2s, box-shadow .2s; }
         .field:focus { box-shadow: 0 0 0 3px rgba(99, 102, 241, .14); }
+        .related-node-selected circle { stroke: rgb(251 191 36); stroke-width: 4; }
+        [data-related-node]:focus-visible circle { stroke: rgb(125 211 252); stroke-width: 4; }
+        .related-node-expand { cursor: pointer; }
+        .related-node-expand:hover circle, .related-node-expand:focus-visible circle { fill: rgb(30 41 59); stroke: rgb(186 230 253); }
+        .related-node-expand:focus-visible { outline: none; }
+        .related-node-expand text { pointer-events: none; }
     </style>
 </head>
 <body class="h-full flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
@@ -584,7 +590,125 @@
             if (term) {
                 term.scrollTop = term.scrollHeight;
             }
+            initRelatedGraphs(evt.target);
         });
+
+        function initRelatedGraphs(root) {
+            if (!root || !root.querySelectorAll) return;
+            root.querySelectorAll('[data-related-graph]').forEach(function(graph) {
+                if (graph.dataset.bound === 'true') return;
+                graph.dataset.bound = 'true';
+                const nodes = graph.querySelectorAll('[data-related-node]');
+                const edges = graph.querySelectorAll('[data-related-edge-from]');
+                const nodeByID = new Map();
+                const neighbours = new Map();
+                const visible = new Set();
+                const primaryID = 'company:primary';
+                const initialLeaderLimit = 4;
+                const initialCompanyLimit = 4;
+
+                nodes.forEach(function(node) {
+                    nodeByID.set(node.dataset.nodeId, node);
+                    neighbours.set(node.dataset.nodeId, new Set());
+                });
+                edges.forEach(function(edge) {
+                    const from = edge.dataset.relatedEdgeFrom;
+                    const to = edge.dataset.relatedEdgeTo;
+                    if (!neighbours.has(from)) neighbours.set(from, new Set());
+                    if (!neighbours.has(to)) neighbours.set(to, new Set());
+                    neighbours.get(from).add(to);
+                    neighbours.get(to).add(from);
+                });
+
+                visible.add(primaryID);
+                let leadersShown = 0;
+                let companiesShown = 0;
+                Array.from(neighbours.get(primaryID) || []).forEach(function(id) {
+                    const node = nodeByID.get(id);
+                    if (!node) return;
+                    if (node.dataset.nodeType === 'leader' && leadersShown < initialLeaderLimit) {
+                        visible.add(id);
+                        leadersShown++;
+                    } else if (node.dataset.nodeType !== 'leader' && companiesShown < initialCompanyLimit) {
+                        visible.add(id);
+                        companiesShown++;
+                    }
+                });
+
+                function positionExpandControl(node) {
+                    const expand = node.querySelector('[data-related-expand]');
+                    const circle = node.querySelector('circle');
+                    if (!expand || !circle) return;
+                    const x = Number(circle.getAttribute('cx'));
+                    const y = Number(circle.getAttribute('cy'));
+                    const radius = Number(circle.getAttribute('r'));
+                    expand.setAttribute('transform', 'translate(' + (x + radius + 8) + ' ' + (y - radius - 8) + ')');
+                }
+
+                function renderGraph() {
+                    edges.forEach(function(edge) {
+                        const shown = visible.has(edge.dataset.relatedEdgeFrom) && visible.has(edge.dataset.relatedEdgeTo);
+                        edge.hidden = !shown;
+                    });
+                    nodes.forEach(function(node) {
+                        const shown = visible.has(node.dataset.nodeId);
+                        node.hidden = !shown;
+                        if (!shown) return;
+                        const expand = node.querySelector('[data-related-expand]');
+                        const hiddenCount = Array.from(neighbours.get(node.dataset.nodeId) || []).filter(function(id) {
+                            return !visible.has(id);
+                        }).length;
+                        if (expand) {
+                            expand.hidden = hiddenCount === 0;
+                            expand.setAttribute('aria-hidden', hiddenCount === 0 ? 'true' : 'false');
+                            expand.setAttribute('aria-label', 'Expand ' + hiddenCount + ' more connection' + (hiddenCount === 1 ? '' : 's') + ' from ' + node.dataset.nodeName);
+                            expand.dataset.hiddenCount = String(hiddenCount);
+                        }
+                        positionExpandControl(node);
+                    });
+                }
+
+                function select(node) {
+                    nodes.forEach(function(item) { item.classList.remove('related-node-selected'); });
+                    node.classList.add('related-node-selected');
+                    const detail = graph.querySelector('[data-related-detail][data-node-id="' + CSS.escape(node.dataset.nodeId) + '"]');
+                    if (detail) detail.open = true;
+                }
+
+                function expand(node) {
+                    (neighbours.get(node.dataset.nodeId) || []).forEach(function(id) { visible.add(id); });
+                    renderGraph();
+                }
+
+                nodes.forEach(function(node) {
+                    const expandControl = node.querySelector('[data-related-expand]');
+                    const selectNode = function() {
+                        select(node);
+                    };
+                    node.addEventListener('click', selectNode);
+                    node.addEventListener('keydown', function(event) {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            selectNode();
+                        }
+                    });
+                    if (expandControl) {
+                        const expandFromControl = function(event) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            expand(node);
+                        };
+                        expandControl.addEventListener('click', expandFromControl);
+                        expandControl.addEventListener('keydown', function(event) {
+                            if (event.key === 'Enter' || event.key === ' ') expandFromControl(event);
+                        });
+                    }
+                });
+                renderGraph();
+            });
+        }
+
+        initRelatedGraphs(document);
 
         document.addEventListener('input', function(evt) {
             if (evt.target.id === 'primary-query') {

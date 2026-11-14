@@ -57,6 +57,14 @@ func (pa *PersonAgent) qcPersonProfile(
 			kept = append(kept, row)
 			continue
 		}
+		// A RocketReach career-history row is a provider record, not a model guess. It is kept
+		// even when the employer is not the confirmed one, but flagged as unverified: dropping
+		// it was erasing exactly the history the run paid RocketReach to retrieve.
+		if strings.EqualFold(strings.TrimSpace(row.Provider), models.ProviderRocketReach) {
+			row.Flag = appendNote(row.Flag, "RocketReach career-history row; not independently verified by web evidence")
+			kept = append(kept, row)
+			continue
+		}
 		// Either this person's career history or another person's role: one bounded,
 		// snippet-only reverse lookup decides which.
 		if pa.engine.ValidationEnabled() && lookups < pa.engine.ValidationLookups() && hasBudgetForValidation(ctx) {

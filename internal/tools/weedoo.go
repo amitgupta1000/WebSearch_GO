@@ -230,15 +230,16 @@ type WeeDooBrowserClient struct {
 }
 
 // NewWeeDooBrowserClient starts the browser the WeeDoo search runs in. The
-// browser is WeeDoo-only, so when WEEDOO_PROXY_URL is configured its whole
-// egress routes through the residential proxy — Chromium included.
+// browser is WeeDoo-only, so when a WeeDoo or shared proxy is configured its
+// whole egress routes through the residential proxy, Chromium included.
 func NewWeeDooBrowserClient(timeout time.Duration) (*WeeDooBrowserClient, error) {
-	renderer, err := newPlaywrightRendererWithProxy(timeout, weedooProxyURL)
+	proxyURL := proxiedHostRule("weedoo.in")
+	renderer, err := newPlaywrightRendererWithProxy(timeout, proxyURL)
 	if err != nil {
 		return nil, err
 	}
-	if weedooProxyURL != "" {
-		log.Printf("[WEEDOO] browser egress routes through WEEDOO_PROXY_URL")
+	if proxyURL != "" {
+		log.Printf("[WEEDOO] browser egress routes through the configured residential proxy")
 	}
 	return &WeeDooBrowserClient{renderer: renderer, cache: map[string]string{}}, nil
 }

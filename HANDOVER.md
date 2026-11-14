@@ -87,6 +87,75 @@
   the CIN-from-hits path (plain fetch of the server-rendered page) still works there, and
   DINs frozen from retained evidence keep the freeze functional.
 
+## Person social section (unverified)
+
+- **Separate by construction.** `models.SocialSignal` + `PersonProfile.Socials`/`SocialNote`
+  are attached by the agent, never by the model. `PublicAccounts` is now a projection of the
+  same signals, so the API cannot present a second, divergent list. The fixed
+  `models.PersonSocialDisclaimer` says the section may not be accurate and that it is not
+  identity/employment evidence.
+- **Plan.** Five bounded, snippets-only platform queries (X/Twitter, Facebook, Instagram,
+  LinkedIn posts, YouTube), each anchored on the quoted name plus company/location and carrying
+  an `after:` recency window. A company run plans 10 queries, a name-alone run 8; cap 12.
+- **Admission.** `personGate.personalizationVerdict` requires the hit to name the person and
+  state the confirmed company (0.7), the confirmed place (0.4 with a company, 0.5 without), or a
+  recognisable role (0.3/0.35); a headline naming a different employer is refused. Name-only
+  hits are excluded — the section is allowed to be thin, not to present a stranger.
+- **No fetch.** A social URL is skipped by `addCandidate` and by the confirmed-seed fetch, is
+  never counted in the employment identity check, and is not listed in `profile.Sources`. The
+  operator-confirmed profile leads the section at confidence 1.0 when it is a social page.
+- **Rendering.** A distinct “Social signals (unverified)” section with the warning in the
+  console (`person_dossier`), Markdown/PDF, and HTML export; omitted when empty. The
+  model-derived interests/themes block is now “Interests and themes (unverified)”.
+- **Tests.** `person_social_test.go` (signals, basis, dates, no fetch), `person_plan_test.go`
+  (10/8 plan, five platforms), `person_gate_test.go` (admission), `render_test.go` and
+  `web_test.go` (separate section + warning on every surface).
+
+## RocketReach person disambiguation
+
+- **Career history is already decoded** (`tools.RocketReachProfile.JobHistory`) and is used:
+  - in the person synthesis prompt (`formatRocketReachProfile`) and merged into the dossier's
+    experience/education/skills rows (`mergeRocketReachProfile`), with the LinkedIn URL or
+    "RocketReach" as the row source;
+  - as the company roster's `CareerHistory` column (`rocketReachCareerHistory`);
+  - by related-entity discovery, which accepts a current **or past** employer match
+    (`rocketReachProfileMatchesCompany`).
+- **Person candidate selection now uses it too.** `selectRocketReachCandidateWithBasis` ranks:
+  confirmed seed URL → current employer → most recent past role at the confirmed employer →
+  lone exact name (only when there is no company or seed). Ties among past roles are broken by
+  end date, with an open-ended role treated as newest.
+- **Search fallback is two-pass and still free.** `searchRocketReachCandidate` first searches
+  with `current_employer`; if that selects nobody, it retries once without the filter so a
+  former director/employee can be found by career history. Only the selected candidate costs a
+  paid lookup.
+- **Paid lookup is pinned.** When the search summary carries an `ID`, the full record is fetched
+  with `LookupByID`; name/employer lookup is only the fallback. This avoids re-resolving the
+  ambiguity the selection just settled.
+- **Past-role matches are labelled.** `rocketReachPastRoleWarning` adds a dossier warning when
+  the profile's current employer differs from the confirmed company but career history matches:
+  “matched by a past role at X … current employer is listed as Y; verify the current role.”
+- **Provenance.** `Experience` and `Education` now carry `Provider`; RocketReach merges set
+  `Provider: RocketReach` while keeping the provider's LinkedIn URL as the source link. Console,
+  Markdown/PDF and HTML render the provider so a provider record is not mistaken for a scraped
+  page.
+- **Provider-aware QC.** `qcPersonProfile` keeps a RocketReach career-history row even when the
+  employer is not the confirmed one, adding
+  “RocketReach career-history row; not independently verified by web evidence” instead of
+  dropping the paid history.
+- **Fetch RR is persistent and cached.** The company roster's per-row action now sends
+  `session_id`; `handleMarketRocketReach` merges the full profile into the completed chart's
+  `ResearchRoster` row (`agent.ApplyRocketReachProfileToRoster`) and publishes a copy-on-write
+  chart, so reloads/CSV show career history, education, skills and verified contacts. Lookups
+  are cached by RR profile ID for 24 hours in a bounded process-local map, so repeated clicks
+  do not spend another credit. The row's result fragment says whether the answer came from cache
+  and whether it was saved.
+- **CSV** gained `Emails`, `Phones`, `Education` and `RR enriched at` columns.
+- **Deliberate limits.** Company-mode discovery and market-landscape discovery still filter on
+  current employer only — their rosters are current people, not alumni. Contact-detail lookup
+  remains on-demand (explicit person run or the market “Fetch contact details” action).
+- **Tests.** `person_rocketreach_test.go`: past-role selection, current-employer precedence,
+  recency tie-break, unfiltered retry, ID-pinned lookup, warning text.
+
 ## Company mode behavior
 
 CompanyAgent now defaults to leadership-focused research:

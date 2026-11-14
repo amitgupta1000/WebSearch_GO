@@ -7,10 +7,12 @@ import (
 
 // restoreProxyKnobs returns a defer func restoring both proxy knobs, so tests
 // can set them without leaking into later tests.
-func restoreProxyKnobs(weedoo, linkedin string) func() {
+
+func restoreProxyKnobs(weedoo, linkedin, shared string) func() {
 	return func() {
 		weedooProxyURL = weedoo
 		linkedinProxyURL = linkedin
+		sharedProxyURL = shared
 	}
 }
 
@@ -20,7 +22,7 @@ func restoreProxyKnobs(weedoo, linkedin string) func() {
 // never touch either proxy — the residential bandwidth is spent only on the
 // hosts that need it.
 func TestScraperProxyRoutesEachHostToItsOwnProxy(t *testing.T) {
-	defer restoreProxyKnobs(weedooProxyURL, linkedinProxyURL)()
+	defer restoreProxyKnobs(weedooProxyURL, linkedinProxyURL, sharedProxyURL)()
 	weedooProxyURL = "http://weedoo-user:weedoo-secret@resi-ipv4-6.gw.tprx.io:8080"
 	linkedinProxyURL = "http://li-user:li-secret@resi-ipv4-2.gw.tprx.io:8080"
 
@@ -95,9 +97,10 @@ func TestScraperProxyRoutesEachHostToItsOwnProxy(t *testing.T) {
 // without the knobs are byte-for-byte unchanged, and an operator setting
 // HTTPS_PROXY globally still gets it honored.
 func TestScraperProxyDisabledKeepsDefaultBehavior(t *testing.T) {
-	defer restoreProxyKnobs(weedooProxyURL, linkedinProxyURL)()
+	defer restoreProxyKnobs(weedooProxyURL, linkedinProxyURL, sharedProxyURL)()
 	weedooProxyURL = ""
 	linkedinProxyURL = ""
+	sharedProxyURL = ""
 
 	for _, target := range []string{
 		"https://weedoo.in/",
@@ -117,7 +120,7 @@ func TestScraperProxyDisabledKeepsDefaultBehavior(t *testing.T) {
 	}
 
 	// One knob unset must not disable the other.
-	defer restoreProxyKnobs(weedooProxyURL, linkedinProxyURL)()
+	defer restoreProxyKnobs(weedooProxyURL, linkedinProxyURL, sharedProxyURL)()
 	weedooProxyURL = ""
 	linkedinProxyURL = "http://li-user:li-secret@resi-ipv4-2.gw.tprx.io:8080"
 	linkReq, err := http.NewRequest(http.MethodGet, "https://www.linkedin.com/in/someone/", nil)
@@ -140,9 +143,10 @@ func TestScraperProxyDisabledKeepsDefaultBehavior(t *testing.T) {
 // names exactly the hosts whose proxy is configured, and names none when the
 // knobs are unset.
 func TestEgressProxySummaryListsOnlyActiveHosts(t *testing.T) {
-	defer restoreProxyKnobs(weedooProxyURL, linkedinProxyURL)()
+	defer restoreProxyKnobs(weedooProxyURL, linkedinProxyURL, sharedProxyURL)()
 	weedooProxyURL = ""
 	linkedinProxyURL = ""
+	sharedProxyURL = ""
 	if summary := egressProxySummary(); summary != "" {
 		t.Fatalf("unset knobs must produce an empty summary, got %q", summary)
 	}
@@ -150,5 +154,45 @@ func TestEgressProxySummaryListsOnlyActiveHosts(t *testing.T) {
 	linkedinProxyURL = "http://user:pass@gw2:8080"
 	if summary := egressProxySummary(); summary != "weedoo.in, linkedin.com" {
 		t.Fatalf("expected both hosts listed, got %q", summary)
+	}
+}
+
+func TestScraperProxyUsesCompanySearchHTTPSProxyFallback(t *testing.T) {
+	defer restoreProxyKnobs(weedooProxyURL, linkedinProxyURL, sharedProxyURL)()
+	weedooProxyURL = ""
+	linkedinProxyURL = ""
+	sharedProxyURL = "http://company-user:company-secret@resi.example:8080"
+
+	req, err := http.NewRequest(http.MethodGet, "https://weedoo.in/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := scraperProxyForRequest(req)
+	if err != nil || got == nil || got.Host != "resi.example:8080" {
+		t.Fatalf("HTTPS_PROXY fallback must route WeeDoo through the company-search proxy, got %+v (err %v)", got, err)
+	}
+	if got.User == nil || got.User.Username() != "company-user" {
+		t.Fatalf("HTTPS_PROXY credentials must survive the fallback, got %v", got.User)
+	}
+
+	if got := proxiedHostRule("weedoo.in"); got != sharedProxyURL {
+		t.Fatalf("WeeDoo browser must use the same HTTPS_PROXY fallback, got %q", got)
+	}
+	if summary := egressProxySummary(); summary != "weedoo.in, linkedin.com" {
+		t.Fatalf("shared fallback must activate both host routes, got %q", summary)
+	}
+}
+
+func TestHostSpecificProxyOverridesCompanySearchHTTPSProxy(t *testing.T) {
+	defer restoreProxyKnobs(weedooProxyURL, linkedinProxyURL, sharedProxyURL)()
+	sharedProxyURL = "http://company-user:company-secret@shared.example:8080"
+	weedooProxyURL = "http://weedoo-user:weedoo-secret@weedoo.example:8080"
+	linkedinProxyURL = ""
+
+	if got := proxiedHostRule("weedoo.in"); got != weedooProxyURL {
+		t.Fatalf("explicit WeeDoo proxy must override HTTPS_PROXY, got %q", got)
+	}
+	if got := proxiedHostRule("www.linkedin.com"); got != sharedProxyURL {
+		t.Fatalf("LinkedIn must inherit HTTPS_PROXY when its explicit knob is absent, got %q", got)
 	}
 }

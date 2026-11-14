@@ -78,6 +78,35 @@ func TestIndexHasStableQueryControls(t *testing.T) {
 	}
 }
 
+func TestRelatedEntityGraphRendersExpandableNodes(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := &models.RelatedEntityReport{
+		CompanyName: "Acme",
+		Graph: models.RelatedEntityGraph{
+			Nodes: []models.RelatedEntityNode{
+				{ID: "company:primary", Name: "Acme", Type: "primary_company", X: 500, Y: 70, LabelY: 116},
+				{ID: "person:jane", Name: "Jane Doe", Type: "leader", X: 500, Y: 250, LabelY: 296},
+			},
+			Edges: []models.RelatedEntityEdge{{From: "company:primary", To: "person:jane", X1: 500, Y1: 70, X2: 500, Y2: 250}},
+		},
+	}
+
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "related_entity_report", report); err != nil {
+		t.Fatalf("execute related_entity_report: %v", err)
+	}
+	page := out.String()
+	if !strings.Contains(page, `data-related-expand`) {
+		t.Error("related entity graph nodes must include expandable plus controls")
+	}
+	if !strings.Contains(page, `aria-label="Expand connections for Acme"`) {
+		t.Error("expand control must be accessible by name")
+	}
+}
+
 func TestCompanyChartEscapesUntrustedContent(t *testing.T) {
 	tmpl, err := Templates()
 	if err != nil {
@@ -147,6 +176,49 @@ func TestPersonDossierEscapesAndRendersScore(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "RocketReach was unavailable") {
 		t.Errorf("expected RocketReach warning, got: %s", out.String())
+	}
+}
+
+func TestPersonDossierRendersTheFlaggedSocialSectionSeparately(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := &models.PersonProfile{
+		FullName:        "Asha Rao",
+		SocialNote:      models.PersonSocialDisclaimer,
+		PublicInterests: []string{"specialty chemicals"},
+		Socials: []models.SocialSignal{{
+			Platform: "X/Twitter", URL: "https://x.com/asharao",
+			Title: "Asha Rao (@asharao) / X", Snippet: "Asha Rao at Acme Corporation.",
+			Source: "PUBLIC PERSONALIZATION — X/TWITTER", IdentityBasis: "name plus confirmed company",
+			Confidence: 0.7, ObservedAt: "2025-03-12",
+		}},
+	}
+
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "person_dossier", profile); err != nil {
+		t.Fatalf("execute person_dossier: %v", err)
+	}
+	for _, expected := range []string{
+		"Social signals (unverified)", "may not be accurate", "This section may not be accurate",
+		"https://x.com/asharao", "name plus confirmed company", "2025-03-12",
+		"Interests and themes (unverified)",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Errorf("person dossier is missing %q", expected)
+		}
+	}
+	if strings.Index(out.String(), "Social signals (unverified)") > strings.Index(out.String(), "Interests and themes (unverified)") {
+		t.Error("the social section must lead the interests section, not be folded into it")
+	}
+
+	var empty strings.Builder
+	if err := tmpl.ExecuteTemplate(&empty, "person_dossier", &models.PersonProfile{FullName: "Asha Rao"}); err != nil {
+		t.Fatalf("execute empty person_dossier: %v", err)
+	}
+	if strings.Contains(empty.String(), "Social signals") {
+		t.Error("a dossier without social signals must not render the social section")
 	}
 }
 

@@ -508,6 +508,16 @@ func renderPersonMarkdown(profile *models.PersonProfile) string {
 	}
 	fmt.Fprintf(&builder, "Confidence: %d%%\n\n", profile.ScorePercent())
 
+	if len(profile.Warnings) > 0 {
+		builder.WriteString("## Warnings\n\n")
+		for _, warning := range profile.Warnings {
+			if warning = trimmed(warning); warning != "" {
+				fmt.Fprintf(&builder, "- %s\n", markdownCell(warning))
+			}
+		}
+		builder.WriteString("\n")
+	}
+
 	if summary := trimmed(profile.ExecutiveSummary); summary != "" {
 		builder.WriteString("## Executive summary\n\n")
 		builder.WriteString(summary)
@@ -557,6 +567,9 @@ func renderPersonMarkdown(profile *models.PersonProfile) string {
 			if source := trimmed(experience.Source); source != "" {
 				fmt.Fprintf(&builder, "[source](%s)\n\n", source)
 			}
+			if provider := trimmed(experience.Provider); provider != "" {
+				fmt.Fprintf(&builder, "Provider: %s\n\n", markdownCell(provider))
+			}
 			if flag := trimmed(experience.Flag); flag != "" {
 				fmt.Fprintf(&builder, "> ⚠ %s\n\n", flag)
 			}
@@ -571,11 +584,11 @@ func renderPersonMarkdown(profile *models.PersonProfile) string {
 
 	if len(profile.Education) > 0 {
 		builder.WriteString("## Education\n\n")
-		builder.WriteString("| Institution | Degree | Field | Year |\n| :--- | :--- | :--- | :--- |\n")
+		builder.WriteString("| Institution | Degree | Field | Year | Provider |\n| :--- | :--- | :--- | :--- | :--- |\n")
 		for _, education := range profile.Education {
-			fmt.Fprintf(&builder, "| %s | %s | %s | %s |\n",
+			fmt.Fprintf(&builder, "| %s | %s | %s | %s | %s |\n",
 				markdownCell(education.Institution), markdownCell(education.Degree),
-				markdownCell(education.Field), markdownCell(education.Year))
+				markdownCell(education.Field), markdownCell(education.Year), markdownCell(education.Provider))
 		}
 		builder.WriteString("\n")
 	}
@@ -592,11 +605,56 @@ func renderPersonMarkdown(profile *models.PersonProfile) string {
 		builder.WriteString("\n")
 	}
 
+	builder.WriteString(renderPersonSocialMarkdown(profile.Socials, profile.SocialNote))
 	builder.WriteString(renderPersonGateMarkdown(profile.PersonGate))
 	builder.WriteString(renderSameNamedMarkdown(profile.SameNamed))
 	builder.WriteString(renderPersonTraceMarkdown(profile))
 	builder.WriteString(renderSourcesMarkdown(profile.Sources))
 	return strings.TrimRight(builder.String(), "\n") + "\n"
+}
+
+// renderPersonSocialMarkdown renders the separate social section. It is deliberately not
+// folded into experience or education: the "may not be accurate" warning is the point of the
+// section, and every signal carries the basis and confidence that admitted it.
+func renderPersonSocialMarkdown(signals []models.SocialSignal, note string) string {
+	if len(signals) == 0 {
+		return ""
+	}
+	if strings.TrimSpace(note) == "" {
+		note = models.PersonSocialDisclaimer
+	}
+	var builder strings.Builder
+	builder.WriteString("## Social signals (unverified)\n\n")
+	fmt.Fprintf(&builder, "> **May not be accurate.** %s\n\n", markdownCell(note))
+	for _, signal := range signals {
+		platform := nonEmpty(signal.Platform, "Social")
+		fmt.Fprintf(&builder, "- **%s**", markdownCell(platform))
+		if title := trimmed(signal.Title); title != "" && !strings.EqualFold(title, platform) {
+			fmt.Fprintf(&builder, " — %s", markdownCell(title))
+		}
+		if snippet := trimmed(signal.Snippet); snippet != "" {
+			fmt.Fprintf(&builder, ": %s", markdownCell(snippet))
+		}
+		fmt.Fprintf(&builder, " ([source](%s))\n", signal.URL)
+		details := make([]string, 0, 4)
+		if basis := trimmed(signal.IdentityBasis); basis != "" {
+			details = append(details, "Identity basis: "+markdownCell(basis))
+		}
+		if signal.Confidence > 0 {
+			details = append(details, fmt.Sprintf("confidence %.2f", signal.Confidence))
+		}
+		if observed := trimmed(signal.ObservedAt); observed != "" {
+			details = append(details, "dated "+markdownCell(observed))
+		}
+		if source := trimmed(signal.Source); source != "" {
+			details = append(details, "from "+markdownCell(source))
+		}
+		if len(details) > 0 {
+			fmt.Fprintf(&builder, "  %s\n", strings.Join(details, " · "))
+		}
+	}
+	builder.WriteString("\n")
+	return builder.String()
 }
 
 // renderSameNamedMarkdown renders the multilateral view: the evidence for the other people who

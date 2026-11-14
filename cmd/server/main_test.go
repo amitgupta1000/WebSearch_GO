@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/agent"
 	"github.com/amitgupta1000/WebSearch_GO/internal/config"
@@ -582,3 +583,32 @@ func TestPersonQueryFromFormCarriesTheConfirmedIdentity(t *testing.T) {
 		t.Fatalf("expected an unconfirmed typed query, got %+v", typed)
 	}
 }
+func TestRocketReachProfileCacheServesAndExpires(t *testing.T) {
+	srv := &Server{}
+	if _, ok := srv.cachedRocketReachProfile(0); ok {
+		t.Fatal("a zero id must never hit the cache")
+	}
+	srv.rememberRocketReachProfile(nil)
+	srv.rememberRocketReachProfile(&tools.RocketReachProfile{Name: "No ID"})
+	if len(srv.rocketReachCache) != 0 {
+		t.Fatalf("a profile without an ID must not be cached, got %+v", srv.rocketReachCache)
+	}
+
+	profile := &tools.RocketReachProfile{ID: 42, Name: "Hemant Jain", Emails: []tools.RocketReachContact{{Email: "h@example.com", Grade: "B"}}}
+	srv.rememberRocketReachProfile(profile)
+	cached, ok := srv.cachedRocketReachProfile(42)
+	if !ok || cached != profile {
+		t.Fatalf("expected the remembered profile, got %+v (ok=%v)", cached, ok)
+	}
+
+	srv.rocketReachCache[42] = rocketReachCacheEntry{
+		Profile: profile, CachedAt: time.Now().Add(-rocketReachProfileTTL - time.Minute),
+	}
+	if _, ok := srv.cachedRocketReachProfile(42); ok {
+		t.Fatal("an expired cache entry must be a miss")
+	}
+	if _, present := srv.rocketReachCache[42]; present {
+		t.Fatal("an expired cache entry must be removed on read")
+	}
+}
+

@@ -16,6 +16,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -42,7 +43,11 @@ type Server struct {
 	newsAgent    *agent.NewsAgent
 	deepAgent    *agent.DeepSearchAgent
 	rocketReach  *tools.RocketReachClient
-	hub          *agent.SessionHub
+	// rocketReachCache memoises the paid on-demand lookups by RocketReach profile ID so a
+	// repeated Fetch RR click does not spend another credit. Guarded by rocketReachMu.
+	rocketReachMu    sync.Mutex
+	rocketReachCache map[int]rocketReachCacheEntry
+	hub              *agent.SessionHub
 	tmpl         *template.Template
 	// browserAvailable is probed once at startup so the console never offers a
 	// rendering toggle that cannot work.
@@ -666,19 +671,22 @@ func uniqueMarketRegions(values []string) []string {
 }
 
 type marketRocketReachView struct {
-	Name    string
-	Company string
-	Profile *tools.RocketReachProfile
-	Error   string
+	Name      string
+	Company   string
+	Profile   *tools.RocketReachProfile
+	Error     string
+	Cached    bool
+	Persisted bool
 }
 
 func (s *Server) handleMarketRocketReach(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("person_name"))
 	company := strings.TrimSpace(r.FormValue("company_name"))
 	linkedinURL := strings.TrimSpace(r.FormValue("linkedin_url"))
+	sessionID := strings.TrimSpace(r.FormValue("session_id"))
 	profileID, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("rocketreach_id")))
-	if name == "" || company == "" {
-		s.render(w, "market_rocketreach_result", marketRocketReachView{Error: "A person name and company are required."})
+	if name == "" && linkedinURL == "" && profileID <= 0 {
+		s.render(w, "market_rocketreach_result", marketRocketReachView{Error: "A person name, LinkedIn URL, or RocketReach id is required."})
 		return
 	}
 	if s.rocketReach == nil || !s.rocketReach.Enabled() {
@@ -686,14 +694,26 @@ func (s *Server) handleMarketRocketReach(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var profile *tools.RocketReachProfile
-	var err error
+	cached := false
 	if profileID > 0 {
-		profile, err = s.rocketReach.LookupByID(r.Context(), profileID)
+		if hit, ok := s.cachedRocketReachProfile(profileID); ok {
+			profile, cached = hit, true
+		}
 	}
-	if err == nil && profile == nil && linkedinURL != "" {
+	var err error
+	if profile == nil && profileID > 0 {
+		profile, err = s.rocketReach.LookupByID(r.Context(), profileID)
+		if err != nil {
+			// An exact-ID failure should not block the LinkedIn/name fallbacks; report it only
+			// if everything else also misses.
+			log.Printf("[ROCKETREACH] lookup by id %d failed: %v", profileID, err)
+			profile, err = nil, nil
+		}
+	}
+	if profile == nil && linkedinURL != "" {
 		profile, err = s.rocketReach.Lookup(r.Context(), name, company, linkedinURL)
 	}
-	if err == nil && profile == nil {
+	if profile == nil && err == nil && name != "" {
 		profile, err = s.rocketReach.Lookup(r.Context(), name, company, "")
 	}
 	if err != nil || profile == nil {
@@ -704,7 +724,20 @@ func (s *Server) handleMarketRocketReach(w http.ResponseWriter, r *http.Request)
 		s.render(w, "market_rocketreach_result", marketRocketReachView{Name: name, Company: company, Error: message})
 		return
 	}
-	s.render(w, "market_rocketreach_result", marketRocketReachView{Name: name, Company: company, Profile: profile})
+	s.rememberRocketReachProfile(profile)
+	// Persist the paid result into the completed company session so a reload or the roster CSV
+	// shows the same career history and contacts instead of a transient row fragment.
+	persisted := false
+	if sessionID != "" && s.hub != nil {
+		if session, ok := s.hub.Get(sessionID); ok {
+			persisted = session.UpdateCompanyChart(func(chart *models.OrgChart) bool {
+				return agent.ApplyRocketReachProfileToRoster(chart, profile)
+			})
+		}
+	}
+	s.render(w, "market_rocketreach_result", marketRocketReachView{
+		Name: name, Company: company, Profile: profile, Cached: cached, Persisted: persisted,
+	})
 }
 
 func normalizeMarketPrompt(value string) (string, []string) {
@@ -1197,7 +1230,7 @@ func (s *Server) handleCompanyRosterCSV(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+companyRosterFilename(chart.CompanyName)+`"`)
 	writer := csv.NewWriter(w)
-	if err := writer.Write([]string{"Person", "LinkedIn URL", "Designation", "Location", "Career history", "Classification", "Status", "Verification", "Verification note", "Research query", "RocketReach ID", "Source"}); err != nil {
+	if err := writer.Write([]string{"Person", "LinkedIn URL", "Designation", "Location", "Career history", "Classification", "Status", "Verification", "Verification note", "Research query", "RocketReach ID", "Source", "Emails", "Phones", "Education", "RR enriched at"}); err != nil {
 		return
 	}
 	for _, row := range chart.ResearchRoster {
@@ -1214,6 +1247,10 @@ func (s *Server) handleCompanyRosterCSV(w http.ResponseWriter, r *http.Request) 
 			row.ResearchQuery,
 			strconv.Itoa(row.RocketReachID),
 			row.Source,
+			companyRosterEmails(row.Emails),
+			companyRosterPhones(row.Phones),
+			companyRosterEducation(row.Education),
+			row.EnrichedAt,
 		}); err != nil {
 			return
 		}
@@ -1239,6 +1276,44 @@ func companyRosterCareerHistory(history []models.RocketReachCareerEntry) string 
 		}
 	}
 	return strings.Join(entries, " | ")
+}
+
+func companyRosterEmails(items []models.PersonContactEmail) string {
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		email := strings.TrimSpace(item.Email)
+		if email == "" {
+			continue
+		}
+		if grade := strings.TrimSpace(item.Grade); grade != "" {
+			email += " (" + grade + ")"
+		}
+		values = append(values, email)
+	}
+	return strings.Join(values, " | ")
+}
+
+func companyRosterPhones(items []models.PersonContactPhone) string {
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		if number := strings.TrimSpace(item.Number); number != "" {
+			values = append(values, number)
+		}
+	}
+	return strings.Join(values, " | ")
+}
+
+func companyRosterEducation(items []models.Education) string {
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		institution := strings.TrimSpace(item.Institution)
+		degree := strings.TrimSpace(item.Degree)
+		entry := strings.TrimSpace(strings.Trim(institution+" · "+degree, " ·"))
+		if entry != "" {
+			values = append(values, entry)
+		}
+	}
+	return strings.Join(values, " | ")
 }
 
 func companyRosterFilename(companyName string) string {

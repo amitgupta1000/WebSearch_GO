@@ -129,6 +129,82 @@ func TestDirectAssociationHitsRejectNamesakesAndResearchReports(t *testing.T) {
 	}
 }
 
+func TestRelatedIdentityGateRejectsConfirmedNamesakeWithoutAnchor(t *testing.T) {
+	query := models.RelatedEntityQuery{
+		CompanyName:    "Northstar Resources Limited",
+		Domain:         "northstarresources.in",
+		RegistrationID: "L12345MH2010PLC123456",
+		Country:        "India",
+	}
+	hits := directAssociationHits(query, []models.SearchResult{
+		{
+			Title:   "Northstar Resources Limited group structure",
+			Link:    "https://northstarresources.in/group",
+			Snippet: "Northstar Resources Limited lists Northstar Chemicals as a subsidiary.",
+		},
+		{
+			Title:   "Northstar Resources Limited affiliates",
+			Link:    "https://www.sec.gov/Archives/edgar/data/northstar-resources",
+			Snippet: "Northstar Resources Limited lists Northstar Minerals as an affiliate.",
+		},
+		{
+			Title:   "Northstar Resources Limited annual report",
+			Link:    "https://northstarresources.in/reports/annual-report.pdf",
+			Snippet: "Northstar Resources Limited lists Northstar Chemicals as a subsidiary.",
+		},
+	})
+	if len(hits) != 2 || hits[0].Link != "https://northstarresources.in/group" || hits[1].Link != "https://northstarresources.in/reports/annual-report.pdf" {
+		t.Fatalf("expected only primary-domain evidence, got %+v", hits)
+	}
+
+	if relatedHitMatchesIdentity(query, models.SearchResult{
+		Title:   "Northstar Resources Limited filing",
+		Link:    "https://www.sec.gov/Archives/edgar/data/northstar-resources",
+		Snippet: "Northstar Resources Limited registration L99999DE2010PLC999999",
+	}) {
+		t.Fatal("a different registration id must not establish the confirmed identity")
+	}
+	if relatedHitMatchesIdentity(query, models.SearchResult{
+		Title:   "Northstar Resources Limited filing",
+		Link:    "https://www.sec.gov/Archives/edgar/data/northstar-resources",
+		Snippet: "Northstar Resources Limited lists northstarresources.in as a competitor.",
+	}) {
+		t.Fatal("a third-party mention of the primary domain must not establish identity")
+	}
+	if !relatedHitMatchesIdentity(query, models.SearchResult{
+		Title:   "Northstar Resources Limited filing",
+		Link:    "https://www.sec.gov/Archives/edgar/data/northstar-resources",
+		Snippet: "Northstar Resources Limited registration L12345MH2010PLC123456",
+	}) {
+		t.Fatal("the confirmed registration id should establish identity")
+	}
+}
+
+func TestRelatedIdentityGateAcceptsConfirmedWeeDooBusinessNetwork(t *testing.T) {
+	query := models.RelatedEntityQuery{
+		CompanyName:    "Northstar Resources Limited",
+		Domain:         "northstarresources.in",
+		RegistrationID: "L12345MH2010PLC123456",
+	}
+	valid := models.SearchResult{
+		Title:   "WeeDoo business network for Northstar Resources Limited",
+		Link:    "https://weedoo.in/company/NORTHSTAR-RESOURCES/L12345MH2010PLC123456#business-network",
+		Snippet: "Business network of Northstar Resources Limited - connected companies: Northstar Chemicals",
+	}
+	if !relatedHitMatchesIdentity(query, valid) {
+		t.Fatal("the constructed WeeDoo network hit should use its confirmed CIN as identity")
+	}
+	if got := directAssociationHits(query, []models.SearchResult{valid}); len(got) != 1 {
+		t.Fatalf("expected the valid WeeDoo network hit to survive, got %+v", got)
+	}
+
+	wrongCIN := valid
+	wrongCIN.Link = "https://weedoo.in/company/NORTHSTAR-RESOURCES/U99999DE2010PLC999999#business-network"
+	if relatedHitMatchesIdentity(query, wrongCIN) {
+		t.Fatal("a WeeDoo network hit for a different CIN must be rejected")
+	}
+}
+
 func TestExplicitDirectRelationshipEvidenceRejectsCoMention(t *testing.T) {
 	if explicitDirectRelationshipEvidence([]models.RelatedEntityEvidence{{
 		Title:   "Pure Chemicals market participants",

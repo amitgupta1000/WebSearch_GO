@@ -50,6 +50,15 @@ type PersonProfile struct {
 	// model, because a person search answers with several people and the operator should see
 	// all of them.
 	SameNamed []PersonEvidenceGroup `json:"same_named,omitempty"`
+	// Socials is the separate, clearly-flagged social section: public social accounts and
+	// snippets collected from search results. It is deliberately outside the dossier's
+	// employment evidence — a namesake's account, an old post, or a search engine's summary
+	// can all look like the person — and it is rendered under its own "may not be accurate"
+	// heading. Attached by the agent, never by the model.
+	Socials []SocialSignal `json:"socials,omitempty"`
+	// SocialNote is the warning rendered with Socials. It is a fixed disclaimer, not model
+	// output, so every surface states the same limitation.
+	SocialNote string `json:"social_note,omitempty"`
 }
 
 type PersonContactEnrichment struct {
@@ -68,6 +77,37 @@ type PersonContactEmail struct {
 type PersonContactPhone struct {
 	Number string `json:"number"`
 	Type   string `json:"type,omitempty"`
+}
+
+// PersonSocialDisclaimer is the fixed warning that accompanies the separate social section.
+// It exists as one constant so the console, Markdown/PDF and HTML exports cannot drift into
+// describing the section with different levels of confidence.
+const PersonSocialDisclaimer = "This section may not be accurate. It is collected from public search snippets only; an account or post may belong to a different person with the same name, may be outdated, or may be taken out of context. It is for outreach context only and must not be used to verify identity, employment, or sensitive attributes."
+
+// ProviderRocketReach marks a row that came from a RocketReach profile rather than a scraped
+// page. The row can still carry the provider's LinkedIn URL as its Source; the Provider field is
+// what prevents the dossier from implying the page itself was read.
+const ProviderRocketReach = "RocketReach"
+
+// SocialSignal is one public social account or post candidate from the flagged social
+// section. It records the evidence behind the candidate — the snippet, the stated identity
+// basis, a confidence and the date the snippet proves — so the operator can judge it instead
+// of trusting a bare link.
+type SocialSignal struct {
+	Platform string `json:"platform"`
+	URL      string `json:"url"`
+	Title    string `json:"title,omitempty"`
+	Snippet  string `json:"snippet,omitempty"`
+	// Source is the planned search section that surfaced the signal, so the operator can see
+	// which question produced it.
+	Source string `json:"source,omitempty"`
+	// IdentityBasis states what tied the account or post to the confirmed person: the
+	// confirmed company, the confirmed location, a stated role, or the operator's confirmed
+	// profile. An empty basis is never rendered.
+	IdentityBasis string  `json:"identity_basis"`
+	Confidence    float64 `json:"confidence"`
+	// ObservedAt is the newest date the snippet proves (YYYY-MM-DD), empty when undated.
+	ObservedAt string `json:"observed_at,omitempty"`
 }
 
 // PublicAccount is a social account discovered from public indexed evidence. It is
@@ -182,7 +222,9 @@ type PersonQuery struct {
 // evidence that supports the row: the synthesis prompt requires it, and dossier QC uses it to
 // show what a dropped row was based on. Flag carries a QC warning — e.g. a timeline that
 // overlaps another row at a different employer, which is either genuine concurrency or a
-// blended row from a same-named person — set by QC, never by the model.
+// blended row from a same-named person — set by QC, never by the model. Provider names the
+// data source when the row did not come from the web synthesis (for example RocketReach), so
+// the dossier does not imply that a provider record was a scraped page.
 type Experience struct {
 	Role       string   `json:"role"`
 	Company    string   `json:"company"`
@@ -190,14 +232,18 @@ type Experience struct {
 	Period     string   `json:"period,omitempty"`
 	Highlights []string `json:"highlights,omitempty"`
 	Source     string   `json:"source,omitempty"`
+	Provider   string   `json:"provider,omitempty"`
 	Flag       string   `json:"flag,omitempty"`
 }
 
-// Education details an academic degree or qualification.
+// Education details an academic degree or qualification. Provider has the same meaning as on
+// Experience: a RocketReach education record is not a scraped page even when the provider
+// supplies a LinkedIn profile URL alongside it.
 type Education struct {
 	Institution string `json:"institution"`
 	Degree      string `json:"degree"`
 	Field       string `json:"field,omitempty"`
 	Year        string `json:"year,omitempty"`
 	Source      string `json:"source,omitempty"`
+	Provider    string `json:"provider,omitempty"`
 }

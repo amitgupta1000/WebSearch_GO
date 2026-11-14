@@ -157,6 +157,7 @@ var personHTMLTemplate = documentTemplate("person", `
 	{{if .Subtitle}}<p class="subtitle">{{.Subtitle}}</p>{{end}}
 	<p class="meta">Confidence {{.Profile.ScorePercent}}%</p>
 </header>
+{{if .Profile.Warnings}}<section><h2>Warnings</h2><ul>{{range .Profile.Warnings}}<li>{{.}}</li>{{end}}</ul></section>{{end}}
 {{if .Profile.ExecutiveSummary}}<section><h2>Executive summary</h2><p>{{.Profile.ExecutiveSummary}}</p></section>{{end}}
 {{if .Profile.Experiences}}<section>
 	<h2>Experience</h2>
@@ -165,6 +166,7 @@ var personHTMLTemplate = documentTemplate("person", `
 		<h3>{{.Role}}{{if .Company}} &mdash; {{.Company}}{{end}}</h3>
 		{{if or .Period .Location}}<p class="dim">{{.Period}}{{if and .Period .Location}} &middot; {{end}}{{.Location}}</p>{{end}}
 		{{if .Source}}<p class="src">source: {{.Source}}</p>{{end}}
+		{{if .Provider}}<p class="dim">provider: {{.Provider}}</p>{{end}}
 		{{if .Flag}}<p class="dim">&#9888; {{.Flag}}</p>{{end}}
 		{{if .Highlights}}<ul>{{range .Highlights}}<li>{{.}}</li>{{end}}</ul>{{end}}
 	</div>
@@ -172,8 +174,8 @@ var personHTMLTemplate = documentTemplate("person", `
 </section>{{end}}
 {{if .Profile.Education}}<section>
 	<h2>Education</h2>
-	<table><thead><tr><th>Institution</th><th>Degree</th><th>Field</th><th>Year</th></tr></thead><tbody>
-	{{range .Profile.Education}}<tr><td>{{.Institution}}</td><td>{{.Degree}}</td><td>{{.Field}}</td><td>{{.Year}}</td></tr>{{end}}
+	<table><thead><tr><th>Institution</th><th>Degree</th><th>Field</th><th>Year</th><th>Provider</th></tr></thead><tbody>
+	{{range .Profile.Education}}<tr><td>{{.Institution}}</td><td>{{.Degree}}</td><td>{{.Field}}</td><td>{{.Year}}</td><td>{{.Provider}}</td></tr>{{end}}
 	</tbody></table>
 </section>{{end}}
 {{if .Profile.KeySkills}}<section><h2>Key skills</h2><ul>{{range .Profile.KeySkills}}<li>{{.}}</li>{{end}}</ul></section>{{end}}
@@ -187,6 +189,18 @@ var personHTMLTemplate = documentTemplate("person", `
 {{if .Profile.Sources}}<section>
 	<h2>Sources</h2>
 	<ol>{{range .Profile.Sources}}<li class="src">{{.}}</li>{{end}}</ol>
+</section>{{end}}
+{{if .Profile.Socials}}<section class="card">
+	<h2>Social signals (unverified)</h2>
+	<p class="dim"><strong>May not be accurate.</strong> {{if .Profile.SocialNote}}{{.Profile.SocialNote}}{{else}}Collected from public search snippets only; may be inaccurate.{{end}}</p>
+	{{range .Profile.Socials}}
+	<div class="dept">
+		<h3>{{.Platform}}{{if .Title}} &mdash; {{.Title}}{{end}}</h3>
+		{{if .Snippet}}<p>{{.Snippet}}</p>{{end}}
+		<p class="dim">{{.IdentityBasis}} &middot; confidence {{printf "%.2f" .Confidence}}{{if .ObservedAt}} &middot; dated {{.ObservedAt}}{{end}}{{if .Source}} &middot; {{.Source}}{{end}}</p>
+		<p class="src">{{.URL}}</p>
+	</div>
+	{{end}}
 </section>{{end}}
 {{if .Profile.SameNamed}}<section class="card">
 	<h2>Same-named people</h2>

@@ -34,6 +34,9 @@ var funcs = template.FuncMap{
 	"mul": func(value float64, multiplier float64) float64 {
 		return value * multiplier
 	},
+	"lower": func(value string) string {
+		return strings.ToLower(strings.TrimSpace(value))
+	},
 }
 
 // Templates parses all embedded templates into a single set. The full page is

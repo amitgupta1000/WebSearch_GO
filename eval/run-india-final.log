@@ -1,0 +1,6 @@
+=== RUN   TestDemandChainEval
+    demand_chain_eval_test.go:407: scorecard -> C:\WebSearch_GO\eval\eval-methanol-india-scorecard.md
+    demand_chain_eval_test.go:413: summary -> C:\WebSearch_GO\eval\demand-eval-summary.md
+--- PASS: TestDemandChainEval (234.21s)
+PASS
+ok  	github.com/amitgupta1000/WebSearch_GO/internal/agent	234.866s

@@ -65,6 +65,10 @@ type CompanyResearchRow struct {
 	Designation      string                   `json:"designation,omitempty"`
 	Location         string                   `json:"location,omitempty"`
 	CareerHistory    []RocketReachCareerEntry `json:"career_history,omitempty"`
+	Education        []Education              `json:"education,omitempty"`
+	Skills           []string                 `json:"skills,omitempty"`
+	Emails           []PersonContactEmail     `json:"emails,omitempty"`
+	Phones           []PersonContactPhone     `json:"phones,omitempty"`
 	Source           string                   `json:"source,omitempty"`
 	Classification   string                   `json:"classification"`
 	Status           string                   `json:"status"`
@@ -72,6 +76,10 @@ type CompanyResearchRow struct {
 	VerificationNote string                   `json:"verification_note,omitempty"`
 	ResearchQuery    string                   `json:"research_query,omitempty"`
 	RocketReachID    int                      `json:"rocketreach_id,omitempty"`
+	// EnrichedAt records when a full RocketReach profile was merged into this row by the
+	// on-demand "Fetch RR" action. The free discovery search only supplies a summary, so this
+	// timestamp is how the console distinguishes a genuinely enriched row from a summary.
+	EnrichedAt string `json:"enriched_at,omitempty"`
 }
 
 // TimingTotalMillis is the summed duration of every recorded phase, used for the

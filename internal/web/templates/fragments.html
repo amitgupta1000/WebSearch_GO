@@ -46,7 +46,37 @@
 	</div>
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Relationship evidence</h4>
-		{{if .Graph.Edges}}<div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead class="text-slate-500"><tr><th class="p-2">From</th><th class="p-2">Relationship</th><th class="p-2">To</th><th class="p-2">Confidence</th></tr></thead><tbody>{{range .Graph.Edges}}<tr class="border-t border-slate-800"><td class="p-2 text-white">{{.FromLabel}}</td><td class="p-2 text-indigo-400">{{.Relationship}}</td><td class="p-2 text-white">{{.ToLabel}}</td><td class="p-2 text-slate-400">{{.Confidence}}</td></tr>{{end}}</tbody></table></div>{{else}}<p class="text-sm text-slate-500">No evidence-backed relationships were extracted.</p>{{end}}
+		{{if .Graph.Edges}}
+		<div data-related-graph class="space-y-3">
+			<div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/60 p-2">
+				<svg viewBox="0 0 1000 520" role="img" aria-label="Connected entity graph" class="min-w-[700px] w-full h-[420px]">
+					{{range .Graph.Edges}}<line x1="{{.X1}}" y1="{{.Y1}}" x2="{{.X2}}" y2="{{.Y2}}" stroke="rgb(71 85 105)" stroke-width="2" opacity=".8" data-related-edge-from="{{.From}}" data-related-edge-to="{{.To}}" />{{end}}
+					{{range .Graph.Nodes}}
+					<g tabindex="0" role="button" data-related-node data-node-id="{{.ID}}" data-node-name="{{.Name}}" data-node-type="{{.Type}}" aria-label="{{.Name}}" class="cursor-pointer outline-none">
+						<circle cx="{{.X}}" cy="{{.Y}}" r="{{if eq .Type "primary_company"}}28{{else if eq .Type "leader"}}22{{else}}18{{end}}" fill="{{if eq .Type "primary_company"}}rgb(79 70 229){{else if eq .Type "leader"}}rgb(14 116 144){{else}}rgb(51 65 85){{end}}" stroke="rgb(148 163 184)" stroke-width="2" />
+						<text x="{{.X}}" y="{{.LabelY}}" text-anchor="middle" fill="rgb(226 232 240)" font-size="13">{{.Name}}</text>
+						<g data-related-expand hidden role="button" tabindex="0" aria-hidden="true" aria-label="Expand connections for {{.Name}}" class="related-node-expand">
+							<circle r="11" fill="rgb(15 23 42)" stroke="rgb(125 211 252)" stroke-width="2" />
+							<text x="0" y="6" text-anchor="middle" fill="rgb(186 230 253)" font-size="17" font-weight="700">+</text>
+						</g>
+					</g>
+					{{end}}
+				</svg>
+			</div>
+			<div class="space-y-2">
+				{{range .Leadership}}
+				{{$leader := .}}
+				<details data-related-detail data-node-id="person:{{lower .Name}}" class="rounded-xl border border-slate-800 bg-slate-950/60">
+					<summary class="cursor-pointer list-none p-3 text-sm text-white">{{.Name}} <span class="text-xs text-cyan-400">{{.Role}}</span></summary>
+					<div class="border-t border-slate-800 px-3 pb-3 pt-2 space-y-2">
+						{{range $.LeadershipRelations}}{{if eq .Person $leader.Name}}<div class="text-xs text-slate-300"><span class="text-cyan-400">{{.Relationship}}</span> {{.Name}}{{if .Status}} <span class="text-slate-500">· {{.Status}}</span>{{end}}</div>{{end}}{{end}}
+					</div>
+				</details>
+				{{end}}
+			</div>
+		</div>
+		<div class="overflow-x-auto mt-3"><table class="w-full text-left text-xs"><thead class="text-slate-500"><tr><th class="p-2">From</th><th class="p-2">Relationship</th><th class="p-2">To</th><th class="p-2">Confidence</th></tr></thead><tbody>{{range .Graph.Edges}}<tr class="border-t border-slate-800"><td class="p-2 text-white">{{.FromLabel}}</td><td class="p-2 text-indigo-400">{{.Relationship}}</td><td class="p-2 text-white">{{.ToLabel}}</td><td class="p-2 text-slate-400">{{.Confidence}}</td></tr>{{end}}</tbody></table></div>
+		{{else}}<p class="text-sm text-slate-500">No evidence-backed relationships were extracted.</p>{{end}}
 	</div>
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Direct company relationships</h4>
@@ -263,7 +293,7 @@
 {{end}}
 
 {{define "market_rocketreach_result"}}
-{{if .Error}}<div class="text-[11px] text-amber-300">{{.Error}}</div>{{else if .Profile}}<div class="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-2 text-[11px] text-slate-300"><div class="text-emerald-300 font-medium">{{.Profile.Name}}</div>{{if .Profile.CurrentTitle}}<div>{{.Profile.CurrentTitle}} · {{.Profile.CurrentEmployer}}</div>{{end}}{{range .Profile.Emails}}{{if ne .Grade "F"}}<div>{{.Email}} <span class="text-slate-500">({{.Grade}})</span></div>{{end}}{{end}}{{range .Profile.Phones}}<div>{{.Number}}</div>{{end}}{{if .Profile.JobHistory}}<div class="mt-1 text-slate-400">Career history:</div><ul class="ml-3 list-disc">{{range .Profile.JobHistory}}<li>{{.Title}}{{if .Company}} · {{.Company}}{{end}}{{if or .StartDate .EndDate}} ({{.StartDate}}–{{.EndDate}}){{end}}</li>{{end}}</ul>{{end}}{{if .Profile.Education}}<div class="mt-1 text-slate-400">Education:</div>{{range .Profile.Education}}<div>{{if .Institution}}{{.Institution}}{{else}}{{.School}}{{end}}{{if .Degree}} · {{.Degree}}{{end}}</div>{{end}}{{end}}{{if .Profile.LinkedInURL}}<a class="text-indigo-300 hover:underline" href="{{.Profile.LinkedInURL}}" target="_blank" rel="noreferrer">LinkedIn</a>{{end}}</div>{{end}}
+{{if .Error}}<div class="text-[11px] text-amber-300">{{.Error}}</div>{{else if .Profile}}<div class="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-2 text-[11px] text-slate-300"><div class="text-emerald-300 font-medium">{{.Profile.Name}}</div>{{if .Profile.CurrentTitle}}<div>{{.Profile.CurrentTitle}} · {{.Profile.CurrentEmployer}}</div>{{end}}{{range .Profile.Emails}}{{if ne .Grade "F"}}<div>{{.Email}} <span class="text-slate-500">({{.Grade}})</span></div>{{end}}{{end}}{{range .Profile.Phones}}<div>{{.Number}}</div>{{end}}{{if .Profile.JobHistory}}<div class="mt-1 text-slate-400">Career history:</div><ul class="ml-3 list-disc">{{range .Profile.JobHistory}}<li>{{.Title}}{{if .Company}} · {{.Company}}{{end}}{{if or .StartDate .EndDate}} ({{.StartDate}}–{{.EndDate}}){{end}}</li>{{end}}</ul>{{end}}{{if .Profile.Education}}<div class="mt-1 text-slate-400">Education:</div>{{range .Profile.Education}}<div>{{if .Institution}}{{.Institution}}{{else}}{{.School}}{{end}}{{if .Degree}} · {{.Degree}}{{end}}</div>{{end}}{{end}}{{if .Profile.LinkedInURL}}<a class="text-indigo-300 hover:underline" href="{{.Profile.LinkedInURL}}" target="_blank" rel="noreferrer">LinkedIn</a>{{end}}{{if .Cached}}<div class="text-[10px] text-slate-500 mt-1">Served from the 24h RocketReach cache; no new lookup credit spent.</div>{{end}}{{if .Persisted}}<div class="text-[10px] text-emerald-400 mt-1">Saved to the research roster.</div>{{end}}</div>{{end}}
 {{end}}
 
 {{define "workflow_console"}}
@@ -645,6 +675,7 @@
 								<input type="hidden" name="company_name" value="{{$.Chart.CompanyName}}">
 								<input type="hidden" name="linkedin_url" value="{{.LinkedInURL}}">
 								<input type="hidden" name="rocketreach_id" value="{{.RocketReachID}}">
+							<input type="hidden" name="session_id" value="{{$.SessionID}}">
 								<button type="submit" class="text-[10px] text-indigo-300 border border-indigo-500/30 hover:border-indigo-400 rounded px-2 py-1 whitespace-nowrap">Fetch RR</button>
 							</form>
 						</div>
@@ -661,6 +692,10 @@
 							</ul>
 						</details>
 						{{else}}<span class="text-slate-600">Not returned by free RR search</span>{{end}}
+						{{if .Emails}}<div class="mt-1 text-[11px] text-slate-500">Emails: {{range $i, $email := .Emails}}{{if $i}}, {{end}}{{$email.Email}}{{if $email.Grade}} ({{$email.Grade}}){{end}}{{end}}</div>{{end}}
+						{{if .Phones}}<div class="text-[11px] text-slate-500">Phones: {{range $i, $phone := .Phones}}{{if $i}}, {{end}}{{$phone.Number}}{{end}}</div>{{end}}
+						{{if .Education}}<div class="mt-1 text-[11px] text-slate-600">Education: {{range $i, $education := .Education}}{{if $i}}; {{end}}{{if $education.Institution}}{{$education.Institution}}{{end}}{{if $education.Degree}} · {{$education.Degree}}{{end}}{{end}}</div>{{end}}
+						{{if .EnrichedAt}}<div class="text-[10px] text-emerald-500/80 mt-1">RR profile merged {{.EnrichedAt}}</div>{{end}}
 					</td>
 					<td class="py-2 pr-3 text-slate-500">{{.Classification}}{{if .VerificationNote}}<div class="mt-1 text-[11px] text-slate-600">{{.VerificationNote}}</div>{{end}}</td>
 					<td class="py-2 pr-3">{{if eq .Status "verified"}}<span class="text-emerald-300">verified</span>{{else}}<span class="text-amber-300">unverified</span>{{end}}{{if .Verification}}<div class="text-[11px] text-slate-600 mt-1">{{.Verification}}</div>{{end}}</td>
@@ -746,7 +781,7 @@
 				{{range .Experiences}}
 				<div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
 					<div class="text-sm font-medium text-white">{{.Role}}</div>
-					<div class="text-xs text-indigo-400">{{.Company}}{{if .Period}} ({{.Period}}){{end}}{{if .Source}} &middot; <a href="{{.Source}}" target="_blank" rel="noreferrer" class="hover:underline">source</a>{{end}}</div>
+					<div class="text-xs text-indigo-400">{{.Company}}{{if .Period}} ({{.Period}}){{end}}{{if .Provider}} &middot; <span class="text-amber-300">{{.Provider}}</span>{{end}}{{if .Source}} &middot; <a href="{{.Source}}" target="_blank" rel="noreferrer" class="hover:underline">source</a>{{end}}</div>
 					{{if .Flag}}<div class="text-xs text-amber-400 mt-1">&#9888; {{.Flag}}</div>{{end}}
 				</div>
 				{{end}}
@@ -758,7 +793,7 @@
 				{{range .Education}}
 				<div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
 					<div class="text-sm font-medium text-white">{{.Institution}}</div>
-					<div class="text-xs text-slate-400">{{.Degree}}{{if .Field}} in {{.Field}}{{end}}{{if .Year}} ({{.Year}}){{end}}</div>
+					<div class="text-xs text-slate-400">{{.Degree}}{{if .Field}} in {{.Field}}{{end}}{{if .Year}} ({{.Year}}){{end}}{{if .Provider}} &middot; <span class="text-amber-300">{{.Provider}}</span>{{end}}</div>
 				</div>
 				{{end}}
 				<div class="flex flex-wrap gap-1.5 pt-2">
@@ -767,24 +802,31 @@
 			</div>
 		</div>
 	</div>
-	{{if or .PublicInterests .RecentThemes .PersonalizationEvidence}}
-	<div class="border-t border-slate-800/60 pt-4">
-		<h4 class="text-sm font-semibold text-slate-300 mb-2">Public personalization</h4>
-		<p class="text-xs text-slate-500 mb-3">Public social context for outreach only; it does not verify identity, employment, or sensitive attributes.</p>
-		{{if .PublicAccounts}}
-		<div class="space-y-2 mb-3">
-			<div class="text-xs text-slate-500">Public account candidates</div>
-			{{range .PublicAccounts}}
-			<div class="bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs">
+	{{if .Socials}}
+	<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-4 space-y-3">
+		<div class="flex items-start justify-between gap-2">
+			<h4 class="text-sm font-semibold text-amber-200">Social signals (unverified)</h4>
+			<span class="text-[10px] uppercase tracking-wide text-amber-400/80">may not be accurate</span>
+		</div>
+		<p class="text-xs text-amber-200/80">{{if .SocialNote}}{{.SocialNote}}{{else}}Collected from public search snippets only; may be inaccurate.{{end}}</p>
+		<div class="space-y-2">
+			{{range .Socials}}
+			<div class="bg-slate-950 border border-amber-900/30 rounded-lg p-2 text-xs">
 				<div class="flex items-start justify-between gap-2">
-					<span class="text-slate-300">{{.Platform}} · {{.IdentityBasis}}</span>
+					<span class="text-slate-200 font-medium">{{.Platform}}{{if .Title}} · {{.Title}}{{end}}</span>
 					<a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline shrink-0">open</a>
 				</div>
-				<div class="text-slate-500 mt-1">confidence {{printf "%.2f" .Confidence}}</div>
+				{{if .Snippet}}<div class="text-slate-400 mt-1">{{.Snippet}}</div>{{end}}
+				<div class="text-slate-500 mt-1">{{.IdentityBasis}} · confidence {{printf "%.2f" .Confidence}}{{if .ObservedAt}} · dated {{.ObservedAt}}{{end}}{{if .Source}} · {{.Source}}{{end}}</div>
 			</div>
 			{{end}}
 		</div>
-		{{end}}
+	</div>
+	{{end}}
+	{{if or .PublicInterests .RecentThemes .PersonalizationEvidence}}
+	<div class="border-t border-slate-800/60 pt-4">
+		<h4 class="text-sm font-semibold text-slate-300 mb-2">Interests and themes (unverified)</h4>
+		<p class="text-xs text-slate-500 mb-3">Public context for outreach only; it does not verify identity, employment, or sensitive attributes.</p>
 		{{if .PublicInterests}}
 		<div class="mb-3">
 			<div class="text-xs text-slate-500 mb-1">Public interests</div>

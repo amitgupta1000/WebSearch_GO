@@ -15,10 +15,12 @@ import (
 // snippets-only slot, and the plan stays inside its cap.
 func TestPersonPlanAnchorsEveryQuery(t *testing.T) {
 	plan := buildPersonPlan("Dilip Parmar", "Sanjay Chemicals (India) Pvt Ltd", "Vapi", "India")
-	if len(plan) != 6 {
-		t.Fatalf("expected six planned searches for a company run, got %d: %+v", len(plan), plan)
+	if len(plan) != 10 {
+		t.Fatalf("expected ten planned searches for a company run, got %d: %+v", len(plan), plan)
 	}
 	seenSections := make(map[string]bool, len(plan))
+	social := 0
+	platforms := make(map[string]bool, 5)
 	for _, entry := range plan {
 		if !strings.Contains(entry.query, `"Dilip Parmar"`) {
 			t.Errorf("planned query %q is not anchored on the person", entry.query)
@@ -28,29 +30,41 @@ func TestPersonPlanAnchorsEveryQuery(t *testing.T) {
 				t.Errorf("the directory entry must target the aggregators and stay snippets-only, got %+v", entry)
 			}
 		} else if entry.snippetsOnly && !entry.personalization {
-			t.Errorf("only the directory entry is snippets-only, got %+v", entry)
+			t.Errorf("only the directory and social entries are snippets-only, got %+v", entry)
 		}
-		social := 0
-		for _, entry := range plan {
-			if entry.personalization {
-				social++
+		if entry.personalization {
+			social++
+			if entry.platform == "" {
+				t.Errorf("a social entry must name its platform, got %+v", entry)
 			}
-		}
-		if social != 1 {
-			t.Fatalf("expected one bounded X/Twitter personalization query, got %d", social)
+			if !entry.snippetsOnly {
+				t.Errorf("a social entry must stay snippets-only, got %+v", entry)
+			}
+			if !strings.Contains(entry.query, "after:") {
+				t.Errorf("a social entry must carry a recency window, got %q", entry.query)
+			}
+			platforms[entry.platform] = true
 		}
 		if entry.section == "" || seenSections[entry.section] {
 			t.Errorf("every plan entry needs a unique context section, got %q", entry.section)
 		}
 		seenSections[entry.section] = true
 	}
+	if social != 5 {
+		t.Fatalf("expected five bounded platform searches, got %d", social)
+	}
+	for _, platform := range []string{"X/Twitter", "Facebook", "Instagram", "LinkedIn posts", "YouTube"} {
+		if !platforms[platform] {
+			t.Errorf("expected a planned search for %s, got %+v", platform, platforms)
+		}
+	}
 	if !strings.Contains(plan[0].query, "Sanjay Chemicals") {
 		t.Errorf("the primary query must carry the confirmed company, got %q", plan[0].query)
 	}
 
 	alone := buildPersonPlan("Jane Doe", "", "", "")
-	if len(alone) != 4 {
-		t.Fatalf("expected four planned searches for a name-alone run, got %d", len(alone))
+	if len(alone) != 8 {
+		t.Fatalf("expected eight planned searches for a name-alone run, got %d", len(alone))
 	}
 	for _, entry := range alone {
 		if strings.Contains(entry.query, "Acme") {
@@ -78,8 +92,8 @@ func TestPersonResearchRunsThePlannedSearches(t *testing.T) {
 	if len(profile.Warnings) != 1 || !strings.Contains(profile.Warnings[0], "RocketReach was unavailable") {
 		t.Fatalf("expected a visible RocketReach fallback warning, got %+v", profile.Warnings)
 	}
-	if len(profile.SearchQueries) != 6 {
-		t.Fatalf("expected the six planned searches, got %v", profile.SearchQueries)
+	if len(profile.SearchQueries) != 10 {
+		t.Fatalf("expected the ten planned searches, got %v", profile.SearchQueries)
 	}
 	for _, query := range profile.SearchQueries {
 		if !strings.Contains(query, `"Jane Doe"`) {

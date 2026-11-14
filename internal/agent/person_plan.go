@@ -18,6 +18,10 @@ import (
 const personPlanMaxQueries = 12
 const personSearchConcurrency = 4
 
+// personSocialSignalCap bounds the flagged social section. A person's public footprint can
+// span hundreds of posts; the section is a handful of attributable leads, not an archive.
+const personSocialSignalCap = 12
+
 // personDirectorySection is the heading the aggregator snippets are written under, unchanged
 // from when they were a separate ad-hoc search.
 const personDirectorySection = "DIRECTORY CLAIMS (aggregator snippets: a stated title and employer, not verified employment)"
@@ -29,9 +33,14 @@ type personPlanEntry struct {
 	query   string
 	// snippetsOnly marks results that are never fetched: the people-data aggregators state a
 	// title and employer but are usually paywalled past the snippet, so their URLs would only
-	// spend scrape budget failing.
+	// spend scrape budget failing. Social sections are snippets-only too: a social page is
+	// outreach context, not employment evidence, and fetching it would put unverified social
+	// content one step away from the dossier.
 	snippetsOnly    bool
 	personalization bool
+	// platform names the social platform for a personalization entry, so the flagged social
+	// section can label a signal without re-parsing its URL.
+	platform string
 }
 
 // buildPersonPlan returns the run's searches, anchored on the confirmed identity. With no
@@ -64,12 +73,21 @@ func buildPersonPlan(name, company, location, country string) []personPlanEntry 
 	return limitPersonPlan(plan)
 }
 
+// publicPersonalizationQueries asks each public platform a bounded question. The results are
+// deliberately kept in their own context block and rendered under a separate "may not be
+// accurate" heading: a social account is outreach context, never identity or employment
+// proof. Every query stays anchored on the confirmed name and one corroborating token so a
+// common name does not turn the section into a list of strangers.
 func publicPersonalizationQueries(name, company, location string) []personPlanEntry {
 	context := strings.TrimSpace(strings.Join([]string{company, location}, " "))
 	base := strings.TrimSpace(strings.Join([]string{name, context}, " "))
 	recent := time.Now().AddDate(-2, 0, 0).Format("2006-01-02")
 	return []personPlanEntry{
-		{section: "PUBLIC PERSONALIZATION — X/TWITTER", query: "(site:x.com OR site:twitter.com) " + base + " (interest OR opinion OR conference OR industry) after:" + recent, snippetsOnly: true, personalization: true},
+		{section: "PUBLIC PERSONALIZATION — X/TWITTER", platform: "X/Twitter", query: "(site:x.com OR site:twitter.com) " + base + " (interest OR opinion OR conference OR industry) after:" + recent, snippetsOnly: true, personalization: true},
+		{section: "PUBLIC PERSONALIZATION — FACEBOOK", platform: "Facebook", query: "site:facebook.com " + base + " (about OR founder OR director OR profile) after:" + recent, snippetsOnly: true, personalization: true},
+		{section: "PUBLIC PERSONALIZATION — INSTAGRAM", platform: "Instagram", query: "site:instagram.com " + base + " (work OR project OR event OR conference) after:" + recent, snippetsOnly: true, personalization: true},
+		{section: "PUBLIC PERSONALIZATION — LINKEDIN POSTS", platform: "LinkedIn posts", query: "(site:linkedin.com/posts OR site:linkedin.com/pulse) " + base + " (insight OR announcement OR conference OR opinion) after:" + recent, snippetsOnly: true, personalization: true},
+		{section: "PUBLIC PERSONALIZATION — YOUTUBE", platform: "YouTube", query: "site:youtube.com " + base + " (interview OR talk OR channel OR about) after:" + recent, snippetsOnly: true, personalization: true},
 	}
 }
 

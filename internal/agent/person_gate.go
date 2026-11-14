@@ -300,12 +300,16 @@ func (g *personGate) filterSnippets(results []models.SearchResult) (kept, exclud
 	return kept, excluded
 }
 
-// filterPersonalization admits only public social results that name the person. Unlike
-// employment evidence, these results do not need to mention the company: they are explicitly
-// labelled as possible personalization context and never prove identity, employment, or role.
+// filterPersonalization admits only public social results that name the person and state a
+// corroborating token. Unlike employment evidence, these results do not need to mention the
+// company — they are explicitly labelled as possible personalization context and never prove
+// identity, employment, or role. They do, however, need more than the name: a common name
+// matches thousands of accounts, and a section that presents those as the person's would be
+// worse than no section at all. The admission rules live in personalizationVerdict so the
+// agent can label each admitted signal with the same basis the gate used.
 func (g *personGate) filterPersonalization(results []models.SearchResult) (kept, excluded []models.SearchResult) {
 	for _, result := range results {
-		if containsAllTokens(strings.ToLower(result.Title+" "+result.Snippet), g.tokens) && isPublicSocialURL(result.Link) {
+		if _, _, ok := g.personalizationVerdict(result); ok {
 			kept = append(kept, result)
 			continue
 		}
@@ -314,16 +318,62 @@ func (g *personGate) filterPersonalization(results []models.SearchResult) (kept,
 	return kept, excluded
 }
 
+// personalizationVerdict decides whether one public social hit is attributable enough for the
+// flagged social section, and returns the identity basis and confidence the section displays.
+// The order is deliberate: a confirmed employer is the strongest tie; a different employer in
+// the headline is a namesake and is refused outright; otherwise the confirmed place or a
+// stated role is enough to offer the hit as a possible account, never as a fact.
+func (g *personGate) personalizationVerdict(result models.SearchResult) (basis string, confidence float64, ok bool) {
+	if !isPublicSocialURL(result.Link) {
+		return "", 0, false
+	}
+	haystack := strings.ToLower(result.Title + " " + result.Snippet)
+	if !g.namedIn(haystack) {
+		return "", 0, false
+	}
+	// A headline that states another employer is the same-named-different-person case, exactly
+	// as it is for employment evidence. The section's warning does not excuse a contradiction
+	// the gate can already see.
+	if g.company != "" {
+		if stated := statedHeadlineEmployer(result.Title, g.tokens); stated != "" && !mentionsCompany(stated, g.company) {
+			return "", 0, false
+		}
+	}
+	if g.company != "" && mentionsCompany(haystack, g.company) {
+		return "name plus confirmed company", 0.7, true
+	}
+	if g.location != "" && strings.Contains(haystack, strings.ToLower(g.location)) {
+		if g.company != "" {
+			return "name plus confirmed location; company not stated", 0.4, true
+		}
+		return "name plus confirmed location", 0.5, true
+	}
+	if looksLikePersonRole(haystack) {
+		if g.company != "" {
+			return "name plus stated role; company not stated", 0.3, true
+		}
+		return "name plus stated role; possible account", 0.35, true
+	}
+	return "", 0, false
+}
+
 func isPublicSocialURL(rawURL string) bool {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return false
 	}
 	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+	path := strings.ToLower(parsed.Path)
+	// LinkedIn posts and articles are social content too. They are public and readable, but
+	// they are still personalization context, not employment evidence.
+	linkedInPost := (host == "linkedin.com" || strings.HasSuffix(host, ".linkedin.com")) &&
+		(strings.HasPrefix(path, "/posts/") || strings.HasPrefix(path, "/pulse/") || strings.HasPrefix(path, "/feed/update/"))
 	return host == "facebook.com" || strings.HasSuffix(host, ".facebook.com") ||
 		host == "instagram.com" || strings.HasSuffix(host, ".instagram.com") ||
 		host == "twitter.com" || strings.HasSuffix(host, ".twitter.com") ||
-		host == "x.com" || strings.HasSuffix(host, ".x.com")
+		host == "x.com" || strings.HasSuffix(host, ".x.com") ||
+		host == "youtube.com" || strings.HasSuffix(host, ".youtube.com") || host == "youtu.be" ||
+		linkedInPost
 }
 
 func publicPlatform(rawURL string) string {
@@ -332,6 +382,7 @@ func publicPlatform(rawURL string) string {
 		return "social"
 	}
 	host := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
+	path := strings.ToLower(parsed.Path)
 	switch {
 	case strings.Contains(host, "facebook."):
 		return "Facebook"
@@ -339,6 +390,11 @@ func publicPlatform(rawURL string) string {
 		return "Instagram"
 	case strings.Contains(host, "twitter."), strings.Contains(host, "x.com"):
 		return "X/Twitter"
+	case strings.Contains(host, "youtube."), host == "youtu.be":
+		return "YouTube"
+	case strings.Contains(host, "linkedin.") &&
+		(strings.HasPrefix(path, "/posts/") || strings.HasPrefix(path, "/pulse/") || strings.HasPrefix(path, "/feed/update/")):
+		return "LinkedIn posts"
 	default:
 		return "social"
 	}

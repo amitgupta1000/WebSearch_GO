@@ -236,13 +236,29 @@ func TestPersonGateHoldsSnippetsHarderThanPages(t *testing.T) {
 }
 
 func TestPersonGateKeepsSocialResultsSeparateFromEmploymentGate(t *testing.T) {
-	gate := newPersonGate(models.PersonQuery{Name: "Jane Doe", Company: "Acme"})
-	kept, excluded := gate.filterPersonalization([]models.SearchResult{
-		{Title: "Jane Doe | Instagram", Link: "https://www.instagram.com/jane.doe", Snippet: "Jane Doe shares design projects."},
+	gate := newPersonGate(models.PersonQuery{Name: "Jane Doe", Company: "Acme", Location: "Mumbai"})
+	results := []models.SearchResult{
+		{Title: "Jane Doe | Instagram", Link: "https://www.instagram.com/jane.doe", Snippet: "Jane Doe shares design projects at Acme."},
+		{Title: "Jane Doe | X", Link: "https://x.com/janedoe", Snippet: "Jane Doe, procurement lead in Mumbai."},
+		{Title: "Jane Doe | Facebook", Link: "https://www.facebook.com/janedoe", Snippet: "Jane Doe shares design projects."},
 		{Title: "Jane Doe", Link: "https://www.example.com/jane", Snippet: "Jane Doe"},
-	})
-	if len(kept) != 1 || len(excluded) != 1 {
-		t.Fatalf("expected one social result kept and one excluded, got %d/%d", len(kept), len(excluded))
+		{Title: "Jane Doe - CTO - OtherCorp Ltd | X", Link: "https://x.com/janedoe2", Snippet: "Jane Doe CTO at OtherCorp Ltd, Mumbai."},
+	}
+	kept, excluded := gate.filterPersonalization(results)
+	if len(kept) != 2 || len(excluded) != 3 {
+		t.Fatalf("expected two attributable social results kept and three excluded, got %d/%d", len(kept), len(excluded))
+	}
+	if basis, confidence, ok := gate.personalizationVerdict(results[0]); !ok || !strings.Contains(basis, "confirmed company") || confidence != 0.7 {
+		t.Fatalf("a company match must be the strongest social tie, got %q %.2f %v", basis, confidence, ok)
+	}
+	if basis, confidence, ok := gate.personalizationVerdict(results[1]); !ok || !strings.Contains(basis, "confirmed location") || confidence != 0.4 {
+		t.Fatalf("a place match with the company confirmed must be a weaker tie, got %q %.2f %v", basis, confidence, ok)
+	}
+	if _, _, ok := gate.personalizationVerdict(results[2]); ok {
+		t.Fatal("a name-only social hit must not be admitted")
+	}
+	if _, _, ok := gate.personalizationVerdict(results[4]); ok {
+		t.Fatal("a social headline stating another employer must be refused as a namesake")
 	}
 }
 
@@ -309,8 +325,8 @@ func TestPersonResearchDropsTheSameNamedPersonAtAnotherEmployer(t *testing.T) {
 
 	// The search trace is the data behind the Search results tab: every planned query with
 	// its kept and excluded hits, recorded per query before cross-query dedupe.
-	if profile.SearchTrace == nil || len(profile.SearchTrace.Queries) != 6 {
-		t.Fatalf("expected the six planned searches traced, got %+v", profile.SearchTrace)
+	if profile.SearchTrace == nil || len(profile.SearchTrace.Queries) != 10 {
+		t.Fatalf("expected the ten planned searches traced, got %+v", profile.SearchTrace)
 	}
 	first := profile.SearchTrace.Queries[0]
 	if len(first.Kept) != 1 || first.Kept[0].Link != target {
@@ -325,8 +341,8 @@ func TestPersonResearchDropsTheSameNamedPersonAtAnotherEmployer(t *testing.T) {
 	}
 
 	// The operating results the report also asked for: queries, timings, and every fetch.
-	if len(profile.SearchQueries) != 6 {
-		t.Errorf("expected the six planned searches recorded, got %v", profile.SearchQueries)
+	if len(profile.SearchQueries) != 10 {
+		t.Errorf("expected the ten planned searches recorded, got %v", profile.SearchQueries)
 	}
 	if len(profile.Timings) == 0 {
 		t.Errorf("expected phase timings on the dossier")

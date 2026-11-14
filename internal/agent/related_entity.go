@@ -230,7 +230,7 @@ func relatedTrustedRegistryHost(host string) bool {
 
 func relatedDirectEvidenceHost(host, link string) bool {
 	if strings.Contains(strings.ToLower(link), "#business-network") {
-		return true
+		return host == "weedoo.in" || strings.HasSuffix(host, ".weedoo.in")
 	}
 	for _, trusted := range []string{
 		"mca.gov.in", "sebi.gov.in", "bseindia.com", "nseindia.com",
@@ -253,6 +253,53 @@ func relatedAnnualReportHit(hit models.SearchResult) bool {
 	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(hit.Link)), ".pdf")
 }
 
+// relatedHitMatchesIdentity keeps a confirmed related-entity run anchored to
+// its identity. A name-only match is ambiguous across geographies, even on a
+// trusted registry or filing host; confirmed domains and registration ids are
+// the keys that can disambiguate that case.
+func relatedHitMatchesIdentity(query models.RelatedEntityQuery, hit models.SearchResult) bool {
+	// This hit is synthesized from a WeeDoo page that already passed the
+	// company-page identity gate. Its URL carries the confirmed CIN, while its
+	// snippet intentionally names the connected companies rather than repeating
+	// the primary company's name.
+	if relatedWeeDooNetworkHitMatchesIdentity(query, hit) {
+		return true
+	}
+	brief := models.CompanyBrief{
+		CompanyName:    query.CompanyName,
+		Domain:         query.Domain,
+		RegistrationID: query.RegistrationID,
+		Aliases:        query.Aliases,
+	}
+	matcher := newEntityMatcher(brief)
+	if _, matched := matcher.matchURL(hit.Link); matched {
+		return true
+	}
+	match, matched := matcher.matchText(hit.Title + " " + hit.Snippet + " " + hit.Link)
+	if !matched {
+		return false
+	}
+	if match.Key == models.EntityKeyDomain {
+		return relatedHostMatchesDomain(relatedHost(hit.Link), query.Domain)
+	}
+	if match.Key == models.EntityKeyRegistration {
+		return true
+	}
+	if strings.TrimSpace(query.Domain) != "" || strings.TrimSpace(query.RegistrationID) != "" {
+		return false
+	}
+	return match.Key == models.EntityKeyName || match.Key == models.EntityKeyAlias
+}
+
+func relatedWeeDooNetworkHitMatchesIdentity(query models.RelatedEntityQuery, hit models.SearchResult) bool {
+	if !strings.Contains(strings.ToLower(hit.Link), "#business-network") ||
+		!relatedDirectEvidenceHost(relatedHost(hit.Link), hit.Link) {
+		return false
+	}
+	registrationID := normalizeRegistrationID(query.RegistrationID)
+	return len(registrationID) >= 8 && strings.Contains(normalizeRegistrationID(hit.Link), registrationID)
+}
+
 // directAssociationHits is the boundary between discovery and promotion for
 // step one. Generic search, news, directories, and research reports can still
 // remain in SearchTrace, but only primary-domain, filing/registry, or explicit
@@ -269,7 +316,7 @@ func directAssociationHits(query models.RelatedEntityQuery, hits []models.Search
 		if !trusted {
 			continue
 		}
-		if !containsCompanyIdentity(hit.Title+" "+hit.Snippet, query) {
+		if !relatedHitMatchesIdentity(query, hit) {
 			continue
 		}
 		if seen[hit.Link] {
@@ -335,7 +382,7 @@ func leadershipIdentityHits(query models.RelatedEntityQuery, hits []models.Searc
 		isLinkedIn := host == "linkedin.com" || strings.HasSuffix(host, ".linkedin.com")
 		trusted := relatedHostMatchesDomain(host, query.Domain) || relatedTrustedRegistryHost(host) ||
 			isLinkedIn || relatedAnnualReportHit(hit)
-		if !trusted || !containsCompanyIdentity(hit.Title+" "+hit.Snippet, query) {
+		if !trusted || !relatedHitMatchesIdentity(query, hit) {
 			continue
 		}
 		if seen[hit.Link] {
@@ -362,11 +409,10 @@ func relatedPersonEvidenceHits(query models.RelatedEntityQuery, leader models.Le
 		if !trusted {
 			continue
 		}
-		text := hit.Title + " " + hit.Snippet
-		if requirePrimary && !containsCompanyIdentity(text, query) {
+		if requirePrimary && !relatedHitMatchesIdentity(query, hit) {
 			continue
 		}
-		if !requirePrimary && !containsCompanyIdentity(text, query) &&
+		if !requirePrimary && !relatedHitMatchesIdentity(query, hit) &&
 			(strings.TrimSpace(din) == "" || (!isRegistry && !relatedAnnualReportHit(hit))) {
 			continue
 		}

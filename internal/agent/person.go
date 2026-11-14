@@ -13,12 +13,34 @@ import (
 	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
+// socialISODatePattern finds an explicit calendar date written into a social title or
+// snippet. Social snippets carry dates in prose far more often than in the URL, and the
+// generic evidence-date pass deliberately does not treat arbitrary ISO numbers in content as
+// dates; the social section wants that explicit date, so it reads it here.
+var socialISODatePattern = regexp.MustCompile(`(?i)\b(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b`)
+
+// socialObservedAt returns the newest date a social snippet proves, or "" when it is undated.
+func socialObservedAt(result models.SearchResult) string {
+	if match := socialISODatePattern.FindString(result.Title + " " + result.Snippet); match != "" {
+		if when, err := time.Parse("2006-01-02", match); err == nil {
+			return when.Format("2006-01-02")
+		}
+	}
+	if when, _, ok := evidenceDate(models.Evidence{
+		URL: result.Link, Title: result.Title, Content: result.Snippet,
+	}); ok {
+		return when.Format("2006-01-02")
+	}
+	return ""
+}
+
 // rocketReachSource is the RocketReach surface the person agent needs: the paid
 // person lookup and the free disambiguating search. *tools.RocketReachClient
 // satisfies it; tests script it.
 type rocketReachSource interface {
 	Enabled() bool
 	Lookup(ctx context.Context, name, company, linkedinURL string) (*tools.RocketReachProfile, error)
+	LookupByID(ctx context.Context, id int) (*tools.RocketReachProfile, error)
 	Search(ctx context.Context, conditions map[string][]string) ([]tools.RocketReachProfile, error)
 }
 
@@ -143,8 +165,8 @@ func (pa *PersonAgent) ResearchPerson(
 		results []models.SearchResult
 	}
 	planResults := make([]planSearch, 0, len(plan))
-	personalizationAccounts := make([]models.PublicAccount, 0, 8)
-	seenAccounts := make(map[string]bool)
+	socialSignals := make([]models.SocialSignal, 0, personSocialSignalCap)
+	seenSocial := make(map[string]bool)
 	searchTrace := &models.SearchTrace{Queries: make([]models.QueryTrace, 0, len(plan)+1)}
 	if confirmedSeed != "" {
 		searchTrace.Queries = append(searchTrace.Queries, models.QueryTrace{
@@ -215,7 +237,14 @@ func (pa *PersonAgent) ResearchPerson(
 			kept, excluded = gate.filterSnippets(results)
 		}
 		if !entry.personalization {
-			gateExcluded = append(gateExcluded, excluded...)
+			// Social hits are never part of the employment identity check: they belong to
+			// the separate, flagged social section.
+			for _, result := range excluded {
+				if isPublicSocialURL(result.Link) {
+					continue
+				}
+				gateExcluded = append(gateExcluded, result)
+			}
 		}
 		searchTrace.Queries = append(searchTrace.Queries, models.QueryTrace{
 			Query:    entry.query,
@@ -225,6 +254,12 @@ func (pa *PersonAgent) ResearchPerson(
 		})
 		fresh := make([]models.SearchResult, 0, len(kept))
 		for _, result := range kept {
+			if !entry.personalization && isPublicSocialURL(result.Link) {
+				// A social hit that arrived through an employment query is not employment
+				// evidence. The dedicated social queries collect it under the flagged
+				// section, where its snippet can be judged with the warning attached.
+				continue
+			}
 			key := strings.ToLower(result.Link)
 			if seenSnippet[key] {
 				// The same hit answers several plan questions; the context lists it once.
@@ -233,7 +268,9 @@ func (pa *PersonAgent) ResearchPerson(
 			seenSnippet[key] = true
 			fresh = append(fresh, result)
 		}
-		gateKept += len(fresh)
+		if !entry.personalization {
+			gateKept += len(fresh)
+		}
 		if len(fresh) > 0 {
 			target := &gatheredContext
 			if entry.personalization {
@@ -243,28 +280,74 @@ func (pa *PersonAgent) ResearchPerson(
 			target.WriteString(FormatSearchSnippets(fresh))
 			if entry.personalization {
 				for _, result := range fresh {
-					key := strings.ToLower(strings.TrimSpace(result.Link))
-					if key == "" || seenAccounts[key] {
+					key := normalizeURL(result.Link)
+					if key == "" || seenSocial[key] {
 						continue
 					}
-					seenAccounts[key] = true
-					basis := "name-only possible account"
-					confidence := 0.25
-					if mentionsCompany(result.Title+" "+result.Snippet, companyName) ||
-						(location != "" && strings.Contains(strings.ToLower(result.Title+" "+result.Snippet), strings.ToLower(location))) {
-						basis = "name plus company or location match"
-						confidence = 0.65
+					basis, confidence, ok := gate.personalizationVerdict(result)
+					if !ok {
+						continue
 					}
-					personalizationAccounts = append(personalizationAccounts, models.PublicAccount{
-						Platform:      publicPlatform(result.Link),
+					seenSocial[key] = true
+					// The result's own URL decides its platform: a broad query can return a
+					// hit from another platform, and the section must label it correctly.
+					platform := publicPlatform(result.Link)
+					if platform == "social" {
+						platform = firstNonEmpty(entry.platform, "social")
+					}
+					signal := models.SocialSignal{
+						Platform:      platform,
 						URL:           result.Link,
+						Title:         strings.TrimSpace(result.Title),
+						Snippet:       strings.TrimSpace(result.Snippet),
+						Source:        entry.section,
 						IdentityBasis: basis,
 						Confidence:    confidence,
-					})
+						ObservedAt:    socialObservedAt(result),
+					}
+					socialSignals = append(socialSignals, signal)
+					if len(socialSignals) >= personSocialSignalCap {
+						break
+					}
 				}
 			}
 		}
 		planResults = append(planResults, planSearch{entry: entry, results: fresh})
+	}
+	// The operator-confirmed profile is the strongest social tie available. Include it in the
+	// flagged section even when no planned social query surfaced it, and upgrade the entry when
+	// one did, so the section never presents the seed as a weaker "possible account".
+	if confirmedSeed != "" && isPublicSocialURL(confirmedSeed) {
+		if key := normalizeURL(confirmedSeed); key != "" {
+			signal := models.SocialSignal{
+				Platform:      publicPlatform(confirmedSeed),
+				URL:           confirmedSeed,
+				Title:         firstNonEmpty(query.SeedTitle, "Confirmed profile"),
+				Snippet:       strings.TrimSpace(query.SeedSnippet),
+				Source:        "confirmed profile (chosen by the operator)",
+				IdentityBasis: "confirmed by the operator",
+				Confidence:    1,
+				ObservedAt: socialObservedAt(models.SearchResult{
+					Link: confirmedSeed, Title: query.SeedTitle, Snippet: query.SeedSnippet,
+				}),
+			}
+			replaced := false
+			for index := range socialSignals {
+				if normalizeURL(socialSignals[index].URL) != key {
+					continue
+				}
+				socialSignals[index] = signal
+				replaced = true
+				break
+			}
+			if !replaced {
+				socialSignals = append([]models.SocialSignal{signal}, socialSignals...)
+				if len(socialSignals) > personSocialSignalCap {
+					socialSignals = socialSignals[:personSocialSignalCap]
+				}
+			}
+			seenSocial[key] = true
+		}
 	}
 	finishSearches(fmt.Sprintf("%d/%d search(es) returned hits", successfulSearches, len(plan)))
 	if successfulSearches == 0 {
@@ -313,9 +396,13 @@ func (pa *PersonAgent) ResearchPerson(
 	// time only adds the network round trips together. Pages are picked from every planned
 	// search's gate-passing results, which is what turns the extra searches into extra
 	// evidence rather than extra snippets.
+	// A social URL is never a page-fetch target in person mode: the flagged social section is
+	// built from its snippet, and fetching it would place unverified social content in the
+	// employment evidence. The confirmed identity block below still carries the operator's
+	// chosen snippet when the confirmed profile happens to be a social page.
 	fetchTargets := make([]models.SearchResult, 0, pa.engine.MaxScrapes())
 	seedFetched := false
-	if confirmedSeed != "" {
+	if confirmedSeed != "" && !isPublicSocialURL(confirmedSeed) {
 		fetchTargets = append(fetchTargets, models.SearchResult{
 			Title:   firstNonEmpty(query.SeedTitle, "Confirmed profile"),
 			Link:    confirmedSeed,
@@ -356,6 +443,12 @@ func (pa *PersonAgent) ResearchPerson(
 	addCandidate := func(sr models.SearchResult, verdict personVerdict) {
 		key := strings.ToLower(sr.Link)
 		if key == "" || seenCandidate[key] {
+			return
+		}
+		// Social pages are outreach context, not evidence. Their snippet is already in the
+		// flagged social section; fetching one would put unverified social content one step
+		// from the employment dossier.
+		if isPublicSocialURL(sr.Link) {
 			return
 		}
 		// The gate decides which pages are worth a fetch at all: a page whose headline
@@ -542,8 +635,9 @@ func (pa *PersonAgent) ResearchPerson(
 		gatheredContext.WriteString(personalizationContext.String())
 	}
 	// A confirmed profile that could not be fetched still belongs in the dossier's sources:
-	// its snippet was used as evidence, and the operator pointed at it.
-	if confirmedSeed != "" && !seedFetched {
+	// its snippet was used as evidence, and the operator pointed at it. A social seed is the
+	// exception: it is presented in the flagged social section, not as employment evidence.
+	if confirmedSeed != "" && !seedFetched && !isPublicSocialURL(confirmedSeed) {
 		sources = append(sources, confirmedSeed)
 	}
 
@@ -636,9 +730,12 @@ Rules:
 - If the evidence does not support a field or a section, return it empty — an empty dossier is better than an invented or blended one.
 - Never mix another person's role, employer, education, or skills into this dossier.
 - Public personalization is optional context only. Never use social evidence to establish identity,
-  current employment, title, location, or other sensitive personal attributes.
+  current employment, title, location, or other sensitive personal attributes. It is displayed in
+  a separate, clearly flagged social section: do not copy its accounts, posts, or claims into the
+  executive summary, experience, education, skills, or online presence.
 - Include public interests or recurring themes only when directly supported by the labelled
-  personalization context. Mark name-only social matches as possible accounts with low confidence.`
+  personalization context, and keep them general. The system generates public_accounts
+  deterministically from the search snippets, so that field may be omitted.`
 
 	var profile models.PersonProfile
 	evidenceContext := gatheredContext.String()
@@ -648,7 +745,19 @@ Rules:
 	if err := pa.engine.SynthesizeJSON(ctx, systemPrompt, evidenceContext, &profile); err != nil {
 		return nil, fmt.Errorf("person synthesis failed: %w", err)
 	}
-	profile.PublicAccounts = personalizationAccounts
+	// Provider is a trust marker: QC keeps a provider-sourced row at another employer. Only the
+	// agent may set it, so a model that echoes "provider": "RocketReach" into its JSON cannot
+	// smuggle an invented row past the employer gate.
+	clearModelProvider(&profile)
+	// The social section is deterministic and separate from the synthesised dossier: every
+	// signal carries the search snippet, its identity basis, a confidence and the date the
+	// snippet proves, and the fixed warning travels with it. The model's public_accounts output
+	// is replaced by this projection so an invented handle can never reach the operator.
+	profile.PublicAccounts = publicAccountsFromSocials(socialSignals)
+	profile.Socials = socialSignals
+	if len(socialSignals) > 0 {
+		profile.SocialNote = models.PersonSocialDisclaimer
+	}
 	if rocketReachWarning != "" {
 		profile.Warnings = append(profile.Warnings, rocketReachWarning)
 	}
@@ -657,6 +766,9 @@ Rules:
 	profile.Sources = sources
 	if rocketReachProfile != nil {
 		mergeRocketReachProfile(&profile, rocketReachProfile)
+		if warning := rocketReachPastRoleWarning(rocketReachProfile, companyName); warning != "" {
+			profile.Warnings = append(profile.Warnings, warning)
+		}
 		applyRocketReachContact(&profile, rocketReachProfile)
 	}
 
@@ -780,26 +892,51 @@ func (pa *PersonAgent) lookupRocketReach(ctx context.Context, sessionID string, 
 // endpoint when the direct lookup misses, and fetches the full profile for the
 // one candidate worth a paid lookup. Search results carry summary facts only, so
 // the selected candidate's full record — contact details included — comes back
-// with a second lookup pinned to its LinkedIn URL; if that paid fetch fails, the
-// search profile itself is still the structured record the run wants.
+// with a second lookup pinned to its profile ID (or LinkedIn URL when the summary
+// has no ID). If that paid fetch fails, the search profile itself is still the
+// structured record the run wants.
+//
+// A person who has left the confirmed employer is still that identity: the first
+// search is filtered by current employer, and when it selects nobody the search is
+// repeated once without that filter so a past role at the confirmed company can
+// disambiguate the profile. The retry is free and bounded to one extra request.
 func (pa *PersonAgent) searchRocketReachCandidate(ctx context.Context, sessionID string, query models.PersonQuery, eventCh chan<- models.AgentEvent) *tools.RocketReachProfile {
 	name := strings.TrimSpace(query.Name)
 	if name == "" {
 		return nil
 	}
-	conditions := map[string][]string{"name": []string{name}}
-	if company := strings.TrimSpace(query.Company); company != "" {
-		conditions["current_employer"] = []string{company}
-	}
+	base := map[string][]string{"name": []string{name}}
 	if location := strings.TrimSpace(query.Location); location != "" {
-		conditions["location"] = []string{location}
+		base["location"] = []string{location}
 	}
-	profiles, err := pa.rocketReach.Search(ctx, conditions)
+	company := strings.TrimSpace(query.Company)
+	currentEmployer := make(map[string][]string, len(base)+1)
+	for key, value := range base {
+		currentEmployer[key] = value
+	}
+	if company != "" {
+		currentEmployer["current_employer"] = []string{company}
+	}
+
+	profiles, err := pa.rocketReach.Search(ctx, currentEmployer)
 	if err != nil {
 		log.Printf("[PERSON][session %s] RocketReach search fallback unavailable: %v", sessionID, err)
 		return nil
 	}
-	candidate := selectRocketReachCandidate(profiles, query)
+	candidate, basis := selectRocketReachCandidateWithBasis(profiles, query)
+	if candidate == nil && company != "" {
+		// The current-employer filter is the reason a former director or employee
+		// disappears. Ask the free search once more without it; the selection then
+		// uses career history to decide whether this is the same person.
+		if pastProfiles, retryErr := pa.rocketReach.Search(ctx, base); retryErr == nil {
+			if selected, selectedBasis := selectRocketReachCandidateWithBasis(pastProfiles, query); selected != nil {
+				candidate, basis = selected, selectedBasis
+				profiles = pastProfiles
+			}
+		} else {
+			log.Printf("[PERSON][session %s] RocketReach past-employer search fallback unavailable: %v", sessionID, retryErr)
+		}
+	}
 	if candidate == nil {
 		Emit(eventCh, models.AgentEvent{
 			SessionID: sessionID, Type: models.EventToolResult, Step: 1,
@@ -810,73 +947,225 @@ func (pa *PersonAgent) searchRocketReachCandidate(ctx context.Context, sessionID
 	}
 	Emit(eventCh, models.AgentEvent{
 		SessionID: sessionID, Type: models.EventThinking, Step: 1,
-		Content: fmt.Sprintf("RocketReach search fallback pinned the employer-matched profile for %s; fetching its full record...", candidate.Name),
+		Content: fmt.Sprintf("RocketReach search fallback pinned %s via %s; fetching its full record...", candidate.Name, basis),
 	})
-	result, err := pa.rocketReach.Lookup(ctx, candidate.Name, candidate.CurrentEmployer, candidate.LinkedInURL)
-	if err != nil {
-		log.Printf("[PERSON][session %s] RocketReach candidate lookup unavailable: %v", sessionID, err)
-		return candidate
+	var result *tools.RocketReachProfile
+	if candidate.ID > 0 {
+		// The ID is the exact profile the search selected; a name/employer lookup
+		// would re-run the same ambiguity this step just resolved.
+		result, err = pa.rocketReach.LookupByID(ctx, candidate.ID)
+		if err != nil {
+			log.Printf("[PERSON][session %s] RocketReach candidate lookup by ID unavailable: %v", sessionID, err)
+			result = nil
+		}
+	}
+	if result == nil {
+		result, err = pa.rocketReach.Lookup(ctx, candidate.Name, candidate.CurrentEmployer, candidate.LinkedInURL)
+		if err != nil {
+			log.Printf("[PERSON][session %s] RocketReach candidate lookup unavailable: %v", sessionID, err)
+			return candidate
+		}
 	}
 	return result
 }
 
-// selectRocketReachCandidate picks the one profile worth a paid lookup: the
-// operator's confirmed seed profile first, then the first profile whose stated
-// employer matches the confirmed company. Without a company or a seed the
-// identity is unconfirmed, so only a lone exactly-named profile is safe to
-// take — an ambiguous set is left alone rather than guessed at.
+// selectRocketReachCandidate picks the one profile worth a paid lookup. The order is the
+// identity evidence an operator would use: the confirmed profile URL, then the confirmed
+// employer as the current employer, then — because a director or long-serving employee may
+// have moved on — a past role at the confirmed employer, and finally a lone exactly-named
+// profile when the run has no company or seed to anchor on. An ambiguous set is left alone
+// rather than guessed at.
 func selectRocketReachCandidate(profiles []tools.RocketReachProfile, query models.PersonQuery) *tools.RocketReachProfile {
-	seed := strings.ToLower(strings.TrimSpace(query.SeedURL))
+	candidate, _ := selectRocketReachCandidateWithBasis(profiles, query)
+	return candidate
+}
+
+// rocketReachRank orders the identity evidence a profile states. Higher is stronger; the
+// ranking is what keeps a current employer above a past one, and a past one above a name.
+const (
+	rocketReachRankNone = iota
+	rocketReachRankLoneName
+	rocketReachRankPastEmployer
+	rocketReachRankCurrentEmployer
+	rocketReachRankSeed
+)
+
+// rocketReachCandidateMatch ranks one profile against the confirmed identity and returns the
+// human-readable basis the run can report. The basis is what lets the dossier say "matched by
+// a past role at X" instead of silently treating a former employee as a current one.
+func rocketReachCandidateMatch(profile tools.RocketReachProfile, query models.PersonQuery) (int, string) {
+	seed := strings.TrimSpace(query.SeedURL)
+	if seed != "" && strings.EqualFold(strings.TrimSpace(profile.LinkedInURL), seed) {
+		return rocketReachRankSeed, "the confirmed profile URL"
+	}
+	company := strings.TrimSpace(query.Company)
+	if company == "" {
+		return rocketReachRankNone, ""
+	}
+	if rocketReachEmployerMatches(profile.CurrentEmployer, company) {
+		return rocketReachRankCurrentEmployer, "the confirmed employer as their current employer"
+	}
+	if job, ok := rocketReachPastEmployerJob(profile, company); ok {
+		return rocketReachRankPastEmployer, fmt.Sprintf("a past role at %s", firstNonEmpty(strings.TrimSpace(job.Company), company))
+	}
+	return rocketReachRankNone, ""
+}
+
+// selectRocketReachCandidateWithBasis is selectRocketReachCandidate plus the match basis and
+// a deterministic tie-break: seed, current employer, then the most recent past role. A lone
+// exact-name profile is only considered when there is no company or seed, because a name alone
+// is not an identity.
+func selectRocketReachCandidateWithBasis(profiles []tools.RocketReachProfile, query models.PersonQuery) (*tools.RocketReachProfile, string) {
+	bestIndex := -1
+	bestRank := rocketReachRankNone
+	bestBasis := ""
+	bestRecency := ""
 	company := strings.TrimSpace(query.Company)
 	for index := range profiles {
-		profile := &profiles[index]
-		if seed != "" && strings.EqualFold(strings.TrimSpace(profile.LinkedInURL), strings.TrimSpace(query.SeedURL)) {
-			return profile
+		rank, basis := rocketReachCandidateMatch(profiles[index], query)
+		if rank == rocketReachRankNone {
+			continue
+		}
+		recency := ""
+		if rank == rocketReachRankPastEmployer {
+			recency = rocketReachPastEmployerRecency(profiles[index], company)
+		}
+		if rank > bestRank || (rank == bestRank && recency > bestRecency) {
+			bestIndex, bestRank, bestBasis, bestRecency = index, rank, basis, recency
 		}
 	}
+	if bestIndex >= 0 {
+		return &profiles[bestIndex], bestBasis
+	}
+	if company != "" || strings.TrimSpace(query.SeedURL) != "" {
+		return nil, ""
+	}
+	matchedIndex := -1
+	matches := 0
 	for index := range profiles {
-		profile := &profiles[index]
-		if company != "" && rocketReachEmployerMatches(profile.CurrentEmployer, company) {
-			return profile
+		if !strings.EqualFold(strings.TrimSpace(profiles[index].Name), strings.TrimSpace(query.Name)) {
+			continue
+		}
+		matchedIndex = index
+		matches++
+	}
+	if matches == 1 {
+		return &profiles[matchedIndex], "a unique exact-name match"
+	}
+	return nil, ""
+}
+
+// rocketReachPastEmployerJob returns the most recent job at the confirmed company, which is
+// the past-role evidence a profile is matched on. An open-ended role sorts newest: if a person
+// is still at the company, RocketReach's current_employer field is the stale part.
+func rocketReachPastEmployerJob(profile tools.RocketReachProfile, company string) (tools.RocketReachJob, bool) {
+	var best tools.RocketReachJob
+	bestKey := ""
+	found := false
+	for _, job := range profile.JobHistory {
+		if !rocketReachEmployerMatches(job.Company, company) {
+			continue
+		}
+		key := rocketReachJobRecencyKey(job)
+		if !found || key > bestKey {
+			best, bestKey, found = job, key, true
 		}
 	}
-	if company == "" && seed == "" {
-		var matched *tools.RocketReachProfile
-		count := 0
-		for index := range profiles {
-			if strings.EqualFold(strings.TrimSpace(profiles[index].Name), strings.TrimSpace(query.Name)) {
-				matched = &profiles[index]
-				count++
-			}
-		}
-		if count == 1 {
-			return matched
-		}
+	return best, found
+}
+
+// rocketReachPastEmployerRecency is the sort key for competing past-role matches.
+func rocketReachPastEmployerRecency(profile tools.RocketReachProfile, company string) string {
+	job, ok := rocketReachPastEmployerJob(profile, company)
+	if !ok {
+		return ""
 	}
-	return nil
+	return rocketReachJobRecencyKey(job)
+}
+
+// rocketReachJobRecencyKey renders a job's end and start dates for lexical comparison. The
+// end date dominates; an empty end date means the role is still open and therefore newest.
+// RocketReach publishes dates as calendar strings ("2020-01-01", "2020"), which sort reliably
+// in that shape.
+func rocketReachJobRecencyKey(job tools.RocketReachJob) string {
+	end := strings.TrimSpace(job.EndDate)
+	if end == "" {
+		end = "9999-12-31"
+	}
+	return end + "|" + strings.TrimSpace(job.StartDate)
+}
+
+// rocketReachPastRoleWarning explains a profile that was matched by career history rather than
+// a current role. It is a warning, never a rejection: a former director is still the person the
+// operator asked about, but the dossier must not present the past role as current. The match is
+// silent otherwise, because the profile's current employer is what the merger fills.
+func rocketReachPastRoleWarning(result *tools.RocketReachProfile, company string) string {
+	if result == nil || strings.TrimSpace(company) == "" {
+		return ""
+	}
+	if strings.TrimSpace(result.CurrentEmployer) != "" && rocketReachEmployerMatches(result.CurrentEmployer, company) {
+		return ""
+	}
+	job, ok := rocketReachPastEmployerJob(*result, company)
+	if !ok {
+		return ""
+	}
+	period := ""
+	if joined := joinNonEmpty(" - ", job.StartDate, job.EndDate); joined != "" {
+		period = " (" + joined + ")"
+	}
+	return fmt.Sprintf("RocketReach matched this person by a past role at %s%s as %s; their current employer is listed as %s. Verify the current role before treating it as current.",
+		firstNonEmpty(strings.TrimSpace(job.Company), strings.TrimSpace(company)), period,
+		firstNonEmpty(strings.TrimSpace(job.Title), "a role"),
+		firstNonEmpty(strings.TrimSpace(result.CurrentEmployer), "unknown"))
+}
+
+// rocketReachContactDetails converts a provider profile into the dossier's contact rows,
+// dropping grade-F addresses (RocketReach's inferred patterns rather than verified addresses).
+// It is shared by the explicit person dossier and the company roster's on-demand enrichment so
+// both surfaces apply exactly the same rule.
+func rocketReachContactDetails(result *tools.RocketReachProfile) (emails []models.PersonContactEmail, phones []models.PersonContactPhone) {
+	if result == nil {
+		return nil, nil
+	}
+	for _, email := range result.Emails {
+		if strings.EqualFold(strings.TrimSpace(email.Grade), "F") {
+			continue
+		}
+		emails = append(emails, models.PersonContactEmail{
+			Email: email.Email, Type: email.Type, Grade: email.Grade,
+		})
+	}
+	for _, phone := range result.Phones {
+		phones = append(phones, models.PersonContactPhone{
+			Number: phone.Number, Type: phone.Type,
+		})
+	}
+	return emails, phones
 }
 
 func applyRocketReachContact(profile *models.PersonProfile, result *tools.RocketReachProfile) {
 	if result == nil {
 		return
 	}
-	enrichment := &models.PersonContactEnrichment{Source: "RocketReach", LinkedInURL: result.LinkedInURL}
-	for _, email := range result.Emails {
-		// RocketReach grades F contacts as inferred patterns rather than
-		// sufficiently verified addresses. Do not present them as contacts.
-		if strings.EqualFold(strings.TrimSpace(email.Grade), "F") {
-			continue
-		}
-		enrichment.Emails = append(enrichment.Emails, models.PersonContactEmail{
-			Email: email.Email, Type: email.Type, Grade: email.Grade,
-		})
-	}
-	for _, phone := range result.Phones {
-		enrichment.Phones = append(enrichment.Phones, models.PersonContactPhone{
-			Number: phone.Number, Type: phone.Type,
-		})
-	}
+	enrichment := &models.PersonContactEnrichment{Source: models.ProviderRocketReach, LinkedInURL: result.LinkedInURL}
+	enrichment.Emails, enrichment.Phones = rocketReachContactDetails(result)
 	profile.ContactEnrichment = enrichment
+}
+
+// clearModelProvider removes any Provider value the synthesis model returned. Provider is a
+// trust marker used by dossier QC to keep provider-sourced rows; it must only be set by the
+// agent after a real provider lookup.
+func clearModelProvider(profile *models.PersonProfile) {
+	if profile == nil {
+		return
+	}
+	for index := range profile.Experiences {
+		profile.Experiences[index].Provider = ""
+	}
+	for index := range profile.Education {
+		profile.Education[index].Provider = ""
+	}
 }
 
 func formatRocketReachProfile(result *tools.RocketReachProfile) string {
@@ -937,8 +1226,9 @@ func mergeRocketReachProfile(profile *models.PersonProfile, result *tools.Rocket
 		}
 		experience := models.Experience{
 			Role: role, Company: company, Location: job.Location,
-			Period: joinNonEmpty(" - ", job.StartDate, job.EndDate),
-			Source: source,
+			Period:   joinNonEmpty(" - ", job.StartDate, job.EndDate),
+			Source:   source,
+			Provider: models.ProviderRocketReach,
 		}
 		if job.Description != "" {
 			experience.Highlights = []string{job.Description}
@@ -947,15 +1237,7 @@ func mergeRocketReachProfile(profile *models.PersonProfile, result *tools.Rocket
 			profile.Experiences = append(profile.Experiences, experience)
 		}
 	}
-	for _, education := range result.Education {
-		institution := firstNonEmpty(education.Institution, education.School)
-		degree := education.Degree
-		field := firstNonEmpty(education.Field, education.Major)
-		year := firstNonEmpty(education.Year, joinNonEmpty(" - ", education.StartYear, education.EndYear))
-		if institution == "" && degree == "" && field == "" {
-			continue
-		}
-		item := models.Education{Institution: institution, Degree: degree, Field: field, Year: year, Source: source}
+	for _, item := range rocketReachEducationRows(result) {
 		if !containsEducation(profile.Education, item) {
 			profile.Education = append(profile.Education, item)
 		}
@@ -969,6 +1251,26 @@ func mergeRocketReachProfile(profile *models.PersonProfile, result *tools.Rocket
 	if result.LinkedInURL != "" && !containsString(profile.Sources, result.LinkedInURL) {
 		profile.Sources = append(profile.Sources, result.LinkedInURL)
 	}
+}
+
+// publicAccountsFromSocials projects the flagged social section onto the API's older
+// public_accounts field, so a consumer that already reads public_accounts sees exactly the
+// same deterministic candidates the console and exports present under the social heading.
+// Returning nil for no signals keeps the JSON field omitted.
+func publicAccountsFromSocials(signals []models.SocialSignal) []models.PublicAccount {
+	if len(signals) == 0 {
+		return nil
+	}
+	accounts := make([]models.PublicAccount, 0, len(signals))
+	for _, signal := range signals {
+		accounts = append(accounts, models.PublicAccount{
+			Platform:      signal.Platform,
+			URL:           signal.URL,
+			IdentityBasis: signal.IdentityBasis,
+			Confidence:    signal.Confidence,
+		})
+	}
+	return accounts
 }
 
 func joinNonEmpty(separator string, values ...string) string {

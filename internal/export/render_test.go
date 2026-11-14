@@ -89,6 +89,55 @@ func TestPersonMarkdownCoversTheDossier(t *testing.T) {
 	}
 }
 
+// The social section is deliberately separate from experience/education and must carry its
+// warning on every surface. A dossier without social signals must not grow an empty section.
+func TestPersonSocialSectionIsSeparateAndFlagged(t *testing.T) {
+	profile := sampleProfile()
+	profile.SocialNote = models.PersonSocialDisclaimer
+	profile.Warnings = []string{"RocketReach matched this person by a past role at KLJ Resources Limited; their current employer is listed as Northern Polymers Ltd."}
+	profile.Experiences[0].Provider = models.ProviderRocketReach
+	profile.Education[0].Provider = models.ProviderRocketReach
+	profile.Socials = []models.SocialSignal{
+		{
+			Platform: "X/Twitter", URL: "https://x.com/asharao",
+			Title: "Asha Rao (@asharao) / X", Snippet: "Asha Rao on specialty chemicals.",
+			Source: "PUBLIC PERSONALIZATION — X/TWITTER", IdentityBasis: "name plus confirmed company",
+			Confidence: 0.7, ObservedAt: "2025-03-12",
+		},
+	}
+
+	markdown := renderPersonMarkdown(profile)
+	for _, expected := range []string{
+		"## Social signals (unverified)", "May not be accurate", "x.com/asharao",
+		"Identity basis: name plus confirmed company", "confidence 0.70",
+		"dated 2025-03-12", "@asharao",
+		"## Warnings", "past role at KLJ Resources Limited", "Northern Polymers Ltd",
+		"Provider: RocketReach", "| Provider |",
+	} {
+		if !strings.Contains(markdown, expected) {
+			t.Errorf("person markdown is missing %q", expected)
+		}
+	}
+
+	document := renderPersonHTML(profile)
+	for _, expected := range []string{
+		"Social signals (unverified)", "May not be accurate", "x.com/asharao", "0.70", "2025-03-12",
+		"<h2>Warnings</h2>", "past role at KLJ Resources Limited", "Northern Polymers Ltd",
+		"provider: RocketReach", "<th>Provider</th>",
+	} {
+		if !strings.Contains(document, expected) {
+			t.Errorf("person HTML is missing %q", expected)
+		}
+	}
+
+	if bare := renderPersonMarkdown(sampleProfile()); strings.Contains(bare, "## Social signals") {
+		t.Error("a profile without social signals must not render the social section")
+	}
+	if bare := renderPersonHTML(sampleProfile()); strings.Contains(bare, "Social signals (unverified)") {
+		t.Error("a profile without social signals must not render the social section in HTML")
+	}
+}
+
 // The identity check and the research trace are the person-mode counterparts of the entity
 // gate, scrape report, and timings the company chart carries: a dossier must show what it
 // held its sources to, what it excluded, and what the run actually did.
