@@ -42,8 +42,18 @@ below the implementation summary describe the pre-fix state.
   and it must share a real token/product-family relation with the product or inferred stages.
   A rejected category is reported and the stage-derived fallback is used instead. The category is
   never a buyer or a value-chain stage; it only broadens a weak stage search.
-- **Artifacts and UI** render stage coverage, the QC verdict/rejections, the separate channel
-  category, and the validated product category in the console, Markdown and HTML/PDF exports.
+- **Adversarial chain review.** After inference, a skeptical reviewer challenges every stage:
+  does it actually consume the product or its immediate derivative under the two-step definition,
+  is the distance right, and is it a manufacturing process rather than an end-use market? It can
+  reject stages and correct distances (for example a mattress plant consuming foam made from TDI is
+  distance 2, not a direct TDI consumer); suggestions are reported but never auto-added.
+- **Key-person discovery was removed from the landscape modes.** The former web/RocketReach people
+  pass consumed search and API budget without improving buyer/company identification. Those budgets
+  now go to discovery, verification, category fallback and gap extraction. Company mode's separate
+  RocketReach discovery and on-demand person lookup remain.
+- **Artifacts and UI** render stage coverage, the QC verdict/rejections, the adversarial chain
+  review, the separate channel category, and the validated product category in the console,
+  Markdown and HTML/PDF exports.
 
 Regression tests added: research-page reading, category/person/publisher name gates, stage
 coverage floor, QC rejection application, and the separate distribution roster. The existing

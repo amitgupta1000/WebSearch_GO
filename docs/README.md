@@ -526,13 +526,14 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
   page numbers on the right.
 - **Demand chain** (`mode=demand_chain`) is the buyer-side counterpart of producer/seller landscape:
   it infers the product's value chain scoped to the buyer definition — manufacturers whose process
-  consumes the product directly as an input (step 1) plus one derived step (step 2) — searches
-  operators of those consuming stages plus tender/import/input-language lanes, reads research,
-  news and directory pages for the companies they name (including stage-gap listicles), and verifies
-  consumption with claim-typed evidence. Distributors and wholesalers are reported as a separate
-  resale category. Every stage (and that category) must identify at least six companies; a
-  validated first-pass product category (e.g. TDI → polyurethanes, coal → coal products, never
-  `fuel`) broadens only weak stage searches. Bounded gap searches and list-page extraction fill
+  consumes the product directly as an input (step 1) plus one derived step (step 2) — and an
+  adversarial reviewer rejects unsupported/end-use stages or corrects their distance before any
+  search. It searches operators of those consuming stages plus tender/import/input-language lanes,
+  reads research, news and directory pages for the companies they name (including stage-gap
+  listicles), and verifies consumption with claim-typed evidence. Distributors and wholesalers are
+  reported as a separate resale category. Every stage (and that category) must identify at least six
+  companies; a validated first-pass product category (e.g. TDI → polyurethanes, coal → coal products,
+  never `fuel`) broadens only weak stage searches. Bounded gap searches and list-page extraction fill
   what they can, and a post-assembly QC review records coverage, rejections and follow-ups. Its
   artifacts land under `demand-chain/` with the value chain leading both documents.
 - **Search results** remain available in the console per query, with each hit split into what

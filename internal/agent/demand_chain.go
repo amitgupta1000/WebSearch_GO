@@ -1058,8 +1058,8 @@ func demandNameIsCategoryFor(name, activity string) bool {
 	categoryWords := map[string]bool{
 		"producer": true, "producers": true, "manufacturer": true, "manufacturers": true,
 		"supplier": true, "suppliers": true, "product": true, "products": true,
-		"plants": true, "plant": true, "industry": true, "industries": true,
-		"market": true, "markets": true,
+		"plants": true, "plant": true, "factory": true, "factories": true, "industry": true, "industries": true,
+		"market": true, "markets": true, "members": true,
 	}
 	last := strings.Trim(fields[len(fields)-1], ".,;:()")
 	if !categoryWords[last] {
@@ -1073,7 +1073,7 @@ func demandNameIsCategoryFor(name, activity string) bool {
 	roleCount := 0
 	for _, field := range fields {
 		switch strings.Trim(field, ".,;:()") {
-		case "manufacturer", "manufacturers", "supplier", "suppliers", "producer", "producers", "factory", "factories", "plant", "plants":
+		case "manufacturer", "manufacturers", "supplier", "suppliers", "producer", "producers", "factory", "factories", "plant", "plants", "members":
 			roleCount++
 		}
 	}
@@ -1101,7 +1101,7 @@ func demandNameIsCategoryFor(name, activity string) bool {
 // operating companies. It is deliberately narrow: real company names do not end in these roles.
 func demandNameIsInstitution(name string) bool {
 	lowered := " " + strings.ToLower(strings.TrimSpace(name)) + " "
-	for _, marker := range []string{" administration ", " agency ", " department ", " authority ", " procurement portal ", " passport "} {
+	for _, marker := range []string{" administration ", " agency ", " department ", " authority ", " procurement portal ", " passport ", " customs ruling ", " oehha ", " specialchem ", " wholesale central ", " members "} {
 		if strings.Contains(lowered, marker) {
 			return true
 		}

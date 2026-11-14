@@ -1542,3 +1542,22 @@ func TestDemandAdversarialChainReviewCorrectsDistance(t *testing.T) {
 		t.Errorf("reviewed chain = %+v, want the mattress stage corrected to distance 2", reviewed)
 	}
 }
+
+// TestDemandEvalLeaksAreRejected pins the false positives the live TDI eval exposed after the
+// first QC pass: product/report phrases, article headlines, agencies and category list titles.
+func TestDemandEvalLeaksAreRejected(t *testing.T) {
+	for _, name := range []string{
+		"China TDI Foam Chemical Manufacturers Suppliers Factory",
+		"Toluene diisocyanates (TDI), TDA and DNT REACH",
+		"Covestro pioneers the supply of renewable TDI",
+		"Federal Transit Administration",
+		"PASSPort",
+		"Customs Ruling NY N208431",
+		"PFA Members",
+		"Wholesale Central",
+	} {
+		if demandCompanyTitleFor(name, "Toluene Diisocyanate") {
+			t.Errorf("demandCompanyTitleFor(%q) admitted a leaked non-company", name)
+		}
+	}
+}
