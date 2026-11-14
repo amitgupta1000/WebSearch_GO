@@ -46,15 +46,13 @@ func TestDemandChainLive(t *testing.T) {
 		t.Fatalf("gemini client: %v", err)
 	}
 	serper := tools.NewSerperClient(cfg.SerperAPIKey)
-	rocketReach := tools.NewRocketReachClient(cfg.RocketReachAPIKey)
 	scraper := tools.NewScraperWithBrowser(nil, 15*time.Second, false)
 	defer scraper.Close()
 
 	exporter := export.New(export.NewFilesystemDestination(outDir), scraper, "live/", nil)
 	eng := NewEngine(gemini, serper, scraper, cache.NewMemoryCache(200), 40, 10, 20, WithExporter(exporter))
 
-	// The event channel is drained exactly like the SSE console does, so the
-	// RocketReach discovery calls are observable in the test output.
+	// The event channel is drained exactly like the SSE console does.
 	eventCh := make(chan models.AgentEvent, 256)
 	var events []models.AgentEvent
 	eventsDone := make(chan struct{})
@@ -65,7 +63,7 @@ func TestDemandChainLive(t *testing.T) {
 		close(eventsDone)
 	}()
 
-	agent := NewDemandChainAgent(eng, rocketReach)
+	agent := NewDemandChainAgent(eng)
 	report, err := agent.Research(ctx, "live-nbutanol-india", models.DemandChainQuery{
 		Activity:     "N-Butanol",
 		Objective:    "Find potential buyers of N-Butanol in India",
@@ -73,11 +71,9 @@ func TestDemandChainLive(t *testing.T) {
 		MaxCompanies: 15,
 		// A deliberately deep budget for the sample run: the levers are
 		// query-driven, so the shipped mode defaults stay untouched.
-		DiscoveryQueries:        60,
-		VerificationQueries:     250,
-		MaxLeadsEnriched:        60,
-		IncludePeople:           true,
-		UseRocketReachDiscovery: true,
+		DiscoveryQueries:    60,
+		VerificationQueries: 250,
+		MaxLeadsEnriched:    60,
 	}, eventCh)
 	close(eventCh)
 	<-eventsDone
@@ -85,7 +81,7 @@ func TestDemandChainLive(t *testing.T) {
 		t.Fatalf("Research: %v", err)
 	}
 	for _, event := range events {
-		if strings.Contains(event.Content, "RocketReach") || strings.Contains(event.Content, "procurement") {
+		if strings.Contains(event.Content, "category") || strings.Contains(event.Content, "review") {
 			t.Logf("[event] %s: %s", event.Type, event.Content)
 		}
 	}

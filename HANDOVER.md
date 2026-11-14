@@ -190,10 +190,10 @@ Any future output-scope change should be covered by synthesis-level regression t
 
 ## RocketReach and workflow context
 
-- RocketReach discovery is opt-in in Company and Producer/Seller Landscape modes.
+- RocketReach discovery is opt-in in Company mode only.
 - Company RR discovery starts before web research.
 - Company RR uses `current_employer` and `current_title`.
-- Producer/Seller Landscape remains independent from CompanyAgent and is intended for broad company discovery and potential commercial contacts.
+- Producer/Seller Landscape and Buyer Landscape no longer run key-person/RocketReach discovery; their search budgets are reserved for company and demand discovery.
 - CompanyAgent is reserved for deep, specific-company research.
 - Company SSE terminal-session protection prevents completed logs from replaying on reconnect.
 

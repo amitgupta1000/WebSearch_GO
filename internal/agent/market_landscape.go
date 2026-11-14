@@ -9,26 +9,25 @@ import (
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
-	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 const (
-	marketMaxDiscoveryQueries = 18
-	// Company verification gets 30 searches. Web key-person discovery and the
-	// optional RocketReach discovery each get their own 20-search budget.
-	marketMaxVerificationQueries = 70
-	marketPeopleQueryReserve     = 40
+	marketMaxDiscoveryQueries = 24
+	// Company verification gets 100 searches now that key-person discovery no longer consumes
+	// a reserve; the extra budget goes to company identity and facility evidence.
+	marketMaxVerificationQueries = 100
 	marketMaxResults             = 10
-	marketMaxCandidates          = 40
+	marketMaxCandidates          = 48
+	marketMinDiscoveryFindings   = 6
+	marketMaxCategoryQueries     = 2
+	marketCoverageMinimum        = 6
 	// Verification spends three searches per company. The query budget is the
-	// real cap (70/3 when no people pass runs, 30/3 when one does); this bound
-	// only stops an extraction flood from queueing work the budget cannot pay
-	// for, and it is generous enough that a report's company table is not cut
-	// off at ten names.
-	marketMaxVerifiedCompanies = 24
+	// real cap; this bound only stops an extraction flood from queueing work
+	// the budget cannot pay for.
+	marketMaxVerifiedCompanies = 32
 	// Lead enrichment reads up to this many pages, densest first, through the
 	// engine's bounded batch scraper.
-	marketMaxLeadPages = 24
+	marketMaxLeadPages = 30
 	// A company page needs its opening lines; a report or directory page needs
 	// the competitive-landscape table, which sits further down the page.
 	marketCompanyPageExcerpt = 3000
@@ -37,16 +36,11 @@ const (
 
 // MarketLandscapeAgent owns the additive, vector-free market workflow.
 type MarketLandscapeAgent struct {
-	engine      *Engine
-	rocketReach *tools.RocketReachClient
+	engine *Engine
 }
 
-func NewMarketLandscapeAgent(engine *Engine, rocketReach ...*tools.RocketReachClient) *MarketLandscapeAgent {
-	var client *tools.RocketReachClient
-	if len(rocketReach) > 0 {
-		client = rocketReach[0]
-	}
-	return &MarketLandscapeAgent{engine: engine, rocketReach: client}
+func NewMarketLandscapeAgent(engine *Engine) *MarketLandscapeAgent {
+	return &MarketLandscapeAgent{engine: engine}
 }
 
 // Research performs broad discovery, lead extraction, bounded verification, and
@@ -59,48 +53,28 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	if strings.TrimSpace(query.Objective) == "" {
 		query.Objective = query.Activity
 	}
-	if query.MaxCompanies <= 0 || query.MaxCompanies > 50 {
-		query.MaxCompanies = 20
+	if query.MaxCompanies <= 0 || query.MaxCompanies > 80 {
+		query.MaxCompanies = 48
 	}
 
 	report := &models.MarketLandscapeReport{
 		ResearchID: researchID, Objective: query.Objective, Activity: query.Activity,
 		Lanes: marketLanes(query), Iterations: 2, StartedAt: time.Now(),
-		RocketReachDiscoveryEnabled: query.UseRocketReachDiscovery,
-	}
-	if query.UseRocketReachDiscovery && (a.rocketReach == nil || !a.rocketReach.Enabled()) {
-		report.Warnings = append(report.Warnings, "RocketReach discovery was selected but RocketReach is not configured; no RocketReach profiles were searched.")
 	}
 	if query.IncludeContacts {
 		report.Warnings = append(report.Warnings, "Public business-contact collection is reserved for a later bounded pass; use the per-person Fetch contact details action for RocketReach enrichment.")
 	}
+	category, categoryRationale, categorySource, categoryWarnings := a.inferMarketCategory(ctx, query, eventCh)
+	report.ProductCategory = category
+	report.CategoryRationale = categoryRationale
+	report.CategorySource = categorySource
+	report.Warnings = append(report.Warnings, categoryWarnings...)
 
 	companies := make(map[string]*models.MarketLandscapeCompany)
 	var leads []models.MarketLandscapeEvidence
 	leadURLs := make(map[string]bool)
 	queriesUsed := 0
-	emitAgentEvent(eventCh, models.EventThinking, "Planning market discovery lanes", "", "")
-	for _, lane := range report.Lanes {
-		if queriesUsed >= marketMaxDiscoveryQueries {
-			break
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		searchQuery := strings.TrimSpace(query.Activity + " " + lane)
-		if len(query.Countries) > 0 {
-			searchQuery += " " + strings.Join(query.Countries, " ")
-		} else if len(query.Regions) > 0 {
-			searchQuery += " " + strings.Join(query.Regions, " ")
-		}
-		emitAgentEvent(eventCh, models.EventToolCall, "Searching "+lane, "search", searchQuery)
-		hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
-		queriesUsed++
-		report.SearchHits += len(hits)
-		if err != nil {
-			report.Warnings = append(report.Warnings, fmt.Sprintf("%s search failed: %v", lane, err))
-			continue
-		}
+	processHits := func(hits []models.SearchResult, lane string) {
 		for _, hit := range hits {
 			candidate := marketCandidate(hit, lane, query)
 			if candidate == nil {
@@ -126,6 +100,61 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 			mergeMarketCompany(companies, candidate)
 		}
 	}
+	emitAgentEvent(eventCh, models.EventThinking, "Planning market discovery lanes", "", "")
+	for _, lane := range report.Lanes {
+		if queriesUsed >= marketMaxDiscoveryQueries {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		searchQuery := strings.TrimSpace(query.Activity + " " + lane)
+		if len(query.Countries) > 0 {
+			searchQuery += " " + strings.Join(query.Countries, " ")
+		} else if len(query.Regions) > 0 {
+			searchQuery += " " + strings.Join(query.Regions, " ")
+		}
+		emitAgentEvent(eventCh, models.EventToolCall, "Searching "+lane, "search", searchQuery)
+		hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+		queriesUsed++
+		report.SearchHits += len(hits)
+		if err != nil {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("%s search failed: %v", lane, err))
+			continue
+		}
+		processHits(hits, lane)
+	}
+
+	// If the exact producer lanes are weak, broaden to the validated first-pass category. The
+	// category is a search fallback only; candidates still pass the normal identity and
+	// verification gates, and the category page is never promoted as a company.
+	if len(companies)+len(leads) < marketMinDiscoveryFindings && category != "" {
+		for _, lane := range marketCategoryLanes(category) {
+			if queriesUsed >= marketMaxDiscoveryQueries+marketMaxCategoryQueries {
+				break
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			searchQuery := strings.TrimSpace(lane + " " + marketGeography(query))
+			emitAgentEvent(eventCh, models.EventToolCall, "Broadened category search "+category, "search", searchQuery)
+			hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+			queriesUsed++
+			report.FallbackQueries++
+			report.SearchHits += len(hits)
+			if err != nil {
+				report.Warnings = append(report.Warnings, fmt.Sprintf("category fallback %q failed: %v", lane, err))
+				continue
+			}
+			processHits(hits, lane)
+		}
+		report.Lanes = uniqueStrings(append(report.Lanes, marketCategoryLanes(category)...))
+		emitAgentEvent(eventCh, models.EventThinking,
+			fmt.Sprintf("Discovery was weak (%d finding(s)); broadened to category %q", len(companies)+len(leads), category),
+			"market_category", "")
+	} else if len(companies)+len(leads) < marketMinDiscoveryFindings {
+		report.Warnings = append(report.Warnings, "Discovery was weak and no validated product category was available for a category fallback.")
+	}
 
 	report.LeadsReviewed = len(leads)
 	report.QueriesUsed = queriesUsed
@@ -143,35 +172,6 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 			mergeMarketCompany(companies, company)
 		}
 	}
-
-	rrCalls, rrProfiles, rrPromoted := 0, 0, 0
-	if query.UseRocketReachDiscovery {
-		candidates := make([]*models.MarketLandscapeCompany, 0, len(companies))
-		for _, company := range companies {
-			candidates = append(candidates, company)
-		}
-		emitAgentEvent(eventCh, models.EventThinking, "Running RocketReach discovery before web key-person searches", "rocketreach_search", "")
-		if len(candidates) == 0 {
-			emitAgentEvent(eventCh, models.EventToolResult, "RocketReach discovery skipped: no company candidates were produced by market discovery", "rocketreach_search", "")
-		} else {
-			rrCalls, rrProfiles, rrPromoted = a.discoverMarketRocketReach(ctx, candidates, marketPeopleQueryReserve/2, eventCh)
-			emitAgentEvent(eventCh, models.EventToolResult,
-				fmt.Sprintf("RocketReach discovery complete: %d call(s), %d profile(s) returned, %d candidate(s) promoted", rrCalls, rrProfiles, rrPromoted),
-				"rocketreach_search", "")
-		}
-	}
-	peopleQueries := 0
-	if query.IncludePeople {
-		candidates := make([]*models.MarketLandscapeCompany, 0, len(companies))
-		for _, company := range companies {
-			candidates = append(candidates, company)
-		}
-		peopleQueries = a.discoverMarketPeople(ctx, candidates, query, marketPeopleQueryReserve/2, eventCh)
-	}
-	report.QueriesUsed += rrCalls + peopleQueries
-	report.RocketReachDiscoveryCalls = rrCalls
-	report.RocketReachProfilesFound = rrProfiles
-	report.RocketReachCandidatesPromoted = rrPromoted
 
 	report.CandidatesFound = len(companies)
 	for _, company := range companies {
@@ -197,12 +197,58 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	if len(report.Results) == 0 {
 		report.Warnings = append(report.Warnings, "No company met the verification threshold; discovery leads remain in the appendix.")
 	}
+	report.Coverage = &models.MarketCoverage{Companies: len(companies), Minimum: marketCoverageMinimum, Pass: len(companies) >= marketCoverageMinimum}
+	if !report.Coverage.Pass {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("Market coverage is weak: %d company(ies) identified; target is at least %d.", len(companies), marketCoverageMinimum))
+	}
 	report.CompletedAt = time.Now()
 	if exports := a.engine.ExportMarketLandscape(ctx, report); len(exports) > 0 {
 		report.Exports = exports
 	}
 	emitAgentEvent(eventCh, models.EventComplete, fmt.Sprintf("Producer/Seller Landscape complete: %d verified result(s), %d candidate(s)", len(report.Results), report.CandidatesFound), "", "")
 	return report, nil
+}
+
+// inferMarketCategory asks the first pass for the immediate downstream category that consumes the
+// product. The category is validated by the same deterministic gate as the buyer-side category and
+// is used only to broaden weak discovery, never as a company or a result.
+func (a *MarketLandscapeAgent) inferMarketCategory(ctx context.Context, query models.MarketLandscapeQuery, eventCh chan<- models.AgentEvent) (string, string, string, []string) {
+	var inference models.MarketLandscapeInference
+	prompt := fmt.Sprintf(`Identify the immediate downstream product family or industry category that consumes %q for a producer/seller landscape. It must be specific enough to search, one to four words, and not an end-use sector or generic superclass. Examples: toluene diisocyanate -> polyurethanes; acetic acid -> solvents or acetates; toluene -> aromatics; n-butanol -> solvents; linear alkyl benzene -> surfactants; coal -> coal products, never fuel or energy. Return JSON with category and category_rationale.`, query.Activity)
+	if err := a.engine.GenerateStructured(ctx,
+		"You identify buyer-side product categories for industrial market research. Never return fuel, energy, chemicals, industrial, automotive or another end-use sector.",
+		prompt, &inference); err != nil {
+		category := demandFallbackCategory(query.Activity, nil)
+		return category, "Derived from the product family after category inference failed.", "fallback", []string{"Market category inference failed: " + err.Error()}
+	}
+	category, source, warnings := validateDemandCategory(inference.Category, inference.CategoryRationale, query.Activity, nil)
+	if category == "" {
+		category = demandFallbackCategory(query.Activity, nil)
+		if category != "" {
+			source = "fallback"
+		}
+	}
+	rationale := strings.TrimSpace(inference.CategoryRationale)
+	if source == "fallback" {
+		rationale = "Derived from the product family after category validation."
+	}
+	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Market category: %s (%s)", category, source), "market_category", "")
+	return category, rationale, source, warnings
+}
+
+func marketGeography(query models.MarketLandscapeQuery) string {
+	if len(query.Countries) > 0 {
+		return strings.Join(query.Countries, " ")
+	}
+	return strings.Join(query.Regions, " ")
+}
+
+func marketCategoryLanes(category string) []string {
+	category = strings.TrimSpace(category)
+	if category == "" {
+		return nil
+	}
+	return []string{category + " manufacturers", category + " companies"}
 }
 
 func marketLanes(query models.MarketLandscapeQuery) []string {
@@ -340,7 +386,7 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 			leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 		}
 		var batch []models.MarketLandscapeLeadCandidate
-		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. These leads include company pages, directory pages, news articles and market-research report pages. A report or an article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a top-companies, key-players or competitive-landscape table, using the company's own trading name exactly as the page writes it and dropping any tagline. Name the operator, never the page: a report title, article headline, publisher name, site name, navigation label, region, project or generic category is not a company. Never return a headline that contains an action verb (opens, launches, announces, plans, acquires, sells) as a name. For every extracted company, include source_type (operator, news_article or research_report), mention_context, supporting_quote, country, reason, evidence_url as a string, and key_people as an array of strings. A research_report or news_article candidate must be independently verified before promotion. If a lead explicitly names a relevant sales, marketing, commercial, or business-development person, include the person's name in key_people; never infer people. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
+		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. These leads include company pages, directory pages, news articles and market-research report pages. A report or an article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a top-companies, key-players or competitive-landscape table, using the company's own trading name exactly as the page writes it and dropping any tagline. Name the operator, never the page: a report title, article headline, publisher name, site name, navigation label, region, project or generic category is not a company. Never return a headline that contains an action verb (opens, launches, announces, plans, acquires, sells) as a name. For every extracted company, include source_type (operator, news_article or research_report), mention_context, supporting_quote, country, reason, and evidence_url as a string. A research_report or news_article candidate must be independently verified before promotion. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
 		if err := a.engine.GenerateStructured(ctx, "You extract company names for a market research verification queue. Return the operating company's own trading name only: never a report title, headline, publisher, site name or category. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
 			rejected += end - start
 			extractionErrors = append(extractionErrors, err.Error())
@@ -378,9 +424,6 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 	verified := make([]*models.MarketLandscapeCompany, 0, len(uniqueExtracted))
 	queriesUsed := 0
 	verificationBudget := marketMaxVerificationQueries
-	if query.IncludePeople || query.UseRocketReachDiscovery {
-		verificationBudget -= marketPeopleQueryReserve
-	}
 	for index, lead := range uniqueExtracted {
 		if index >= marketMaxVerifiedCompanies || queriesUsed >= verificationBudget {
 			break
@@ -406,7 +449,6 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 					company = &models.MarketLandscapeCompany{
 						EntityKey: "company:name:" + normalizeMarketName(lead.Name), Name: lead.Name,
 						Country: lead.Country, Activity: query.Activity, EvidenceType: "company-page", Confidence: 0.62,
-						KeyPeople: append([]string(nil), lead.KeyPeople...),
 					}
 					verified = append(verified, company)
 				}
@@ -434,117 +476,6 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 		extractionErr = fmt.Errorf("%d lead extraction batch(es) failed: %s", len(extractionErrors), extractionErrors[0])
 	}
 	return verified, queriesUsed, len(uniqueExtracted), rejected, pagesEnriched, 0, 0, 0, extractionErr
-}
-
-func (a *MarketLandscapeAgent) discoverMarketRocketReach(ctx context.Context, companies []*models.MarketLandscapeCompany, budget int, eventCh chan<- models.AgentEvent) (int, int, int) {
-	if a.rocketReach == nil || !a.rocketReach.Enabled() {
-		return 0, 0, 0
-	}
-	used, profilesFound, promoted := 0, 0, 0
-	for _, company := range companies {
-		if used >= budget {
-			break
-		}
-		emitAgentEvent(eventCh, models.EventToolCall, "Discovering RocketReach key people at "+company.Name, "rocketreach_search", company.Name)
-		searchFilters := map[string][]string{
-			"current_employer": []string{company.Name},
-			"current_title":    []string{"sales", "marketing", "commercial", "business development"},
-		}
-		emitAgentEvent(eventCh, models.EventThinking,
-			fmt.Sprintf("RocketReach filters: current employer=%q; titles=sales, marketing, commercial, business development", company.Name),
-			"rocketreach_search", "")
-		profiles, err := a.rocketReach.Search(ctx, searchFilters)
-		used++
-		if err != nil {
-			emitAgentEvent(eventCh, models.EventError, "RocketReach search failed for "+company.Name+": "+err.Error(), "rocketreach_search", company.Name)
-			continue
-		}
-		profilesFound += len(profiles)
-		emitAgentEvent(eventCh, models.EventToolResult,
-			fmt.Sprintf("RocketReach returned %d profile(s) for %s; validating current-employer matches", len(profiles), company.Name),
-			"rocketreach_search", company.Name)
-		seen := make(map[string]bool)
-		for _, existing := range company.KeyPeople {
-			seen[strings.ToLower(strings.TrimSpace(existing))] = true
-		}
-		for _, profile := range profiles {
-			if !strings.EqualFold(strings.TrimSpace(profile.CurrentEmployer), strings.TrimSpace(company.Name)) {
-				emitAgentEvent(eventCh, models.EventThinking,
-					fmt.Sprintf("RocketReach candidate %q not promoted: employer %q does not match %q", profile.Name, profile.CurrentEmployer, company.Name),
-					"rocketreach_search", "")
-				continue
-			}
-			name := strings.TrimSpace(profile.Name)
-			key := strings.ToLower(name)
-			if name != "" && !seen[key] && isPlausiblePersonName(name) {
-				company.KeyPeople = append(company.KeyPeople, name)
-				if company.KeyPeopleSources == nil {
-					company.KeyPeopleSources = make(map[string]string)
-				}
-				company.KeyPeopleSources[name] = "RocketReach"
-				seen[key] = true
-				promoted++
-				emitAgentEvent(eventCh, models.EventToolResult,
-					fmt.Sprintf("Promoted RocketReach candidate %s for %s (current employer matched)", name, company.Name),
-					"rocketreach_search", "")
-			}
-		}
-	}
-	return used, profilesFound, promoted
-}
-
-func (a *MarketLandscapeAgent) discoverMarketPeople(ctx context.Context, companies []*models.MarketLandscapeCompany, query models.MarketLandscapeQuery, budget int, eventCh chan<- models.AgentEvent) int {
-	used := 0
-	for _, company := range companies {
-		if used >= budget {
-			break
-		}
-		searchQuery := fmt.Sprintf("\"%s\" (sales OR marketing OR commercial OR \"business development\") (director OR head OR manager OR VP OR chief)", company.Name)
-		emitAgentEvent(eventCh, models.EventToolCall, "Discovering key people at "+company.Name, "search", searchQuery)
-		hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
-		used++
-		if err != nil {
-			continue
-		}
-		evidence := make([]string, 0, len(hits))
-		companyName := strings.ToLower(company.Name)
-		for _, hit := range hits {
-			text := strings.ToLower(hit.Title + " " + hit.Snippet)
-			if strings.Contains(text, companyName) && strings.TrimSpace(hit.Link) != "" {
-				evidence = append(evidence, fmt.Sprintf("%s — %s (%s)", hit.Title, hit.Snippet, hit.Link))
-			}
-		}
-		if len(evidence) == 0 {
-			continue
-		}
-		var people []models.MarketLandscapePersonCandidate
-		prompt := fmt.Sprintf("Extract only named people whose sales, marketing, commercial, or business-development role is explicitly associated with %q. Exclude job vacancies, generic titles, publishers, and people whose employer is not stated. Return a JSON array with name only. Evidence:\n%s", company.Name, strings.Join(evidence, "\n"))
-		if err := a.engine.GenerateStructured(ctx, "You identify explicitly named current commercial employees from anchored company evidence. Never invent names.", prompt, &people); err != nil {
-			continue
-		}
-		seen := make(map[string]bool)
-		for _, existing := range company.KeyPeople {
-			seen[strings.ToLower(strings.TrimSpace(existing))] = true
-		}
-		for _, person := range people {
-			name := strings.TrimSpace(person.Name)
-			key := strings.ToLower(name)
-			if name != "" && !seen[key] && isPlausiblePersonName(name) {
-				company.KeyPeople = append(company.KeyPeople, name)
-				if company.KeyPeopleSources == nil {
-					company.KeyPeopleSources = make(map[string]string)
-				}
-				company.KeyPeopleSources[name] = "web search"
-				seen[key] = true
-			}
-		}
-	}
-	return used
-}
-
-func isPlausiblePersonName(name string) bool {
-	parts := strings.Fields(strings.TrimSpace(name))
-	return len(parts) >= 2 && len(name) <= 120
 }
 
 // isPlausibleMarketLeadName is the name-hygiene gate both landscape modes apply

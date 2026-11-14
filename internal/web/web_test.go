@@ -53,9 +53,6 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 	rendered := out.String()
 	for _, expected := range []string{
 		`<h3 class="text-2xl font-bold text-white">Producer/Seller Landscape</h3>`,
-		`name="company_name" value="Peninsula"`,
-		`name="person_name" value="Jeroen De Vos"`,
-		`name="person_name" value="Victor Morales"`,
 		"Storage and blending",
 	} {
 		if !strings.Contains(rendered, expected) {
@@ -395,8 +392,6 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 		"Stage coverage — QC minimum", "Distribution and wholesale", "FAIL",
 		"Quality review", "ACS Publications", "publisher",
 		"gap/QC", "GreenDiesel Sdn Bhd", "Consuming stage: biodiesel production",
-		`name="company_name" value="GreenDiesel Sdn Bhd"`,
-		`name="person_name" value="Asha Rao"`,
 		"Private procurement is invisible",
 	} {
 		if !strings.Contains(rendered, expected) {

@@ -75,6 +75,25 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 		}
 		b.WriteString("\n")
 	}
+	if report.ChainReview != nil {
+		fmt.Fprintf(&b, "## Adversarial chain review\n\nVerdict: **%s**; score %.2f.%s\n\n",
+			markdownCell(report.ChainReview.Verdict), report.ChainReview.Score, func() string {
+				if trimmed(report.ChainReview.Reason) == "" {
+					return ""
+				}
+				return " " + trimmed(report.ChainReview.Reason)
+			}())
+		for _, rejection := range report.ChainReview.RejectedStages {
+			fmt.Fprintf(&b, "- Rejected **%s** — %s\n", markdownCell(rejection.Name), markdownCell(rejection.Reason))
+		}
+		for _, correction := range report.ChainReview.DistanceCorrections {
+			fmt.Fprintf(&b, "- Corrected **%s** to distance %d\n", markdownCell(correction.Name), correction.Distance)
+		}
+		if len(report.ChainReview.MissingStages) > 0 {
+			fmt.Fprintf(&b, "- Suggested missing stages (not added automatically): %s\n", markdownCell(strings.Join(report.ChainReview.MissingStages, ", ")))
+		}
+		b.WriteString("\n")
+	}
 	b.WriteString("## Results — verified consumers\n\n")
 	if len(report.Results) == 0 {
 		b.WriteString("No company met the consumption-verification threshold.\n")
@@ -185,6 +204,12 @@ var demandChainHTMLTemplate = documentTemplate("demand-chain", `
 	<table><thead><tr><th>Stage</th><th>Steps from the product</th><th>Why it consumes the product</th><th>Product families</th><th>Operator vocabulary</th><th>Source</th></tr></thead><tbody>
 	{{range .Chain.Chain}}<tr><td>{{.Name}}</td><td>{{if eq .Distance 2}}2 (derived){{else}}1 (direct){{end}}</td><td>{{.Rationale}}</td><td>{{range .Products}}{{.}}; {{end}}</td><td>{{range .Operators}}{{.}}; {{end}}</td><td>{{.Source}}</td></tr>{{end}}
 	</tbody></table>
+</section>{{end}}
+{{if .Chain.ChainReview}}<section><h2>Adversarial chain review</h2>
+<p><strong>{{.Chain.ChainReview.Verdict}}</strong> · score {{printf "%.2f" .Chain.ChainReview.Score}}{{if .Chain.ChainReview.Reason}} — {{.Chain.ChainReview.Reason}}{{end}}</p>
+{{if .Chain.ChainReview.RejectedStages}}<ul>{{range .Chain.ChainReview.RejectedStages}}<li>Rejected {{.Name}} — {{.Reason}}</li>{{end}}</ul>{{end}}
+{{if .Chain.ChainReview.DistanceCorrections}}<ul>{{range .Chain.ChainReview.DistanceCorrections}}<li>Corrected {{.Name}} to distance {{.Distance}}</li>{{end}}</ul>{{end}}
+{{if .Chain.ChainReview.MissingStages}}<p class="dim">Suggested missing stages (not added automatically): {{range .Chain.ChainReview.MissingStages}}{{.}}; {{end}}</p>{{end}}
 </section>{{end}}
 <section><h2>Results — verified consumers</h2>
 {{if .Chain.Results}}<table><thead><tr><th>Company</th><th>Consuming stage</th><th>Country</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Chain.Results}}<tr><td>{{.Name}}</td><td>{{.Stage}}</td><td>{{.Country}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{else}}<p>No company met the consumption-verification threshold.</p>{{end}}

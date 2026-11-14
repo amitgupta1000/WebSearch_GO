@@ -382,6 +382,7 @@ type marketPromptLLM struct {
 	mu          sync.Mutex
 	userPrompts []string
 	candidates  []models.MarketLandscapeLeadCandidate
+	category    string
 }
 
 func (m *marketPromptLLM) GenerateStructured(_ context.Context, _, userPrompt string, target any) error {
@@ -391,6 +392,9 @@ func (m *marketPromptLLM) GenerateStructured(_ context.Context, _, userPrompt st
 	m.mu.Unlock()
 	if typed, ok := target.(*[]models.MarketLandscapeLeadCandidate); ok {
 		*typed = append(*typed, candidates...)
+	}
+	if typed, ok := target.(*models.MarketLandscapeInference); ok {
+		typed.Category = m.category
 	}
 	return nil
 }
@@ -515,5 +519,37 @@ func TestMarketLandscapeHarvestsCompaniesFromAReportPage(t *testing.T) {
 	}
 	if report.LeadsRejected == 0 {
 		t.Error("the report title echoed back as a name must be rejected")
+	}
+}
+
+// TestMarketCategoryFallbackBroadensWeakDiscovery: when the exact producer lanes are weak, the
+// validated first-pass category supplies bounded fallback searches, and the extra budget is used
+// for companies rather than key-person discovery.
+func TestMarketCategoryFallbackBroadensWeakDiscovery(t *testing.T) {
+	hits := make([]models.SearchResult, 0, 6)
+	for index := 0; index < 6; index++ {
+		hits = append(hits, models.SearchResult{
+			Title:   "Acme Lubricants " + string(rune('A'+index)) + " Pvt Ltd",
+			Link:    "https://acmelubricants" + string(rune('a'+index)) + ".com",
+			Snippet: "Lubricant blending manufacturer and operator.",
+		})
+	}
+	searcher := &marketRouteSearcher{routes: []marketSearchRoute{{
+		fragment: "lubricants manufacturers", hits: hits,
+	}}}
+	llm := &marketPromptLLM{category: "lubricants"}
+	engine := NewEngine(llm, searcher, &mockScraper{}, cache.NewMemoryCache(16), 8, 3, 10)
+	report, err := NewMarketLandscapeAgent(engine).Research(context.Background(), "category-fallback", models.MarketLandscapeQuery{Activity: "lubricant blending"}, nil)
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	if report.ProductCategory != "lubricants" || report.CategorySource != "model" {
+		t.Errorf("category = %q/%q, want lubricants/model", report.ProductCategory, report.CategorySource)
+	}
+	if report.FallbackQueries == 0 {
+		t.Fatal("weak discovery did not run the category fallback")
+	}
+	if report.Coverage == nil || !report.Coverage.Pass || report.Coverage.Companies < marketCoverageMinimum {
+		t.Errorf("coverage = %+v, want at least %d companies", report.Coverage, marketCoverageMinimum)
 	}
 }

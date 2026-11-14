@@ -4,15 +4,13 @@ import "time"
 
 // MarketLandscapeQuery defines one bounded, one-run landscape investigation.
 type MarketLandscapeQuery struct {
-	Objective               string   `json:"objective"`
-	Activity                string   `json:"activity"`
-	Regions                 []string `json:"regions,omitempty"`
-	Countries               []string `json:"countries,omitempty"`
-	Exclusions              []string `json:"exclusions,omitempty"`
-	MaxCompanies            int      `json:"max_companies,omitempty"`
-	IncludeContacts         bool     `json:"include_contacts,omitempty"`
-	IncludePeople           bool     `json:"include_people,omitempty"`
-	UseRocketReachDiscovery bool     `json:"use_rocketreach_discovery,omitempty"`
+	Objective       string   `json:"objective"`
+	Activity        string   `json:"activity"`
+	Regions         []string `json:"regions,omitempty"`
+	Countries       []string `json:"countries,omitempty"`
+	Exclusions      []string `json:"exclusions,omitempty"`
+	MaxCompanies    int      `json:"max_companies,omitempty"`
+	IncludeContacts bool     `json:"include_contacts,omitempty"`
 }
 
 // MarketLandscapeEvidence is a tagged source record in the vector-free corpus.
@@ -80,29 +78,45 @@ type MarketLandscapePersonCandidate struct {
 	Name string `json:"name"`
 }
 
+// MarketLandscapeInference is the producer/seller first-pass category result. It is a fallback
+// search dimension only, not a company or a result.
+type MarketLandscapeInference struct {
+	Category          string `json:"category,omitempty"`
+	CategoryRationale string `json:"category_rationale,omitempty"`
+}
+
+// MarketCoverage is the producer/seller coverage check: a landscape should identify more than a
+// handful of companies before its absence of verified results is treated as a data problem.
+type MarketCoverage struct {
+	Companies int  `json:"companies"`
+	Minimum   int  `json:"minimum"`
+	Pass      bool `json:"pass"`
+}
+
 // MarketLandscapeReport separates verified results from the auditable corpus.
 type MarketLandscapeReport struct {
-	ResearchID                    string                    `json:"research_id"`
-	Objective                     string                    `json:"objective"`
-	Activity                      string                    `json:"activity"`
-	Results                       []MarketLandscapeCompany  `json:"results,omitempty"`
-	Appendix                      []MarketLandscapeEvidence `json:"appendix,omitempty"`
-	Lanes                         []string                  `json:"lanes,omitempty"`
-	Iterations                    int                       `json:"iterations"`
-	QueriesUsed                   int                       `json:"queries_used"`
-	CandidatesFound               int                       `json:"candidates_found"`
-	LeadsReviewed                 int                       `json:"leads_reviewed"`
-	LeadsResolved                 int                       `json:"leads_resolved"`
-	SearchHits                    int                       `json:"search_hits"`
-	LeadsExtracted                int                       `json:"leads_extracted"`
-	LeadsRejected                 int                       `json:"leads_rejected"`
-	PagesEnriched                 int                       `json:"pages_enriched"`
-	RocketReachDiscoveryCalls     int                       `json:"rocketreach_discovery_calls,omitempty"`
-	RocketReachProfilesFound      int                       `json:"rocketreach_profiles_found,omitempty"`
-	RocketReachCandidatesPromoted int                       `json:"rocketreach_candidates_promoted,omitempty"`
-	RocketReachDiscoveryEnabled   bool                      `json:"rocketreach_discovery_enabled,omitempty"`
-	Warnings                      []string                  `json:"warnings,omitempty"`
-	StartedAt                     time.Time                 `json:"started_at"`
-	CompletedAt                   time.Time                 `json:"completed_at"`
-	Exports                       []ExportArtifact          `json:"exports,omitempty"`
+	ResearchID        string                    `json:"research_id"`
+	Objective         string                    `json:"objective"`
+	Activity          string                    `json:"activity"`
+	ProductCategory   string                    `json:"product_category,omitempty"`
+	CategoryRationale string                    `json:"category_rationale,omitempty"`
+	CategorySource    string                    `json:"category_source,omitempty"`
+	Coverage          *MarketCoverage           `json:"coverage,omitempty"`
+	FallbackQueries   int                       `json:"fallback_queries,omitempty"`
+	Results           []MarketLandscapeCompany  `json:"results,omitempty"`
+	Appendix          []MarketLandscapeEvidence `json:"appendix,omitempty"`
+	Lanes             []string                  `json:"lanes,omitempty"`
+	Iterations        int                       `json:"iterations"`
+	QueriesUsed       int                       `json:"queries_used"`
+	CandidatesFound   int                       `json:"candidates_found"`
+	LeadsReviewed     int                       `json:"leads_reviewed"`
+	LeadsResolved     int                       `json:"leads_resolved"`
+	SearchHits        int                       `json:"search_hits"`
+	LeadsExtracted    int                       `json:"leads_extracted"`
+	LeadsRejected     int                       `json:"leads_rejected"`
+	PagesEnriched     int                       `json:"pages_enriched"`
+	Warnings          []string                  `json:"warnings,omitempty"`
+	StartedAt         time.Time                 `json:"started_at"`
+	CompletedAt       time.Time                 `json:"completed_at"`
+	Exports           []ExportArtifact          `json:"exports,omitempty"`
 }

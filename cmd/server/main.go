@@ -283,12 +283,11 @@ func main() {
 	juristwayClient := tools.NewJuristwayClient(cfg.JuristwayEmail, cfg.JuristwayPassword)
 	legalAgent := agent.NewLegalAgent(eng, tools.NewIndianKanoonClient(), tools.NewCasemineClient(scraper), juristwayClient, cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery, cfg.LegalConcurrency)
 	relatedAgent := agent.NewRelatedEntityAgent(eng, rocketReachClient)
-	marketAgent := agent.NewMarketLandscapeAgent(eng, rocketReachClient)
+	marketAgent := agent.NewMarketLandscapeAgent(eng)
 	// The buyer-side mode is a separate agent with its own phases (value-chain
 	// inference, per-stage discovery, consumption verification); it shares the
-	// engine and the market mode's evidence vocabulary, and RocketReach for
-	// procurement-contact discovery when the operator asks for it.
-	demandAgent := agent.NewDemandChainAgent(eng, rocketReachClient)
+	// engine and the market mode's evidence vocabulary.
+	demandAgent := agent.NewDemandChainAgent(eng)
 	newsAgent := agent.NewNewsAgent(eng)
 	// Deep search is the open-ended mode: the same engine, but the model plans
 	// the queries, reflects on the evidence between rounds, and decides when
@@ -643,15 +642,13 @@ func marketLandscapeQueryFromForm(r *http.Request, activity string) models.Marke
 		regions = promptRegions
 	}
 	return models.MarketLandscapeQuery{
-		Objective:               firstNonEmpty(strings.TrimSpace(r.FormValue("market_objective")), objective),
-		Activity:                normalizedActivity,
-		Regions:                 regions,
-		Countries:               splitFormList(r.FormValue("market_countries")),
-		Exclusions:              splitFormList(r.FormValue("market_exclusions")),
-		MaxCompanies:            parseBoundedInt(r.FormValue("market_max_companies"), 20, 1, 50),
-		IncludeContacts:         r.FormValue("market_contacts") == "1",
-		IncludePeople:           r.FormValue("market_people") == "1",
-		UseRocketReachDiscovery: r.FormValue("market_rocketreach_discovery") == "1",
+		Objective:       firstNonEmpty(strings.TrimSpace(r.FormValue("market_objective")), objective),
+		Activity:        normalizedActivity,
+		Regions:         regions,
+		Countries:       splitFormList(r.FormValue("market_countries")),
+		Exclusions:      splitFormList(r.FormValue("market_exclusions")),
+		MaxCompanies:    parseBoundedInt(r.FormValue("market_max_companies"), 48, 1, 80),
+		IncludeContacts: r.FormValue("market_contacts") == "1",
 	}
 }
 
@@ -845,16 +842,14 @@ func demandChainQueryFromForm(r *http.Request, activity string) models.DemandCha
 		regions = promptRegions
 	}
 	return models.DemandChainQuery{
-		Objective:               firstNonEmpty(strings.TrimSpace(r.FormValue("demand_objective")), objective),
-		Activity:                normalizedActivity,
-		Regions:                 regions,
-		Countries:               splitFormList(r.FormValue("demand_countries")),
-		Exclusions:              splitFormList(r.FormValue("demand_exclusions")),
-		MaxCompanies:            parseBoundedInt(r.FormValue("demand_max_companies"), 48, 1, 80),
-		StagesOverride:          splitFormList(r.FormValue("demand_stages")),
-		IncludeIntermediaries:   r.FormValue("demand_intermediaries") == "1",
-		IncludePeople:           r.FormValue("demand_people") == "1",
-		UseRocketReachDiscovery: r.FormValue("demand_rocketreach_discovery") == "1",
+		Objective:             firstNonEmpty(strings.TrimSpace(r.FormValue("demand_objective")), objective),
+		Activity:              normalizedActivity,
+		Regions:               regions,
+		Countries:             splitFormList(r.FormValue("demand_countries")),
+		Exclusions:            splitFormList(r.FormValue("demand_exclusions")),
+		MaxCompanies:          parseBoundedInt(r.FormValue("demand_max_companies"), 48, 1, 80),
+		StagesOverride:        splitFormList(r.FormValue("demand_stages")),
+		IncludeIntermediaries: r.FormValue("demand_intermediaries") == "1",
 	}
 }
 

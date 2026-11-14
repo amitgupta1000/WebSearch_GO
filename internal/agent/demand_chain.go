@@ -22,14 +22,13 @@ import (
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
-	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 const (
-	demandMaxDiscoveryQueries    = 40
+	demandMaxDiscoveryQueries    = 48
 	demandMinDiscoveryQueries    = 2
-	demandMaxVerificationQueries = 180
-	demandMaxLeadsEnriched       = 60
+	demandMaxVerificationQueries = 200
+	demandMaxLeadsEnriched       = 72
 	demandMaxLeadPages           = 30
 	demandMaxStages              = 7
 	// demandMinStageCompanies is the QC floor: the buyer landscape is useful only when each
@@ -53,10 +52,6 @@ const (
 	// wholesalers buy the product to resell it; they are buyers, but not manufacturers in the
 	// value chain, so they get their own roster rather than polluting a consumption stage.
 	demandDistributionStageName = "Distribution and wholesale"
-	// Web key-person discovery and the optional RocketReach discovery each get
-	// their own 20-search budget, carved out of the verification budget when
-	// the people flags are on — the same discipline the market mode uses.
-	demandPeopleQueryReserve = 40
 	// Bounded concurrency for the pipeline's network-bound stages: lane
 	// searches and LLM extraction batches run three at a time, and lead
 	// enrichment rides the engine's shared scrape semaphore. Order of results
@@ -70,16 +65,11 @@ const (
 // operators of the consuming stages and public demand signals, verify
 // consumption, and assemble the report deterministically.
 type DemandChainAgent struct {
-	engine      *Engine
-	rocketReach *tools.RocketReachClient
+	engine *Engine
 }
 
-func NewDemandChainAgent(engine *Engine, rocketReach ...*tools.RocketReachClient) *DemandChainAgent {
-	var client *tools.RocketReachClient
-	if len(rocketReach) > 0 {
-		client = rocketReach[0]
-	}
-	return &DemandChainAgent{engine: engine, rocketReach: client}
+func NewDemandChainAgent(engine *Engine) *DemandChainAgent {
+	return &DemandChainAgent{engine: engine}
 }
 
 // Research runs the buyer pipeline. Existing search modes are not involved.
@@ -94,14 +84,6 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	// Budget normalization: zero keeps the mode defaults (MaxCompanies included),
 	// and the caps keep a mistyped budget from running away.
 	normalizeDemandBudget(&query)
-	// The people phase draws its searches from the same Serper budget as
-	// verification, so enabling it carves the reserve out of the verification
-	// budget, exactly as the market mode does.
-	if query.IncludePeople || query.UseRocketReachDiscovery {
-		if query.VerificationQueries > demandPeopleQueryReserve {
-			query.VerificationQueries -= demandPeopleQueryReserve
-		}
-	}
 
 	report := &models.DemandChainReport{
 		ResearchID: researchID, Objective: query.Objective, Activity: query.Activity,
@@ -114,6 +96,13 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	// around. Failure degrades to a generic stage rather than failing the run.
 	emitAgentEvent(eventCh, models.EventThinking, "Inferring the demand chain", "", "")
 	chain, category, categoryRationale, categorySource, inferred, warnings := a.inferDemandChainWithCategory(ctx, query, eventCh)
+	if inferred {
+		var chainReview *models.ValueChainReview
+		var reviewWarnings []string
+		chain, chainReview, reviewWarnings = a.reviewDemandChain(ctx, query, chain, eventCh)
+		report.ChainReview = chainReview
+		warnings = append(warnings, reviewWarnings...)
+	}
 	report.Chain = chain
 	report.ProductCategory = category
 	report.CategoryRationale = categoryRationale
@@ -209,34 +198,6 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	report.PagesEnriched = pagesEnriched
 	if verifyErr != nil {
 		report.Warnings = append(report.Warnings, verifyErr.Error())
-	}
-	if query.UseRocketReachDiscovery && (a.rocketReach == nil || !a.rocketReach.Enabled()) {
-		report.Warnings = append(report.Warnings, "RocketReach discovery was requested but no API key is configured (ROCKETREACH_API_KEY); web key-person discovery still runs when selected.")
-	}
-
-	// Phase 3b — key people. The buyer-side counterpart of the seller's
-	// commercial team: procurement, purchasing and supply-chain roles at the
-	// verified buyers, via RocketReach first and web discovery second.
-	rrCalls, rrProfiles, rrPromoted := 0, 0, 0
-	if query.UseRocketReachDiscovery && (a.rocketReach != nil && a.rocketReach.Enabled()) {
-		if len(verified) == 0 {
-			emitAgentEvent(eventCh, models.EventToolResult, "RocketReach discovery skipped: no buyers were verified", "rocketreach_search", "")
-		} else {
-			emitAgentEvent(eventCh, models.EventThinking, "Running RocketReach discovery for procurement contacts", "rocketreach_search", "")
-			rrCalls, rrProfiles, rrPromoted = a.discoverDemandRocketReach(ctx, verified, demandPeopleQueryReserve/2, eventCh)
-			emitAgentEvent(eventCh, models.EventToolResult,
-				fmt.Sprintf("RocketReach discovery complete: %d call(s), %d profile(s) returned, %d promoted", rrCalls, rrProfiles, rrPromoted),
-				"rocketreach_search", "")
-		}
-	}
-	if query.IncludePeople {
-		if len(verified) == 0 {
-			emitAgentEvent(eventCh, models.EventToolResult, "Web key-person discovery skipped: no buyers were verified", "search", "")
-		} else {
-			peopleQueries := a.discoverDemandPeople(ctx, verified, demandPeopleQueryReserve/2, eventCh)
-			report.QueriesUsed += peopleQueries
-			emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Web key-person discovery complete: %d procurement search(es)", peopleQueries), "search", "")
-		}
 	}
 
 	// Phase 4 — deterministic assembly, in the market mode's own shape. The
@@ -969,7 +930,9 @@ func demandCompanyTitle(name string) bool {
 
 func demandCompanyTitleFor(name, activity string) bool {
 	return isPlausibleMarketLeadName(name) && !isDemandDocumentTitle(name) && !isGenericMarketTitle(name) &&
-		!isDemandBaitTitle(name) && !demandNameIsCategoryFor(name, activity) && !demandNameIsPerson(name) && !marketPublisherSuffix(name)
+		!isDemandBaitTitle(name) && !demandNameIsCategoryFor(name, activity) && !demandNameIsPerson(name) &&
+		!marketPublisherSuffix(name) && !demandNameIsInstitution(name) && !demandNameIsHeadline(name) &&
+		!demandNameEchoesActivity(name, activity)
 }
 
 // demandProducerPhrases are the phrase shapes that tie a company to
@@ -1105,6 +1068,18 @@ func demandNameIsCategoryFor(name, activity string) bool {
 	if hasLegalSuffix {
 		return false
 	}
+	// Multiple role/category words without a legal suffix are a category or a list title, not a
+	// company: "China TDI Foam Chemical Manufacturers Suppliers Factory".
+	roleCount := 0
+	for _, field := range fields {
+		switch strings.Trim(field, ".,;:()") {
+		case "manufacturer", "manufacturers", "supplier", "suppliers", "producer", "producers", "factory", "factories", "plant", "plants":
+			roleCount++
+		}
+	}
+	if roleCount >= 2 {
+		return true
+	}
 	// "Deccan Foam Products" and "Faridabad Foam Industries" are plausible company names;
 	// "TDI Products" is a product phrase, not a company. A short/acronym first token marks
 	// the product-title shape, while a longer first token reads as a brand/place.
@@ -1122,12 +1097,55 @@ func demandNameIsCategoryFor(name, activity string) bool {
 	return true
 }
 
+// demandNameIsInstitution catches government/agency/procurement-portal shapes that are not
+// operating companies. It is deliberately narrow: real company names do not end in these roles.
+func demandNameIsInstitution(name string) bool {
+	lowered := " " + strings.ToLower(strings.TrimSpace(name)) + " "
+	for _, marker := range []string{" administration ", " agency ", " department ", " authority ", " procurement portal ", " passport "} {
+		if strings.Contains(lowered, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// demandNameIsHeadline catches article headlines that describe an event rather than a company.
+func demandNameIsHeadline(name string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(name))
+	for _, marker := range []string{" pioneers ", " supply of ", " announces ", " launches ", " opens ", " acquires ", " wins ", " signs ", " plans to "} {
+		if strings.Contains(lowered, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// demandNameEchoesActivity rejects a product/report phrase that begins with the search product
+// itself, such as "Toluene diisocyanates (TDI), TDA and DNT REACH".
+func demandNameEchoesActivity(name, activity string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	activity = strings.ToLower(strings.TrimSpace(activity))
+	if name == "" || activity == "" {
+		return false
+	}
+	if !strings.HasPrefix(name, activity) {
+		return false
+	}
+	for _, token := range strings.Fields(name) {
+		if demandCorporateSuffixes[strings.Trim(token, ".,;:()")] {
+			return false
+		}
+	}
+	return true
+}
 func demandSourceName(name, activity string) bool {
+
 	lowered := strings.ToLower(name)
 	// En/em dashes are headline punctuation too; normalize before matching.
 	lowered = strings.ReplaceAll(lowered, "–", "-")
 	lowered = strings.ReplaceAll(lowered, "—", "-")
-	if demandNameIsCategoryFor(name, activity) || demandNameIsPerson(name) || marketPublisherSuffix(name) {
+	if demandNameIsCategoryFor(name, activity) || demandNameIsPerson(name) || marketPublisherSuffix(name) ||
+		demandNameIsInstitution(name) || demandNameIsHeadline(name) || demandNameEchoesActivity(name, activity) {
 		return true
 	}
 	for _, marker := range []string{
@@ -1705,20 +1723,20 @@ func normalizeDemandBudget(query *models.DemandChainQuery) {
 	if query.DiscoveryQueries < demandMinDiscoveryQueries {
 		query.DiscoveryQueries = demandMinDiscoveryQueries
 	}
-	if query.DiscoveryQueries > 80 {
-		query.DiscoveryQueries = 80
+	if query.DiscoveryQueries > 100 {
+		query.DiscoveryQueries = 100
 	}
 	if query.VerificationQueries <= 0 {
 		query.VerificationQueries = demandMaxVerificationQueries
 	}
-	if query.VerificationQueries > 300 {
-		query.VerificationQueries = 300
+	if query.VerificationQueries > 350 {
+		query.VerificationQueries = 350
 	}
 	if query.MaxLeadsEnriched <= 0 {
 		query.MaxLeadsEnriched = demandMaxLeadsEnriched
 	}
-	if query.MaxLeadsEnriched > 100 {
-		query.MaxLeadsEnriched = 100
+	if query.MaxLeadsEnriched > 120 {
+		query.MaxLeadsEnriched = 120
 	}
 	if query.MaxCompanies <= 0 || query.MaxCompanies > 80 {
 		query.MaxCompanies = 48
@@ -1842,14 +1860,14 @@ var demandForbiddenCategoryTerms = map[string]bool{
 var demandCategoryRelatedTokens = map[string][]string{
 	"polyurethanes":           {"polyurethane", "isocyanate", "tdi", "mdi", "foam", "elastomer", "resin", "adhesive", "sealant", "coating"},
 	"adhesives and sealants":  {"adhesive", "sealant", "polyurethane"},
-	"solvents":                {"solvent", "acetate", "ester", "alcohol", "acetone", "methanol", "toluene"},
+	"solvents":                {"solvent", "acetate", "ester", "alcohol", "acetone", "methanol", "toluene", "acetic", "butanol", "ethanol"},
 	"aromatics":               {"aromatic", "benzene", "toluene", "xylene", "styrene"},
 	"coatings":                {"coating", "paint", "resin", "polyurethane"},
 	"polyurethane elastomers": {"elastomer", "polyurethane", "isocyanate", "tdi"},
 	"polyurethane foam":       {"foam", "polyurethane", "isocyanate", "tdi"},
 	"polyurethane resins":     {"resin", "polyurethane", "isocyanate", "tdi"},
-	"oleochemicals":           {"oleochemical", "fatty", "palm", "glycerin", "oil"},
-	"surfactants":             {"surfactant", "detergent", "fatty"},
+	"oleochemicals":           {"oleochemical", "fatty", "palm", "glycerin", "oil", "soap"},
+	"surfactants":             {"surfactant", "detergent", "fatty", "soap", "linear alkyl benzene"},
 	"plasticizers":            {"plasticizer", "phthalate", "ester"},
 	"lubricants":              {"lubricant", "oil", "ester"},
 	"biodiesel":               {"biodiesel", "fatty", "oil", "glycerin"},
@@ -1955,6 +1973,98 @@ func demandFallbackCategory(activity string, stages []models.ValueChainStage) st
 		}
 	}
 	return ""
+}
+
+// reviewDemandChain is the adversarial first-pass chain review. It asks whether each proposed
+// stage really consumes the product under the two-step definition, and applies only rejections and
+// distance corrections to stages the model already proposed. It never adds a stage from the judge.
+func (a *DemandChainAgent) reviewDemandChain(ctx context.Context, query models.DemandChainQuery, chain []models.ValueChainStage, eventCh chan<- models.AgentEvent) ([]models.ValueChainStage, *models.ValueChainReview, []string) {
+	if len(chain) == 0 {
+		return chain, nil, nil
+	}
+	var rows strings.Builder
+	for _, stage := range chain {
+		distance := stage.Distance
+		if distance <= 0 {
+			distance = models.StageDistanceDirect
+		}
+		fmt.Fprintf(&rows, "- %s | claimed distance=%d | rationale=%s | products=%s | operators=%s\n",
+			stage.Name, distance, stage.Rationale, strings.Join(stage.Products, "; "), strings.Join(stage.Operators, "; "))
+	}
+	prompt := fmt.Sprintf(`Act as an adversarial reviewer of this buyer value chain for %q.
+The buyer definition is strict: a stage must be a manufacturing process that consumes the product
+itself as an input (distance 1), or consumes the output of a distance-1 process (distance 2).
+Reject any stage where the claimed distance is wrong, where the rationale only says the stage
+"uses" or "is associated with" the product without establishing the input, where the stage is a
+supplier/producer of the product, or where it is an end-use market/consumer product rather than a
+manufacturing process.
+Example: TDI is not consumed directly by mattress manufacturing. A mattress plant consumes
+polyurethane foam made from TDI, so it can only be distance 2; if it was claimed as distance 1,
+correct it or reject it. A furniture retailer or a "mattress market" is not a manufacturing stage.
+Return JSON with verdict (pass or revise), score 0-1, rejected_stages (name and reason),
+distance_corrections (name and distance 1 or 2), missing_stages, and reason.
+Chain:
+%s`, query.Activity, rows.String())
+	var review models.ValueChainReview
+	if err := a.engine.GenerateStructured(ctx,
+		"You are a skeptical industrial value-chain reviewer. Reject unsupported consumption claims and end-use sectors; never invent a replacement stage. Correct only distances that the rationale supports.",
+		prompt, &review); err != nil {
+		review.Verdict = "unavailable"
+		review.Reason = err.Error()
+		emitAgentEvent(eventCh, models.EventError, "Value-chain review unavailable: "+err.Error(), "demand_review", "")
+		return chain, &review, []string{"Adversarial value-chain review was unavailable: " + err.Error()}
+	}
+	review.Verdict = strings.ToLower(strings.TrimSpace(review.Verdict))
+	if review.Verdict == "" {
+		review.Verdict = "unavailable"
+	}
+	var warnings []string
+	rejected := make(map[string]string, len(review.RejectedStages))
+	for _, rejection := range review.RejectedStages {
+		if key := normalizeMarketName(rejection.Name); key != "" {
+			rejected[key] = rejection.Reason
+		}
+	}
+	if len(rejected) > 0 {
+		kept := make([]models.ValueChainStage, 0, len(chain))
+		for _, stage := range chain {
+			if reason, ok := rejected[normalizeMarketName(stage.Name)]; ok {
+				warnings = append(warnings, fmt.Sprintf("Adversarial chain review rejected stage %q: %s.", stage.Name, reason))
+				continue
+			}
+			kept = append(kept, stage)
+		}
+		chain = kept
+	}
+	for _, correction := range review.DistanceCorrections {
+		if correction.Distance != models.StageDistanceDirect && correction.Distance != models.StageDistanceDerived {
+			continue
+		}
+		for index := range chain {
+			if normalizeMarketName(chain[index].Name) == normalizeMarketName(correction.Name) {
+				if chain[index].Distance != correction.Distance {
+					warnings = append(warnings, fmt.Sprintf("Adversarial chain review corrected %q to distance %d.", chain[index].Name, correction.Distance))
+					chain[index].Distance = correction.Distance
+				}
+				break
+			}
+		}
+	}
+	if len(chain) == 0 {
+		fallback, _, fallbackWarnings := a.demandChainFallback(ctx, "Adversarial review rejected every inferred stage", fmt.Errorf("no stage survived review"), query, eventCh)
+		review.Verdict = "revise"
+		return fallback, &review, append(warnings, fallbackWarnings...)
+	}
+	if len(rejected) > 0 || len(review.DistanceCorrections) > 0 {
+		review.Verdict = "revise"
+	}
+	if len(review.MissingStages) > 0 {
+		warnings = append(warnings, fmt.Sprintf("Adversarial chain review suggests missing stage hypotheses: %s (not added automatically).", strings.Join(review.MissingStages, ", ")))
+	}
+	emitAgentEvent(eventCh, models.EventThinking,
+		fmt.Sprintf("Adversarial chain review: %s (%.2f), %d rejected stage(s), %d correction(s)", review.Verdict, review.Score, len(rejected), len(review.DistanceCorrections)),
+		"demand_review", "")
+	return chain, &review, warnings
 }
 
 // demandChainFallback degrades to a product-named generic stage — the buyer
@@ -2531,7 +2641,7 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 				leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 			}
 			var batch []models.MarketLandscapeLeadCandidate
-			prompt := fmt.Sprintf("Extract every actual company or facility operator explicitly supported by these leads as a consumer, buyer, importer, or processor of %q. %sThese leads include company pages, directories, news articles and research reports. A report or article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a key-players or buyer table. Name the operator, never the page: a report title, article headline, publisher name, site name, region, project or generic category is not a company. Exclude publishers, list titles, market-research vendors, regions, projects, and generic categories. Return the company's legal name — never a news headline, page title, or project name. Set producer to true when the page describes the company as a producer, manufacturer, or supplier of %q itself rather than a consumer of it. If a lead explicitly names a relevant procurement, purchasing, or supply-chain person, include the person's name in key_people; never infer people. Return a JSON array with name, country, reason, evidence_url as a string, producer as a boolean, and key_people as an array of strings.\nActivity: %s\nLeads:\n%s", query.Activity, geoPreference, query.Activity, query.Activity, strings.Join(leadText, "\n"))
+			prompt := fmt.Sprintf("Extract every actual company or facility operator explicitly supported by these leads as a consumer, buyer, importer, or processor of %q. %sThese leads include company pages, directories, news articles and research reports. A report or article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a key-players or buyer table. Name the operator, never the page: a report title, article headline, publisher name, site name, region, project or generic category is not a company. Exclude publishers, list titles, market-research vendors, regions, projects, and generic categories. Return the company's legal name — never a news headline, page title, or project name. Set producer to true when the page describes the company as a producer, manufacturer, or supplier of %q itself rather than a consumer of it. Return a JSON array with name, country, reason, evidence_url as a string, and producer as a boolean.\nActivity: %s\nLeads:\n%s", query.Activity, geoPreference, query.Activity, query.Activity, strings.Join(leadText, "\n"))
 			if err := a.engine.GenerateStructured(ctx, "You extract company names for a buyer-research verification queue. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
 				batchErrs[batchIndex] = err.Error()
 			}
@@ -2626,7 +2736,6 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 						EntityKey: "company:name:" + normalizeMarketName(lead.Name), Name: lead.Name,
 						Country: lead.Country, Activity: query.Activity, Stage: demandStageForLead(leads, lead, laneStages),
 						EvidenceType: "company-page", Confidence: 0.62,
-						KeyPeople: append([]string(nil), lead.KeyPeople...),
 					}
 					verified = append(verified, company)
 				}
@@ -2769,6 +2878,9 @@ func demandVerificationTier(tier string) bool {
 }
 
 func demandVerificationEvidence(hit models.SearchResult, company, activity, purpose string) (models.MarketLandscapeEvidence, bool) {
+	if !demandCompanyTitleFor(company, activity) {
+		return models.MarketLandscapeEvidence{}, false
+	}
 	domain := hostname(hit.Link)
 	tier := marketSourceTier(domain)
 	override := demandSourceOverride(domain)
@@ -2846,118 +2958,6 @@ func demandClaimWeight(claimType string) float64 {
 	default:
 		return 0.08
 	}
-}
-
-// demandProcurementTitles are the RocketReach title filters for the buyer side:
-// the roles that execute and sign off on purchases.
-var demandProcurementTitles = []string{"procurement", "purchasing", "sourcing", "supply chain"}
-
-// discoverDemandRocketReach mirrors the market mode's RocketReach discovery
-// with buyer-side title filters: one search per verified company, and profiles
-// promoted only when their current employer matches that company — a profile
-// at a same-named company elsewhere is exactly the mis-attribution a buyer
-// list must not carry.
-func (a *DemandChainAgent) discoverDemandRocketReach(ctx context.Context, companies []*models.MarketLandscapeCompany, budget int, eventCh chan<- models.AgentEvent) (int, int, int) {
-	if a.rocketReach == nil || !a.rocketReach.Enabled() {
-		return 0, 0, 0
-	}
-	used, profilesFound, promoted := 0, 0, 0
-	for _, company := range companies {
-		if used >= budget {
-			break
-		}
-		emitAgentEvent(eventCh, models.EventToolCall, "Discovering RocketReach procurement contacts at "+company.Name, "rocketreach_search", company.Name)
-		searchFilters := map[string][]string{
-			"current_employer": []string{company.Name},
-			"current_title":    demandProcurementTitles,
-		}
-		profiles, err := a.rocketReach.Search(ctx, searchFilters)
-		used++
-		if err != nil {
-			emitAgentEvent(eventCh, models.EventError, "RocketReach search failed for "+company.Name+": "+err.Error(), "rocketreach_search", company.Name)
-			continue
-		}
-		profilesFound += len(profiles)
-		seen := make(map[string]bool)
-		for _, existing := range company.KeyPeople {
-			seen[strings.ToLower(strings.TrimSpace(existing))] = true
-		}
-		for _, profile := range profiles {
-			if !strings.EqualFold(strings.TrimSpace(profile.CurrentEmployer), strings.TrimSpace(company.Name)) {
-				emitAgentEvent(eventCh, models.EventThinking,
-					fmt.Sprintf("RocketReach candidate %q not promoted: employer %q does not match %q", profile.Name, profile.CurrentEmployer, company.Name),
-					"rocketreach_search", "")
-				continue
-			}
-			name := strings.TrimSpace(profile.Name)
-			key := strings.ToLower(name)
-			if name != "" && !seen[key] && isPlausiblePersonName(name) {
-				company.KeyPeople = append(company.KeyPeople, name)
-				if company.KeyPeopleSources == nil {
-					company.KeyPeopleSources = make(map[string]string)
-				}
-				company.KeyPeopleSources[name] = "RocketReach"
-				seen[key] = true
-				promoted++
-				emitAgentEvent(eventCh, models.EventToolResult,
-					fmt.Sprintf("Promoted procurement contact %s at %s (current employer matched)", name, company.Name),
-					"rocketreach_search", "")
-			}
-		}
-	}
-	return used, profilesFound, promoted
-}
-
-// discoverDemandPeople mirrors the market mode's web key-person discovery with
-// buyer-side role vocabulary: procurement, purchasing, sourcing and supply
-// chain, at the verified buyers, never inventing people beyond the evidence.
-func (a *DemandChainAgent) discoverDemandPeople(ctx context.Context, companies []*models.MarketLandscapeCompany, budget int, eventCh chan<- models.AgentEvent) int {
-	used := 0
-	for _, company := range companies {
-		if used >= budget {
-			break
-		}
-		searchQuery := fmt.Sprintf("%q (procurement OR purchasing OR sourcing OR \"supply chain\") (director OR head OR manager OR VP OR chief OR \"category manager\")", company.Name)
-		emitAgentEvent(eventCh, models.EventToolCall, "Discovering procurement contacts at "+company.Name, "search", searchQuery)
-		hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
-		used++
-		if err != nil {
-			continue
-		}
-		evidence := make([]string, 0, len(hits))
-		companyName := strings.ToLower(company.Name)
-		for _, hit := range hits {
-			text := strings.ToLower(hit.Title + " " + hit.Snippet)
-			if strings.Contains(text, companyName) && strings.TrimSpace(hit.Link) != "" {
-				evidence = append(evidence, fmt.Sprintf("%s — %s (%s)", hit.Title, hit.Snippet, hit.Link))
-			}
-		}
-		if len(evidence) == 0 {
-			continue
-		}
-		var people []models.MarketLandscapePersonCandidate
-		prompt := fmt.Sprintf("Extract only named people whose procurement, purchasing, sourcing, or supply-chain role is explicitly associated with %q. Exclude job vacancies, generic titles, publishers, and people whose employer is not stated. Return a JSON array with name only. Evidence:\n%s", company.Name, strings.Join(evidence, "\n"))
-		if err := a.engine.GenerateStructured(ctx, "You identify explicitly named current procurement and supply-chain employees from anchored company evidence. Never invent names.", prompt, &people); err != nil {
-			continue
-		}
-		seen := make(map[string]bool)
-		for _, existing := range company.KeyPeople {
-			seen[strings.ToLower(strings.TrimSpace(existing))] = true
-		}
-		for _, person := range people {
-			name := strings.TrimSpace(person.Name)
-			key := strings.ToLower(name)
-			if name != "" && !seen[key] && isPlausiblePersonName(name) {
-				company.KeyPeople = append(company.KeyPeople, name)
-				if company.KeyPeopleSources == nil {
-					company.KeyPeopleSources = make(map[string]string)
-				}
-				company.KeyPeopleSources[name] = "web search"
-				seen[key] = true
-			}
-		}
-	}
-	return used
 }
 
 // demandCountryMatches reports whether a company's stated country sits inside

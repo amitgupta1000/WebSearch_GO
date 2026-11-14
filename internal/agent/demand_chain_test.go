@@ -22,6 +22,7 @@ type demandLLM struct {
 	gapCandidates []models.MarketLandscapeLeadCandidate
 	people        []models.MarketLandscapePersonCandidate
 	review        models.DemandChainReview
+	chainReview   models.ValueChainReview
 	err           error
 	systemPrompts []string
 }
@@ -34,6 +35,7 @@ func (m *demandLLM) GenerateStructured(ctx context.Context, systemPrompt, userPr
 	category := m.category
 	gapCandidates := m.gapCandidates
 	review := m.review
+	chainReview := m.chainReview
 	m.mu.Unlock()
 	if err != nil {
 		return err
@@ -54,6 +56,8 @@ func (m *demandLLM) GenerateStructured(ctx context.Context, systemPrompt, userPr
 		*typed = append(*typed, people...)
 	case *models.DemandChainReview:
 		*typed = review
+	case *models.ValueChainReview:
+		*typed = chainReview
 	}
 	return nil
 }
@@ -769,7 +773,7 @@ func TestDemandChainDefaultsAreKept(t *testing.T) {
 	normalizeDemandBudget(&deep)
 	// MaxCompanies resets to the default when out of range, like the shipped
 	// behaviour; the search budgets clamp to their runaway caps.
-	if deep.DiscoveryQueries != 80 || deep.VerificationQueries != 300 || deep.MaxLeadsEnriched != 100 || deep.MaxCompanies != 48 {
+	if deep.DiscoveryQueries != 100 || deep.VerificationQueries != 350 || deep.MaxLeadsEnriched != 120 || deep.MaxCompanies != 48 {
 		t.Fatalf("capped = %+v, want the runaway caps", deep)
 	}
 }
@@ -1034,76 +1038,6 @@ func dedupeNames(companies []*models.MarketLandscapeCompany) string {
 		out = append(out, company.Name)
 	}
 	return strings.Join(out, "; ")
-}
-
-// TestDemandPeopleDiscoveryUsesProcurementRoles pins the buyer-side people
-// phase: the search carries the procurement role vocabulary (not the seller's
-// sales roles), extracted people land on the verified buyer with their source,
-// and the RocketReach path reports itself unavailable without a client.
-func TestDemandPeopleDiscoveryUsesProcurementRoles(t *testing.T) {
-	var webQueries []string
-	searcher := &queryRecordingSearcher{hits: map[string][]models.SearchResult{
-		"procurement": {{
-			Title: "GreenDiesel Sdn Bhd appoints new procurement head", Link: "https://news.example.com/greendiesel-procurement",
-			Snippet: "GreenDiesel Sdn Bhd named Asha Rao as head of procurement and purchasing.",
-		}},
-	}}
-	searcher.recorder = &webQueries
-	llm := &demandLLM{people: []models.MarketLandscapePersonCandidate{{Name: "Asha Rao"}}}
-	agent := NewDemandChainAgent(demandChainTestEngine(llm, searcher))
-
-	companies := []*models.MarketLandscapeCompany{{
-		EntityKey: "company:name:greendiesel", Name: "GreenDiesel Sdn Bhd",
-		Status: "verified", Confidence: 0.84, EvidenceType: "company-page",
-	}}
-	used := agent.discoverDemandPeople(context.Background(), companies, demandPeopleQueryReserve/2, nil)
-	if used != 1 {
-		t.Fatalf("people searches = %d, want 1", used)
-	}
-	joined := strings.Join(webQueries, " | ")
-	for _, role := range []string{"procurement", "purchasing", "sourcing", "supply chain"} {
-		if !strings.Contains(strings.ToLower(joined), role) {
-			t.Errorf("people search %q is missing the buyer role %q", joined, role)
-		}
-	}
-	if strings.Contains(strings.ToLower(joined), "sales") {
-		t.Errorf("the seller-side sales vocabulary leaked into a buyer run: %q", joined)
-	}
-	if len(companies[0].KeyPeople) != 1 || companies[0].KeyPeople[0] != "Asha Rao" {
-		t.Fatalf("key people = %+v, want the extracted procurement contact", companies[0].KeyPeople)
-	}
-	if companies[0].KeyPeopleSources["Asha Rao"] != "web search" {
-		t.Errorf("source = %q, want web search", companies[0].KeyPeopleSources["Asha Rao"])
-	}
-}
-
-// queryRecordingSearcher wraps a hit table and records every query, so tests
-// can pin the role vocabulary the people phase searches with.
-type queryRecordingSearcher struct {
-	hits     map[string][]models.SearchResult
-	recorder *[]string
-}
-
-func (m *queryRecordingSearcher) Search(ctx context.Context, query string, maxResults int) ([]models.SearchResult, error) {
-	*m.recorder = append(*m.recorder, query)
-	for fragment, hits := range m.hits {
-		if strings.Contains(strings.ToLower(query), strings.ToLower(fragment)) {
-			return hits, nil
-		}
-	}
-	return nil, nil
-}
-
-// bidirectional and keeps unknown countries rather than guessing.
-func TestDemandCountryMatchesKeepsTheRunInsideItsGeography(t *testing.T) {
-	countries := []string{"India"}
-	if !demandCountryMatches("India", countries) || !demandCountryMatches("INDIA", countries) ||
-		!demandCountryMatches("Republic of India", countries) || !demandCountryMatches("", countries) {
-		t.Error("Indian variants and unknown countries must be kept")
-	}
-	if demandCountryMatches("Japan", countries) || demandCountryMatches("Germany", countries) {
-		t.Error("out-of-geography countries must not match")
-	}
 }
 
 // TestDemandChainLanesCapOperatorVocabularyPerStage keeps the default budget
@@ -1561,5 +1495,50 @@ func TestDemandInferenceRejectsOverbroadCategory(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("warnings=%v, want a category rejection", warnings)
+	}
+}
+
+// TestDemandAdversarialChainReviewRejectsWrongDirectStage: a mattress stage claimed as a direct
+// TDI consumer must not survive as distance 1 just because the model offered it.
+func TestDemandAdversarialChainReviewRejectsWrongDirectStage(t *testing.T) {
+	llm := &demandLLM{chainReview: models.ValueChainReview{
+		Verdict: "revise", Score: 0.8,
+		RejectedStages: []models.DemandStageRejection{{Name: "Mattress Manufacturing", Reason: "consumes foam, not TDI directly"}},
+	}}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
+	chain := []models.ValueChainStage{
+		{Name: "Polyurethane Foam Manufacturing", Distance: models.StageDistanceDirect},
+		{Name: "Mattress Manufacturing", Distance: models.StageDistanceDirect},
+	}
+	reviewed, review, warnings := agent.reviewDemandChain(context.Background(), models.DemandChainQuery{Activity: "Toluene Diisocyanate"}, chain, nil)
+	if review == nil || review.Verdict != "revise" {
+		t.Fatalf("review = %+v, want revise", review)
+	}
+	if len(reviewed) != 1 || reviewed[0].Name != "Polyurethane Foam Manufacturing" {
+		t.Errorf("reviewed chain = %+v, want the direct foam stage only", reviewed)
+	}
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "Mattress Manufacturing") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("warnings = %v, want the rejected mattress stage", warnings)
+	}
+}
+
+// TestDemandAdversarialChainReviewCorrectsDistance: a mattress plant can remain as a derived stage
+// when the judge corrects it to distance 2 rather than rejecting it.
+func TestDemandAdversarialChainReviewCorrectsDistance(t *testing.T) {
+	llm := &demandLLM{chainReview: models.ValueChainReview{
+		Verdict: "revise", Score: 0.7,
+		DistanceCorrections: []models.DemandDistanceCorrection{{Name: "Mattress Manufacturing", Distance: models.StageDistanceDerived}},
+	}}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
+	chain := []models.ValueChainStage{{Name: "Mattress Manufacturing", Distance: models.StageDistanceDirect}}
+	reviewed, _, _ := agent.reviewDemandChain(context.Background(), models.DemandChainQuery{Activity: "Toluene Diisocyanate"}, chain, nil)
+	if len(reviewed) != 1 || reviewed[0].Distance != models.StageDistanceDerived {
+		t.Errorf("reviewed chain = %+v, want the mattress stage corrected to distance 2", reviewed)
 	}
 }

@@ -66,6 +66,32 @@ type ValueChainStage struct {
 	Distance int `json:"distance,omitempty"`
 }
 
+// DemandStageRejection is one inferred stage the adversarial value-chain reviewer rejected.
+type DemandStageRejection struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// DemandDistanceCorrection fixes a stage's step distance after review (for example, a mattress
+// manufacturer that consumes foam made from TDI is step 2, not a direct TDI consumer).
+type DemandDistanceCorrection struct {
+	Name     string `json:"name"`
+	Distance int    `json:"distance"`
+}
+
+// ValueChainReview is the adversarial first-pass review: it challenges whether each proposed
+// stage really consumes the product under the two-step buyer definition. The pipeline applies
+// only rejections and distance corrections to stages already present; it never accepts an
+// invented replacement stage from the judge.
+type ValueChainReview struct {
+	Verdict             string                     `json:"verdict"`
+	Score               float64                    `json:"score"`
+	RejectedStages      []DemandStageRejection     `json:"rejected_stages,omitempty"`
+	DistanceCorrections []DemandDistanceCorrection `json:"distance_corrections,omitempty"`
+	MissingStages       []string                   `json:"missing_stages,omitempty"`
+	Reason              string                     `json:"reason,omitempty"`
+}
+
 // DemandChainInference is the first-pass value-chain result. Category is deliberately separate
 // from the stages because it is a fallback search dimension, not a buyer and not a stage.
 type DemandChainInference struct {
@@ -102,13 +128,6 @@ type DemandChainQuery struct {
 	// StagesOverride supplies the consuming stages directly; when set, the
 	// value-chain inference call is skipped entirely.
 	StagesOverride []string `json:"stages_override,omitempty"`
-	// IncludePeople runs web key-person discovery for the verified buyers —
-	// procurement, purchasing and supply-chain roles, the buyer-side
-	// counterparts of the seller's commercial team.
-	IncludePeople bool `json:"include_people,omitempty"`
-	// UseRocketReachDiscovery runs one RocketReach search per verified buyer
-	// with procurement/purchasing title filters. Needs ROCKETREACH_API_KEY.
-	UseRocketReachDiscovery bool `json:"use_rocketreach_discovery,omitempty"`
 	// IncludeIntermediaries keeps traders, brokers and trading houses — who are
 	// simultaneously buyers and sellers — in the results. They are excluded by
 	// default because a buyer list dominated by middlemen is rarely what the
@@ -225,6 +244,9 @@ type DemandChainReport struct {
 	// Chain is the consuming stages the search was organised around, in the
 	// order the lanes were built from them.
 	Chain []ValueChainStage `json:"chain,omitempty"`
+	// ChainReview is the adversarial review of the inferred chain. It records rejected stages,
+	// distance corrections and missing hypotheses for audit.
+	ChainReview *ValueChainReview `json:"chain_review,omitempty"`
 	// ChainInferred reports whether the chain came from the model. False means
 	// the operator supplied it or the inference fell back to a generic stage.
 	ChainInferred bool                     `json:"chain_inferred"`

@@ -136,12 +136,12 @@ func demandEvalRun(t *testing.T, ctx context.Context, eng *Engine, exp demandEva
 		Activity:            exp.activity,
 		Objective:           fmt.Sprintf("Identify direct and one-step-derived buyers of %s", exp.activity),
 		Countries:           exp.countries,
-		MaxCompanies:        12,
-		DiscoveryQueries:    36,
-		VerificationQueries: 120,
-		MaxLeadsEnriched:    40,
-		// People discovery is out of scope for this eval: it measures buyer
-		// identification, not contacts, so the budget stays on verification.
+		MaxCompanies:        48,
+		DiscoveryQueries:    48,
+		VerificationQueries: 200,
+		MaxLeadsEnriched:    72,
+		// Key-person discovery has been removed from the landscape modes; the
+		// entire budget now goes to stage/company search and verification.
 	}, eventCh)
 	close(eventCh)
 	if err != nil {

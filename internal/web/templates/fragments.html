@@ -149,7 +149,7 @@
 		<div>
 			<h3 class="text-2xl font-bold text-white">Producer/Seller Landscape</h3>
 			<p class="text-sm text-slate-400 mt-1">{{.Objective}}</p>
-			<p class="text-xs text-slate-500 mt-1">Activity: {{.Activity}}</p>
+			<p class="text-xs text-slate-500 mt-1">Activity: {{.Activity}}{{if .ProductCategory}} · Category: {{.ProductCategory}}{{end}}</p>
 		</div>
 		<div class="text-right text-xs text-slate-500">{{.QueriesUsed}} queries · {{.SearchHits}} hits · {{.LeadsReviewed}} leads · {{.LeadsExtracted}} entities · {{.LeadsResolved}} verified · {{.PagesEnriched}} pages · {{.Iterations}} iterations</div>
 	</div>
@@ -158,8 +158,9 @@
 		<p class="text-xs text-slate-500 mt-1">Only verified or corroborated companies are promoted here.</p>
 	</div>
 	{{template "export_files" .Exports}}
+{{if .Coverage}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">Coverage: {{.Coverage.Companies}} / {{.Coverage.Minimum}} companies · {{if .Coverage.Pass}}<span class="text-emerald-300">PASS</span>{{else}}<span class="text-amber-300">FAIL</span>{{end}}</div>{{end}}
+
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
-	{{if .RocketReachDiscoveryEnabled}}<div class="rounded-xl border border-indigo-900/60 bg-indigo-950/20 p-3 text-xs text-indigo-300">RocketReach discovery: {{.RocketReachDiscoveryCalls}} call(s) · {{.RocketReachProfilesFound}} profile(s) returned · {{.RocketReachCandidatesPromoted}} candidate(s) promoted</div>{{end}}
 	{{if .Results}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Results}}
 		<div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
 			<div class="flex justify-between gap-3"><span class="font-semibold text-white">{{.Name}}</span><span class="text-[10px] text-emerald-300">{{.Status}}</span></div>
@@ -172,7 +173,6 @@
 			</div>
 			{{if .EvidenceType}}<div class="text-[11px] text-slate-500">Verification: {{.EvidenceType}}</div>{{end}}
 			{{if .EvidenceSummary}}<p class="text-xs text-slate-300 leading-relaxed">{{.EvidenceSummary}}</p>{{end}}
-			{{if .KeyPeople}}{{$company := .}}<div class="border-t border-slate-800 pt-2 mt-2"><div class="text-[10px] uppercase tracking-wide text-slate-500">Key people</div>{{range .KeyPeople}}<div class="flex items-center justify-between gap-2 mt-1"><span class="text-xs text-slate-300">{{.}}{{with (index $company.KeyPeopleSources .)}} <span class="text-[10px] text-slate-500">({{.}})</span>{{end}}</span><form hx-post="/api/market-landscape/rocketreach" hx-target="closest div" hx-swap="innerHTML"><input type="hidden" name="person_name" value="{{.}}"><input type="hidden" name="company_name" value="{{$company.Name}}"><button type="submit" class="text-[10px] text-indigo-300 border border-indigo-500/30 rounded px-2 py-1 hover:border-indigo-400">Fetch contact details</button></form></div>{{end}}</div>{{end}}
 		</div>
 	{{end}}</div>{{else}}<p class="text-sm text-slate-500">No verified companies were promoted.</p>{{end}}
 	<details class="border-t border-slate-800 pt-5">
@@ -211,6 +211,13 @@
 			{{if .Products}}<div class="mt-2 text-[11px] text-slate-500">Product families: {{range .Products}}<span class="text-emerald-300 mr-1">{{.}}</span>{{end}}</div>{{end}}
 		</div>
 	{{end}}</div>{{end}}
+	{{if .ChainReview}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-4">
+		<div class="flex justify-between gap-2"><span class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Adversarial chain review</span><span class="text-[11px] {{if eq .ChainReview.Verdict "pass"}}text-emerald-300{{else}}text-amber-300{{end}}">{{.ChainReview.Verdict}} · {{printf "%.2f" .ChainReview.Score}}</span></div>
+		{{if .ChainReview.Reason}}<p class="text-xs text-slate-400 mt-1">{{.ChainReview.Reason}}</p>{{end}}
+		{{range .ChainReview.RejectedStages}}<div class="text-[11px] text-amber-300 mt-1">Rejected <span class="text-slate-200">{{.Name}}</span> — {{.Reason}}</div>{{end}}
+		{{range .ChainReview.DistanceCorrections}}<div class="text-[11px] text-indigo-300 mt-1">Corrected <span class="text-slate-200">{{.Name}}</span> to distance {{.Distance}}</div>{{end}}
+		{{if .ChainReview.MissingStages}}<p class="text-[11px] text-slate-500 mt-1">Suggested missing stages (not added automatically): {{range .ChainReview.MissingStages}}{{.}}; {{end}}</p>{{end}}
+	</div>{{end}}
 	{{template "export_files" .Exports}}
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
 	{{if .Results}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Results}}
@@ -224,7 +231,6 @@
 				<div><span class="text-slate-600">Confidence</span><br>{{printf "%.0f" (mul .Confidence 100)}}%</div>
 			</div>
 			{{if .EvidenceSummary}}<p class="text-xs text-slate-300 leading-relaxed">{{.EvidenceSummary}}</p>{{end}}
-			{{if .KeyPeople}}{{$company := .}}<div class="border-t border-slate-800 pt-2 mt-2"><div class="text-[10px] uppercase tracking-wide text-slate-500">Key people</div>{{range .KeyPeople}}<div class="flex items-center justify-between gap-2 mt-1"><span class="text-xs text-slate-300">{{.}}</span><form hx-post="/api/market-landscape/rocketreach" hx-target="closest div" hx-swap="innerHTML"><input type="hidden" name="person_name" value="{{.}}"><input type="hidden" name="company_name" value="{{$company.Name}}"><button type="submit" class="text-[10px] text-indigo-300 border border-indigo-500/30 rounded px-2 py-1 hover:border-indigo-400">Fetch contact details</button></form></div>{{end}}</div>{{end}}
 		</div>
 	{{end}}</div>{{else}}<p class="text-sm text-slate-500">No company met the consumption-verification threshold.</p>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">
