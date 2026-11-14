@@ -38,7 +38,17 @@ const (
 	demandMinStageCompanies = 6
 	// demandStageGapQueries is how many bounded, fresh searches one under-covered stage may
 	// spend before the run reports the gap instead of inventing coverage.
-	demandStageGapQueries = 2
+	demandStageGapQueries = 3
+	// demandGapReadPages is the bounded number of list/article/directory pages read per
+	// under-covered stage. The pages are read for the companies they name, never promoted as
+	// companies themselves.
+	demandGapReadPages = 3
+	// demandStageBroadenThreshold is the weak-result trigger: when the operator/product gap
+	// searches produce fewer than this many new companies, retry with the stage's category
+	// vocabulary (for example "solvents" or "aromatics").
+	demandStageBroadenThreshold = 2
+	// demandStageBroadenQueries caps the category fallback per stage.
+	demandStageBroadenQueries = 2
 	// demandDistributionStageName is the separate channel category. Distributors and
 	// wholesalers buy the product to resell it; they are buyers, but not manufacturers in the
 	// value chain, so they get their own roster rather than polluting a consumption stage.
@@ -103,8 +113,11 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	// structured call proposes the consuming stages the whole run is organised
 	// around. Failure degrades to a generic stage rather than failing the run.
 	emitAgentEvent(eventCh, models.EventThinking, "Inferring the demand chain", "", "")
-	chain, inferred, warnings := a.inferDemandChain(ctx, query, eventCh)
+	chain, category, categoryRationale, categorySource, inferred, warnings := a.inferDemandChainWithCategory(ctx, query, eventCh)
 	report.Chain = chain
+	report.ProductCategory = category
+	report.CategoryRationale = categoryRationale
+	report.CategorySource = categorySource
 	report.ChainInferred = inferred
 	report.Warnings = append(report.Warnings, warnings...)
 	report.Warnings = append(report.Warnings,
@@ -259,8 +272,9 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 
 	// QC judge: propose rejections and flag under-covered stages. The deterministic coverage
 	// criterion is applied even if the judge is unavailable.
+	var rejectedNames map[string]string
 	review := a.reviewDemandReport(ctx, query, report.Chain, merged, coverage, eventCh)
-	rejectedNames := make(map[string]string, len(review.Rejected))
+	rejectedNames = make(map[string]string, len(review.Rejected))
 	for _, rejected := range review.Rejected {
 		if key := normalizeMarketName(rejected.Name); key != "" {
 			rejectedNames[key] = rejected.Reason
@@ -307,6 +321,19 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		}
 		pool = append(pool, verified...)
 		merged = demandDedupeCompanies(pool)
+	}
+	// Gap extraction and follow-ups run after the judge's first pass. Re-apply its rejections
+	// so a page cannot reintroduce a company the judge already removed.
+	if len(rejectedNames) > 0 {
+		kept := make([]*models.MarketLandscapeCompany, 0, len(merged))
+		for _, company := range merged {
+			if _, ok := rejectedNames[normalizeMarketName(company.Name)]; ok {
+				report.Appendix = append(report.Appendix, company.Evidence...)
+				continue
+			}
+			kept = append(kept, company)
+		}
+		merged = kept
 	}
 
 	results := make([]*models.MarketLandscapeCompany, 0, len(merged))
@@ -492,6 +519,174 @@ func (a *DemandChainAgent) runDemandFollowUps(ctx context.Context, query models.
 	return added
 }
 
+// demandStageGapTerms builds stage-specific search terms from the chain's own operator
+// vocabulary. Searching the full stage name plus "manufacturer" mostly returns directories and
+// listicles ("Top Polyurethane Foam Manufacturers"), while operator phrases ("flexible foam
+// producers") and the normalized stage label surface actual company pages.
+func demandStageGapTerms(query models.DemandChainQuery, stageName string, chain []models.ValueChainStage) []string {
+	if stageName == demandDistributionStageName {
+		return []string{
+			"distributor OR wholesaler of " + query.Activity,
+			"authorised distributor OR wholesale supplier of " + query.Activity,
+			"channel partner reseller of " + query.Activity,
+		}
+	}
+	var terms []string
+	if stage := findDemandStage(stageName, chain); stage != nil {
+		for _, operator := range stage.Operators {
+			operator = strings.TrimSpace(operator)
+			if operator == "" {
+				continue
+			}
+			terms = append(terms, operator)
+			lowered := strings.ToLower(operator)
+			if !strings.Contains(lowered, "manufactur") && !strings.Contains(lowered, "producer") &&
+				!strings.Contains(lowered, "supplier") && !strings.Contains(lowered, "processor") {
+				terms = append(terms, operator+" manufacturers")
+			}
+		}
+		for _, product := range stage.Products {
+			product = strings.TrimSpace(product)
+			if product != "" {
+				terms = append(terms, product+" manufacturer")
+			}
+		}
+	}
+	label := demandStageSearchLabel(stageName)
+	if label == "" {
+		label = strings.ToLower(strings.TrimSpace(stageName))
+	}
+	terms = append(terms, label+" manufacturer", label+" company", label+" plant")
+	unique := make([]string, 0, len(terms))
+	seen := make(map[string]bool, len(terms))
+	for _, term := range terms {
+		key := strings.ToLower(strings.TrimSpace(term))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		unique = append(unique, strings.TrimSpace(term))
+	}
+	return unique
+}
+
+// demandGapSource is a page read to recover stage-company names from a listicle, directory,
+// article or report. The page itself is never the company.
+type demandGapSource struct {
+	URL        string
+	Title      string
+	Snippet    string
+	SourceTier string
+}
+
+func demandSourceTierForHit(hit models.SearchResult) string {
+	domain := hostname(hit.Link)
+	if override := demandSourceOverride(domain); override != "" {
+		return override
+	}
+	return marketSourceTier(domain)
+}
+
+// demandStageCategoryRules map stage vocabulary to the broader industry category a buyer
+// researcher would use when the exact stage phrase is too narrow. Order matters: elastomer,
+// foam and resin rules are tried before the generic polyurethane/chemical fallbacks.
+var demandStageCategoryRules = []struct {
+	markers  []string
+	category string
+}{
+	{[]string{"elastomer"}, "polyurethane elastomers"},
+	{[]string{"foam"}, "polyurethane foam"},
+	{[]string{"sealant", "adhesive"}, "adhesives and sealants"},
+	{[]string{"resin"}, "polyurethane resins"},
+	{[]string{"coating", "paint"}, "coatings"},
+	{[]string{"solvent", "acetate", "ester"}, "solvents"},
+	{[]string{"aromatic", "benzene", "toluene", "xylene", "styrene"}, "aromatics"},
+	{[]string{"oleochemical", "fatty acid"}, "oleochemicals"},
+	{[]string{"surfactant"}, "surfactants"},
+	{[]string{"plasticizer"}, "plasticizers"},
+	{[]string{"lubricant"}, "lubricants"},
+	{[]string{"biodiesel"}, "biodiesel"},
+	{[]string{"methanol"}, "methanol"},
+	{[]string{"polyurethane", "isocyanate", "tdi", "mdi"}, "polyurethanes"},
+	{[]string{"polymer"}, "polymers"},
+}
+
+// demandStageCategories returns the broad category terms for a stage. They are used only as a
+// fallback when the exact stage/operator searches are weak; they are not a replacement for
+// demand-anchored verification.
+func demandStageCategories(stageName string, stage *models.ValueChainStage, query models.DemandChainQuery) []string {
+	text := strings.ToLower(strings.TrimSpace(stageName))
+	if stage != nil {
+		text += " " + strings.ToLower(strings.Join(stage.Products, " "))
+		text += " " + strings.ToLower(strings.Join(stage.Operators, " "))
+	}
+	text += " " + strings.ToLower(strings.TrimSpace(query.Activity))
+	var categories []string
+	seen := make(map[string]bool)
+	for _, rule := range demandStageCategoryRules {
+		matched := false
+		for _, marker := range rule.markers {
+			if strings.Contains(text, marker) {
+				matched = true
+				break
+			}
+		}
+		if matched && !seen[rule.category] {
+			seen[rule.category] = true
+			categories = append(categories, rule.category)
+		}
+	}
+	if len(categories) == 0 {
+		label := demandStageSearchLabel(stageName)
+		if label == "" {
+			label = strings.ToLower(strings.TrimSpace(stageName))
+		}
+		if label != "" && !seen[label] {
+			categories = append(categories, label)
+		}
+	}
+	return categories
+}
+
+// demandStageBroadenTerms turns the stage's category into the two broad searches the gap filler
+// may run after the exact operator queries return weak results.
+func demandStageBroadenTerms(query models.DemandChainQuery, stageName string, chain []models.ValueChainStage, productCategory string) []string {
+	if stageName == demandDistributionStageName {
+		return []string{
+			"chemical distributors " + query.Activity,
+			"industrial chemical wholesale distributors",
+		}
+	}
+	stage := findDemandStage(stageName, chain)
+	if category := strings.TrimSpace(productCategory); category != "" {
+		terms := []string{category + " manufacturers", category + " companies"}
+		if stage != nil {
+			for _, operator := range stage.Operators {
+				operator = strings.TrimSpace(operator)
+				if operator != "" {
+					terms[0] = category + " " + operator
+					break
+				}
+			}
+		}
+		return terms
+	}
+	categories := demandStageCategories(stageName, stage, query)
+	terms := make([]string, 0, demandStageBroadenQueries)
+	for _, category := range categories {
+		category = strings.TrimSpace(category)
+		if category == "" {
+			continue
+		}
+		terms = append(terms, category+" manufacturers")
+		terms = append(terms, category+" companies")
+		if len(terms) >= demandStageBroadenQueries {
+			break
+		}
+	}
+	return terms
+}
+
 // fillDemandStageGaps spends bounded fresh searches on stages the run has not yet populated to
 // the QC floor. It adds identity-passed discovery candidates only; it does not invent verified
 // buyers. The caller rebuilds the stage roster after it returns.
@@ -506,28 +701,14 @@ func (a *DemandChainAgent) fillDemandStageGaps(ctx context.Context, query models
 		if stage == "" {
 			continue
 		}
-		terms := []string{stage + " manufacturer OR plant OR operator", stage + " company OR facility"}
-		if stage == demandDistributionStageName {
-			terms = []string{
-				"distributor OR wholesaler of " + query.Activity,
-				"authorised distributor OR wholesale supplier of " + query.Activity,
-			}
-		}
-		for attempt := 0; attempt < demandStageGapQueries && attempt < len(terms); attempt++ {
-			if err := ctx.Err(); err != nil {
-				return added
-			}
-			term := terms[attempt]
-			searchQuery := strings.TrimSpace(query.Activity + " " + term + " " + demandGeography(query))
-			emitAgentEvent(eventCh, models.EventToolCall, "Gap search for "+stage, "search", searchQuery)
-			hits, err := a.engine.SearchFresh(ctx, searchQuery, marketMaxResults)
-			report.GapQueries++
-			if err != nil {
-				report.Warnings = append(report.Warnings, fmt.Sprintf("gap search for %s failed: %v", stage, err))
-				continue
-			}
+		stageAdded := 0
+		stageHits := 0
+		var gapSources []demandGapSource
+		seenSource := make(map[string]bool)
+		processHits := func(hits []models.SearchResult, searchQuery string) {
 			report.SearchHits += len(hits)
 			report.LeadsReviewed += len(hits)
+			stageHits += len(hits)
 			for _, hit := range hits {
 				candidate := demandCandidate(hit, demandLane{term: searchQuery, stage: stage}, query)
 				if candidate == nil {
@@ -541,11 +722,199 @@ func (a *DemandChainAgent) fillDemandStageGaps(ctx context.Context, query models
 				mergeMarketCompany(companies, candidate)
 				if len(companies) > before {
 					added++
+					stageAdded++
+				}
+				// A roster/report page can name many companies even though its own title is
+				// not a company. Collect those pages for bounded reading and extraction.
+				tier := demandSourceTierForHit(hit)
+				if marketLeadReadable(tier, hit.Title) && tier != "social" {
+					key := demandCanonicalURL(hit.Link)
+					if key == "" {
+						key = strings.ToLower(strings.TrimSpace(hit.Link))
+					}
+					if !seenSource[key] {
+						seenSource[key] = true
+						gapSources = append(gapSources, demandGapSource{
+							URL: hit.Link, Title: hit.Title, Snippet: hit.Snippet, SourceTier: tier,
+						})
+					}
 				}
 			}
 		}
+		runSearch := func(term string, includeActivity bool) {
+			if err := ctx.Err(); err != nil {
+				return
+			}
+			searchQuery := strings.TrimSpace(term + " " + demandGeography(query))
+			if includeActivity {
+				searchQuery = strings.TrimSpace(query.Activity + " " + term + " " + demandGeography(query))
+			}
+			emitAgentEvent(eventCh, models.EventToolCall, "Gap search for "+stage, "search", searchQuery)
+			hits, err := a.engine.SearchFresh(ctx, searchQuery, marketMaxResults)
+			report.GapQueries++
+			if err != nil {
+				report.Warnings = append(report.Warnings, fmt.Sprintf("gap search for %s failed: %v", stage, err))
+				return
+			}
+			processHits(hits, searchQuery)
+		}
+		terms := demandStageGapTerms(query, stage, report.Chain)
+		for attempt := 0; attempt < demandStageGapQueries && attempt < len(terms); attempt++ {
+			runSearch(terms[attempt], true)
+		}
+		// The exact stage/operator phrases can be too narrow. If they produced almost no
+		// companies, retry with the wider category vocabulary (solvents, aromatics,
+		// polyurethane foam, adhesives and sealants, etc.).
+		if stageAdded < demandStageBroadenThreshold || gap.Count+stageAdded < demandMinStageCompanies {
+			broadTerms := demandStageBroadenTerms(query, stage, report.Chain, report.ProductCategory)
+			for attempt := 0; attempt < demandStageBroadenQueries && attempt < len(broadTerms); attempt++ {
+				runSearch(broadTerms[attempt], false)
+			}
+			if len(broadTerms) > 0 {
+				emitAgentEvent(eventCh, models.EventThinking,
+					fmt.Sprintf("Gap search for %s was weak (%d new company(ies)); broadened to category terms", stage, stageAdded),
+					"demand_gap", "")
+			}
+		}
+		// Read the densest roster-shaped pages first; three per stage is enough to recover a
+		// stage roster without turning a gap fill into a second full discovery run.
+		sort.SliceStable(gapSources, func(i, j int) bool {
+			return marketLeadReadPriority(gapSources[i].SourceTier, gapSources[i].Title) <
+				marketLeadReadPriority(gapSources[j].SourceTier, gapSources[j].Title)
+		})
+		if len(gapSources) > demandGapReadPages {
+			gapSources = gapSources[:demandGapReadPages]
+		}
+		for _, company := range a.extractDemandGapCompanies(ctx, query, stage, gapSources, report, eventCh) {
+			if company == nil {
+				continue
+			}
+			if excludedMarketDomain(company.Domain, query.Exclusions) {
+				report.Appendix = append(report.Appendix, company.Evidence...)
+				continue
+			}
+			before := len(companies)
+			mergeMarketCompany(companies, company)
+			if len(companies) > before {
+				added++
+				stageAdded++
+			}
+		}
+		emitAgentEvent(eventCh, models.EventToolResult,
+			fmt.Sprintf("Gap search %s: %d hit(s), %d page(s) read, %d new company(ies)", stage, stageHits, len(gapSources), stageAdded),
+			"demand_gap", "")
 	}
 	return added
+}
+
+// extractDemandGapCompanies reads the bounded gap pages and asks one stage-anchored extraction
+// call to recover the companies they name. The result is a roster candidate, not verification:
+// the source may be a listicle or directory, so the company carries its evidence but no
+// ownership claim.
+func (a *DemandChainAgent) extractDemandGapCompanies(ctx context.Context, query models.DemandChainQuery, stage string, sources []demandGapSource, report *models.DemandChainReport, eventCh chan<- models.AgentEvent) []*models.MarketLandscapeCompany {
+	if len(sources) == 0 {
+		return nil
+	}
+	targets := make([]string, 0, len(sources))
+	sourceByURL := make(map[string]demandGapSource, len(sources))
+	for _, source := range sources {
+		key := demandCanonicalURL(source.URL)
+		if key == "" {
+			continue
+		}
+		sourceByURL[key] = source
+		targets = append(targets, source.URL)
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	outcomes := a.engine.ScrapeCachedBatch(ctx, targets)
+	contentByURL := make(map[string]string, len(outcomes))
+	for _, outcome := range outcomes {
+		if outcome.Err != nil || outcome.Result == nil {
+			continue
+		}
+		content := strings.TrimSpace(outcome.Result.Content)
+		if content == "" {
+			continue
+		}
+		contentByURL[demandCanonicalURL(outcome.URL)] = marketPageExcerpt(content, marketRosterPageExcerpt)
+		report.PagesEnriched++
+	}
+	var leadText strings.Builder
+	index := 1
+	for _, source := range sources {
+		content := contentByURL[demandCanonicalURL(source.URL)]
+		if content == "" {
+			content = source.Snippet
+		}
+		if content == "" {
+			continue
+		}
+		fmt.Fprintf(&leadText, "%d. %s — %s\n%s\n\n", index, source.Title, source.URL, content)
+		index++
+	}
+	if strings.TrimSpace(leadText.String()) == "" {
+		return nil
+	}
+	emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Read %d page(s) for stage %s", len(sources), stage), "demand_gap", "")
+	stageContext := stage
+	if found := findDemandStage(stage, report.Chain); found != nil && len(found.Operators) > 0 {
+		stageContext = stage + " (" + strings.Join(found.Operators, ", ") + ")"
+	}
+	prompt := fmt.Sprintf(`Extract every actual company that operates this consuming stage for %q: %s.
+These pages may be listicles, directories, reports, articles or company pages. A list, report or article is a valid source for the companies it names, including each row of a key-players or buyer table. Use only names explicitly present in the supplied text. Return legal company names, never page titles, publishers, authors, categories, process descriptions, product names or regions. Exclude producers or suppliers of %q itself and any company the text only describes as supplying the product rather than operating the stage. For each company return name, country, reason, evidence_url (the supplied page URL that names it), and producer as false. Return a JSON array.
+Pages:
+%s`, query.Activity, stageContext, query.Activity, leadText.String())
+	var extracted []models.MarketLandscapeLeadCandidate
+	if err := a.engine.GenerateStructured(ctx, "You extract company names from stage-gap pages for a buyer roster. Never invent a name and never promote a page title, publisher, person or category to a company.", prompt, &extracted); err != nil {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("stage-gap extraction failed for %s: %v", stage, err))
+		emitAgentEvent(eventCh, models.EventError, "Stage-gap extraction failed: "+err.Error(), "demand_gap", "")
+		return nil
+	}
+	report.LeadsExtracted += len(extracted)
+	accepted := make([]*models.MarketLandscapeCompany, 0, len(extracted))
+	seen := make(map[string]bool)
+	geoNames := demandGeoNames(query)
+	firstSource := sources[0]
+	for _, candidate := range extracted {
+		if candidate.Producer {
+			continue
+		}
+		name := demandNormalizeCandidateName(strings.TrimSpace(candidate.Name))
+		if name == "" || strings.EqualFold(name, strings.TrimSpace(candidate.Country)) || geoNames[normalizeMarketName(name)] ||
+			normalizeMarketName(name) == normalizeMarketName(query.Activity) || demandSourceName(name, query.Activity) ||
+			!isPlausibleMarketLeadName(name) || !demandCompanyTitleFor(name, query.Activity) {
+			continue
+		}
+		key := normalizeMarketName(name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		evidenceURL := strings.TrimSpace(candidate.EvidenceURL)
+		source := sourceByURL[demandCanonicalURL(evidenceURL)]
+		if source.URL == "" {
+			source = firstSource
+			evidenceURL = firstSource.URL
+		}
+		domain := ""
+		if host := hostname(evidenceURL); host != "" && demandCompanyOwnsDomain(name, host) {
+			domain = strings.ToLower(strings.TrimPrefix(host, "www."))
+		}
+		accepted = append(accepted, &models.MarketLandscapeCompany{
+			EntityKey: "company:name:" + key, Name: name, Domain: domain,
+			Country: strings.TrimSpace(candidate.Country), Activity: query.Activity, Stage: stage,
+			Status: "candidate", EvidenceType: "roster-extracted", Confidence: 0.45,
+			EvidenceSummary: strings.TrimSpace(candidate.Reason),
+			Evidence: []models.MarketLandscapeEvidence{{
+				URL: evidenceURL, Title: source.Title, Snippet: source.Snippet,
+				Lane: "stage gap roster", ClaimType: models.DemandClaimOperator,
+				SourceTier: source.SourceTier, RetrievedAt: time.Now(), Status: "roster-extracted",
+			}},
+		})
+	}
+	return accepted
 }
 
 // isDemandDocumentTitle catches titles that name documents rather than
@@ -595,8 +964,12 @@ func demandNameIsPerson(name string) bool {
 }
 
 func demandCompanyTitle(name string) bool {
+	return demandCompanyTitleFor(name, "")
+}
+
+func demandCompanyTitleFor(name, activity string) bool {
 	return isPlausibleMarketLeadName(name) && !isDemandDocumentTitle(name) && !isGenericMarketTitle(name) &&
-		!isDemandBaitTitle(name) && !demandNameIsCategory(name) && !demandNameIsPerson(name) && !marketPublisherSuffix(name)
+		!isDemandBaitTitle(name) && !demandNameIsCategoryFor(name, activity) && !demandNameIsPerson(name) && !marketPublisherSuffix(name)
 }
 
 // demandProducerPhrases are the phrase shapes that tie a company to
@@ -690,6 +1063,10 @@ func demandSourceOverride(domain string) string {
 // "TDI Products", "Renewable ... Production Plant", "Technology by Covestro". A legal suffix
 // overrides the heuristic, so "Acme Products Ltd" remains a company.
 func demandNameIsCategory(name string) bool {
+	return demandNameIsCategoryFor(name, "")
+}
+
+func demandNameIsCategoryFor(name, activity string) bool {
 	lowered := strings.ToLower(strings.TrimSpace(name))
 	if lowered == "" {
 		return false
@@ -725,7 +1102,24 @@ func demandNameIsCategory(name string) bool {
 	if !categoryWords[last] {
 		return false
 	}
-	return !hasLegalSuffix
+	if hasLegalSuffix {
+		return false
+	}
+	// "Deccan Foam Products" and "Faridabad Foam Industries" are plausible company names;
+	// "TDI Products" is a product phrase, not a company. A short/acronym first token marks
+	// the product-title shape, while a longer first token reads as a brand/place.
+	if last == "product" || last == "products" || last == "industry" || last == "industries" {
+		first := strings.Trim(fields[0], ".,;:()")
+		if len(fields) == 1 || len(first) <= 3 {
+			return true
+		}
+		activity = strings.ToLower(strings.TrimSpace(activity))
+		if activity != "" && (strings.HasPrefix(activity, first) || strings.HasPrefix(first, activity)) {
+			return true
+		}
+		return false
+	}
+	return true
 }
 
 func demandSourceName(name, activity string) bool {
@@ -733,7 +1127,7 @@ func demandSourceName(name, activity string) bool {
 	// En/em dashes are headline punctuation too; normalize before matching.
 	lowered = strings.ReplaceAll(lowered, "–", "-")
 	lowered = strings.ReplaceAll(lowered, "—", "-")
-	if demandNameIsCategory(name) || demandNameIsPerson(name) || marketPublisherSuffix(name) {
+	if demandNameIsCategoryFor(name, activity) || demandNameIsPerson(name) || marketPublisherSuffix(name) {
 		return true
 	}
 	for _, marker := range []string{
@@ -1236,9 +1630,30 @@ func demandDedupeCompanies(pool []*models.MarketLandscapeCompany) []*models.Mark
 }
 
 // demandMergeBucket builds one representative from an alias bucket.
+func demandEvidenceRank(evidenceType string) int {
+	switch evidenceType {
+	case "company-page":
+		return 2
+	case "roster-extracted":
+		return 1
+	default:
+		return 0
+	}
+}
+
 func demandMergeBucket(members []*models.MarketLandscapeCompany) *models.MarketLandscapeCompany {
 	best := members[0]
 	for _, member := range members[1:] {
+		// A raw discovery lead must never represent a bucket that contains an
+		// identity-passed company page: its title can be an article or process
+		// description, and choosing it would demote every merged evidence row.
+		if demandEvidenceRank(best.EvidenceType) < demandEvidenceRank(member.EvidenceType) {
+			best = member
+			continue
+		}
+		if demandEvidenceRank(member.EvidenceType) < demandEvidenceRank(best.EvidenceType) {
+			continue
+		}
 		if member.Confidence > best.Confidence ||
 			(member.Confidence == best.Confidence && len(member.Name) > len(best.Name)) {
 			best = member
@@ -1322,7 +1737,7 @@ type demandLane struct {
 // The operator's StagesOverride wins outright; otherwise one structured call
 // proposes the chain, which is sanitized, capped and guaranteed to carry
 // operator vocabulary. Failure degrades to a generic stage, never a failed run.
-func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.DemandChainQuery, eventCh chan<- models.AgentEvent) ([]models.ValueChainStage, bool, []string) {
+func (a *DemandChainAgent) inferDemandChainWithCategory(ctx context.Context, query models.DemandChainQuery, eventCh chan<- models.AgentEvent) ([]models.ValueChainStage, string, string, string, bool, []string) {
 	if len(query.StagesOverride) > 0 {
 		stages := make([]models.ValueChainStage, 0, len(query.StagesOverride))
 		for _, name := range query.StagesOverride {
@@ -1341,23 +1756,28 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 				Products:  knownStageProducts(query.Activity, name),
 			})
 		}
+		category := demandFallbackCategory(query.Activity, stages)
 		emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Using %d operator-supplied consuming stage(s)", len(stages)), "", "")
-		return stages, false, nil
+		return stages, category, "Derived from operator-supplied stages.", "fallback", false, nil
 	}
 
-	var proposed []models.ValueChainStage
+	var inference models.DemandChainInference
 	// The prompt encodes the buyer definition: a buyer is a manufacturer whose
 	// process consumes the product as an input, so the chain stops at two
 	// transformation steps downstream — deeper steps are context, not buyers.
-	prompt := fmt.Sprintf("Identify the industrial manufacturing processes that are potential buyers of %q: processes that consume the product%s. Scope: at most two transformation steps downstream. Return a JSON array where each element has name (the consuming manufacturing process), rationale (one line naming which input the stage consumes), products (up to 4 concrete products made within the stage that consume the product or its immediate derivative; do not return generic category labels), operators (2-3 search phrases for the plants or companies operating that stage), and distance: 1 when the stage consumes %q directly as an input or raw material, 2 when it consumes the output of a distance-1 process. For example, decompose a generic solvent stage into concrete acetate-esters or other product families actually derived from the input. Exclude stages beyond two steps, end-use sectors that manufacture nothing, retail, logistics, trading and publication stages.", query.Activity, demandGeographyClause(query), query.Activity)
+	prompt := fmt.Sprintf(`Identify the industrial manufacturing processes that are potential buyers of %q: processes that consume the product%s. Scope: at most two transformation steps downstream.
+Also identify a broad buyer-side category for the product: the immediate downstream product family or industry that consumes it, specific enough to search, not an end-use sector and not a generic superclass. Examples: toluene diisocyanate -> polyurethanes; acetic acid -> solvents or acetates; toluene -> aromatics; coal -> coal products, never fuel or energy. Use one to four words. Return a JSON object with category, category_rationale, and stages.
+Each stage has name (the consuming manufacturing process), rationale (one line naming which input the stage consumes), products (up to 4 concrete products made within the stage that consume the product or its immediate derivative; do not return generic category labels), operators (2-3 search phrases for the plants or companies operating that stage), and distance: 1 when the stage consumes %q directly as an input or raw material, 2 when it consumes the output of a distance-1 process. For example, decompose a generic solvent stage into concrete acetate-esters or other product families actually derived from the input. Exclude stages beyond two steps, end-use sectors that manufacture nothing, retail, logistics, trading and publication stages.`, query.Activity, demandGeographyClause(query), query.Activity)
 	if err := a.engine.GenerateStructured(ctx,
-		"You infer industrial value chains for buyer research. A buyer is a manufacturer whose process consumes the product as an input; never propose stages more than two transformation steps downstream, and keep operator phrases as concrete plant vocabulary.",
-		prompt, &proposed); err != nil {
-		return a.demandChainFallback(ctx, "Value-chain inference failed", err, query, eventCh)
+		"You infer industrial value chains for buyer research. A buyer is a manufacturer whose process consumes the product as an input; never propose stages more than two transformation steps downstream, and keep operator phrases as concrete plant vocabulary. The category must be the immediate downstream product family, not an end-use sector.",
+		prompt, &inference); err != nil {
+		stages, inferred, warnings := a.demandChainFallback(ctx, "Value-chain inference failed", err, query, eventCh)
+		category := demandFallbackCategory(query.Activity, stages)
+		return stages, category, "Derived after inference failure.", "fallback", inferred, warnings
 	}
 
 	var warnings []string
-	sanitized := sanitizeDemandStages(proposed)
+	sanitized := sanitizeDemandStages(inference.Stages)
 	if len(sanitized.dropped) > 0 {
 		// Audit trail for the buyer definition: what the model proposed
 		// beyond the two-step scope is reported, not silently discarded.
@@ -1365,7 +1785,9 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 	}
 	stages := sanitized.kept
 	if len(stages) == 0 {
-		return a.demandChainFallback(ctx, "Value-chain inference returned no usable stages", fmt.Errorf("the model proposed no stages"), query, eventCh)
+		stages, inferred, fallbackWarnings := a.demandChainFallback(ctx, "Value-chain inference returned no usable stages", fmt.Errorf("the model proposed no stages"), query, eventCh)
+		category := demandFallbackCategory(query.Activity, stages)
+		return stages, category, "Derived after empty inference.", "fallback", inferred, append(warnings, fallbackWarnings...)
 	}
 	for index := range stages {
 		if len(stages[index].Operators) == 0 {
@@ -1376,8 +1798,163 @@ func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.De
 			stages[index].Products = knownStageProducts(query.Activity, stages[index].Name)
 		}
 	}
-	emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Inferred %d consuming stage(s): %s", len(stages), stageNames(stages)), "", "")
-	return stages, true, warnings
+	category, categorySource, categoryWarnings := validateDemandCategory(inference.Category, inference.CategoryRationale, query.Activity, stages)
+	warnings = append(warnings, categoryWarnings...)
+	if category == "" {
+		category = demandFallbackCategory(query.Activity, stages)
+		if category != "" {
+			categorySource = "fallback"
+		}
+	}
+	categoryRationale := strings.TrimSpace(inference.CategoryRationale)
+	if categorySource == "fallback" {
+		categoryRationale = "Derived from the inferred consuming stages after category validation."
+	}
+	if categoryRationale == "" && category != "" {
+		categoryRationale = "Derived from the inferred consuming stages."
+	}
+	emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Inferred %d consuming stage(s): %s; category: %s", len(stages), stageNames(stages), category), "", "")
+	return stages, category, categoryRationale, categorySource, true, warnings
+}
+
+// inferDemandChain preserves the test-facing signature; the orchestrator uses the
+// category-aware variant above.
+func (a *DemandChainAgent) inferDemandChain(ctx context.Context, query models.DemandChainQuery, eventCh chan<- models.AgentEvent) ([]models.ValueChainStage, bool, []string) {
+	stages, _, _, _, inferred, warnings := a.inferDemandChainWithCategory(ctx, query, eventCh)
+	return stages, inferred, warnings
+}
+
+// demandForbiddenCategoryTerms are end-use sectors and generic superclasses. They are exactly
+// what an unconstrained model drifts to when asked for a product category ("coal" -> "fuel").
+var demandForbiddenCategoryTerms = map[string]bool{
+	"fuel": true, "fuels": true, "energy": true, "power": true,
+	"chemical": true, "chemicals": true, "manufacturing": true, "industrial": true,
+	"materials": true, "products": true, "commodities": true, "consumer": true,
+	"automotive": true, "construction": true, "packaging": true, "healthcare": true,
+	"agriculture": true, "food": true, "textile": true, "textiles": true,
+	"retail": true, "logistics": true, "transport": true, "pharmaceuticals": true,
+}
+
+// demandCategoryRelatedTokens is the specificity guard: a category must share a real token with
+// the product or one of its inferred stages, or be a known product-family relation. "polyurethanes"
+// relates to TDI/foam; "fuel" relates to nothing in a coal value chain except the forbidden
+// end-use sector we are rejecting.
+var demandCategoryRelatedTokens = map[string][]string{
+	"polyurethanes":           {"polyurethane", "isocyanate", "tdi", "mdi", "foam", "elastomer", "resin", "adhesive", "sealant", "coating"},
+	"adhesives and sealants":  {"adhesive", "sealant", "polyurethane"},
+	"solvents":                {"solvent", "acetate", "ester", "alcohol", "acetone", "methanol", "toluene"},
+	"aromatics":               {"aromatic", "benzene", "toluene", "xylene", "styrene"},
+	"coatings":                {"coating", "paint", "resin", "polyurethane"},
+	"polyurethane elastomers": {"elastomer", "polyurethane", "isocyanate", "tdi"},
+	"polyurethane foam":       {"foam", "polyurethane", "isocyanate", "tdi"},
+	"polyurethane resins":     {"resin", "polyurethane", "isocyanate", "tdi"},
+	"oleochemicals":           {"oleochemical", "fatty", "palm", "glycerin", "oil"},
+	"surfactants":             {"surfactant", "detergent", "fatty"},
+	"plasticizers":            {"plasticizer", "phthalate", "ester"},
+	"lubricants":              {"lubricant", "oil", "ester"},
+	"biodiesel":               {"biodiesel", "fatty", "oil", "glycerin"},
+	"coal products":           {"coal", "coke", "carbon"},
+}
+
+func demandCategoryFields(category string) []string {
+	return strings.Fields(strings.ToLower(strings.TrimSpace(category)))
+}
+
+func demandCategoryLooksRelated(category, activity string, stages []models.ValueChainStage) bool {
+	fields := demandCategoryFields(category)
+	if len(fields) == 0 {
+		return false
+	}
+	text := " " + strings.ToLower(strings.TrimSpace(activity)) + " "
+	for _, stage := range stages {
+		text += strings.ToLower(stage.Name) + " " + strings.Join(stage.Products, " ") + " " + strings.Join(stage.Operators, " ") + " "
+	}
+	for _, token := range fields {
+		if len(token) >= 4 && strings.Contains(text, token) {
+			return true
+		}
+	}
+	for key, related := range demandCategoryRelatedTokens {
+		if !strings.Contains(strings.ToLower(category), key) {
+			continue
+		}
+		for _, token := range related {
+			if strings.Contains(text, token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// validateDemandCategory is the deterministic gate between the model's broad category and the
+// fallback search. A category can only be used when it is specific, buyer-side and related to
+// the product/stages; otherwise the run records the issue and falls back to the stage-derived
+// category.
+func validateDemandCategory(raw, rationale, activity string, stages []models.ValueChainStage) (string, string, []string) {
+	category := strings.Join(demandCategoryFields(raw), " ")
+	if category == "" {
+		return "", "", nil
+	}
+	fields := demandCategoryFields(category)
+	var warning []string
+	reject := func(reason string) (string, string, []string) {
+		warning = append(warning, fmt.Sprintf("LLM category %q rejected: %s; using the stage-derived category instead.", category, reason))
+		return "", "rejected", warning
+	}
+	if len(fields) > 4 {
+		return reject("more than four words")
+	}
+	if len(fields) == 1 && demandForbiddenCategoryTerms[fields[0]] {
+		return reject("end-use or generic superclass")
+	}
+	if demandForbiddenCategoryTerms[fields[0]] {
+		return reject("starts with an end-use or generic superclass")
+	}
+	for _, field := range fields {
+		if field == "production" || field == "manufacturing" || field == "manufacturers" || field == "manufacturer" ||
+			field == "suppliers" || field == "supplier" || field == "producers" || field == "producer" ||
+			field == "synthesis" || field == "processing" {
+			return reject("describes a process or company role, not a product family")
+		}
+	}
+	if strings.EqualFold(category, activity) {
+		return reject("repeats the product name")
+	}
+	for _, stage := range stages {
+		if strings.EqualFold(category, strings.TrimSpace(stage.Name)) {
+			return reject("repeats an inferred stage")
+		}
+	}
+	if !demandCategoryLooksRelated(category, activity, stages) {
+		return reject("no lexical or product-family relation to the product/stages")
+	}
+	return category, "model", warning
+}
+
+// demandFallbackCategory derives the category from the inferred stages when the model's label is
+// absent or rejected. It is still only a search fallback, never a stage or a buyer.
+func demandFallbackCategory(activity string, stages []models.ValueChainStage) string {
+	activityText := strings.ToLower(strings.TrimSpace(activity))
+	// Prefer a known product-family relation over the stage label. This is where a rejected
+	// "coal -> fuel" category lands on "coal products", not "coal combustion".
+	for _, category := range []string{"coal products", "polyurethanes", "solvents", "aromatics", "oleochemicals", "surfactants", "plasticizers", "lubricants", "biodiesel"} {
+		for _, token := range demandCategoryRelatedTokens[category] {
+			if token != "" && strings.Contains(activityText, token) {
+				return category
+			}
+		}
+	}
+	for _, stage := range stages {
+		categories := demandStageCategories(stage.Name, &stage, models.DemandChainQuery{Activity: activity})
+		for _, category := range categories {
+			category = strings.TrimSpace(category)
+			if category != "" && !strings.EqualFold(category, activity) {
+				return category
+			}
+		}
+	}
+	return ""
 }
 
 // demandChainFallback degrades to a product-named generic stage — the buyer
@@ -1671,9 +2248,14 @@ func demandCandidate(hit models.SearchResult, lane demandLane, query models.Dema
 	}
 	domain := strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
 	name := strings.TrimSpace(hit.Title)
-	// A name that arrived as a page title ("X | Products | Acme") collapses to
-	// its longest segment — the company name is the last meaningful part.
-	if strings.Contains(name, "|") {
+	// Prefer the shared canonical-name scorer: company pages commonly put the
+	// capability tagline in the longest title segment ("Acme Foam | Polyurethane
+	// Foam Manufacturer"), so longest-segment selection would promote the
+	// descriptor and starve the stage roster.
+	if canonical := marketCanonicalName(name, domain); canonical != "" {
+		name = canonical
+	} else if strings.Contains(name, "|") {
+		// Fallback for a title shape the canonical scorer cannot reduce.
 		best := ""
 		for _, segment := range strings.Split(name, "|") {
 			if trimmed := strings.TrimSpace(segment); len(trimmed) > len(best) {

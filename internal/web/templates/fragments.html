@@ -47,9 +47,27 @@
 	<div>
 		<h4 class="text-sm font-semibold text-slate-300 mb-3">Relationship evidence</h4>
 		{{if .Graph.Edges}}
-		<div data-related-graph class="space-y-3">
-			<div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/60 p-2">
-				<svg viewBox="0 0 1000 520" role="img" aria-label="Connected entity graph" class="min-w-[700px] w-full h-[420px]">
+		<div data-related-graph-host class="space-y-3">
+			<div class="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+				<div>
+					<div class="text-sm font-medium text-white">Relationship map</div>
+					<p class="mt-1 text-xs text-slate-500">Open the graph in a larger workspace to explore connections progressively.</p>
+				</div>
+				<button type="button" data-related-graph-open aria-haspopup="dialog" class="shrink-0 inline-flex items-center gap-2 rounded-lg border border-cyan-500/60 bg-cyan-950/40 px-3 py-2 text-sm font-medium text-cyan-200 hover:bg-cyan-900/60 focus:outline-none focus:ring-2 focus:ring-cyan-300">
+					<span aria-hidden="true">＋</span> Open graph
+				</button>
+			</div>
+			<dialog data-related-graph-dialog aria-labelledby="related-graph-title" class="related-graph-dialog rounded-2xl border border-slate-700 bg-slate-950 p-0 text-slate-100 shadow-2xl">
+				<div data-related-graph class="space-y-3 p-4 sm:p-6">
+					<div class="flex items-center justify-between gap-3">
+						<div>
+							<h5 id="related-graph-title" class="text-base font-semibold text-white">Relationship graph</h5>
+							<p class="mt-1 text-xs text-slate-500">Select a node for details. Use the plus controls to reveal a few more connections.</p>
+						</div>
+						<button type="button" data-related-graph-close aria-label="Close relationship graph" class="rounded-lg border border-slate-700 px-3 py-2 text-lg leading-none text-slate-300 hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-cyan-300">×</button>
+					</div>
+					<div class="overflow-auto rounded-xl border border-slate-800 bg-slate-900/70 p-2">
+						<svg viewBox="0 0 1000 520" role="img" aria-label="Connected entity graph" class="min-w-[760px] w-full h-[520px]">
 					{{range .Graph.Edges}}<line x1="{{.X1}}" y1="{{.Y1}}" x2="{{.X2}}" y2="{{.Y2}}" stroke="rgb(71 85 105)" stroke-width="2" opacity=".8" data-related-edge-from="{{.From}}" data-related-edge-to="{{.To}}" />{{end}}
 					{{range .Graph.Nodes}}
 					<g tabindex="0" role="button" data-related-node data-node-id="{{.ID}}" data-node-name="{{.Name}}" data-node-type="{{.Type}}" aria-label="{{.Name}}" class="cursor-pointer outline-none">
@@ -61,18 +79,20 @@
 						</g>
 					</g>
 					{{end}}
-				</svg>
-			</div>
-			<div class="space-y-2">
-				{{range .Leadership}}
-				{{$leader := .}}
-				<details data-related-detail data-node-id="person:{{lower .Name}}" class="rounded-xl border border-slate-800 bg-slate-950/60">
-					<summary class="cursor-pointer list-none p-3 text-sm text-white">{{.Name}} <span class="text-xs text-cyan-400">{{.Role}}</span></summary>
-					<div class="border-t border-slate-800 px-3 pb-3 pt-2 space-y-2">
-						{{range $.LeadershipRelations}}{{if eq .Person $leader.Name}}<div class="text-xs text-slate-300"><span class="text-cyan-400">{{.Relationship}}</span> {{.Name}}{{if .Status}} <span class="text-slate-500">· {{.Status}}</span>{{end}}</div>{{end}}{{end}}
+							</svg>
+						</div>
 					</div>
-				</details>
-				{{end}}
+				</dialog>
+				<div class="space-y-2">
+					{{range .Leadership}}
+					{{$leader := .}}
+					<details data-related-detail data-node-id="person:{{lower .Name}}" class="rounded-xl border border-slate-800 bg-slate-950/60">
+						<summary class="cursor-pointer list-none p-3 text-sm text-white">{{.Name}} <span class="text-xs text-cyan-400">{{.Role}}</span></summary>
+						<div class="border-t border-slate-800 px-3 pb-3 pt-2 space-y-2">
+							{{range $.LeadershipRelations}}{{if eq .Person $leader.Name}}<div class="text-xs text-slate-300"><span class="text-cyan-400">{{.Relationship}}</span> {{.Name}}{{if .Status}} <span class="text-slate-500">· {{.Status}}</span>{{end}}</div>{{end}}{{end}}
+						</div>
+					</details>
+					{{end}}
 			</div>
 		</div>
 		<div class="overflow-x-auto mt-3"><table class="w-full text-left text-xs"><thead class="text-slate-500"><tr><th class="p-2">From</th><th class="p-2">Relationship</th><th class="p-2">To</th><th class="p-2">Confidence</th></tr></thead><tbody>{{range .Graph.Edges}}<tr class="border-t border-slate-800"><td class="p-2 text-white">{{.FromLabel}}</td><td class="p-2 text-indigo-400">{{.Relationship}}</td><td class="p-2 text-white">{{.ToLabel}}</td><td class="p-2 text-slate-400">{{.Confidence}}</td></tr>{{end}}</tbody></table></div>
@@ -175,7 +195,7 @@
 		<div>
 			<h3 class="text-2xl font-bold text-white">Buyer landscape</h3>
 			<p class="text-sm text-slate-400 mt-1">{{.Objective}}</p>
-			<p class="text-xs text-slate-500 mt-1">Activity: {{.Activity}}{{if .ChainInferred}} · value chain model-inferred{{end}}{{if .Geography}} · Geography: {{.Geography}}{{end}}</p>
+			<p class="text-xs text-slate-500 mt-1">Activity: {{.Activity}}{{if .ChainInferred}} · value chain model-inferred{{end}}{{if .ProductCategory}} · Category: {{.ProductCategory}}{{end}}{{if .Geography}} · Geography: {{.Geography}}{{end}}</p>
 		</div>
 		<div class="text-right text-xs text-slate-500">{{.QueriesUsed}} discovery queries · {{.GapQueries}} gap/QC · {{.SearchHits}} hits · {{.VerificationQueries}} verification queries · {{.PagesEnriched}} pages enriched</div>
 	</div>

@@ -205,8 +205,10 @@ func TestMarketCoverRenders(t *testing.T) {
 func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 	report := &models.DemandChainReport{
 		ResearchID: "research-1", Activity: "used cooking oil",
-		Objective: "Find refiners and oleochemical plants that buy used cooking oil.",
-		Geography: "Malaysia",
+		Objective:       "Find refiners and oleochemical plants that buy used cooking oil.",
+		Geography:       "Malaysia",
+		ProductCategory: "polyurethanes", CategorySource: "model",
+		CategoryRationale: "Polyurethane manufacturers consume TDI.",
 		Chain: []models.ValueChainStage{{
 			Name: "biodiesel production", Rationale: "Biodiesel is produced from used cooking oil.",
 			Operators: []string{"biodiesel plant"}, Source: "model",
@@ -266,6 +268,7 @@ func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 	for _, expected := range []string{
 		"# used cooking oil — Demand Chain",
 		"Geography: Malaysia",
+		"Category: polyurethanes (model)",
 		"## Value chain", "biodiesel production", "Biodiesel is produced from used cooking oil.",
 		"## Results — verified consumers", "GreenDiesel Sdn Bhd", "biodiesel production",
 		"## Potential buyers by stage", "### biodiesel production", "Jayant Oleochemicals",
@@ -286,6 +289,7 @@ func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 		`<p class="cover-meta">Malaysia</p>`,
 		`src="data:image/jpeg;base64,`,
 		"Value chain", "Operator vocabulary",
+		"Category: polyurethanes",
 		"Potential buyers by stage", "Jayant Oleochemicals",
 		"channel category (resale)", "Delta Distribution Pvt Ltd",
 		"Stage coverage — QC minimum", "Quality review", "ACS Publications", "publisher",

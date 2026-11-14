@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"time"
@@ -63,6 +64,30 @@ type ValueChainStage struct {
 	// 2 consumes a step-1 output. Stages further than two steps are out of
 	// buyer scope and are dropped at inference; zero is treated as 1.
 	Distance int `json:"distance,omitempty"`
+}
+
+// DemandChainInference is the first-pass value-chain result. Category is deliberately separate
+// from the stages because it is a fallback search dimension, not a buyer and not a stage.
+type DemandChainInference struct {
+	Category          string            `json:"category,omitempty"`
+	CategoryRationale string            `json:"category_rationale,omitempty"`
+	Stages            []ValueChainStage `json:"stages"`
+}
+
+// UnmarshalJSON accepts both the new object shape and the old bare-array shape, so a saved or
+// older model response still decodes.
+func (inference *DemandChainInference) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		return json.Unmarshal(trimmed, &inference.Stages)
+	}
+	type inferenceAlias DemandChainInference
+	var decoded inferenceAlias
+	if err := json.Unmarshal(trimmed, &decoded); err != nil {
+		return err
+	}
+	*inference = DemandChainInference(decoded)
+	return nil
 }
 
 // DemandChainQuery defines one bounded buyer-side investigation: the product or
@@ -192,6 +217,11 @@ type DemandChainReport struct {
 	// countries win over regions, empty means global — so the reader can see
 	// what the execution was scoped to.
 	Geography string `json:"geography,omitempty"`
+	// ProductCategory is the validated first-pass broad category. It is a search fallback only:
+	// it never enters Results or the value chain as a buyer stage.
+	ProductCategory   string `json:"product_category,omitempty"`
+	CategoryRationale string `json:"category_rationale,omitempty"`
+	CategorySource    string `json:"category_source,omitempty"`
 	// Chain is the consuming stages the search was organised around, in the
 	// order the lanes were built from them.
 	Chain []ValueChainStage `json:"chain,omitempty"`

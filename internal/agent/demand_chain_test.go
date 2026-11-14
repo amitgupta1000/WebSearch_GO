@@ -17,7 +17,9 @@ import (
 type demandLLM struct {
 	mu            sync.Mutex
 	stages        []models.ValueChainStage
+	category      string
 	candidates    []models.MarketLandscapeLeadCandidate
+	gapCandidates []models.MarketLandscapeLeadCandidate
 	people        []models.MarketLandscapePersonCandidate
 	review        models.DemandChainReview
 	err           error
@@ -29,6 +31,8 @@ func (m *demandLLM) GenerateStructured(ctx context.Context, systemPrompt, userPr
 	m.systemPrompts = append(m.systemPrompts, systemPrompt)
 	err := m.err
 	stages, candidates, people := m.stages, m.candidates, m.people
+	category := m.category
+	gapCandidates := m.gapCandidates
 	review := m.review
 	m.mu.Unlock()
 	if err != nil {
@@ -37,8 +41,15 @@ func (m *demandLLM) GenerateStructured(ctx context.Context, systemPrompt, userPr
 	switch typed := target.(type) {
 	case *[]models.ValueChainStage:
 		*typed = append(*typed, stages...)
+	case *models.DemandChainInference:
+		typed.Category = category
+		typed.Stages = append(typed.Stages, stages...)
 	case *[]models.MarketLandscapeLeadCandidate:
-		*typed = append(*typed, candidates...)
+		if strings.Contains(userPrompt, "Extract every actual company that operates this consuming stage") && len(gapCandidates) > 0 {
+			*typed = append(*typed, gapCandidates...)
+		} else {
+			*typed = append(*typed, candidates...)
+		}
 	case *[]models.MarketLandscapePersonCandidate:
 		*typed = append(*typed, people...)
 	case *models.DemandChainReview:
@@ -813,6 +824,7 @@ func TestDemandExtractionRejectsTitlesAndCountries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Research: %v", err)
 	}
+
 	names := make([]string, 0, len(report.Results))
 	for _, result := range report.Results {
 		names = append(names, result.Name)
@@ -1297,8 +1309,9 @@ func TestDemandStageGapCoverageReachesSix(t *testing.T) {
 		})
 	}
 	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
-		"biodiesel production manufacturer OR plant OR operator": stageHits,
-		"distributor OR wholesaler of":                           distributionHits,
+		"biodiesel plant":                   stageHits,
+		"biodiesel production manufacturer": stageHits,
+		"distributor OR wholesaler of":      distributionHits,
 	}}
 	report, err := NewDemandChainAgent(demandChainTestEngine(llm, searcher)).Research(context.Background(), "coverage", models.DemandChainQuery{Activity: "used cooking oil"}, nil)
 	if err != nil {
@@ -1351,5 +1364,202 @@ func TestDemandStageForFollowUp(t *testing.T) {
 	}
 	if got := demandStageForFollowUp("used cooking oil market overview", []models.ValueChainStage{{Name: "stage one"}, {Name: "stage two"}}); got != "" {
 		t.Errorf("unmapped follow-up = %q, want empty", got)
+	}
+}
+
+// TestDemandCandidateUsesCanonicalCompanySegment: a company page title often puts its capability
+// tagline in the longest pipe segment; the roster must keep the brand, not the descriptor.
+func TestDemandCandidateUsesCanonicalCompanySegment(t *testing.T) {
+	hit := models.SearchResult{
+		Title: "Acme Foam | Polyurethane Foam Manufacturer", Link: "https://acmefoam.com",
+		Snippet: "Acme Foam purchases TDI for flexible foam production.",
+	}
+	candidate := demandCandidate(hit, demandLane{term: "foam manufacturer", stage: "Polyurethane Foam Manufacturing"}, models.DemandChainQuery{Activity: "Toluene Diisocyanate"})
+	if candidate == nil {
+		t.Fatal("candidate was nil")
+	}
+	if candidate.Name != "Acme Foam" {
+		t.Errorf("candidate name = %q, want the brand segment not the descriptor", candidate.Name)
+	}
+}
+
+// TestDemandStageGapTermsPrefersOperatorVocabulary: the gap search must use the chain's operator
+// phrases (which find companies) before the stage-name-plus-manufacturer fallback (which mostly
+// finds directories and listicles).
+func TestDemandStageGapTermsPrefersOperatorVocabulary(t *testing.T) {
+	chain := []models.ValueChainStage{{
+		Name:      "Polyurethane Foam Manufacturing",
+		Operators: []string{"flexible foam manufacturers", "foam producers"},
+	}}
+	terms := demandStageGapTerms(models.DemandChainQuery{Activity: "Toluene Diisocyanate"}, chain[0].Name, chain)
+	if len(terms) < 2 || terms[0] != "flexible foam manufacturers" {
+		t.Fatalf("gap terms = %v, want operator vocabulary first", terms)
+	}
+	foundLabel := false
+	for _, term := range terms {
+		if strings.Contains(term, "polyurethane foam manufacturer") {
+			foundLabel = true
+		}
+	}
+	if !foundLabel {
+		t.Errorf("gap terms = %v, want a normalized stage-label fallback", terms)
+	}
+}
+
+// gapRosterScraper returns a roster-shaped page for the stage-gap reader test.
+type gapRosterScraper struct {
+	mu      sync.Mutex
+	called  []string
+	content string
+}
+
+func (s *gapRosterScraper) ScrapeURL(ctx context.Context, targetURL string) (*models.ScrapeResult, error) {
+	s.mu.Lock()
+	s.called = append(s.called, targetURL)
+	content := s.content
+	s.mu.Unlock()
+	return &models.ScrapeResult{URL: targetURL, Title: "Polyurethane foam manufacturers", Content: content}, nil
+}
+
+// TestDemandGapReadsListicleAndExtractsCompanies pins the listicle path: a gap hit that is a
+// roster page is read, and the companies it names are added as stage-roster candidates rather
+// than the page title becoming the company.
+func TestDemandGapReadsListicleAndExtractsCompanies(t *testing.T) {
+	stageName := "Polyurethane Foam Manufacturing"
+	pageURL := "https://example.com/gap-roster"
+	gapNames := []models.MarketLandscapeLeadCandidate{
+		{Name: "Acme Foam", Country: "India", EvidenceURL: pageURL},
+		{Name: "Bharat Foam Works", Country: "India", EvidenceURL: pageURL},
+		{Name: "Chennai Flexible Foam", Country: "India", EvidenceURL: pageURL},
+		{Name: "Deccan Foam Products", Country: "India", EvidenceURL: pageURL},
+		{Name: "Eastern Foam Manufacturing", Country: "India", EvidenceURL: pageURL},
+		{Name: "Faridabad Foam Industries", Country: "India", EvidenceURL: pageURL},
+	}
+	llm := &demandLLM{gapCandidates: gapNames}
+	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
+		"flexible foam manufacturers": {{
+			Title: "Top polyurethane foam manufacturers in India", Link: pageURL,
+			Snippet: "Acme Foam, Bharat Foam Works and Chennai Flexible Foam are listed.",
+		}},
+	}}
+	scraper := &gapRosterScraper{content: "Acme Foam; Bharat Foam Works; Chennai Flexible Foam; Deccan Foam Products; Eastern Foam Manufacturing; Faridabad Foam Industries"}
+	engine := NewEngine(llm, searcher, scraper, cache.NewMemoryCache(10), 5, 3, 10)
+	report := &models.DemandChainReport{Chain: []models.ValueChainStage{{Name: stageName, Operators: []string{"flexible foam manufacturers"}}}}
+	companies := make(map[string]*models.MarketLandscapeCompany)
+	coverage := []models.DemandStageCoverage{{Stage: stageName, Count: 0, Minimum: demandMinStageCompanies, Pass: false}}
+	added := NewDemandChainAgent(engine).fillDemandStageGaps(context.Background(), models.DemandChainQuery{Activity: "Toluene Diisocyanate"}, coverage, companies, report, make(chan models.AgentEvent, 32))
+	if added < len(gapNames) {
+		t.Fatalf("gap fill added %d company(ies), want at least %d: %+v", added, len(gapNames), companies)
+	}
+	if report.PagesEnriched == 0 || len(scraper.called) == 0 || scraper.called[0] != pageURL {
+		t.Errorf("gap roster page was not read: pages=%d called=%v", report.PagesEnriched, scraper.called)
+	}
+	found := 0
+	for _, company := range companies {
+		if company.Stage == stageName && company.EvidenceType == "roster-extracted" {
+			found++
+		}
+	}
+	if found < len(gapNames) {
+		t.Errorf("roster-extracted companies = %d, want at least %d: %+v", found, len(gapNames), companies)
+	}
+	pool := make([]*models.MarketLandscapeCompany, 0, len(companies))
+	for _, company := range companies {
+		pool = append(pool, company)
+	}
+	sections, _ := buildStageCandidates(pool, report.Chain)
+	coverage = demandStageCoverage(sections)
+	if len(coverage) == 0 || !coverage[0].Pass {
+		t.Errorf("stage coverage = %+v, want a passing %s roster", coverage, stageName)
+	}
+}
+
+// TestDemandCategoryValidation pins the anti-overbreadth gate: a category must be a specific
+// buyer-side product family related to the product/stages. Coal may be "coal products", never
+// "fuel"; TDI may be "polyurethanes", never "chemicals".
+func TestDemandCategoryValidation(t *testing.T) {
+	polyStages := []models.ValueChainStage{{
+		Name: "Polyurethane Foam Manufacturing", Products: []string{"flexible polyurethane foam"},
+		Operators: []string{"foam manufacturers"},
+	}}
+	solventStages := []models.ValueChainStage{{Name: "Solvent Production", Products: []string{"ethyl acetate"}}}
+	coalStages := []models.ValueChainStage{{Name: "Coal Combustion", Operators: []string{"coal plant"}}}
+	valid := []struct {
+		activity, category string
+		stages             []models.ValueChainStage
+	}{
+		{"Toluene Diisocyanate", "polyurethanes", polyStages},
+		{"acetic acid", "solvents", solventStages},
+		{"coal", "coal products", coalStages},
+	}
+	for _, item := range valid {
+		category, source, warnings := validateDemandCategory(item.category, "", item.activity, item.stages)
+		if category != item.category || source != "model" || len(warnings) != 0 {
+			t.Errorf("validate(%q, %q) = %q/%q/%v, want the model category", item.activity, item.category, category, source, warnings)
+		}
+	}
+	invalid := []struct {
+		activity, category string
+		stages             []models.ValueChainStage
+	}{
+		{"coal", "fuel", coalStages},
+		{"coal", "energy", coalStages},
+		{"Toluene Diisocyanate", "chemicals", polyStages},
+		{"Toluene Diisocyanate", "automotive", polyStages},
+		{"Toluene Diisocyanate", "polyurethanes manufacturing", polyStages},
+		{"Toluene Diisocyanate", "unknown unrelated category", polyStages},
+	}
+	for _, item := range invalid {
+		category, source, warnings := validateDemandCategory(item.category, "", item.activity, item.stages)
+		if category != "" || source != "rejected" || len(warnings) == 0 {
+			t.Errorf("validate(%q, %q) = %q/%q/%v, want rejection", item.activity, item.category, category, source, warnings)
+		}
+	}
+}
+
+// TestDemandStageBroadenTermsUsesProductCategory: the first-pass category is the first fallback
+// query dimension, but only after it has passed the validation gate.
+func TestDemandStageBroadenTermsUsesProductCategory(t *testing.T) {
+	terms := demandStageBroadenTerms(models.DemandChainQuery{Activity: "Toluene Diisocyanate"}, "Polyurethane Foam Manufacturing", nil, "aromatics")
+	if len(terms) < 2 || terms[0] != "aromatics manufacturers" || terms[1] != "aromatics companies" {
+		t.Fatalf("broaden terms = %v, want the validated product category first", terms)
+	}
+}
+
+// TestDemandInferenceCategoryIsValidated: the first-pass category travels with the chain but only
+// when it clears the same deterministic gate used by the fallback search.
+func TestDemandInferenceCategoryIsValidated(t *testing.T) {
+	llm := &demandLLM{
+		category: "polyurethanes",
+		stages:   []models.ValueChainStage{{Name: "Polyurethane Foam Manufacturing", Operators: []string{"foam manufacturers"}}},
+	}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
+	chain, category, rationale, source, inferred, warnings := agent.inferDemandChainWithCategory(context.Background(), models.DemandChainQuery{Activity: "Toluene Diisocyanate"}, nil)
+	if !inferred || len(chain) != 1 {
+		t.Fatalf("chain=%+v inferred=%v", chain, inferred)
+	}
+	if category != "polyurethanes" || source != "model" || rationale == "" {
+		t.Errorf("category=%q source=%q rationale=%q warnings=%v", category, source, rationale, warnings)
+	}
+}
+
+func TestDemandInferenceRejectsOverbroadCategory(t *testing.T) {
+	llm := &demandLLM{
+		category: "fuel",
+		stages:   []models.ValueChainStage{{Name: "Coal Combustion", Operators: []string{"coal plant"}}},
+	}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
+	_, category, _, source, _, warnings := agent.inferDemandChainWithCategory(context.Background(), models.DemandChainQuery{Activity: "coal"}, nil)
+	if category == "fuel" || source != "fallback" {
+		t.Errorf("category=%q source=%q, want a rejected/fallback category", category, source)
+	}
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "rejected") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("warnings=%v, want a category rejection", warnings)
 	}
 }

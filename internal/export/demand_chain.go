@@ -42,6 +42,16 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 	if geo := trimmed(report.Geography); geo != "" {
 		fmt.Fprintf(&b, "Geography: %s\n\n", geo)
 	}
+	if category := trimmed(report.ProductCategory); category != "" {
+		fmt.Fprintf(&b, "Category: %s", category)
+		if source := trimmed(report.CategorySource); source != "" {
+			fmt.Fprintf(&b, " (%s)", source)
+		}
+		if rationale := trimmed(report.CategoryRationale); rationale != "" {
+			fmt.Fprintf(&b, " — %s", rationale)
+		}
+		b.WriteString("\n\n")
+	}
 	chainSource := "model-inferred"
 	if !report.ChainInferred {
 		if len(report.Chain) > 0 {
@@ -169,7 +179,7 @@ func renderDemandChainHTML(report *models.DemandChainReport) string {
 }
 
 var demandChainHTMLTemplate = documentTemplate("demand-chain", `
-<header><h1>{{.Chain.Activity}} — Demand Chain</h1>{{if .Chain.Objective}}<p class="subtitle">{{.Chain.Objective}}</p>{{end}}</header>
+<header><h1>{{.Chain.Activity}} — Demand Chain</h1>{{if .Chain.Objective}}<p class="subtitle">{{.Chain.Objective}}</p>{{end}}{{if .Chain.ProductCategory}}<p class="dim">Category: {{.Chain.ProductCategory}}{{if .Chain.CategoryRationale}} — {{.Chain.CategoryRationale}}{{end}}</p>{{end}}</header>
 {{if .Chain.Chain}}<section>
 	<h2>Value chain</h2>
 	<table><thead><tr><th>Stage</th><th>Steps from the product</th><th>Why it consumes the product</th><th>Product families</th><th>Operator vocabulary</th><th>Source</th></tr></thead><tbody>

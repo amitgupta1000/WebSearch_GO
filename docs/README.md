@@ -528,11 +528,13 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
   it infers the product's value chain scoped to the buyer definition — manufacturers whose process
   consumes the product directly as an input (step 1) plus one derived step (step 2) — searches
   operators of those consuming stages plus tender/import/input-language lanes, reads research,
-  news and directory pages for the companies they name, and verifies consumption with claim-typed
-  evidence. Distributors and wholesalers are reported as a separate resale category. Every stage
-  (and that category) must identify at least six companies; bounded gap searches and a post-assembly
-  QC review record coverage, rejections and follow-ups. Its artifacts land under `demand-chain/`
-  with the value chain leading both documents.
+  news and directory pages for the companies they name (including stage-gap listicles), and verifies
+  consumption with claim-typed evidence. Distributors and wholesalers are reported as a separate
+  resale category. Every stage (and that category) must identify at least six companies; a
+  validated first-pass product category (e.g. TDI → polyurethanes, coal → coal products, never
+  `fuel`) broadens only weak stage searches. Bounded gap searches and list-page extraction fill
+  what they can, and a post-assembly QC review records coverage, rejections and follow-ups. Its
+  artifacts land under `demand-chain/` with the value chain leading both documents.
 - **Search results** remain available in the console per query, with each hit split into what
   the identity/entity gate kept and what it excluded. Exported runs contain only the Markdown
   and PDF report artifacts.

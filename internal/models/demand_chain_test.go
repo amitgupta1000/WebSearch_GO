@@ -24,3 +24,22 @@ func TestDemandChainReviewUnmarshalFlexibleShapes(t *testing.T) {
 		t.Errorf("follow-ups = %+v, want string and object forms", review.FollowUpQueries)
 	}
 }
+
+// TestDemandChainInferenceAcceptsObjectAndArray pins backward compatibility: the new first-pass
+// object carries the category, while older bare-array responses still decode into stages.
+func TestDemandChainInferenceAcceptsObjectAndArray(t *testing.T) {
+	var object DemandChainInference
+	if err := json.Unmarshal([]byte(`{"category":"solvents","category_rationale":"Acetates consume acetic acid","stages":[{"name":"solvent production"}]}`), &object); err != nil {
+		t.Fatalf("object Unmarshal: %v", err)
+	}
+	if object.Category != "solvents" || len(object.Stages) != 1 || object.Stages[0].Name != "solvent production" {
+		t.Errorf("object = %+v", object)
+	}
+	var array DemandChainInference
+	if err := json.Unmarshal([]byte(`[{"name":"solvent production"}]`), &array); err != nil {
+		t.Fatalf("array Unmarshal: %v", err)
+	}
+	if len(array.Stages) != 1 || array.Category != "" {
+		t.Errorf("array = %+v", array)
+	}
+}

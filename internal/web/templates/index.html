@@ -32,6 +32,8 @@
         [data-related-node]:focus-visible circle { stroke: rgb(125 211 252); stroke-width: 4; }
         .related-node-expand { cursor: pointer; }
         .related-graph-hidden { display: none; }
+        .related-graph-dialog { width: min(96vw, 1180px); max-width: none; max-height: 92vh; }
+        .related-graph-dialog::backdrop { background: rgba(2, 6, 23, .82); backdrop-filter: blur(4px); }
         .related-node-expand:hover circle, .related-node-expand:focus-visible circle { fill: rgb(14 116 144); stroke: white; }
         .related-node-expand:focus-visible { outline: none; }
         .related-node-expand text { pointer-events: none; }
@@ -599,6 +601,27 @@
 
         function initRelatedGraphs(root) {
             if (!root || !root.querySelectorAll) return;
+            const hosts = [];
+            if (root.matches && root.matches('[data-related-graph-host]')) hosts.push(root);
+            root.querySelectorAll('[data-related-graph-host]').forEach(function(host) { hosts.push(host); });
+            hosts.forEach(function(host) {
+                if (host.dataset.relatedHostBound === 'true') return;
+                const dialog = host.querySelector('[data-related-graph-dialog]');
+                const openButton = host.querySelector('[data-related-graph-open]');
+                const closeButton = host.querySelector('[data-related-graph-close]');
+                if (!dialog || !openButton) return;
+                host.dataset.relatedHostBound = 'true';
+                openButton.addEventListener('click', function() {
+                    if (typeof dialog.showModal === 'function') dialog.showModal();
+                    else dialog.setAttribute('open', '');
+                    initRelatedGraphs(dialog);
+                    if (closeButton) closeButton.focus();
+                });
+                if (closeButton) closeButton.addEventListener('click', function() { dialog.close(); });
+                dialog.addEventListener('click', function(event) {
+                    if (event.target === dialog) dialog.close();
+                });
+            });
             const graphs = [];
             if (root.matches && root.matches('[data-related-graph]')) graphs.push(root);
             root.querySelectorAll('[data-related-graph]').forEach(function(graph) { graphs.push(graph); });
@@ -613,6 +636,7 @@
                 const primaryID = 'company:primary';
                 const initialLeaderLimit = 4;
                 const initialCompanyLimit = 4;
+                const expansionBatchSize = 4;
 
                 nodes.forEach(function(node) {
                     nodeByID.set(node.dataset.nodeId, node);
@@ -668,6 +692,7 @@
                         if (expand) {
                             expand.classList.toggle('related-graph-hidden', hiddenCount === 0);
                             expand.setAttribute('aria-hidden', hiddenCount === 0 ? 'true' : 'false');
+                            expand.setAttribute('aria-expanded', hiddenCount === 0 ? 'true' : 'false');
                             expand.setAttribute('aria-label', 'Expand ' + hiddenCount + ' more connection' + (hiddenCount === 1 ? '' : 's') + ' from ' + node.dataset.nodeName);
                             expand.dataset.hiddenCount = String(hiddenCount);
                         }
@@ -678,12 +703,15 @@
                 function select(node) {
                     nodes.forEach(function(item) { item.classList.remove('related-node-selected'); });
                     node.classList.add('related-node-selected');
-                    const detail = graph.querySelector('[data-related-detail][data-node-id="' + CSS.escape(node.dataset.nodeId) + '"]');
+                    const detailRoot = graph.closest('[data-related-graph-host]') || graph;
+                    const detail = detailRoot.querySelector('[data-related-detail][data-node-id="' + CSS.escape(node.dataset.nodeId) + '"]');
                     if (detail) detail.open = true;
                 }
 
                 function expand(node) {
-                    (neighbours.get(node.dataset.nodeId) || []).forEach(function(id) { visible.add(id); });
+                    Array.from(neighbours.get(node.dataset.nodeId) || []).filter(function(id) {
+                        return !visible.has(id);
+                    }).slice(0, expansionBatchSize).forEach(function(id) { visible.add(id); });
                     renderGraph();
                 }
 

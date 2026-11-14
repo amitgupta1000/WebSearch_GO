@@ -99,6 +99,12 @@ func TestRelatedEntityGraphRendersExpandableNodes(t *testing.T) {
 		t.Fatalf("execute related_entity_report: %v", err)
 	}
 	page := out.String()
+	if !strings.Contains(page, `data-related-graph-open`) {
+		t.Error("related entity graph must provide a modal open control")
+	}
+	if !strings.Contains(page, `<dialog data-related-graph-dialog`) {
+		t.Error("related entity graph must render in a dialog")
+	}
 	if !strings.Contains(page, `data-related-expand`) {
 		t.Error("related entity graph nodes must include expandable plus controls")
 	}

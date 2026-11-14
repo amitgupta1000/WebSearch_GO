@@ -1026,12 +1026,14 @@ directory.
 The buyer-side mode answers "who consumes or buys this product" — an evidence
 problem with a different shape than the supplier side, where sellers advertise
 themselves. Its phases: **infer** (one structured call proposes the consuming
-stages of the product; the operator's `StagesOverride` wins outright, and a
-failed inference degrades to a generic stage rather than failing the run),
+stages of the product plus a validated buyer-side product category; the operator's
+`StagesOverride` wins outright, and a failed inference degrades to a generic stage
+rather than failing the run),
 **discover** (stage-operator lanes built from the chain's own vocabulary, plus
 product-shaped demand lanes: tenders, importers, input language), **read**
 (research/news/directory/trade pages are read for the companies they name even
-though they can never be buyers themselves), **verify** (consumption evidence
+though they can never be buyers themselves; stage-gap listicles and articles
+are read and extracted the same way), **verify** (consumption evidence
 through consumption-shaped purposes; only operator-owned or regulatory sources
 verify, while directory/trade/news/research/publisher pages are corroboration),
 and **assemble** (deterministically). Demand claims carry a directness-weighted

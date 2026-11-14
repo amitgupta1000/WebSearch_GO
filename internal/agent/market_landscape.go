@@ -631,6 +631,17 @@ func mergeMarketCompany(companies map[string]*models.MarketLandscapeCompany, can
 			existing.Confidence = minFloat(0.98, existing.Confidence+0.1)
 			if candidate.EvidenceType == "company-page" {
 				existing.EvidenceType = candidate.EvidenceType
+			} else if candidate.EvidenceType == "roster-extracted" && existing.EvidenceType == "discovery-lead" {
+				existing.EvidenceType = candidate.EvidenceType
+			}
+			// A company first seen through a product-shaped demand lane has no stage.
+			// A later stage-specific hit gives it one; without this, gap searches can
+			// find the company and still leave its stage empty.
+			if strings.TrimSpace(existing.Stage) == "" && strings.TrimSpace(candidate.Stage) != "" {
+				existing.Stage = candidate.Stage
+			}
+			if strings.TrimSpace(existing.Country) == "" && strings.TrimSpace(candidate.Country) != "" {
+				existing.Country = candidate.Country
 			}
 			return
 		}

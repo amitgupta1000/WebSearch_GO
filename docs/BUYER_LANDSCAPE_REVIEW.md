@@ -26,15 +26,24 @@ below the implementation summary describe the pre-fix state.
   capped at 30 pages. Gap/QC searches are reported separately as `gap_queries`.
 - **F7 — coverage floor and QC judge.** Every inferred stage and the separate distribution
   category must identify at least **6** companies. Under-covered stages receive bounded fresh
-  `SearchFresh` gap queries; an LLM judge then reviews names/evidence and proposes rejects and up
-  to three anchored follow-ups. The judge's rejects are applied only to names already in the run;
-  follow-ups are executed as fresh searches; every rejection and the final stage coverage are
-  recorded on the report.
+  `SearchFresh` gap queries; the densest list/article/directory pages returned by those queries
+  are read and stage-anchored extraction adds the companies they name as roster candidates. An
+  LLM judge then reviews names/evidence and proposes rejects and up to three anchored follow-ups.
+  The judge's rejects are applied only to names already in the run; follow-ups are executed as
+  fresh searches; every rejection and the final stage coverage are recorded on the report.
 - **Distributors/wholesalers are a separate category.** They keep their own reserved lane and
   `StageCandidates` section (`Distribution and wholesale`, source `category`) and are counted by
   the same six-company QC floor, instead of being folded into a manufacturing stage.
-- **Artifacts and UI** render stage coverage, the QC verdict/rejections, and the separate channel
-  category in the console, Markdown and HTML/PDF exports.
+- **First-pass category with a deterministic guardrail.** The chain inference also returns a
+  buyer-side category (the immediate downstream product family, e.g. TDI → polyurethanes,
+  acetic acid → solvents, coal → coal products). It is validated before use: one to four words,
+  no end-use/generic superclass (`fuel`, `energy`, `chemicals`, `industrial`, `automotive`, …),
+  no process suffix (`manufacturing`, `production`, `synthesis`), not the product or a stage name,
+  and it must share a real token/product-family relation with the product or inferred stages.
+  A rejected category is reported and the stage-derived fallback is used instead. The category is
+  never a buyer or a value-chain stage; it only broadens a weak stage search.
+- **Artifacts and UI** render stage coverage, the QC verdict/rejections, the separate channel
+  category, and the validated product category in the console, Markdown and HTML/PDF exports.
 
 Regression tests added: research-page reading, category/person/publisher name gates, stage
 coverage floor, QC rejection application, and the separate distribution roster. The existing
