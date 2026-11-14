@@ -474,12 +474,16 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 			leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 		}
 		var batch []models.MarketLandscapeLeadCandidate
-		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. These leads include company pages, directory pages, news articles and market-research report pages. A report or an article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a top-companies, key-players or competitive-landscape table, using the company's own trading name exactly as the page writes it and dropping any tagline. Name the operator, never the page: a report title, article headline, publisher name, site name, navigation label, region, project or generic category is not a company. Never return a headline that contains an action verb (opens, launches, announces, plans, acquires, sells) as a name. For every extracted company, include source_type (operator, news_article or research_report), mention_context, supporting_quote, country, reason, and evidence_url as a string. A research_report or news_article candidate must be independently verified before promotion. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
+		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. These leads include company pages, directory pages, news articles and market-research report pages. A report or an article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a top-companies, key-players or competitive-landscape table, using the company's own trading name exactly as the page writes it and dropping any tagline. Name the operator, never the page: a report title, article headline, publisher name, site name, navigation label, region, project or generic category is not a company. Never return a headline that contains an action verb (opens, launches, announces, plans, acquires, sells) as a name. Return a JSON array where every element has a non-empty name, country, reason, evidence_url as a string, source_type (operator, news_article or research_report), mention_context and supporting_quote. A research_report or news_article candidate must be independently verified before promotion. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
 		if err := a.engine.GenerateStructured(ctx, "You extract company names for a market research verification queue. Return the operating company's own trading name only: never a report title, headline, publisher, site name or category. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
 			rejected += end - start
 			extractionErrors = append(extractionErrors, err.Error())
+			emitAgentEvent(eventCh, models.EventError, "Market extraction batch failed: "+err.Error(), "market_extract", "")
 			continue
 		}
+		emitAgentEvent(eventCh, models.EventToolResult,
+			fmt.Sprintf("Market extraction batch: %d candidate(s) from %d lead(s)", len(batch), end-start),
+			"market_extract", "")
 		extracted = append(extracted, batch...)
 	}
 
@@ -503,6 +507,10 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 		key := marketNameKey(cleaned)
 		if cleaned == "" || !marketLeadNameAcceptable(cleaned, query) || marketNameEchoesLead(cleaned, leadTitles) || key == "" || seenNames[key] {
 			rejected++
+			if rejected <= 12 {
+				emitAgentEvent(eventCh, models.EventToolResult,
+					fmt.Sprintf("Market extraction rejected %q (cleaned %q)", candidate.Name, cleaned), "market_extract", "")
+			}
 			continue
 		}
 		seenNames[key] = true

@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"strings"
+	"time"
+)
 
 // MarketLandscapeQuery defines one bounded, one-run landscape investigation.
 type MarketLandscapeQuery struct {
@@ -46,6 +50,30 @@ type MarketLandscapeLeadCandidate struct {
 	// producer gate; zero-valued (false) on supplier-side runs.
 	Producer  bool     `json:"producer,omitempty"`
 	KeyPeople []string `json:"key_people,omitempty"`
+}
+
+// UnmarshalJSON tolerates the field names models use for a company's name: `name`,
+// `company_name`, or `company`. Without this, a valid extraction batch whose model chose a
+// synonym decoded to empty names and was silently rejected wholesale.
+func (candidate *MarketLandscapeLeadCandidate) UnmarshalJSON(data []byte) error {
+	type candidateAlias MarketLandscapeLeadCandidate
+	aux := struct {
+		CompanyName string `json:"company_name"`
+		Company     string `json:"company"`
+		*candidateAlias
+	}{candidateAlias: (*candidateAlias)(candidate)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if strings.TrimSpace(candidate.Name) == "" {
+		switch {
+		case strings.TrimSpace(aux.CompanyName) != "":
+			candidate.Name = aux.CompanyName
+		case strings.TrimSpace(aux.Company) != "":
+			candidate.Name = aux.Company
+		}
+	}
+	return nil
 }
 
 // MarketLandscapeCompany is a normalized company candidate or result.

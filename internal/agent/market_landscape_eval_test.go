@@ -76,7 +76,10 @@ func TestMarketLandscapeEval(t *testing.T) {
 	for _, exp := range cases {
 		eventCh := make(chan models.AgentEvent, 256)
 		go func() {
-			for range eventCh {
+			for event := range eventCh {
+				if strings.Contains(event.Content, "extraction") || strings.Contains(event.Content, "Market category") || strings.Contains(event.Content, "QC review") {
+					t.Logf("[event] %s: %s", event.Type, event.Content)
+				}
 			}
 		}()
 		report, err := NewMarketLandscapeAgent(eng).Research(ctx, "market-eval-"+exp.slug, models.MarketLandscapeQuery{
