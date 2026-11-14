@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ type demandLLM struct {
 	stages        []models.ValueChainStage
 	candidates    []models.MarketLandscapeLeadCandidate
 	people        []models.MarketLandscapePersonCandidate
+	review        models.DemandChainReview
 	err           error
 	systemPrompts []string
 }
@@ -27,6 +29,7 @@ func (m *demandLLM) GenerateStructured(ctx context.Context, systemPrompt, userPr
 	m.systemPrompts = append(m.systemPrompts, systemPrompt)
 	err := m.err
 	stages, candidates, people := m.stages, m.candidates, m.people
+	review := m.review
 	m.mu.Unlock()
 	if err != nil {
 		return err
@@ -38,6 +41,8 @@ func (m *demandLLM) GenerateStructured(ctx context.Context, systemPrompt, userPr
 		*typed = append(*typed, candidates...)
 	case *[]models.MarketLandscapePersonCandidate:
 		*typed = append(*typed, people...)
+	case *models.DemandChainReview:
+		*typed = review
 	}
 	return nil
 }
@@ -335,6 +340,14 @@ func TestDemandVerificationAggregatorHostedEvidence(t *testing.T) {
 	if _, ok := demandVerificationEvidence(publisherHit, "Acme Chemicals", "methanol", "own site"); ok {
 		t.Error("publisher-hosted hits must never verify a company")
 	}
+	directoryHit := models.SearchResult{
+		Title:   "Acme Chemicals - trade directory listing",
+		Link:    "https://www.tradeindia.com/acme-chemicals",
+		Snippet: "Acme Chemicals buys methanol for its plant.",
+	}
+	if _, ok := demandVerificationEvidence(directoryHit, "Acme Chemicals", "methanol", "own site"); ok {
+		t.Error("directory-hosted hits are corroboration only and must never verify a company")
+	}
 }
 
 // TestDemandProducerSignal pins the producer gate's precision: every marker
@@ -416,6 +429,14 @@ func TestDemandSourceOverrideAndName(t *testing.T) {
 		"NPTEL IIT Guwahati",
 		"engconfintl.org",
 		"chemprob.org",
+		"ACS Publications",
+		"August Wilhelm von Hofmann",
+		"Biodiesel producers",
+		"Biodiesel Production and Distribution",
+		"Renewable Toluene Diisocyanate (TDI) Production Plant",
+		"TDI Products",
+		"Technology by Covestro",
+		"Biodiesel plant licensing in India",
 	} {
 		if !demandSourceName(name, "methanol") {
 			t.Errorf("demandSourceName(%q) must reject a source masquerading as a buyer", name)
@@ -427,6 +448,8 @@ func TestDemandSourceOverrideAndName(t *testing.T) {
 		"Aldehydes India",
 		"Kunnathan Polymers",
 		"INEOS-GNFC",
+		"Acme Products Ltd",
+		"Acme Distribution",
 	} {
 		if demandSourceName(name, "methanol") {
 			t.Errorf("demandSourceName(%q) must not reject a real company", name)
@@ -727,7 +750,7 @@ func TestDemandChainDefaultsAreKept(t *testing.T) {
 	normalizeDemandBudget(&query)
 	if query.DiscoveryQueries != demandMaxDiscoveryQueries ||
 		query.VerificationQueries != demandMaxVerificationQueries ||
-		query.MaxLeadsEnriched != demandMaxLeadsEnriched || query.MaxCompanies != 20 {
+		query.MaxLeadsEnriched != demandMaxLeadsEnriched || query.MaxCompanies != 48 {
 		t.Fatalf("normalized = %+v, want the mode defaults", query)
 	}
 
@@ -735,7 +758,7 @@ func TestDemandChainDefaultsAreKept(t *testing.T) {
 	normalizeDemandBudget(&deep)
 	// MaxCompanies resets to the default when out of range, like the shipped
 	// behaviour; the search budgets clamp to their runaway caps.
-	if deep.DiscoveryQueries != 80 || deep.VerificationQueries != 300 || deep.MaxLeadsEnriched != 80 || deep.MaxCompanies != 20 {
+	if deep.DiscoveryQueries != 80 || deep.VerificationQueries != 300 || deep.MaxLeadsEnriched != 100 || deep.MaxCompanies != 48 {
 		t.Fatalf("capped = %+v, want the runaway caps", deep)
 	}
 }
@@ -1092,5 +1115,241 @@ func TestDemandChainLanesCapOperatorVocabularyPerStage(t *testing.T) {
 	}
 	if got := stageLanes(models.DemandChainQuery{Activity: "palm oil", DiscoveryQueries: 40}); got != 3 {
 		t.Fatalf("deep-budget stage lanes = %d, want 3", got)
+	}
+}
+
+// TestDemandStageCoverageQC pins the hard floor: every inferred stage and the separate
+// distribution category needs at least six identity-passed companies; the general demand-lane
+// bucket is not a stage and is excluded.
+func TestDemandStageCoverageQC(t *testing.T) {
+	makeCompanies := func(name string, count int) []models.MarketLandscapeCompany {
+		out := make([]models.MarketLandscapeCompany, 0, count)
+		for i := 0; i < count; i++ {
+			out = append(out, models.MarketLandscapeCompany{Name: fmt.Sprintf("%s %d", name, i)})
+		}
+		return out
+	}
+	sections := []models.StageCandidates{
+		{Stage: models.ValueChainStage{Name: "biodiesel production"}, Companies: makeCompanies("stage", 5)},
+		{Stage: models.ValueChainStage{Name: demandDistributionStageName, Source: "category"}, Companies: makeCompanies("dist", 6)},
+		{Stage: models.ValueChainStage{Name: "General demand lanes", Source: "lanes"}, Companies: makeCompanies("general", 1)},
+	}
+	coverage := demandStageCoverage(sections)
+	if len(coverage) != 2 {
+		t.Fatalf("coverage = %+v, want only the stage and distribution category", coverage)
+	}
+	if coverage[0].Pass || coverage[0].Count != 5 || coverage[0].Minimum != demandMinStageCompanies {
+		t.Errorf("stage coverage = %+v, want FAIL at 5/%d", coverage[0], demandMinStageCompanies)
+	}
+	if !coverage[1].Pass || coverage[1].Count != 6 {
+		t.Errorf("distribution coverage = %+v, want PASS at 6", coverage[1])
+	}
+}
+
+// TestDemandQCRejectsNames: the judge's rejections are applied only to names already in the
+// report, the evidence remains auditable, and the review is recorded on the report.
+func TestDemandQCRejectsNames(t *testing.T) {
+	llm := &demandLLM{
+		stages: []models.ValueChainStage{{Name: "biodiesel production", Operators: []string{"biodiesel plant"}}},
+		candidates: []models.MarketLandscapeLeadCandidate{
+			{Name: "GreenDiesel Sdn Bhd", Country: "Malaysia", Reason: "uses used cooking oil", EvidenceURL: "https://greendiesel.com.my/plant"},
+			{Name: "Acme Chemicals", Country: "India", Reason: "uses used cooking oil", EvidenceURL: "https://acmechemicals.com/input"},
+		},
+		review: models.DemandChainReview{
+			Verdict: "revise", Score: 0.6,
+			Rejected: []models.DemandRejectedName{{Name: "Acme Chemicals", Reason: "source is a product page, not buyer evidence"}},
+			Reason:   "one row rejected",
+		},
+	}
+	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
+		"biodiesel plant": {{
+			Title: "GreenDiesel Sdn Bhd | Biodiesel Plant", Link: "https://greendiesel.com.my/plant",
+			Snippet: "We use used cooking oil as our feedstock.",
+		}},
+		"buyer procurement purchase": {{
+			Title: "Biodiesel buyers and feedstock procurement report", Link: "https://example.com/buyers",
+			Snippet: "Acme Chemicals and other buyers purchase used cooking oil feedstock.",
+		}},
+		"Acme Chemicals": {{
+			Title: "Acme Chemicals | Biodiesel input", Link: "https://acmechemicals.com/input",
+			Snippet: "Acme Chemicals uses used cooking oil as an input.",
+		}},
+		"official site": {
+			{
+				Title: "GreenDiesel Sdn Bhd | Biodiesel Plant", Link: "https://greendiesel.com.my/plant",
+				Snippet: "We use used cooking oil as our feedstock.",
+			},
+			{
+				Title: "Acme Chemicals | Biodiesel input", Link: "https://acmechemicals.com/input",
+				Snippet: "Acme Chemicals uses used cooking oil as an input.",
+			},
+		},
+	}}
+	report, err := NewDemandChainAgent(demandChainTestEngine(llm, searcher)).Research(context.Background(), "qc", models.DemandChainQuery{Activity: "used cooking oil"}, nil)
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	for _, result := range report.Results {
+		if strings.EqualFold(result.Name, "Acme Chemicals") {
+			t.Errorf("QC-rejected company still in results: %+v", report.Results)
+		}
+	}
+	for _, section := range report.StageCandidates {
+		for _, company := range section.Companies {
+			if strings.EqualFold(company.Name, "Acme Chemicals") {
+				t.Errorf("QC-rejected company still in stage roster: %+v", section.Companies)
+			}
+		}
+	}
+	if len(report.Reviews) != 1 || report.Reviews[0].Verdict != "revise" {
+		t.Fatalf("reviews = %+v, want one recorded revise", report.Reviews)
+	}
+	if len(report.StageCoverage) < 2 {
+		t.Errorf("stage coverage = %+v, want the stage and distribution category", report.StageCoverage)
+	}
+	found := false
+	for _, warning := range report.Warnings {
+		if strings.Contains(warning, "Buyer QC removed Acme Chemicals") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a QC removal warning in %v", report.Warnings)
+	}
+}
+
+// TestDemandReadsResearchPagesForBuyerNames pins the P0 fix: a research/news page is read for
+// the companies it names even though the page itself can never be promoted as a buyer.
+func TestDemandReadsResearchPagesForBuyerNames(t *testing.T) {
+	llm := &demandLLM{
+		stages: []models.ValueChainStage{{Name: "biodiesel production", Operators: []string{"biodiesel plant"}}},
+		candidates: []models.MarketLandscapeLeadCandidate{{
+			Name: "GreenDiesel Sdn Bhd", Country: "Malaysia", EvidenceURL: "https://greendiesel.com.my/plant",
+		}},
+	}
+	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
+		"biodiesel plant": {{
+			Title: "GreenDiesel Sdn Bhd | Biodiesel Plant", Link: "https://greendiesel.com.my/plant",
+			Snippet: "We use used cooking oil as our feedstock.",
+		}},
+		"buyer procurement purchase": {{
+			Title: "Biodiesel buyers report: procurement and feedstock", Link: "https://example.com/biodiesel-buyers",
+			Snippet: "The report names GreenDiesel Sdn Bhd among the buyers of used cooking oil.",
+		}},
+	}}
+	scraper := &mockScraper{}
+	engine := NewEngine(llm, searcher, scraper, cache.NewMemoryCache(10), 5, 3, 10)
+	if _, err := NewDemandChainAgent(engine).Research(context.Background(), "read", models.DemandChainQuery{Activity: "used cooking oil"}, nil); err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	found := false
+	for _, called := range scraper.calledURLs {
+		if strings.Contains(called, "biodiesel-buyers") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("research page was never read; scraped URLs = %v", scraper.calledURLs)
+	}
+}
+
+// TestDemandDistributionCategoryIsSeparate: distributors and wholesalers get their own roster
+// section instead of being folded into a manufacturing stage or the general-lane bucket.
+func TestDemandDistributionCategoryIsSeparate(t *testing.T) {
+	if !demandCompanyTitle("Acme Distribution") {
+		t.Error("demandCompanyTitle(\"Acme Distribution\") rejected a plausible distributor name")
+	}
+	pool := []*models.MarketLandscapeCompany{{
+		Name: "Acme Distribution Pvt Ltd", Domain: "acmedistribution.com", Stage: demandDistributionStageName,
+		EvidenceType: "company-page", Confidence: 0.7,
+		Evidence: []models.MarketLandscapeEvidence{{URL: "https://acmedistribution.com", Title: "Acme Distribution", SourceTier: "official"}},
+	}}
+	sections, _ := buildStageCandidates(pool, []models.ValueChainStage{{Name: "biodiesel production"}})
+	var distribution *models.StageCandidates
+	for i := range sections {
+		if sections[i].Stage.Source == "category" {
+			distribution = &sections[i]
+		}
+	}
+	if distribution == nil || distribution.Stage.Name != demandDistributionStageName {
+		t.Fatalf("distribution category missing from sections: %+v", sections)
+	}
+	if len(distribution.Companies) != 1 || distribution.Companies[0].Name != "Acme Distribution Pvt Ltd" {
+		t.Fatalf("distribution companies = %+v, want the channel operator", distribution.Companies)
+	}
+}
+
+// TestDemandStageGapCoverageReachesSix pins the coverage requirement end to end: bounded gap
+// searches add enough identity-passed companies for every stage and the separate distribution
+// category to clear the QC floor.
+func TestDemandStageGapCoverageReachesSix(t *testing.T) {
+	llm := &demandLLM{stages: []models.ValueChainStage{{Name: "biodiesel production", Operators: []string{"biodiesel plant"}}}}
+	stageHits := make([]models.SearchResult, 0, 6)
+	distributionHits := make([]models.SearchResult, 0, 6)
+	for i := 1; i <= 6; i++ {
+		stageHits = append(stageHits, models.SearchResult{
+			Title: fmt.Sprintf("Acme%d Chemicals Pvt Ltd", i), Link: fmt.Sprintf("https://acme%d.com", i),
+			Snippet: "The plant consumes used cooking oil as feedstock.",
+		})
+		distributionHits = append(distributionHits, models.SearchResult{
+			Title: fmt.Sprintf("Delta%d Distribution Pvt Ltd", i), Link: fmt.Sprintf("https://delta%d.com", i),
+			Snippet: "Distributor of used cooking oil and related products.",
+		})
+	}
+	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
+		"biodiesel production manufacturer OR plant OR operator": stageHits,
+		"distributor OR wholesaler of":                           distributionHits,
+	}}
+	report, err := NewDemandChainAgent(demandChainTestEngine(llm, searcher)).Research(context.Background(), "coverage", models.DemandChainQuery{Activity: "used cooking oil"}, nil)
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	byStage := make(map[string]int)
+	for _, section := range report.StageCandidates {
+		byStage[section.Stage.Name] = len(section.Companies)
+	}
+	if byStage["biodiesel production"] < demandMinStageCompanies {
+		t.Errorf("biodiesel production coverage = %d, want at least %d: %+v", byStage["biodiesel production"], demandMinStageCompanies, report.StageCandidates)
+	}
+	if byStage[demandDistributionStageName] < demandMinStageCompanies {
+		t.Errorf("distribution coverage = %d, want at least %d: %+v", byStage[demandDistributionStageName], demandMinStageCompanies, report.StageCandidates)
+	}
+	for _, item := range report.StageCoverage {
+		if !item.Pass {
+			t.Errorf("stage coverage failed: %+v (searches %d)", item, report.GapQueries)
+		}
+	}
+}
+
+// TestDemandStatusDirectoryOnlyIsLead: a directory/trade hit is corroboration, never a
+// verification. Adding the company's own page plus the tender record reaches verified.
+func TestDemandStatusDirectoryOnlyIsLead(t *testing.T) {
+	directoryOnly := &models.MarketLandscapeCompany{Name: "Acme Chemicals", Evidence: []models.MarketLandscapeEvidence{{
+		URL: "https://tradeindia.com/acme", SourceTier: "directory", ClaimType: models.DemandClaimTender,
+	}}}
+	if status := demandStatus(directoryOnly); status != "lead" {
+		t.Errorf("directory-only status = %q, want lead", status)
+	}
+	withOwnPage := &models.MarketLandscapeCompany{Name: "Acme Chemicals", Evidence: []models.MarketLandscapeEvidence{
+		{URL: "https://tradeindia.com/acme", SourceTier: "directory", ClaimType: models.DemandClaimTender},
+		{URL: "https://acmechemicals.com/input", SourceTier: "official", ClaimType: models.DemandClaimUsage},
+	}}
+	if status := demandStatus(withOwnPage); status != "verified" {
+		t.Errorf("owned-page plus transaction status = %q, want verified", status)
+	}
+}
+
+// TestDemandStageForFollowUp keeps judge follow-ups anchored: a query naming a stage or channel
+// runs against that roster; an unmapped query is refused rather than dumped into a general bucket.
+func TestDemandStageForFollowUp(t *testing.T) {
+	chain := []models.ValueChainStage{{Name: "biodiesel production", Operators: []string{"biodiesel plant"}}}
+	if got := demandStageForFollowUp("biodiesel plant buyers in Malaysia", chain); got != "biodiesel production" {
+		t.Errorf("stage follow-up = %q", got)
+	}
+	if got := demandStageForFollowUp("used cooking oil distributors in India", chain); got != demandDistributionStageName {
+		t.Errorf("distribution follow-up = %q", got)
+	}
+	if got := demandStageForFollowUp("used cooking oil market overview", []models.ValueChainStage{{Name: "stage one"}, {Name: "stage two"}}); got != "" {
+		t.Errorf("unmapped follow-up = %q, want empty", got)
 	}
 }

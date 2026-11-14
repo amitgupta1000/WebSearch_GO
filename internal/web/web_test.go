@@ -343,10 +343,25 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 			Name: "biodiesel production", Rationale: "Biodiesel is produced from UCO.",
 			Operators: []string{"biodiesel plant"}, Source: "model",
 		}},
-		QueriesUsed: 12, SearchHits: 31, VerificationQueries: 6,
-		StageCandidates: []models.StageCandidates{{
-			Stage:     models.ValueChainStage{Name: "biodiesel production", Rationale: "Biodiesel is produced from UCO.", Source: "model"},
-			Companies: []models.MarketLandscapeCompany{{Name: "Jayant Oleochemicals", Status: "lead", Confidence: 0.45}},
+		QueriesUsed: 12, GapQueries: 3, SearchHits: 31, VerificationQueries: 6,
+		StageCandidates: []models.StageCandidates{
+			{
+				Stage:     models.ValueChainStage{Name: "biodiesel production", Rationale: "Biodiesel is produced from UCO.", Source: "model"},
+				Companies: []models.MarketLandscapeCompany{{Name: "Jayant Oleochemicals", Status: "lead", Confidence: 0.45}},
+			},
+			{
+				Stage:     models.ValueChainStage{Name: "Distribution and wholesale", Source: "category", Distance: models.StageDistanceDirect},
+				Companies: []models.MarketLandscapeCompany{{Name: "Delta Distribution Pvt Ltd", Status: "lead", Confidence: 0.45}},
+			},
+		},
+		StageCoverage: []models.DemandStageCoverage{
+			{Stage: "biodiesel production", Count: 6, Minimum: 6, Pass: true},
+			{Stage: "Distribution and wholesale", Count: 5, Minimum: 6, Pass: false},
+		},
+		Reviews: []models.DemandChainReview{{
+			Verdict: "revise", Score: 0.7,
+			Rejected:      []models.DemandRejectedName{{Name: "ACS Publications", Reason: "publisher"}},
+			MissingStages: []string{"Distribution and wholesale"},
 		}},
 		Results: []models.MarketLandscapeCompany{{
 			Name: "GreenDiesel Sdn Bhd", Domain: "greendiesel.com.my", Status: "verified",
@@ -370,7 +385,10 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 		"Geography: India",
 		"Potential buyers by stage",
 		"biodiesel production", "Biodiesel is produced from UCO.",
-		"GreenDiesel Sdn Bhd", "Consuming stage: biodiesel production",
+		"channel category · resale", "Delta Distribution Pvt Ltd",
+		"Stage coverage — QC minimum", "Distribution and wholesale", "FAIL",
+		"Quality review", "ACS Publications", "publisher",
+		"gap/QC", "GreenDiesel Sdn Bhd", "Consuming stage: biodiesel production",
 		`name="company_name" value="GreenDiesel Sdn Bhd"`,
 		`name="person_name" value="Asha Rao"`,
 		"Private procurement is invisible",

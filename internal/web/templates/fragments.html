@@ -55,9 +55,9 @@
 					<g tabindex="0" role="button" data-related-node data-node-id="{{.ID}}" data-node-name="{{.Name}}" data-node-type="{{.Type}}" aria-label="{{.Name}}" class="cursor-pointer outline-none">
 						<circle cx="{{.X}}" cy="{{.Y}}" r="{{if eq .Type "primary_company"}}28{{else if eq .Type "leader"}}22{{else}}18{{end}}" fill="{{if eq .Type "primary_company"}}rgb(79 70 229){{else if eq .Type "leader"}}rgb(14 116 144){{else}}rgb(51 65 85){{end}}" stroke="rgb(148 163 184)" stroke-width="2" />
 						<text x="{{.X}}" y="{{.LabelY}}" text-anchor="middle" fill="rgb(226 232 240)" font-size="13">{{.Name}}</text>
-						<g data-related-expand hidden role="button" tabindex="0" aria-hidden="true" aria-label="Expand connections for {{.Name}}" class="related-node-expand">
-							<circle r="11" fill="rgb(15 23 42)" stroke="rgb(125 211 252)" stroke-width="2" />
-							<text x="0" y="6" text-anchor="middle" fill="rgb(186 230 253)" font-size="17" font-weight="700">+</text>
+						<g data-related-expand role="button" tabindex="0" aria-hidden="false" aria-label="Expand connections for {{.Name}}" class="related-node-expand">
+							<circle r="14" fill="rgb(8 47 73)" stroke="rgb(125 211 252)" stroke-width="3" />
+							<text x="0" y="7" text-anchor="middle" fill="white" font-size="20" font-weight="700">+</text>
 						</g>
 					</g>
 					{{end}}
@@ -177,7 +177,7 @@
 			<p class="text-sm text-slate-400 mt-1">{{.Objective}}</p>
 			<p class="text-xs text-slate-500 mt-1">Activity: {{.Activity}}{{if .ChainInferred}} · value chain model-inferred{{end}}{{if .Geography}} · Geography: {{.Geography}}{{end}}</p>
 		</div>
-		<div class="text-right text-xs text-slate-500">{{.QueriesUsed}} discovery queries · {{.SearchHits}} hits · {{.VerificationQueries}} verification queries · {{.PagesEnriched}} pages enriched</div>
+		<div class="text-right text-xs text-slate-500">{{.QueriesUsed}} discovery queries · {{.GapQueries}} gap/QC · {{.SearchHits}} hits · {{.VerificationQueries}} verification queries · {{.PagesEnriched}} pages enriched</div>
 	</div>
 	<div class="border-l-2 border-indigo-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Value chain</div>
@@ -211,8 +211,21 @@
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Potential buyers by stage</div>
 		<p class="text-xs text-slate-500 mt-1">Every company the consuming stage's lanes surfaced, verified or not — a stage operator is a potential buyer by construction, within the two-step buyer scope (direct consumers and one derived step). Status "lead" means the evidence did not reach the verification threshold.</p>
 	</div>
+	{{if .StageCoverage}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-4">
+		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Stage coverage — QC minimum</div>
+		<p class="text-xs text-slate-500 mt-1">Every stage and the separate distribution category must identify at least six companies. Gaps are reported, not filled.</p>
+		<div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+			{{range .StageCoverage}}<div class="flex items-center justify-between rounded-lg border border-slate-800 px-2 py-1 text-[11px]"><span class="text-slate-300">{{.Stage}}</span><span class="{{if .Pass}}text-emerald-300{{else}}text-amber-300{{end}}">{{.Count}} / {{.Minimum}} {{if .Pass}}PASS{{else}}FAIL{{end}}</span></div>{{end}}
+		</div>
+	</div>{{end}}
+	{{range .Reviews}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-4">
+		<div class="flex justify-between gap-2"><span class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Quality review</span><span class="text-[11px] {{if eq .Verdict "pass"}}text-emerald-300{{else}}text-amber-300{{end}}">{{if .Verdict}}{{.Verdict}}{{else}}unavailable{{end}} · {{printf "%.2f" .Score}}</span></div>
+		{{if .Reason}}<p class="text-xs text-slate-400 mt-1">{{.Reason}}</p>{{end}}
+		{{if .Rejected}}<div class="mt-2 text-[11px] text-slate-400">{{range .Rejected}}<div>Rejected <span class="text-slate-200">{{.Name}}</span> — {{.Reason}}</div>{{end}}</div>{{end}}
+		{{if .MissingStages}}<p class="text-[11px] text-amber-300 mt-1">Under-covered: {{range .MissingStages}}{{.}}; {{end}}</p>{{end}}
+	</div>{{end}}
 	{{range .StageCandidates}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
-		<div class="flex justify-between gap-2"><span class="font-semibold text-white">{{.Stage.Name}}</span><span class="text-[10px] text-slate-500">{{if eq .Stage.Distance 2}}step 2 · derived{{else}}step 1 · direct{{end}} · {{.Stage.Source}}</span></div>
+		<div class="flex justify-between gap-2"><span class="font-semibold text-white">{{.Stage.Name}}</span><span class="text-[10px] text-slate-500">{{if eq .Stage.Source "category"}}channel category · resale{{else if eq .Stage.Distance 2}}step 2 · derived{{else}}step 1 · direct{{end}} · {{.Stage.Source}}</span></div>
 		{{if .Stage.Rationale}}<p class="text-xs text-slate-400 mt-1">{{.Stage.Rationale}}</p>{{end}}
 		{{if .Companies}}<div class="mt-2 flex flex-wrap gap-1.5">{{range .Companies}}<span class="inline-block text-[11px] {{if eq .Status "lead"}}text-slate-300{{else}}text-emerald-300{{end}} bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5">{{.Name}} · {{.Status}}</span>{{end}}</div>
 		{{else}}<p class="text-xs text-slate-500 mt-1">No stage-active companies surfaced.</p>{{end}}

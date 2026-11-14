@@ -48,7 +48,7 @@ type Server struct {
 	rocketReachMu    sync.Mutex
 	rocketReachCache map[int]rocketReachCacheEntry
 	hub              *agent.SessionHub
-	tmpl         *template.Template
+	tmpl             *template.Template
 	// browserAvailable is probed once at startup so the console never offers a
 	// rendering toggle that cannot work.
 	browserAvailable   bool
@@ -850,7 +850,7 @@ func demandChainQueryFromForm(r *http.Request, activity string) models.DemandCha
 		Regions:                 regions,
 		Countries:               splitFormList(r.FormValue("demand_countries")),
 		Exclusions:              splitFormList(r.FormValue("demand_exclusions")),
-		MaxCompanies:            parseBoundedInt(r.FormValue("demand_max_companies"), 20, 1, 50),
+		MaxCompanies:            parseBoundedInt(r.FormValue("demand_max_companies"), 48, 1, 80),
 		StagesOverride:          splitFormList(r.FormValue("demand_stages")),
 		IncludeIntermediaries:   r.FormValue("demand_intermediaries") == "1",
 		IncludePeople:           r.FormValue("demand_people") == "1",

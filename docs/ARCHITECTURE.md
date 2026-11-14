@@ -1029,17 +1029,25 @@ themselves. Its phases: **infer** (one structured call proposes the consuming
 stages of the product; the operator's `StagesOverride` wins outright, and a
 failed inference degrades to a generic stage rather than failing the run),
 **discover** (stage-operator lanes built from the chain's own vocabulary, plus
-product-shaped demand lanes: tenders, importers, input language), **verify**
-(consumption evidence through consumption-shaped purposes), and **assemble**
-(deterministically). Demand claims carry a directness-weighted confidence ladder
-(import/tender record > the buyer's own input language > stage verification),
-buyer bait ("buyers list" listicles, market-research vendors) stays in the
-appendix as leads, and intermediaries (traders, brokers) are excluded unless the
-operator asks for them. The report carries the chain itself plus the house-style
-honesty warning that private procurement is invisible to web research. It shares
-the market mode's evidence vocabulary (`MarketLandscapeCompany`/`Evidence`),
-tier classification and name hygiene, so a later supplier∩buyer matching pass
-needs no schema change.
+product-shaped demand lanes: tenders, importers, input language), **read**
+(research/news/directory/trade pages are read for the companies they name even
+though they can never be buyers themselves), **verify** (consumption evidence
+through consumption-shaped purposes; only operator-owned or regulatory sources
+verify, while directory/trade/news/research/publisher pages are corroboration),
+and **assemble** (deterministically). Demand claims carry a directness-weighted
+confidence ladder (import/tender record > the buyer's own input language > stage
+verification), buyer bait ("buyers list" listicles, market-research vendors)
+stays in the appendix as leads, and intermediaries (traders, brokers) are
+excluded unless the operator asks for them. Distributors and wholesalers are a
+separate resale category with their own stage roster. Every inferred stage and
+that category must identify at least six companies; bounded `SearchFresh` gap
+searches fill what they can, and an LLM QC review proposes rejects and anchored
+follow-ups while deterministic gates apply them. The report carries stage
+coverage, the review record, the chain itself, plus the house-style honesty
+warning that private procurement is invisible to web research. It shares the
+market mode's evidence vocabulary (`MarketLandscapeCompany`/`Evidence`), tier
+classification and name hygiene, so a later supplier∩buyer matching pass needs
+no schema change.
 
 ### `internal/gcs` — Cloud Storage JSON API client
 

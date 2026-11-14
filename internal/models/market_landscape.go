@@ -25,6 +25,7 @@ type MarketLandscapeEvidence struct {
 	ClaimType   string    `json:"claim_type"`
 	SourceTier  string    `json:"source_tier"`
 	Country     string    `json:"country,omitempty"`
+	Date        string    `json:"date,omitempty"`
 	RetrievedAt time.Time `json:"retrieved_at"`
 	Status      string    `json:"status"`
 }

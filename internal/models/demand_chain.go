@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"strings"
+	"time"
+)
 
 // Buyer-side claim types. The confidence ladder weights them by how directly
 // they evidence consumption: an import or tender record names an actual
@@ -104,6 +108,80 @@ type StageCandidates struct {
 	Companies []MarketLandscapeCompany `json:"companies,omitempty"`
 }
 
+// DemandStageCoverage is the deterministic QC check for one consuming stage (or the separate
+// distribution channel category): how many identity-passed companies the run found for it and
+// whether it clears the required minimum. The rule is deliberately about companies identified,
+// not companies verified: a stage with no operators is not a useful buyer landscape even when
+// every result it does have is well evidenced.
+type DemandStageCoverage struct {
+	Stage   string `json:"stage"`
+	Count   int    `json:"count"`
+	Minimum int    `json:"minimum"`
+	Pass    bool   `json:"pass"`
+}
+
+// DemandRejectedName is one company the QC judge or the deterministic gates removed, with the
+// reason retained for audit. The name is never deleted from the appendix's evidence.
+type DemandRejectedName struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// DemandChainReview is the post-assembly quality review: a deterministic stage-coverage check
+// plus an optional LLM judge. The judge proposes; the pipeline applies only names that already
+// exist in the report and records every rejection.
+type DemandChainReview struct {
+	Verdict         string                `json:"verdict"`
+	Score           float64               `json:"score"`
+	Rejected        []DemandRejectedName  `json:"rejected,omitempty"`
+	MissingStages   []string              `json:"missing_stages,omitempty"`
+	FollowUpQueries []string              `json:"follow_up_queries,omitempty"`
+	StageCoverage   []DemandStageCoverage `json:"stage_coverage,omitempty"`
+	Reason          string                `json:"reason,omitempty"`
+}
+
+// UnmarshalJSON accepts the shapes models actually return for the QC fields: rejected entries as
+// objects or bare names, and follow-up queries as strings or query objects. A decode failure here
+// would silently disable the judge, so the flexible decoder is deliberate.
+func (review *DemandChainReview) UnmarshalJSON(data []byte) error {
+	type reviewAlias DemandChainReview
+	aux := struct {
+		Rejected        []json.RawMessage `json:"rejected"`
+		FollowUpQueries []json.RawMessage `json:"follow_up_queries"`
+		*reviewAlias
+	}{reviewAlias: (*reviewAlias)(review)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	review.Rejected = nil
+	for _, raw := range aux.Rejected {
+		var rejected DemandRejectedName
+		if err := json.Unmarshal(raw, &rejected); err == nil && strings.TrimSpace(rejected.Name) != "" {
+			review.Rejected = append(review.Rejected, rejected)
+			continue
+		}
+		var name string
+		if err := json.Unmarshal(raw, &name); err == nil && strings.TrimSpace(name) != "" {
+			review.Rejected = append(review.Rejected, DemandRejectedName{Name: name, Reason: "judge rejection"})
+		}
+	}
+	review.FollowUpQueries = nil
+	for _, raw := range aux.FollowUpQueries {
+		var query string
+		if err := json.Unmarshal(raw, &query); err == nil && strings.TrimSpace(query) != "" {
+			review.FollowUpQueries = append(review.FollowUpQueries, query)
+			continue
+		}
+		var object struct {
+			Query string `json:"query"`
+		}
+		if err := json.Unmarshal(raw, &object); err == nil && strings.TrimSpace(object.Query) != "" {
+			review.FollowUpQueries = append(review.FollowUpQueries, object.Query)
+		}
+	}
+	return nil
+}
+
 // DemandChainReport is the buyer-side counterpart of MarketLandscapeReport: the
 // inferred value chain, the verified consumers, and the auditable corpus.
 type DemandChainReport struct {
@@ -125,10 +203,13 @@ type DemandChainReport struct {
 	// stage's lanes surfaced, whatever their verification status. Results above
 	// is the cross-cutting verified list; this is the value chain's own roster.
 	StageCandidates     []StageCandidates         `json:"stage_candidates,omitempty"`
+	StageCoverage       []DemandStageCoverage     `json:"stage_coverage,omitempty"`
+	Reviews             []DemandChainReview       `json:"reviews,omitempty"`
 	Appendix            []MarketLandscapeEvidence `json:"appendix,omitempty"`
 	Lanes               []string                  `json:"lanes,omitempty"`
 	Iterations          int                       `json:"iterations"`
 	QueriesUsed         int                       `json:"queries_used"`
+	GapQueries          int                       `json:"gap_queries,omitempty"`
 	SearchHits          int                       `json:"search_hits"`
 	LeadsReviewed       int                       `json:"leads_reviewed"`
 	LeadsExtracted      int                       `json:"leads_extracted"`

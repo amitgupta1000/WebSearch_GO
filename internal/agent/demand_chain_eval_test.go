@@ -70,7 +70,7 @@ var demandEvalProducts = []demandEvalExpectation{
 			"paint", "coating", "plywood", "pharmaceutical", "construction",
 			"automotive", "cosmetic",
 		},
-		nonBuyerMarkers: []string{"market research", "buyers list", "sample report", "research and markets"},
+		nonBuyerMarkers: []string{"market research", "buyers list", "sample report", "research and markets", "acs publications", "august wilhelm", "biodiesel producers", "tdi products", "technology by covestro"},
 	},
 	{
 		activity:   "Toluene Diisocyanate",
@@ -85,7 +85,7 @@ var demandEvalProducts = []demandEvalExpectation{
 		scopeLeakStages: []string{
 			"furniture", "mattress", "bedding", "upholstery", "automotive", "car seat",
 		},
-		nonBuyerMarkers: []string{"market research", "buyers list", "sample report", "research and markets"},
+		nonBuyerMarkers: []string{"market research", "buyers list", "sample report", "research and markets", "acs publications", "august wilhelm", "biodiesel producers", "tdi products", "technology by covestro"},
 	},
 	{
 		// India-scoped methanol run, prompted by a live tender: "Supply of
@@ -99,7 +99,7 @@ var demandEvalProducts = []demandEvalExpectation{
 		countries:       []string{"India"},
 		directStages:    []string{"formaldehyde", "acetic acid", "mtbe", "dimethyl ether", "olefin", "methylamine", "biodiesel"},
 		buyerMarkers:    []string{"gnfc", "narmada"},
-		nonBuyerMarkers: []string{"market research", "buyers list", "sample report", "research and markets"},
+		nonBuyerMarkers: []string{"market research", "buyers list", "sample report", "research and markets", "acs publications", "august wilhelm", "biodiesel producers", "tdi products", "technology by covestro"},
 	},
 }
 

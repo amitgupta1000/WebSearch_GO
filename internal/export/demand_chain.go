@@ -19,6 +19,8 @@ func demandChainReportTitle(report *models.DemandChainReport) string {
 // output are step 2; anything deeper is out of buyer scope.
 func demandStageDistanceLabel(stage models.ValueChainStage) string {
 	switch {
+	case stage.Source == "category":
+		return "channel category (resale)"
 	case stage.Distance == models.StageDistanceDerived:
 		return "2 (derived)"
 	case stage.Distance > models.StageDistanceDerived:
@@ -81,7 +83,9 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 	}
 	for _, section := range report.StageCandidates {
 		heading := section.Stage.Name
-		if section.Stage.Distance == models.StageDistanceDerived {
+		if section.Stage.Source == "category" {
+			heading += " — channel category (resale)"
+		} else if section.Stage.Distance == models.StageDistanceDerived {
 			heading += " — step 2 (derived)"
 		}
 		fmt.Fprintf(&b, "### %s\n\n", heading)
@@ -100,8 +104,43 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 		}
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, "\n## Method summary\n\n%d discovery queries; %d raw hits; %d leads reviewed; %d entities extracted; %d rejected; %d pages enriched; %d verification queries.\n\n",
-		report.QueriesUsed, report.SearchHits, report.LeadsReviewed, report.LeadsExtracted,
+	if len(report.StageCoverage) > 0 {
+		b.WriteString("\n## Stage coverage — QC minimum\n\n")
+		b.WriteString("_Every stage, plus the separate distribution category, must identify at least six companies. A gap is reported, never filled with invented names._\n\n")
+		b.WriteString("| Stage | Companies | Minimum | Pass |\n| :--- | :--- | :--- | :--- |\n")
+		for _, item := range report.StageCoverage {
+			status := "FAIL"
+			if item.Pass {
+				status = "PASS"
+			}
+			fmt.Fprintf(&b, "| %s | %d | %d | %s |\n", markdownCell(item.Stage), item.Count, item.Minimum, status)
+		}
+		b.WriteString("\n")
+	}
+	if len(report.Reviews) > 0 {
+		b.WriteString("## Quality review\n\n")
+		for _, review := range report.Reviews {
+			verdict := trimmed(review.Verdict)
+			if verdict == "" {
+				verdict = "unavailable"
+			}
+			fmt.Fprintf(&b, "- Verdict: **%s**; score %.2f.%s\n", markdownCell(verdict), review.Score, func() string {
+				if trimmed(review.Reason) == "" {
+					return ""
+				}
+				return " " + trimmed(review.Reason)
+			}())
+			for _, rejected := range review.Rejected {
+				fmt.Fprintf(&b, "  - Rejected: **%s** — %s\n", markdownCell(rejected.Name), markdownCell(rejected.Reason))
+			}
+			if len(review.MissingStages) > 0 {
+				fmt.Fprintf(&b, "  - Under-covered stages: %s\n", markdownCell(strings.Join(review.MissingStages, ", ")))
+			}
+		}
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "\n## Method summary\n\n%d discovery queries; %d gap/QC queries; %d raw hits; %d leads reviewed; %d entities extracted; %d rejected; %d pages enriched; %d verification queries.\n\n",
+		report.QueriesUsed, report.GapQueries, report.SearchHits, report.LeadsReviewed, report.LeadsExtracted,
 		report.LeadsRejected, report.PagesEnriched, report.VerificationQueries)
 	b.WriteString(renderListMarkdown("Honesty notes", report.Warnings))
 	b.WriteString("## Appendix — sources and demand signals\n\n")
@@ -143,13 +182,22 @@ var demandChainHTMLTemplate = documentTemplate("demand-chain", `
 <section><h2>Potential buyers by stage</h2>
 <p class="dim">Every company the consuming stage's lanes surfaced, verified or not — a company operating a stage that consumes the product is a potential buyer by construction, within the two-step buyer scope (direct consumers and one derived step). Status "lead" means the evidence did not reach the verification threshold; cross-check the verified list above.</p>
 {{range .Chain.StageCandidates}}<div class="dept">
-	<h3>{{.Stage.Name}}{{if eq .Stage.Distance 2}} — step 2 (derived){{end}}</h3>
+	<h3>{{.Stage.Name}}{{if eq .Stage.Source "category"}} — channel category (resale){{else if eq .Stage.Distance 2}} — step 2 (derived){{end}}</h3>
 	{{if .Stage.Rationale}}<p class="dim">{{.Stage.Rationale}}</p>{{end}}
 	{{if .Companies}}<table><thead><tr><th>Company</th><th>Country</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Companies}}<tr><td>{{.Name}}</td><td>{{.Country}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>
 	{{else}}<p class="dim">No stage-active companies surfaced.</p>{{end}}
 </div>{{end}}
 </section>
-<section><h2>Method summary</h2><p>{{.Chain.QueriesUsed}} discovery queries, {{.Chain.SearchHits}} raw hits, {{.Chain.LeadsReviewed}} leads reviewed, {{.Chain.LeadsExtracted}} entities extracted, {{.Chain.LeadsRejected}} rejected, {{.Chain.PagesEnriched}} pages enriched, {{.Chain.VerificationQueries}} verification queries.</p></section>
+{{if .Chain.StageCoverage}}<section><h2>Stage coverage — QC minimum</h2>
+<p class="dim">Every stage, plus the separate distribution category, must identify at least six companies. A gap is reported, never filled with invented names.</p>
+<table><thead><tr><th>Stage</th><th>Companies</th><th>Minimum</th><th>Result</th></tr></thead><tbody>{{range .Chain.StageCoverage}}<tr><td>{{.Stage}}</td><td>{{.Count}}</td><td>{{.Minimum}}</td><td>{{if .Pass}}PASS{{else}}FAIL{{end}}</td></tr>{{end}}</tbody></table>
+</section>{{end}}
+{{if .Chain.Reviews}}<section><h2>Quality review</h2>
+{{range .Chain.Reviews}}<p><strong>{{if .Verdict}}{{.Verdict}}{{else}}unavailable{{end}}</strong> · score {{printf "%.2f" .Score}}{{if .Reason}} — {{.Reason}}{{end}}</p>
+{{if .Rejected}}<ul>{{range .Rejected}}<li>Rejected {{.Name}} — {{.Reason}}</li>{{end}}</ul>{{end}}
+{{if .MissingStages}}<p class="dim">Under-covered: {{range .MissingStages}}{{.}}; {{end}}</p>{{end}}{{end}}
+</section>{{end}}
+<section><h2>Method summary</h2><p>{{.Chain.QueriesUsed}} discovery queries, {{.Chain.GapQueries}} gap/QC queries, {{.Chain.SearchHits}} raw hits, {{.Chain.LeadsReviewed}} leads reviewed, {{.Chain.LeadsExtracted}} entities extracted, {{.Chain.LeadsRejected}} rejected, {{.Chain.PagesEnriched}} pages enriched, {{.Chain.VerificationQueries}} verification queries.</p></section>
 {{if .Chain.Warnings}}<section class="card">
 	<h2>Honesty notes</h2>
 	<ul>{{range .Chain.Warnings}}<li>{{.}}</li>{{end}}</ul>

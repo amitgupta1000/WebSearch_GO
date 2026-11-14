@@ -222,16 +222,37 @@ func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 				SourceTier: "official", Status: "tender or procurement record",
 			}},
 		}},
-		QueriesUsed: 12, SearchHits: 31, LeadsReviewed: 31, VerificationQueries: 6,
-		StageCandidates: []models.StageCandidates{{
-			Stage: models.ValueChainStage{
-				Name: "biodiesel production", Rationale: "Biodiesel is produced from used cooking oil feedstock.",
-				Operators: []string{"biodiesel plant"}, Source: "model",
+		QueriesUsed: 12, GapQueries: 3, SearchHits: 31, LeadsReviewed: 31, VerificationQueries: 6,
+		StageCandidates: []models.StageCandidates{
+			{
+				Stage: models.ValueChainStage{
+					Name: "biodiesel production", Rationale: "Biodiesel is produced from used cooking oil feedstock.",
+					Operators: []string{"biodiesel plant"}, Source: "model",
+				},
+				Companies: []models.MarketLandscapeCompany{{
+					Name: "Jayant Oleochemicals", Country: "India", Status: "lead", Confidence: 0.45,
+					EvidenceType: "discovery-lead",
+				}},
 			},
-			Companies: []models.MarketLandscapeCompany{{
-				Name: "Jayant Oleochemicals", Country: "India", Status: "lead", Confidence: 0.45,
-				EvidenceType: "discovery-lead",
-			}},
+			{
+				Stage: models.ValueChainStage{
+					Name: "Distribution and wholesale", Source: "category", Distance: models.StageDistanceDirect,
+					Rationale: "Distributors buy to resell.",
+				},
+				Companies: []models.MarketLandscapeCompany{{
+					Name: "Delta Distribution Pvt Ltd", Country: "India", Status: "lead", Confidence: 0.45,
+					EvidenceType: "company-page",
+				}},
+			},
+		},
+		StageCoverage: []models.DemandStageCoverage{
+			{Stage: "biodiesel production", Count: 6, Minimum: 6, Pass: true},
+			{Stage: "Distribution and wholesale", Count: 5, Minimum: 6, Pass: false},
+		},
+		Reviews: []models.DemandChainReview{{
+			Verdict: "revise", Score: 0.7, Reason: "one stage under-covered",
+			Rejected:      []models.DemandRejectedName{{Name: "ACS Publications", Reason: "publisher"}},
+			MissingStages: []string{"Distribution and wholesale"},
 		}},
 		Appendix: []models.MarketLandscapeEvidence{{
 			Title: "UCO import record — customs mirror", URL: "https://customs-mirror.example.com/hs-code",
@@ -248,7 +269,10 @@ func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 		"## Value chain", "biodiesel production", "Biodiesel is produced from used cooking oil.",
 		"## Results — verified consumers", "GreenDiesel Sdn Bhd", "biodiesel production",
 		"## Potential buyers by stage", "### biodiesel production", "Jayant Oleochemicals",
-		"import-record", "Private procurement is invisible",
+		"channel category (resale)", "Delta Distribution Pvt Ltd",
+		"## Stage coverage — QC minimum", "Distribution and wholesale", "FAIL",
+		"## Quality review", "ACS Publications", "publisher",
+		"gap/QC queries", "import-record", "Private procurement is invisible",
 	} {
 		if !strings.Contains(markdown, expected) {
 			t.Errorf("demand-chain markdown is missing %q", expected)
@@ -263,7 +287,9 @@ func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 		`src="data:image/jpeg;base64,`,
 		"Value chain", "Operator vocabulary",
 		"Potential buyers by stage", "Jayant Oleochemicals",
-		"GreenDiesel Sdn Bhd", "biodiesel production",
+		"channel category (resale)", "Delta Distribution Pvt Ltd",
+		"Stage coverage — QC minimum", "Quality review", "ACS Publications", "publisher",
+		"gap/QC queries", "GreenDiesel Sdn Bhd", "biodiesel production",
 		"Honesty notes", "Private procurement is invisible",
 	} {
 		if !strings.Contains(html, expected) {

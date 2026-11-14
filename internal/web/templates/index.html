@@ -31,7 +31,8 @@
         .related-node-selected circle { stroke: rgb(251 191 36); stroke-width: 4; }
         [data-related-node]:focus-visible circle { stroke: rgb(125 211 252); stroke-width: 4; }
         .related-node-expand { cursor: pointer; }
-        .related-node-expand:hover circle, .related-node-expand:focus-visible circle { fill: rgb(30 41 59); stroke: rgb(186 230 253); }
+        .related-graph-hidden { display: none; }
+        .related-node-expand:hover circle, .related-node-expand:focus-visible circle { fill: rgb(14 116 144); stroke: white; }
         .related-node-expand:focus-visible { outline: none; }
         .related-node-expand text { pointer-events: none; }
     </style>
@@ -292,7 +293,7 @@
                     </div>
                     <div>
                         <label class="text-xs font-medium text-slate-400">Maximum companies</label>
-                        <input type="number" name="demand_max_companies" value="20" min="1" max="50"
+                        <input type="number" name="demand_max_companies" value="48" min="1" max="80"
                                class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm mt-1">
                     </div>
                     <div>
@@ -592,10 +593,16 @@
             }
             initRelatedGraphs(evt.target);
         });
+        document.addEventListener('htmx:afterSettle', function(evt) {
+            initRelatedGraphs(evt.target);
+        });
 
         function initRelatedGraphs(root) {
             if (!root || !root.querySelectorAll) return;
-            root.querySelectorAll('[data-related-graph]').forEach(function(graph) {
+            const graphs = [];
+            if (root.matches && root.matches('[data-related-graph]')) graphs.push(root);
+            root.querySelectorAll('[data-related-graph]').forEach(function(graph) { graphs.push(graph); });
+            graphs.forEach(function(graph) {
                 if (graph.dataset.bound === 'true') return;
                 graph.dataset.bound = 'true';
                 const nodes = graph.querySelectorAll('[data-related-node]');
@@ -648,18 +655,18 @@
                 function renderGraph() {
                     edges.forEach(function(edge) {
                         const shown = visible.has(edge.dataset.relatedEdgeFrom) && visible.has(edge.dataset.relatedEdgeTo);
-                        edge.hidden = !shown;
+                        edge.classList.toggle('related-graph-hidden', !shown);
                     });
                     nodes.forEach(function(node) {
                         const shown = visible.has(node.dataset.nodeId);
-                        node.hidden = !shown;
+                        node.classList.toggle('related-graph-hidden', !shown);
                         if (!shown) return;
                         const expand = node.querySelector('[data-related-expand]');
                         const hiddenCount = Array.from(neighbours.get(node.dataset.nodeId) || []).filter(function(id) {
                             return !visible.has(id);
                         }).length;
                         if (expand) {
-                            expand.hidden = hiddenCount === 0;
+                            expand.classList.toggle('related-graph-hidden', hiddenCount === 0);
                             expand.setAttribute('aria-hidden', hiddenCount === 0 ? 'true' : 'false');
                             expand.setAttribute('aria-label', 'Expand ' + hiddenCount + ' more connection' + (hiddenCount === 1 ? '' : 's') + ' from ' + node.dataset.nodeName);
                             expand.dataset.hiddenCount = String(hiddenCount);
@@ -709,6 +716,13 @@
         }
 
         initRelatedGraphs(document);
+        new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                mutation.addedNodes.forEach(function(node) {
+                    if (node.nodeType === 1) initRelatedGraphs(node);
+                });
+            });
+        }).observe(document.body, {childList: true, subtree: true});
 
         document.addEventListener('input', function(evt) {
             if (evt.target.id === 'primary-query') {

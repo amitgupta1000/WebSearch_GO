@@ -120,6 +120,7 @@ var marketPublisherBrands = []string{
 	"ndtv", "firstpost", "moneycontrol", "oilprice", "rigzone", "upstream",
 	"energy voice", "icis", "argus", "spglobal", "statista", "linkedin",
 	"wikipedia", "facebook", "youtube", "twitter", "x",
+	"acs", "acs publications", "wiley", "elsevier", "springer", "taylor & francis", "tandfonline",
 }
 
 // marketConnectorWords join a topic to a place ("oil blending in Singapore").

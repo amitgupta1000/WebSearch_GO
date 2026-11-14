@@ -26,11 +26,23 @@ import (
 )
 
 const (
-	demandMaxDiscoveryQueries    = 30
+	demandMaxDiscoveryQueries    = 40
 	demandMinDiscoveryQueries    = 2
-	demandMaxVerificationQueries = 100
-	demandMaxLeadsEnriched       = 36
+	demandMaxVerificationQueries = 180
+	demandMaxLeadsEnriched       = 60
+	demandMaxLeadPages           = 30
 	demandMaxStages              = 7
+	// demandMinStageCompanies is the QC floor: the buyer landscape is useful only when each
+	// consuming stage (and the separate distribution category) has more than a handful of
+	// identity-passed companies to work with.
+	demandMinStageCompanies = 6
+	// demandStageGapQueries is how many bounded, fresh searches one under-covered stage may
+	// spend before the run reports the gap instead of inventing coverage.
+	demandStageGapQueries = 2
+	// demandDistributionStageName is the separate channel category. Distributors and
+	// wholesalers buy the product to resell it; they are buyers, but not manufacturers in the
+	// value chain, so they get their own roster rather than polluting a consumption stage.
+	demandDistributionStageName = "Distribution and wholesale"
 	// Web key-person discovery and the optional RocketReach discovery each get
 	// their own 20-search budget, carved out of the verification budget when
 	// the people flags are on — the same discipline the market mode uses.
@@ -226,6 +238,77 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	// Alias-level dedupe: "IndianOil" and "Indian Oil Corporation" are one
 	// house; their evidence unions and the strongest verdict represents them.
 	merged := demandDedupeCompanies(pool)
+
+	// Stage coverage gate: every consuming stage and the distribution category must have more
+	// than a handful of identity-passed companies. Spend bounded fresh searches on the gaps
+	// before the QC judge sees the report.
+	sections, _ := buildStageCandidates(merged, report.Chain)
+	coverage := demandStageCoverage(sections)
+	if len(demandUndercovered(coverage)) > 0 {
+		if added := a.fillDemandStageGaps(ctx, query, coverage, companies, report, eventCh); added > 0 {
+			pool = pool[:0]
+			for _, company := range companies {
+				pool = append(pool, company)
+			}
+			pool = append(pool, verified...)
+			merged = demandDedupeCompanies(pool)
+		}
+	}
+	sections, _ = buildStageCandidates(merged, report.Chain)
+	coverage = demandStageCoverage(sections)
+
+	// QC judge: propose rejections and flag under-covered stages. The deterministic coverage
+	// criterion is applied even if the judge is unavailable.
+	review := a.reviewDemandReport(ctx, query, report.Chain, merged, coverage, eventCh)
+	rejectedNames := make(map[string]string, len(review.Rejected))
+	for _, rejected := range review.Rejected {
+		if key := normalizeMarketName(rejected.Name); key != "" {
+			rejectedNames[key] = rejected.Reason
+		}
+	}
+	if len(rejectedNames) > 0 {
+		kept := make([]*models.MarketLandscapeCompany, 0, len(merged))
+		for _, company := range merged {
+			if reason, ok := rejectedNames[normalizeMarketName(company.Name)]; ok {
+				report.Appendix = append(report.Appendix, company.Evidence...)
+				report.Warnings = append(report.Warnings, fmt.Sprintf("Buyer QC removed %s: %s.", company.Name, reason))
+				continue
+			}
+			kept = append(kept, company)
+		}
+		merged = kept
+		// The reviewer may have removed enough rows to reopen a stage; rebuild the pool from
+		// the surviving companies and fill the remaining gaps once, still within the budget.
+		companies = make(map[string]*models.MarketLandscapeCompany, len(merged))
+		for _, company := range merged {
+			companies[company.EntityKey] = company
+		}
+		verified = nil
+		sections, _ = buildStageCandidates(merged, report.Chain)
+		coverage = demandStageCoverage(sections)
+		if len(demandUndercovered(coverage)) > 0 {
+			if added := a.fillDemandStageGaps(ctx, query, coverage, companies, report, eventCh); added > 0 {
+				pool = pool[:0]
+				for _, company := range companies {
+					pool = append(pool, company)
+				}
+				merged = demandDedupeCompanies(pool)
+			}
+		}
+	}
+
+	// The judge's anchored follow-ups are fresh searches, not edits to the report: they can add
+	// candidates the initial lanes missed, but every added name still went through the identity
+	// and source gates.
+	if added := a.runDemandFollowUps(ctx, query, report.Chain, companies, review.FollowUpQueries, report, eventCh); added > 0 {
+		pool = pool[:0]
+		for _, company := range companies {
+			pool = append(pool, company)
+		}
+		pool = append(pool, verified...)
+		merged = demandDedupeCompanies(pool)
+	}
+
 	results := make([]*models.MarketLandscapeCompany, 0, len(merged))
 	for _, rep := range merged {
 		if !demandCompanyTitle(rep.Name) {
@@ -276,7 +359,13 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		return results[i].Confidence > results[j].Confidence
 	})
 	for _, company := range results {
-		company.Status = marketStatus(company)
+		company.Status = demandStatus(company)
+		if company.Status == "lead" {
+			// The cross-cutting results table is the verification view. Weak rows stay in the
+			// stage roster and appendix; they are not presented as verified consumers.
+			report.Appendix = append(report.Appendix, company.Evidence...)
+			continue
+		}
 		report.Results = append(report.Results, *company)
 	}
 	if len(report.Results) > query.MaxCompanies {
@@ -295,6 +384,19 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	// did not reach the verification threshold.
 	report.StageCandidates, demotedEvidence = buildStageCandidates(merged, report.Chain)
 	report.Appendix = append(report.Appendix, demotedEvidence...)
+	report.StageCoverage = demandStageCoverage(report.StageCandidates)
+	review.StageCoverage = report.StageCoverage
+	review.MissingStages = nil
+	for _, item := range report.StageCoverage {
+		if !item.Pass {
+			review.MissingStages = append(review.MissingStages, item.Stage)
+			report.Warnings = append(report.Warnings, fmt.Sprintf("Stage coverage gap: %s has %d company(ies); QC minimum is %d. The report states the gap rather than inventing companies.", item.Stage, item.Count, item.Minimum))
+		}
+	}
+	if len(review.MissingStages) > 0 {
+		review.Verdict = "revise"
+	}
+	report.Reviews = append(report.Reviews, review)
 	report.CompletedAt = time.Now()
 	if exports := a.engine.ExportDemandChain(ctx, report); len(exports) > 0 {
 		report.Exports = exports
@@ -303,10 +405,154 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	return report, nil
 }
 
+// demandUndercovered returns the stage-coverage rows that did not reach the QC floor.
+func demandUndercovered(coverage []models.DemandStageCoverage) []models.DemandStageCoverage {
+	var gaps []models.DemandStageCoverage
+	for _, item := range coverage {
+		if !item.Pass {
+			gaps = append(gaps, item)
+		}
+	}
+	return gaps
+}
+
+// demandStageForFollowUp maps a judge follow-up query onto an inferred stage (or the separate
+// distribution category). A query that names no stage is skipped rather than dumped into the
+// general bucket: an unmapped search cannot improve stage coverage.
+func demandStageForFollowUp(query string, chain []models.ValueChainStage) string {
+	lowered := strings.ToLower(query)
+	if strings.Contains(lowered, "distributor") || strings.Contains(lowered, "wholesaler") || strings.Contains(lowered, "wholesale") {
+		return demandDistributionStageName
+	}
+	best := ""
+	bestLen := 0
+	for _, stage := range chain {
+		if strings.Contains(lowered, strings.ToLower(stage.Name)) {
+			return stage.Name
+		}
+		for _, operator := range stage.Operators {
+			operator = strings.ToLower(strings.TrimSpace(operator))
+			if operator != "" && strings.Contains(lowered, operator) && len(operator) > bestLen {
+				best = stage.Name
+				bestLen = len(operator)
+			}
+		}
+	}
+	if best != "" {
+		return best
+	}
+	if len(chain) == 1 {
+		return chain[0].Name
+	}
+	return ""
+}
+
+// runDemandFollowUps executes the QC judge's bounded, anchored follow-up searches. It only adds
+// identity-passed candidates; verification remains a separate evidence step.
+func (a *DemandChainAgent) runDemandFollowUps(ctx context.Context, query models.DemandChainQuery, chain []models.ValueChainStage, companies map[string]*models.MarketLandscapeCompany, queries []string, report *models.DemandChainReport, eventCh chan<- models.AgentEvent) int {
+	added := 0
+	seen := make(map[string]bool)
+	for _, followUp := range queries {
+		followUp = strings.TrimSpace(followUp)
+		key := strings.ToLower(followUp)
+		if followUp == "" || seen[key] || len(seen) >= 3 {
+			continue
+		}
+		seen[key] = true
+		stage := demandStageForFollowUp(followUp, chain)
+		if stage == "" {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("QC follow-up skipped (no stage anchor): %s", followUp))
+			continue
+		}
+		emitAgentEvent(eventCh, models.EventToolCall, "QC follow-up for "+stage, "search", followUp)
+		hits, err := a.engine.SearchFresh(ctx, followUp, marketMaxResults)
+		report.GapQueries++
+		if err != nil {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("QC follow-up failed for %s: %v", stage, err))
+			continue
+		}
+		report.SearchHits += len(hits)
+		report.LeadsReviewed += len(hits)
+		for _, hit := range hits {
+			candidate := demandCandidate(hit, demandLane{term: followUp, stage: stage}, query)
+			if candidate == nil {
+				continue
+			}
+			if excludedMarketDomain(candidate.Domain, query.Exclusions) || candidate.Evidence[0].Status == "excluded" {
+				report.Appendix = append(report.Appendix, candidate.Evidence...)
+				continue
+			}
+			before := len(companies)
+			mergeMarketCompany(companies, candidate)
+			if len(companies) > before {
+				added++
+			}
+		}
+	}
+	return added
+}
+
+// fillDemandStageGaps spends bounded fresh searches on stages the run has not yet populated to
+// the QC floor. It adds identity-passed discovery candidates only; it does not invent verified
+// buyers. The caller rebuilds the stage roster after it returns.
+func (a *DemandChainAgent) fillDemandStageGaps(ctx context.Context, query models.DemandChainQuery, coverage []models.DemandStageCoverage, companies map[string]*models.MarketLandscapeCompany, report *models.DemandChainReport, eventCh chan<- models.AgentEvent) int {
+	gaps := demandUndercovered(coverage)
+	if len(gaps) == 0 {
+		return 0
+	}
+	added := 0
+	for _, gap := range gaps {
+		stage := strings.TrimSpace(gap.Stage)
+		if stage == "" {
+			continue
+		}
+		terms := []string{stage + " manufacturer OR plant OR operator", stage + " company OR facility"}
+		if stage == demandDistributionStageName {
+			terms = []string{
+				"distributor OR wholesaler of " + query.Activity,
+				"authorised distributor OR wholesale supplier of " + query.Activity,
+			}
+		}
+		for attempt := 0; attempt < demandStageGapQueries && attempt < len(terms); attempt++ {
+			if err := ctx.Err(); err != nil {
+				return added
+			}
+			term := terms[attempt]
+			searchQuery := strings.TrimSpace(query.Activity + " " + term + " " + demandGeography(query))
+			emitAgentEvent(eventCh, models.EventToolCall, "Gap search for "+stage, "search", searchQuery)
+			hits, err := a.engine.SearchFresh(ctx, searchQuery, marketMaxResults)
+			report.GapQueries++
+			if err != nil {
+				report.Warnings = append(report.Warnings, fmt.Sprintf("gap search for %s failed: %v", stage, err))
+				continue
+			}
+			report.SearchHits += len(hits)
+			report.LeadsReviewed += len(hits)
+			for _, hit := range hits {
+				candidate := demandCandidate(hit, demandLane{term: searchQuery, stage: stage}, query)
+				if candidate == nil {
+					continue
+				}
+				if excludedMarketDomain(candidate.Domain, query.Exclusions) || candidate.Evidence[0].Status == "excluded" {
+					report.Appendix = append(report.Appendix, candidate.Evidence...)
+					continue
+				}
+				before := len(companies)
+				mergeMarketCompany(companies, candidate)
+				if len(companies) > before {
+					added++
+				}
+			}
+		}
+	}
+	return added
+}
+
 // isDemandDocumentTitle catches titles that name documents rather than
 // companies — market reports, patents, studies and analyses rank well on stage
 // vocabulary, so the discovery lanes pull in plenty of them. They are evidence,
 // and stay in the appendix, never in the company rosters.
+
 func isDemandDocumentTitle(title string) bool {
 	if isResearchDocumentTitle(title) {
 		return true
@@ -327,8 +573,30 @@ func isDemandDocumentTitle(title string) bool {
 
 // demandCompanyTitle reports whether a title reads like a company at all: not
 // a document, not bait, not a generic list headline.
+func demandNameIsPerson(name string) bool {
+	lowered := " " + strings.ToLower(strings.TrimSpace(name)) + " "
+	personParticles := []string{" von "}
+	matches := false
+	for _, particle := range personParticles {
+		if strings.Contains(lowered, particle) {
+			matches = true
+			break
+		}
+	}
+	if !matches {
+		return false
+	}
+	for _, token := range strings.Fields(lowered) {
+		if demandCorporateSuffixes[strings.Trim(token, ".,;:()")] {
+			return false
+		}
+	}
+	return true
+}
+
 func demandCompanyTitle(name string) bool {
-	return !isDemandDocumentTitle(name) && !isGenericMarketTitle(name) && !isDemandBaitTitle(name)
+	return isPlausibleMarketLeadName(name) && !isDemandDocumentTitle(name) && !isGenericMarketTitle(name) &&
+		!isDemandBaitTitle(name) && !demandNameIsCategory(name) && !demandNameIsPerson(name) && !marketPublisherSuffix(name)
 }
 
 // demandProducerPhrases are the phrase shapes that tie a company to
@@ -417,11 +685,57 @@ func demandSourceOverride(domain string) string {
 // extraction occasionally echoes the page title ("Latest Alcohol Tenders in
 // India 2026 - TendersOnTime", "IMARC Group") as a buyer. A "topic - site"
 // echo whose topic names the product is likewise a page title, not a buyer.
+// demandNameIsCategory rejects names that describe a category, process, product page or article
+// rather than one operator: "Biodiesel producers", "Biodiesel Production and Distribution",
+// "TDI Products", "Renewable ... Production Plant", "Technology by Covestro". A legal suffix
+// overrides the heuristic, so "Acme Products Ltd" remains a company.
+func demandNameIsCategory(name string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(name))
+	if lowered == "" {
+		return false
+	}
+	if strings.Contains(" "+lowered+" ", " by ") {
+		return true
+	}
+	fields := strings.Fields(lowered)
+	if len(fields) == 0 {
+		return false
+	}
+	hasLegalSuffix := false
+	for _, token := range fields {
+		if demandCorporateSuffixes[strings.Trim(token, ".,;:()")] {
+			hasLegalSuffix = true
+			break
+		}
+	}
+	if !hasLegalSuffix {
+		for _, marker := range []string{" licensing", " licencing", " regulation", " regulatory", " policy", " guidelines", " approval", " permit", " plant ", " project ", " production"} {
+			if strings.Contains(" "+lowered+" ", marker) {
+				return true
+			}
+		}
+	}
+	categoryWords := map[string]bool{
+		"producer": true, "producers": true, "manufacturer": true, "manufacturers": true,
+		"supplier": true, "suppliers": true, "product": true, "products": true,
+		"plants": true, "plant": true, "industry": true, "industries": true,
+		"market": true, "markets": true,
+	}
+	last := strings.Trim(fields[len(fields)-1], ".,;:()")
+	if !categoryWords[last] {
+		return false
+	}
+	return !hasLegalSuffix
+}
+
 func demandSourceName(name, activity string) bool {
 	lowered := strings.ToLower(name)
 	// En/em dashes are headline punctuation too; normalize before matching.
 	lowered = strings.ReplaceAll(lowered, "–", "-")
 	lowered = strings.ReplaceAll(lowered, "—", "-")
+	if demandNameIsCategory(name) || demandNameIsPerson(name) || marketPublisherSuffix(name) {
+		return true
+	}
 	for _, marker := range []string{
 		"tender", "rfp", "rfq", "marketplace", "indiamart", "tradeindia",
 		"alibaba", "b2b portal", "eprocure", "wiley", "mdpi", "springer",
@@ -433,6 +747,8 @@ func demandSourceName(name, activity string) bool {
 		"association", "society", "council", "exposure to", "handbook",
 		"encyclopedia", "guide to", "review of", "study of", "confintl",
 		"university", "college", "nptel", "use in",
+		"publication", "publications", "publisher", " press", " news", "magazine",
+		"acs publications", "taylor & francis", "tandfonline",
 	} {
 		if strings.Contains(lowered, marker) {
 			return true
@@ -452,11 +768,93 @@ func demandSourceName(name, activity string) bool {
 	return false
 }
 
+// demandStatus is the buyer-side verification ladder. Directory, trade, news and publisher
+// pages are corroboration only: they can help a human judge a row but cannot make it "verified".
+// A verified row needs either an operator-owned page plus a transaction/input claim, or two
+// independent operator-owned sources. A single unknown/official page stays a lead.
+func demandStatus(company *models.MarketLandscapeCompany) string {
+	if company == nil {
+		return "lead"
+	}
+	ownedDomains := make(map[string]bool)
+	transaction := false
+	for _, evidence := range company.Evidence {
+		if evidence.Status == "excluded" || evidence.Status == "producer-signal" {
+			continue
+		}
+		if !isQualifyingMarketTier(evidence.SourceTier) {
+			continue
+		}
+		// Directory and trade pages host many companies; they never own one identity.
+		if evidence.SourceTier == "directory" || evidence.SourceTier == "trade" {
+			continue
+		}
+		domain := hostname(evidence.URL)
+		if evidence.SourceTier == "official" && !demandCompanyOwnsDomain(company.Name, domain) {
+			// An unrecognised blog is classified "official" by the shared tier helper; require
+			// the domain to look like the company's own before it can own evidence. A tender or
+			// import record hosted elsewhere still counts as a transaction, not as ownership.
+			if evidence.ClaimType == models.DemandClaimTender || evidence.ClaimType == models.DemandClaimImport {
+				transaction = true
+			}
+			continue
+		}
+		ownedDomains[domain] = true
+		switch evidence.ClaimType {
+		case models.DemandClaimImport, models.DemandClaimTender, models.DemandClaimUsage:
+			transaction = true
+		}
+	}
+	owned := len(ownedDomains)
+	if owned >= 2 || (owned >= 1 && transaction) {
+		return "verified"
+	}
+	if owned == 1 {
+		// One operator-owned page corroborates identity and demand language, but is not the
+		// two-source verification threshold. Directory hits never reach this branch.
+		return "corroborated"
+	}
+	return "lead"
+}
+
+// demandCompanyOwnsDomain extends the shared brand-token test with an acronym test: "Indian Oil
+// Corporation" -> iocl.com (IOC + legal-form L) is the company's own domain, while a generic
+// article domain is not.
+func demandCompanyOwnsDomain(name, domain string) bool {
+	if hasCompanyIdentitySignal(name, domain) || marketBrandMatchesDomain(name, domain) {
+		return true
+	}
+	label := strings.ToLower(strings.TrimPrefix(domain, "www."))
+	if index := strings.Index(label, "."); index > 0 {
+		label = label[:index]
+	}
+	label = strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' {
+			return r
+		}
+		return -1
+	}, label)
+	if len(label) < 2 {
+		return false
+	}
+	var initials strings.Builder
+	for _, token := range strings.Fields(strings.ToLower(name)) {
+		token = strings.Trim(token, ".,;:()&")
+		if token == "" || demandCorporateSuffixes[token] || len(token) < 2 {
+			continue
+		}
+		initials.WriteByte(token[0])
+	}
+	acronym := initials.String()
+	return len(acronym) >= 2 && strings.HasPrefix(label, acronym)
+}
+
 // demandBuyerFitConfidence applies the buyer-definition step penalty: a
 // company tied to a derived (step-2) consuming stage sits one transformation
 // further from the product than a direct consumer, so an otherwise identical
 // derived candidate cannot outrank a direct one. Deterministic, never below
 // the discovery floor.
+
 func demandBuyerFitConfidence(confidence float64, stage *models.ValueChainStage) float64 {
 	if stage == nil || stage.Distance <= models.StageDistanceDirect {
 		return confidence
@@ -516,11 +914,110 @@ func stageRelevant(title string, stage models.ValueChainStage) bool {
 	return false
 }
 
+// demandDistributionStage is the separate channel category. It is deliberately not part of the
+// inferred manufacturing chain: distributors buy to resell, so they are buyers without being a
+// transformation step. The stage shell exists so the stage roster, QC coverage and artifacts can
+// treat the category uniformly.
+func demandDistributionStage() models.ValueChainStage {
+	return models.ValueChainStage{
+		Name:      demandDistributionStageName,
+		Rationale: "Distributors and wholesalers buy the product to resell it; real demand, not a manufacturing step.",
+		Source:    "category",
+		Distance:  models.StageDistanceDirect,
+		Operators: []string{"distributor", "wholesaler", "authorised distributor"},
+	}
+}
+
 // buildStageCandidates groups identity-passed companies by their consuming
 // stage, in the chain's order, deterministically. Raw discovery leads are
 // evidence for the LLM extraction and verification queue, not companies; they
 // remain auditable in the appendix until a company identity is established.
 // Sorted by confidence, then name, like every other view.
+// demandStageCoverage is the deterministic QC check: every inferred stage and the separate
+// distribution category must have more than a handful of identity-passed companies. The general
+// demand-lane bucket is not a stage and is excluded.
+func demandStageCoverage(sections []models.StageCandidates) []models.DemandStageCoverage {
+	coverage := make([]models.DemandStageCoverage, 0, len(sections))
+	for _, section := range sections {
+		if section.Stage.Source == "lanes" || strings.TrimSpace(section.Stage.Name) == "" {
+			continue
+		}
+		count := len(section.Companies)
+		coverage = append(coverage, models.DemandStageCoverage{
+			Stage: section.Stage.Name, Count: count, Minimum: demandMinStageCompanies,
+			Pass: count >= demandMinStageCompanies,
+		})
+	}
+	return coverage
+}
+
+// reviewDemandReport is the LLM judge for the buyer landscape. It proposes rejects and
+// follow-up searches; the caller applies them deterministically, and no name can enter the
+// report that was not already supported by the run's evidence. Stage coverage is computed
+// before the call and is always a hard criterion, even when the judge is unavailable.
+func (a *DemandChainAgent) reviewDemandReport(ctx context.Context, query models.DemandChainQuery, chain []models.ValueChainStage, merged []*models.MarketLandscapeCompany, coverage []models.DemandStageCoverage, eventCh chan<- models.AgentEvent) models.DemandChainReview {
+	review := models.DemandChainReview{StageCoverage: coverage}
+	var rows strings.Builder
+	limit := len(merged)
+	if limit > 50 {
+		limit = 50
+	}
+	for index := 0; index < limit; index++ {
+		company := merged[index]
+		if company == nil {
+			continue
+		}
+		fmt.Fprintf(&rows, "- %s | stage=%s | country=%s | status=%s | confidence=%.2f\n",
+			company.Name, company.Stage, company.Country, demandStatus(company), company.Confidence)
+		evidenceLimit := len(company.Evidence)
+		if evidenceLimit > 2 {
+			evidenceLimit = 2
+		}
+		for _, evidence := range company.Evidence[:evidenceLimit] {
+			fmt.Fprintf(&rows, "  source: %s | %s | tier=%s | claim=%s | %s\n",
+				evidence.Title, evidence.URL, evidence.SourceTier, evidence.ClaimType, truncateMarketText(evidence.Snippet, 240))
+		}
+	}
+	coverageText := make([]string, 0, len(coverage))
+	for _, item := range coverage {
+		coverageText = append(coverageText, fmt.Sprintf("%s: %d (minimum %d)", item.Stage, item.Count, item.Minimum))
+	}
+	prompt := fmt.Sprintf(`Review this buyer-landscape result for "%s" in %s.
+The buyer definition: a company that consumes the product as an input, or buys it to resell;
+manufacturers at most two transformation steps downstream, plus a separate distribution and
+wholesale category. Every stage and the distribution category should have at least %d
+identity-passed companies: %s.
+Reject a row only when it is a publisher, person, category/process title, article or product
+page, a supplier/trader rather than a buyer, tied to the wrong stage, or has no demand evidence.
+Do not invent companies. Propose at most 3 follow-up searches, each anchored on the activity and
+a stage/company. Return JSON with verdict (pass or revise), score 0-1, rejected (name and
+reason), missing_stages, follow_up_queries, and reason.
+Rows:
+%s`, query.Activity, demandGeography(query), demandMinStageCompanies, strings.Join(coverageText, "; "), rows.String())
+	if err := a.engine.GenerateStructured(ctx, "You are a strict buyer-research quality reviewer. Prefer a shorter, accurate list over a longer list containing publishers, people, categories or suppliers. Never invent a company or a source.", prompt, &review); err != nil {
+		review.Verdict = "unavailable"
+		review.Reason = err.Error()
+		review.Rejected = nil
+		review.FollowUpQueries = nil
+		emitAgentEvent(eventCh, models.EventError, "Buyer QC review unavailable: "+err.Error(), "demand_qc", "")
+		return review
+	}
+	review.Verdict = strings.ToLower(strings.TrimSpace(review.Verdict))
+	if review.Verdict == "" {
+		review.Verdict = "unavailable"
+	} else if review.Verdict != "pass" {
+		review.Verdict = "revise"
+	}
+	for _, gap := range demandUndercovered(coverage) {
+		review.MissingStages = appendUniqueStrings(review.MissingStages, gap.Stage)
+	}
+	if len(review.MissingStages) > 0 || len(review.Rejected) > 0 {
+		review.Verdict = "revise"
+	}
+	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Buyer QC review: %s (%.2f) — %d rejection(s), %d under-covered stage(s)", review.Verdict, review.Score, len(review.Rejected), len(review.MissingStages)), "demand_qc", "")
+	return review
+}
+
 func buildStageCandidates(pool []*models.MarketLandscapeCompany, chain []models.ValueChainStage) ([]models.StageCandidates, []models.MarketLandscapeEvidence) {
 	byStage := make(map[string][]*models.MarketLandscapeCompany)
 	var unclassified []*models.MarketLandscapeCompany
@@ -539,7 +1036,7 @@ func buildStageCandidates(pool []*models.MarketLandscapeCompany, chain []models.
 			demoted = append(demoted, company.Evidence...)
 			continue
 		}
-		company.Status = marketStatus(company)
+		company.Status = demandStatus(company)
 		if strings.TrimSpace(company.Stage) == "" {
 			unclassified = append(unclassified, company)
 			continue
@@ -571,6 +1068,11 @@ func buildStageCandidates(pool []*models.MarketLandscapeCompany, chain []models.
 	for _, stage := range chain {
 		sections = append(sections, models.StageCandidates{Stage: stage, Companies: sortStageCompanies(byStage[stage.Name])})
 	}
+	// The channel category is always present in the roster (empty when the run found none), so
+	// the operator can see the distributor/wholesaler lane was run and judge its coverage.
+	sections = append(sections, models.StageCandidates{
+		Stage: demandDistributionStage(), Companies: sortStageCompanies(byStage[demandDistributionStageName]),
+	})
 	if len(unclassified) > 0 {
 		sections = append(sections, models.StageCandidates{
 			Stage: models.ValueChainStage{
@@ -775,7 +1277,7 @@ func demandMergeBucket(members []*models.MarketLandscapeCompany) *models.MarketL
 			}
 		}
 	}
-	rep.Status = marketStatus(&rep)
+	rep.Status = demandStatus(&rep)
 	return &rep
 }
 
@@ -800,11 +1302,11 @@ func normalizeDemandBudget(query *models.DemandChainQuery) {
 	if query.MaxLeadsEnriched <= 0 {
 		query.MaxLeadsEnriched = demandMaxLeadsEnriched
 	}
-	if query.MaxLeadsEnriched > 80 {
-		query.MaxLeadsEnriched = 80
+	if query.MaxLeadsEnriched > 100 {
+		query.MaxLeadsEnriched = 100
 	}
-	if query.MaxCompanies <= 0 || query.MaxCompanies > 50 {
-		query.MaxCompanies = 20
+	if query.MaxCompanies <= 0 || query.MaxCompanies > 80 {
+		query.MaxCompanies = 48
 	}
 }
 
@@ -1003,9 +1505,11 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 		demandLane{term: "raw material feedstock consumption"},
 		demandLane{term: "industrial applications manufacturers"},
 		// Distributors and wholesalers are retained as buyers: they purchase
-		// the product to resell it, which is real demand. Traders and brokers
-		// remain gated behind IncludeIntermediaries.
-		demandLane{term: "distributor wholesaler of"},
+		// the product to resell it, which is real demand. They are a separate
+		// channel category rather than a manufacturing stage, and two lanes keep
+		// the category from being lost when the query budget is tight.
+		demandLane{term: "distributor wholesaler of", stage: demandDistributionStageName},
+		demandLane{term: "authorised distributor wholesale supplier of", stage: demandDistributionStageName},
 	)
 	for _, country := range query.Countries {
 		lanes = append(lanes, demandLane{term: strings.TrimSpace(country) + " importer tender procurement"})
@@ -1077,6 +1581,7 @@ func selectDemandLanes(lanes []demandLane, budget int) []demandLane {
 	mandatory := map[string]bool{
 		"buyer procurement purchase": true,
 		"tender RFP e-procurement":   true,
+		"distributor wholesaler of":  true,
 	}
 	reserved := 0
 	for _, lane := range lanes {
@@ -1099,16 +1604,34 @@ func selectDemandLanes(lanes []demandLane, budget int) []demandLane {
 	}
 	selected := make([]demandLane, 0, capacity)
 	optionalBudget := budget - reserved
-	for _, lane := range lanes {
-		if mandatory[lane.term] {
-			continue
+	// Stage-carrying lanes run before generic product-shaped lanes: a budget-limited run must
+	// still tie at least one lane to each consuming stage the chain inferred.
+	addOptional := func(lanes []demandLane) {
+		for _, lane := range lanes {
+			if optionalBudget == 0 {
+				return
+			}
+			if mandatory[lane.term] {
+				continue
+			}
+			selected = append(selected, lane)
+			optionalBudget--
 		}
-		if optionalBudget == 0 {
-			break
-		}
-		selected = append(selected, lane)
-		optionalBudget--
 	}
+	var stageLanes, otherLanes []demandLane
+	for _, lane := range lanes {
+		if lane.stage != "" {
+			stageLanes = append(stageLanes, lane)
+		} else {
+			otherLanes = append(otherLanes, lane)
+		}
+	}
+	// Operator vocabulary ("biodiesel plant") is a more precise identity signal than a generic
+	// "largest manufacturers of ..." query, so within the stage reserve the shorter lane runs
+	// first when the budget cannot carry both.
+	sort.SliceStable(stageLanes, func(i, j int) bool { return len(stageLanes[i].term) < len(stageLanes[j].term) })
+	addOptional(stageLanes)
+	addOptional(otherLanes)
 	for _, lane := range lanes {
 		if mandatory[lane.term] {
 			selected = append(selected, lane)
@@ -1171,7 +1694,20 @@ func demandCandidate(hit models.SearchResult, lane demandLane, query models.Dema
 		sourceTier = sourceOverride
 	}
 	evidenceType := "company-page"
-	if classifyDiscoverySource(hit) != sourceOperator || sourceTier == "news" || sourceTier == "social" || sourceOverride != "" || isGenericMarketTitle(name) || isDemandBaitTitle(name) || !hasCompanyIdentitySignal(name, domain) {
+	articleShaped := marketDocumentTitle(hit.Title) || marketHeadlineTitle(hit.Title) ||
+		marketPublisherSuffix(hit.Title) || isDemandDocumentTitle(hit.Title) || isDemandBaitTitle(hit.Title) ||
+		isGenericMarketTitle(hit.Title)
+	if !articleShaped && !hasCompanyIdentitySignal(hit.Title, domain) {
+		// The title alone looks like a company but the snippet/headline context is a report
+		// or article. Keep it as a lead for extraction rather than promoting the title.
+		articleShaped = isDemandDocumentTitle(hit.Title + " " + hit.Snippet)
+	}
+	if articleShaped {
+		// The page title is a document/headline, not a company name. Keep the page as a lead so
+		// its *content* can supply company names, but never use its title as the company.
+		name = domain
+	}
+	if classifyDiscoverySource(hit) != sourceOperator || sourceTier == "news" || sourceTier == "social" || sourceOverride != "" || articleShaped || isGenericMarketTitle(name) || isDemandBaitTitle(name) || !hasCompanyIdentitySignal(name, domain) {
 		evidenceType = "discovery-lead"
 	}
 	// Product-shaped demand lanes must carry buyer language on the hit itself;
@@ -1186,7 +1722,7 @@ func demandCandidate(hit models.SearchResult, lane demandLane, query models.Dema
 		Evidence: []models.MarketLandscapeEvidence{{
 			URL: hit.Link, Title: hit.Title, Snippet: hit.Snippet, Lane: lane.term,
 			ClaimType: demandClaimForLane(lane), SourceTier: sourceTier,
-			RetrievedAt: time.Now(), Status: "candidate",
+			Date: hit.Date, RetrievedAt: time.Now(), Status: "candidate",
 		}},
 	}
 	// Intermediaries are excluded by default: a buyer list dominated by
@@ -1276,20 +1812,75 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 	if len(leads) == 0 {
 		return nil, 0, 0, 0, 0, nil
 	}
-	enrichable := leads
+	// A page can be read for company names without being promoted as a company. Dedupe the
+	// leads first, then spend the bounded read budget on the densest pages: research reports,
+	// directories and trade pages that list companies are exactly the pages buyer research must
+	// read, even though they can never be a buyer themselves.
+	deduped := make([]models.MarketLandscapeEvidence, 0, len(leads))
+	seenLeadURL := make(map[string]bool, len(leads))
+	for _, lead := range leads {
+		key := demandCanonicalURL(lead.URL)
+		if key == "" {
+			key = strings.ToLower(strings.TrimSpace(lead.URL))
+		}
+		if key == "" || seenLeadURL[key] {
+			continue
+		}
+		seenLeadURL[key] = true
+		deduped = append(deduped, lead)
+	}
+	enrichable := deduped
+	// Reserve the bounded extraction/read budget for stage-tied leads first. A tender or
+	// research-page lead is valuable, but if the first sixty leads are all general demand pages,
+	// a consuming stage can be starved before verification ever sees its operators.
+	hasStage := func(lead models.MarketLandscapeEvidence) bool {
+		if stage := strings.TrimSpace(laneStages[lead.Lane]); stage != "" {
+			return true
+		}
+		for term, stage := range laneStages {
+			if stage != "" && strings.Contains(lead.Lane, term) {
+				return true
+			}
+		}
+		return false
+	}
+	sort.SliceStable(enrichable, func(i, j int) bool {
+		left, right := hasStage(enrichable[i]), hasStage(enrichable[j])
+		if left != right {
+			return left
+		}
+		return marketLeadReadPriority(enrichable[i].SourceTier, enrichable[i].Title) < marketLeadReadPriority(enrichable[j].SourceTier, enrichable[j].Title)
+	})
 	if len(enrichable) > query.MaxLeadsEnriched {
 		enrichable = enrichable[:query.MaxLeadsEnriched]
+	}
+	ordered := append([]models.MarketLandscapeEvidence(nil), enrichable...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		left, right := hasStage(ordered[i]), hasStage(ordered[j])
+		if left != right {
+			return left
+		}
+		return marketLeadReadPriority(ordered[i].SourceTier, ordered[i].Title) < marketLeadReadPriority(ordered[j].SourceTier, ordered[j].Title)
+	})
+	if len(ordered) > demandMaxLeadPages {
+		ordered = ordered[:demandMaxLeadPages]
+	}
+	readable := make([]models.MarketLandscapeEvidence, 0, len(ordered))
+	targets := make([]string, 0, len(ordered))
+	for _, lead := range ordered {
+		if marketLeadReadable(lead.SourceTier, lead.Title) {
+			readable = append(readable, lead)
+			targets = append(targets, lead.URL)
+		}
+	}
+	leadByURL := make(map[string]models.MarketLandscapeEvidence, len(readable))
+	for _, lead := range readable {
+		leadByURL[demandCanonicalURL(lead.URL)] = lead
 	}
 	// Enrichment is bounded-concurrent through the engine's batch scraper —
 	// the same scrape semaphore every other scraping stage shares — so a deep
 	// run's dozens of lead pages do not crawl one by one. Outcomes arrive in
 	// submission order, so the lead order is stable.
-	targets := make([]string, 0, len(enrichable))
-	for _, lead := range enrichable {
-		if isQualifyingMarketTier(lead.SourceTier) {
-			targets = append(targets, lead.URL)
-		}
-	}
 	outcomes := a.engine.ScrapeCachedBatch(ctx, targets)
 	contentByURL := make(map[string]string, len(outcomes))
 	pagesEnriched := 0
@@ -1297,16 +1888,27 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 		if outcome.Err != nil || outcome.Result == nil {
 			continue
 		}
-		if content := strings.TrimSpace(outcome.Result.Content); content != "" {
-			contentByURL[demandCanonicalURL(outcome.URL)] = truncateMarketText(content, 3000)
-			pagesEnriched++
+		content := strings.TrimSpace(outcome.Result.Content)
+		if content == "" {
+			continue
 		}
+		lead := leadByURL[demandCanonicalURL(outcome.URL)]
+		limit := marketCompanyPageExcerpt
+		if marketRosterSourceTier(lead.SourceTier) || marketTitleHintsRoster(lead.Title) {
+			limit = marketRosterPageExcerpt
+		}
+		contentByURL[demandCanonicalURL(outcome.URL)] = marketPageExcerpt(content, limit)
+		pagesEnriched++
+		emitAgentEvent(eventCh, models.EventToolResult,
+			fmt.Sprintf("Read %s (%s) for buyer names: %d characters", hostname(outcome.URL), lead.SourceTier, len(content)),
+			"scrape", outcome.URL)
 	}
 	enrichedLeads := make([]models.MarketLandscapeEvidence, 0, len(enrichable))
 	for _, lead := range enrichable {
 		leadCopy := lead
 		if content, ok := contentByURL[demandCanonicalURL(lead.URL)]; ok {
 			leadCopy.Content = content
+			leadCopy.Status = "page read"
 		}
 		enrichedLeads = append(enrichedLeads, leadCopy)
 	}
@@ -1347,7 +1949,7 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 				leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 			}
 			var batch []models.MarketLandscapeLeadCandidate
-			prompt := fmt.Sprintf("Extract every actual company or facility operator explicitly supported by these leads as a consumer, buyer, importer, or processor of %q. %sExclude publishers, list titles, market-research vendors, regions, projects, and generic categories. Return the company's legal name — never a news headline, page title, or project name. Set producer to true when the page describes the company as a producer, manufacturer, or supplier of %q itself rather than a consumer of it. If a lead explicitly names a relevant procurement, purchasing, or supply-chain person, include the person's name in key_people; never infer people. Return a JSON array with name, country, reason, evidence_url as a string, producer as a boolean, and key_people as an array of strings.\nActivity: %s\nLeads:\n%s", query.Activity, geoPreference, query.Activity, query.Activity, strings.Join(leadText, "\n"))
+			prompt := fmt.Sprintf("Extract every actual company or facility operator explicitly supported by these leads as a consumer, buyer, importer, or processor of %q. %sThese leads include company pages, directories, news articles and research reports. A report or article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a key-players or buyer table. Name the operator, never the page: a report title, article headline, publisher name, site name, region, project or generic category is not a company. Exclude publishers, list titles, market-research vendors, regions, projects, and generic categories. Return the company's legal name — never a news headline, page title, or project name. Set producer to true when the page describes the company as a producer, manufacturer, or supplier of %q itself rather than a consumer of it. If a lead explicitly names a relevant procurement, purchasing, or supply-chain person, include the person's name in key_people; never infer people. Return a JSON array with name, country, reason, evidence_url as a string, producer as a boolean, and key_people as an array of strings.\nActivity: %s\nLeads:\n%s", query.Activity, geoPreference, query.Activity, query.Activity, strings.Join(leadText, "\n"))
 			if err := a.engine.GenerateStructured(ctx, "You extract company names for a buyer-research verification queue. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
 				batchErrs[batchIndex] = err.Error()
 			}
@@ -1472,7 +2074,7 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 		}
 	}
 	for _, company := range verified {
-		company.Status = marketStatus(company)
+		company.Status = demandStatus(company)
 	}
 	var extractionErr error
 	if len(extractionErrors) > 0 {
@@ -1577,10 +2179,18 @@ func demandClaimForLead(leads []models.MarketLandscapeEvidence, lead models.Mark
 // demandVerificationEvidence accepts one verification hit as consumption
 // evidence when the tier qualifies, the company is named, and the hit carries
 // buyer language or the activity itself. The claim type is read off the text.
+// demandVerificationTier is the buyer-side verification tier rule: only an operator-owned or
+// regulatory source can verify a buyer. Directory, trade, news, research, publisher and social
+// pages are corroboration only.
+func demandVerificationTier(tier string) bool {
+	return tier == "official" || tier == "regulatory"
+}
+
 func demandVerificationEvidence(hit models.SearchResult, company, activity, purpose string) (models.MarketLandscapeEvidence, bool) {
 	domain := hostname(hit.Link)
 	tier := marketSourceTier(domain)
-	if override := demandSourceOverride(domain); override != "" && override != "aggregator" {
+	override := demandSourceOverride(domain)
+	if override != "" && override != "aggregator" {
 		// Publishers, consultancies and institutions are commentary — never
 		// consumption evidence. Tender-portal domains are NOT overridden
 		// here: a tender listing hosted on a portal that names the buyer is
@@ -1588,15 +2198,28 @@ func demandVerificationEvidence(hit models.SearchResult, company, activity, purp
 		// are stopped from masquerading as companies at extraction).
 		tier = override
 	}
-	if !isQualifyingMarketTier(tier) || !mentionsMarketCompany(hit, company) {
+	if !demandVerificationTier(tier) || !mentionsMarketCompany(hit, company) {
+		return models.MarketLandscapeEvidence{}, false
+	}
+	// The shared tier helper calls any unrecognised domain "official". For an ordinary
+	// publisher or blog that is too generous, so an official source must also look like the
+	// company's own domain. Aggregator-hosted tender records are the explicit exception.
+	if tier == "official" && override == "" && !demandCompanyOwnsDomain(company, domain) {
 		return models.MarketLandscapeEvidence{}, false
 	}
 	if !hasDemandSignalEvidence(hit) && !hasMarketActivityEvidence(hit, activity) {
 		return models.MarketLandscapeEvidence{}, false
 	}
+	claim := demandClaimFromText(hit)
+	if override == "aggregator" && claim != models.DemandClaimTender && claim != models.DemandClaimImport {
+		// A directory/portal listing is a company page only when it carries a transaction record;
+		// its generic "company profile" text is corroboration, not verification.
+		return models.MarketLandscapeEvidence{}, false
+	}
 	return models.MarketLandscapeEvidence{
 		URL: hit.Link, Title: hit.Title, Snippet: hit.Snippet, Lane: "demand verification",
-		ClaimType: demandClaimFromText(hit), SourceTier: tier, RetrievedAt: time.Now(), Status: purpose,
+		ClaimType: claim, SourceTier: tier,
+		Date: hit.Date, RetrievedAt: time.Now(), Status: purpose,
 	}, true
 }
 

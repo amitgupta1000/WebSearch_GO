@@ -70,7 +70,7 @@ var sourceAggregatorMarkers = []string{
 // sourcePublisherMarkers are academic publishers and repositories:
 // bibliography, not operating entities.
 var sourcePublisherMarkers = []string{
-	"mdpi", "pubs.acs", "wiley", "sciencedirect", "springer", "researchgate",
+	"mdpi", "pubs.acs", "acs.org", "wiley", "sciencedirect", "springer", "researchgate",
 	"semanticscholar", "ssrn", "ieee", "journals", "scholar", "ncbi",
 	"nature.com", "sciencedaily", "scribd", "slideshare", "amazon.", "books.google",
 }

@@ -527,9 +527,12 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
 - **Demand chain** (`mode=demand_chain`) is the buyer-side counterpart of producer/seller landscape:
   it infers the product's value chain scoped to the buyer definition — manufacturers whose process
   consumes the product directly as an input (step 1) plus one derived step (step 2) — searches
-  operators of those consuming stages plus tender/import/input-language lanes, and verifies
-  consumption with claim-typed evidence. Its artifacts land under `demand-chain/` with the value
-  chain leading both documents.
+  operators of those consuming stages plus tender/import/input-language lanes, reads research,
+  news and directory pages for the companies they name, and verifies consumption with claim-typed
+  evidence. Distributors and wholesalers are reported as a separate resale category. Every stage
+  (and that category) must identify at least six companies; bounded gap searches and a post-assembly
+  QC review record coverage, rejections and follow-ups. Its artifacts land under `demand-chain/`
+  with the value chain leading both documents.
 - **Search results** remain available in the console per query, with each hit split into what
   the identity/entity gate kept and what it excluded. Exported runs contain only the Markdown
   and PDF report artifacts.
