@@ -173,6 +173,8 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 		}
 	}
 
+	a.reviewMarketReport(ctx, query, companies, report, eventCh)
+
 	report.CandidatesFound = len(companies)
 	for _, company := range companies {
 		company.Status = marketStatus(company)
@@ -207,6 +209,92 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	}
 	emitAgentEvent(eventCh, models.EventComplete, fmt.Sprintf("Producer/Seller Landscape complete: %d verified result(s), %d candidate(s)", len(report.Results), report.CandidatesFound), "", "")
 	return report, nil
+}
+
+// reviewMarketReport is the producer/seller QC judge. It challenges company identity and relevance,
+// applies only rejections of names already in the run, and records the deterministic coverage.
+func (a *MarketLandscapeAgent) reviewMarketReport(ctx context.Context, query models.MarketLandscapeQuery, companies map[string]*models.MarketLandscapeCompany, report *models.MarketLandscapeReport, eventCh chan<- models.AgentEvent) models.MarketLandscapeReview {
+	review := models.MarketLandscapeReview{}
+	names := make([]string, 0, len(companies))
+	for _, company := range companies {
+		names = append(names, company.Name)
+	}
+	sort.Strings(names)
+	var rows strings.Builder
+	for index, name := range names {
+		if index >= 50 {
+			break
+		}
+		for _, company := range companies {
+			if company.Name != name {
+				continue
+			}
+			fmt.Fprintf(&rows, "- %s | status=%s | country=%s | confidence=%.2f\n", company.Name, marketStatus(company), company.Country, company.Confidence)
+			evidenceLimit := len(company.Evidence)
+			if evidenceLimit > 2 {
+				evidenceLimit = 2
+			}
+			for _, evidence := range company.Evidence[:evidenceLimit] {
+				fmt.Fprintf(&rows, "  source: %s | %s | tier=%s | %s\n", evidence.Title, evidence.URL, evidence.SourceTier, truncateMarketText(evidence.Snippet, 220))
+			}
+			break
+		}
+	}
+	prompt := fmt.Sprintf(`Adversarially review this producer/seller landscape for %q.
+Reject a company when it is a publisher, directory, procurement portal, person, category, article,
+product page, association or generic aggregator; when it does not actually produce, manufacture or
+sell %q; when it belongs to a different activity; or when its evidence only mentions the activity in
+passing. Do not invent companies or replacements. The landscape should identify at least %d separate
+companies; report missing coverage if it does not. Return JSON with verdict (pass or revise), score
+0-1, rejected (name and reason), missing, and reason.
+Companies:
+%s`, query.Activity, query.Activity, marketCoverageMinimum, rows.String())
+	if err := a.engine.GenerateStructured(ctx,
+		"You are a strict producer/seller landscape reviewer. Reject publishers, directories, people, categories, articles, product pages and unrelated companies. Never invent a company or a replacement.",
+		prompt, &review); err != nil {
+		review.Verdict = "unavailable"
+		review.Reason = err.Error()
+		report.Warnings = append(report.Warnings, "Producer QC review unavailable: "+err.Error())
+		review.Coverage = &models.MarketCoverage{Companies: len(companies), Minimum: marketCoverageMinimum, Pass: len(companies) >= marketCoverageMinimum}
+		report.Reviews = append(report.Reviews, review)
+		return review
+	}
+	review.Verdict = strings.ToLower(strings.TrimSpace(review.Verdict))
+	if review.Verdict == "" {
+		review.Verdict = "unavailable"
+	}
+	rejected := make(map[string]string, len(review.Rejected))
+	for _, rejection := range review.Rejected {
+		if key := normalizeMarketName(rejection.Name); key != "" {
+			rejected[key] = rejection.Reason
+		}
+	}
+	for key, reason := range rejected {
+		for companyKey, company := range companies {
+			if normalizeMarketName(company.Name) != key {
+				continue
+			}
+			report.Appendix = append(report.Appendix, company.Evidence...)
+			report.Warnings = append(report.Warnings, fmt.Sprintf("Producer QC removed %s: %s.", company.Name, reason))
+			delete(companies, companyKey)
+			break
+		}
+	}
+	if len(rejected) > 0 {
+		review.Verdict = "revise"
+	}
+	if len(review.Missing) > 0 {
+		review.Verdict = "revise"
+	}
+	review.Coverage = &models.MarketCoverage{Companies: len(companies), Minimum: marketCoverageMinimum, Pass: len(companies) >= marketCoverageMinimum}
+	if !review.Coverage.Pass {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("Producer coverage is weak after QC: %d company(ies) identified; target is at least %d.", len(companies), marketCoverageMinimum))
+	}
+	report.Reviews = append(report.Reviews, review)
+	emitAgentEvent(eventCh, models.EventThinking,
+		fmt.Sprintf("Producer QC review: %s (%.2f), %d rejection(s), coverage %d/%d", review.Verdict, review.Score, len(rejected), review.Coverage.Companies, review.Coverage.Minimum),
+		"market_qc", "")
+	return review
 }
 
 // inferMarketCategory asks the first pass for the immediate downstream category that consumes the

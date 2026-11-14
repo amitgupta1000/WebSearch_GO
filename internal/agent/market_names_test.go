@@ -383,6 +383,7 @@ type marketPromptLLM struct {
 	userPrompts []string
 	candidates  []models.MarketLandscapeLeadCandidate
 	category    string
+	review      models.MarketLandscapeReview
 }
 
 func (m *marketPromptLLM) GenerateStructured(_ context.Context, _, userPrompt string, target any) error {
@@ -395,6 +396,9 @@ func (m *marketPromptLLM) GenerateStructured(_ context.Context, _, userPrompt st
 	}
 	if typed, ok := target.(*models.MarketLandscapeInference); ok {
 		typed.Category = m.category
+	}
+	if typed, ok := target.(*models.MarketLandscapeReview); ok {
+		*typed = m.review
 	}
 	return nil
 }
@@ -551,5 +555,33 @@ func TestMarketCategoryFallbackBroadensWeakDiscovery(t *testing.T) {
 	}
 	if report.Coverage == nil || !report.Coverage.Pass || report.Coverage.Companies < marketCoverageMinimum {
 		t.Errorf("coverage = %+v, want at least %d companies", report.Coverage, marketCoverageMinimum)
+	}
+}
+
+// TestMarketQCRejectsNonProducerNames: the producer QC judge removes a publisher/report name
+// already present in the candidate map, keeps the real company, and records coverage.
+func TestMarketQCRejectsNonProducerNames(t *testing.T) {
+	llm := &marketPromptLLM{review: models.MarketLandscapeReview{
+		Verdict: "revise", Score: 0.6,
+		Rejected: []models.DemandRejectedName{{Name: "Lubricant Market Report", Reason: "market report, not an operating company"}},
+	}}
+	agent := NewMarketLandscapeAgent(NewEngine(llm, &demandSearcher{}, &mockScraper{}, cache.NewMemoryCache(10), 5, 3, 10))
+	companies := map[string]*models.MarketLandscapeCompany{
+		"a": {EntityKey: "a", Name: "Acme Lubricants", EvidenceType: "company-page", Evidence: []models.MarketLandscapeEvidence{{URL: "https://acme.com", SourceTier: "official"}}},
+		"b": {EntityKey: "b", Name: "Lubricant Market Report", EvidenceType: "company-page", Evidence: []models.MarketLandscapeEvidence{{URL: "https://report.example.com", SourceTier: "research"}}},
+	}
+	report := &models.MarketLandscapeReport{Activity: "lubricant blending"}
+	review := agent.reviewMarketReport(context.Background(), models.MarketLandscapeQuery{Activity: "lubricant blending"}, companies, report, nil)
+	if _, ok := companies["b"]; ok {
+		t.Error("QC-rejected report remained in the company map")
+	}
+	if _, ok := companies["a"]; !ok {
+		t.Error("the real lubricant company was removed")
+	}
+	if review.Coverage == nil || review.Coverage.Companies != 1 || review.Coverage.Pass {
+		t.Errorf("coverage = %+v, want 1 and FAIL", review.Coverage)
+	}
+	if len(report.Reviews) != 1 || len(report.Appendix) == 0 {
+		t.Errorf("review/appendix = %+v/%d, want the rejection audited", report.Reviews, len(report.Appendix))
 	}
 }

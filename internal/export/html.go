@@ -110,6 +110,7 @@ var marketLandscapeHTMLTemplate = documentTemplate("market-landscape", `
 <section><h2>Results</h2>
 {{if .Market.Results}}<table><thead><tr><th>Company</th><th>Country</th><th>Activity</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Market.Results}}<tr><td>{{.Name}}</td><td>{{.Country}}</td><td>{{.Activity}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{else}}<p>No verified companies were promoted.</p>{{end}}
 {{if .Market.Coverage}}<p>Coverage: {{.Market.Coverage.Companies}} / {{.Market.Coverage.Minimum}} companies ({{if .Market.Coverage.Pass}}PASS{{else}}FAIL{{end}}).</p>{{end}}
+{{range .Market.Reviews}}<p><strong>{{.Verdict}}</strong> · score {{printf "%.2f" .Score}}{{if .Reason}} — {{.Reason}}{{end}}</p>{{if .Rejected}}<ul>{{range .Rejected}}<li>Rejected {{.Name}} — {{.Reason}}</li>{{end}}</ul>{{end}}{{end}}
 </section>
 <section><h2>Method summary</h2><p>{{.Market.SearchHits}} raw hits, {{.Market.LeadsReviewed}} leads reviewed, {{.Market.LeadsExtracted}} entities extracted, {{.Market.LeadsResolved}} resolved, {{.Market.PagesEnriched}} pages enriched, {{.Market.FallbackQueries}} category fallback queries.</p></section>
 <section><h2>Appendix — sources and validation evidence</h2>{{range .Market.Appendix}}<p class="src">{{.Title}} — {{.URL}} ({{.SourceTier}}, {{.Status}})</p>{{end}}</section>

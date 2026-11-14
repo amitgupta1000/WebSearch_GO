@@ -93,6 +93,17 @@ type MarketCoverage struct {
 	Pass      bool `json:"pass"`
 }
 
+// MarketLandscapeReview is the post-assembly producer/seller QC review. It is deterministic on
+// coverage and applies only rejections of companies already present in the run.
+type MarketLandscapeReview struct {
+	Verdict  string               `json:"verdict"`
+	Score    float64              `json:"score"`
+	Rejected []DemandRejectedName `json:"rejected,omitempty"`
+	Missing  []string             `json:"missing,omitempty"`
+	Coverage *MarketCoverage      `json:"coverage,omitempty"`
+	Reason   string               `json:"reason,omitempty"`
+}
+
 // MarketLandscapeReport separates verified results from the auditable corpus.
 type MarketLandscapeReport struct {
 	ResearchID        string                    `json:"research_id"`
@@ -102,6 +113,7 @@ type MarketLandscapeReport struct {
 	CategoryRationale string                    `json:"category_rationale,omitempty"`
 	CategorySource    string                    `json:"category_source,omitempty"`
 	Coverage          *MarketCoverage           `json:"coverage,omitempty"`
+	Reviews           []MarketLandscapeReview   `json:"reviews,omitempty"`
 	FallbackQueries   int                       `json:"fallback_queries,omitempty"`
 	Results           []MarketLandscapeCompany  `json:"results,omitempty"`
 	Appendix          []MarketLandscapeEvidence `json:"appendix,omitempty"`

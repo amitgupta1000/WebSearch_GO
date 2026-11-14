@@ -536,6 +536,10 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
   never `fuel`) broadens only weak stage searches. Bounded gap searches and list-page extraction fill
   what they can, and a post-assembly QC review records coverage, rejections and follow-ups. Its
   artifacts land under `demand-chain/` with the value chain leading both documents.
+- **Producer/Seller Landscape** uses the same validated category fallback and a post-assembly QC
+  review: the judge challenges company identity/relevance, rejected names remain auditable, and
+  the report records coverage (minimum six companies). Key-person discovery is not run; the budget
+  stays on company search.
 - **Search results** remain available in the console per query, with each hit split into what
   the identity/entity gate kept and what it excluded. Exported runs contain only the Markdown
   and PDF report artifacts.

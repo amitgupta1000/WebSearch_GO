@@ -159,6 +159,8 @@
 	</div>
 	{{template "export_files" .Exports}}
 {{if .Coverage}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">Coverage: {{.Coverage.Companies}} / {{.Coverage.Minimum}} companies · {{if .Coverage.Pass}}<span class="text-emerald-300">PASS</span>{{else}}<span class="text-amber-300">FAIL</span>{{end}}</div>{{end}}
+	{{range .Reviews}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300"><span class="text-[10px] uppercase tracking-wide text-indigo-400">Quality review</span> · {{.Verdict}} · {{printf "%.2f" .Score}}{{if .Reason}} — {{.Reason}}{{end}}{{range .Rejected}}<div class="text-amber-300 mt-1">Rejected {{.Name}} — {{.Reason}}</div>{{end}}</div>{{end}}
+
 
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
 	{{if .Results}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Results}}

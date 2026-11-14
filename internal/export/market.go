@@ -35,6 +35,20 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 		}
 		fmt.Fprintf(&b, "\nCoverage: %d/%d companies (%s).\n", report.Coverage.Companies, report.Coverage.Minimum, status)
 	}
+	for _, review := range report.Reviews {
+		fmt.Fprintf(&b, "\n### Quality review\n\nVerdict: **%s**; score %.2f.%s\n\n", strings.TrimSpace(review.Verdict), review.Score, func() string {
+			if strings.TrimSpace(review.Reason) == "" {
+				return ""
+			}
+			return " " + strings.TrimSpace(review.Reason)
+		}())
+		for _, rejected := range review.Rejected {
+			fmt.Fprintf(&b, "- Rejected **%s** - %s\n", rejected.Name, rejected.Reason)
+		}
+		if len(review.Missing) > 0 {
+			fmt.Fprintf(&b, "- Missing: %s\n", strings.Join(review.Missing, ", "))
+		}
+	}
 	fmt.Fprintf(&b, "\n## Method summary\n\n%d raw hits; %d leads reviewed; %d entities extracted; %d resolved; %d pages enriched; %d category fallback queries.\n\n## Appendix - sources and validation evidence\n\n", report.SearchHits, report.LeadsReviewed, report.LeadsExtracted, report.LeadsResolved, report.PagesEnriched, report.FallbackQueries)
 	for _, evidence := range report.Appendix {
 		fmt.Fprintf(&b, "- [%s](%s) - %s; %s; %s\n", evidence.Title, evidence.URL, evidence.SourceTier, evidence.ClaimType, evidence.Status)
