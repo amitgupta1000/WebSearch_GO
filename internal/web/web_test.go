@@ -13,7 +13,7 @@ func TestTemplatesParseAndLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Templates(): %v", err)
 	}
-	for _, name := range []string{"index.html", "company_chart", "company_result", "question_answer", "person_dossier", "error_box", "workflow_console", "log_entry", "market_landscape_report", "market_rocketreach_result", "demand_chain_report", "news_report"} {
+	for _, name := range []string{"index.html", "company_chart", "company_result", "question_answer", "person_dossier", "error_box", "workflow_console", "log_entry", "market_landscape_report", "market_rocketreach_result", "market_rocketreach_company_result", "demand_chain_report", "news_report"} {
 		if tmpl.Lookup(name) == nil {
 			t.Errorf("template %q not found", name)
 		}
@@ -51,6 +51,7 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 				Role:            models.MarketRoleManufacturer,
 				Presence:        models.MarketPresenceLocal,
 				PresenceCountry: "India",
+				Description:     "Peninsula operates a fuel-oil blending and storage terminal.",
 				KeyPeople:       []string{"Jeroen De Vos", "Victor Morales"},
 				Evidence: []models.MarketLandscapeEvidence{{
 					Title: "Storage and blending", URL: "https://example.com/peninsula",
@@ -66,6 +67,7 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 			{Key: models.MarketRoleManufacturer, Label: "Manufacturers / producers", Presence: models.MarketPresenceLocal, Companies: []models.MarketLandscapeCompany{{
 				Name: "Peninsula", Status: "verified", Role: models.MarketRoleManufacturer,
 				Presence: models.MarketPresenceLocal, PresenceCountry: "India",
+				Description: "Peninsula operates a fuel-oil blending and storage terminal.",
 			}}},
 			{Key: "global", Label: "Global / cross-border", Presence: models.MarketPresenceGlobal, Companies: []models.MarketLandscapeCompany{{
 				Name: "Global Additives", Status: "corroborated", Role: models.MarketRoleManufacturer,
@@ -82,10 +84,13 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 	for _, expected := range []string{
 		`<h3 class="text-2xl font-bold text-white">Producer/Seller Landscape</h3>`,
 		"Storage and blending",
+		"Peninsula operates a fuel-oil blending and storage terminal.",
 		"Manufacturers / producers",
 		"Global / cross-border",
 		"excluded from local coverage",
 		"qc passed",
+		"RR contacts",
+		"/api/market-landscape/rocketreach/company",
 		"qc failed",
 		"No QC objection.",
 		"publisher, not an operator",
@@ -93,6 +98,52 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("market_landscape_report is missing %q", expected)
+		}
+	}
+}
+
+// TestMarketRocketReachCompanyResultRenders keeps the on-demand contact
+// surface honest: strict filter text, grouped profiles and a paid contact
+// action must all be present in the returned fragment.
+func TestMarketRocketReachCompanyResultRenders(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	type profile struct {
+		ID              int
+		Name            string
+		CurrentTitle    string
+		CurrentEmployer string
+		Location        string
+		LinkedInURL     string
+	}
+	type group struct {
+		Label    string
+		Profiles []profile
+	}
+	view := struct {
+		Company  string
+		Location string
+		Query    string
+		Groups   []group
+		Error    string
+		Warning  string
+	}{
+		Company: "Acme Lubricants", Location: "India",
+		Query: "leadership + procurement/purchasing + sales/marketing; 5+ years",
+		Groups: []group{{Label: "Leadership", Profiles: []profile{{
+			ID: 42, Name: "Asha Rao", CurrentTitle: "Head of Procurement", CurrentEmployer: "Acme Lubricants", Location: "Mumbai, India",
+		}}}},
+	}
+	var out strings.Builder
+	if err := tmpl.ExecuteTemplate(&out, "market_rocketreach_company_result", view); err != nil {
+		t.Fatalf("execute market_rocketreach_company_result: %v", err)
+	}
+	rendered := out.String()
+	for _, expected := range []string{"RocketReach contacts", "5+ years", "Leadership", "Asha Rao", "Fetch contact", "/api/market-landscape/rocketreach"} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("market_rocketreach_company_result is missing %q", expected)
 		}
 	}
 }

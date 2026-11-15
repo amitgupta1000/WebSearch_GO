@@ -28,7 +28,7 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 			if group.Presence == models.MarketPresenceGlobal {
 				b.WriteString("Global/cross-border footprint only; visible for audit and excluded from local coverage.\n\n")
 			}
-			b.WriteString("| Company | Role | Presence | Operating geography | HQ | Status | Confidence |\n|---|---|---|---|---|---|---|\n")
+			b.WriteString("| Company | Role | Presence | Operating geography | HQ | Description | Status | Confidence |\n|---|---|---|---|---|---|---|---|\n")
 			for _, result := range group.Companies {
 				operating := result.PresenceCountry
 				if result.Presence == models.MarketPresenceGlobal || result.Presence == models.MarketPresenceUnknown {
@@ -36,15 +36,16 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 				} else if operating == "" {
 					operating = result.Country
 				}
-				fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %.0f%% |\n",
-					result.Name, result.Role, result.Presence, operating, result.HQCountry, result.Status, result.Confidence*100)
+				fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %.0f%% |\n",
+					result.Name, result.Role, result.Presence, operating, result.HQCountry,
+					marketMarkdownCell(result.Description), result.Status, result.Confidence*100)
 			}
 			b.WriteString("\n")
 		}
 	} else {
-		b.WriteString("| Company | Role | Country | Activity | Status | Confidence |\n|---|---|---|---|---|---|\n")
+		b.WriteString("| Company | Role | Country | Activity | Description | Status | Confidence |\n|---|---|---|---|---|---|---|\n")
 		for _, result := range report.Results {
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %.0f%% |\n", result.Name, result.Role, result.Country, result.Activity, result.Status, result.Confidence*100)
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %.0f%% |\n", result.Name, result.Role, result.Country, result.Activity, marketMarkdownCell(result.Description), result.Status, result.Confidence*100)
 		}
 	}
 	if report.Coverage != nil {
@@ -98,4 +99,10 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 		fmt.Fprintf(&b, "- [%s](%s) - %s; %s; %s\n", evidence.Title, evidence.URL, evidence.SourceTier, evidence.ClaimType, evidence.Status)
 	}
 	return b.String()
+}
+
+func marketMarkdownCell(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	value = strings.ReplaceAll(value, "|", "\\|")
+	return strings.TrimSpace(value)
 }

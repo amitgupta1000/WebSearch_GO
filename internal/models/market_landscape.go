@@ -123,9 +123,12 @@ type MarketLandscapeCompany struct {
 	// describes itself as a producer of the product itself — the supply side.
 	// Such a company is a buyer only with transactional or input-language
 	// proof; false on supplier-side runs.
-	ProducerSignal   bool                      `json:"producer_signal,omitempty"`
-	EvidenceType     string                    `json:"evidence_type,omitempty"`
-	EvidenceSummary  string                    `json:"evidence_summary,omitempty"`
+	ProducerSignal  bool   `json:"producer_signal,omitempty"`
+	EvidenceType    string `json:"evidence_type,omitempty"`
+	EvidenceSummary string `json:"evidence_summary,omitempty"`
+	// Description is a short, evidence-backed summary for the result card. It
+	// is empty when the collected snippets do not contain descriptive prose.
+	Description      string                    `json:"description,omitempty"`
 	BusinessContact  []string                  `json:"business_contact,omitempty"`
 	KeyPeople        []string                  `json:"key_people,omitempty"`
 	KeyPeopleSources map[string]string         `json:"key_people_sources,omitempty"`

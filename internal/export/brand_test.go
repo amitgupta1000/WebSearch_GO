@@ -206,6 +206,7 @@ func TestMarketRoleAndGlobalSectionsRender(t *testing.T) {
 	local := models.MarketLandscapeCompany{
 		Name: "Pune Blending", Status: "verified", Role: models.MarketRoleManufacturer,
 		Presence: models.MarketPresenceLocal, PresenceCountry: "India",
+		Description: "Operates a lubricant blending plant in Pune.",
 	}
 	global := models.MarketLandscapeCompany{
 		Name: "Global Additives", Status: "corroborated", Role: models.MarketRoleManufacturer,
@@ -221,7 +222,7 @@ func TestMarketRoleAndGlobalSectionsRender(t *testing.T) {
 		Coverage: &models.MarketCoverage{Companies: 1, Minimum: 6, Global: 1, Pass: false},
 	}
 	markdown := renderMarketLandscapeMarkdown(report)
-	for _, expected := range []string{"### Manufacturers / producers", "### Global / cross-border", "excluded from local coverage", "1/6 in-scope", "1 global/cross-border"} {
+	for _, expected := range []string{"### Manufacturers / producers", "### Global / cross-border", "excluded from local coverage", "1/6 in-scope", "1 global/cross-border", "Operates a lubricant blending plant in Pune."} {
 		if !strings.Contains(markdown, expected) {
 			t.Errorf("market Markdown is missing %q", expected)
 		}

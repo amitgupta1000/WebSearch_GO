@@ -144,8 +144,29 @@
 {{end}}
 
 {{define "market_result_card"}}
-<div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
-	<div class="flex justify-between gap-3"><span class="font-semibold text-white">{{.Name}}</span><span class="text-[10px] text-emerald-300">{{.Status}}</span></div>
+<div class="rr-company-card bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+	<div class="flex flex-wrap justify-between gap-2">
+		<span class="font-semibold text-white">{{.Name}}</span>
+		<div class="flex flex-wrap items-center gap-2">
+			<span class="text-[10px] text-emerald-300">{{.Status}}</span>
+			{{if or .PresenceCountry .HQCountry .Country}}
+			<form hx-post="/api/market-landscape/rocketreach/company" hx-target="next .rr-company-results" hx-swap="innerHTML" class="inline">
+				<input type="hidden" name="company_name" value="{{.Name}}">
+				<input type="hidden" name="location" value="{{if .PresenceCountry}}{{.PresenceCountry}}{{else if .HQCountry}}{{.HQCountry}}{{else}}{{.Country}}{{end}}">
+				<button type="submit" title="Strict RocketReach search: leadership, procurement/purchasing, sales/marketing; 5+ years; exact location"
+				        class="text-[10px] rounded-full border border-indigo-800 bg-indigo-950/40 px-2 py-1 text-indigo-200 hover:bg-indigo-900/50">RR contacts</button>
+			</form>
+			{{else}}
+			<span class="text-[10px] text-slate-600" title="No verified company location is available for a strict search">RR needs location</span>
+			{{end}}
+			<div class="rr-company-results w-full"></div>
+		</div>
+	</div>
+	<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
+		<span class="rounded-full border border-indigo-900/70 bg-indigo-950/30 px-2 py-0.5">{{if .Role}}{{.Role}}{{else}}unclassified{{end}}</span>
+		<span class="rounded-full border border-slate-700 px-2 py-0.5">{{if .Presence}}{{.Presence}}{{else}}location unknown{{end}}</span>
+	</div>
+	{{if or .PresenceCountry .HQCountry .Country}}<div class="text-[10px] text-slate-600">RR filter: {{if .PresenceCountry}}{{.PresenceCountry}}{{else if .HQCountry}}{{.HQCountry}}{{else}}{{.Country}}{{end}} · leadership, procurement/purchasing, sales/marketing · 5+ years</div>{{end}}
 	<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
 		<span class="rounded-full border border-indigo-900/70 bg-indigo-950/30 px-2 py-0.5">{{if .Role}}{{.Role}}{{else}}unclassified{{end}}</span>
 		<span class="rounded-full border border-slate-700 px-2 py-0.5">{{if .Presence}}{{.Presence}}{{else}}location unknown{{end}}</span>
@@ -160,7 +181,7 @@
 	{{if and .HQCountry .PresenceCountry}}<div class="text-[11px] text-slate-500">HQ: {{.HQCountry}}</div>{{end}}
 	{{if .PresenceReason}}<div class="text-[11px] text-slate-500">{{.PresenceReason}}</div>{{end}}
 	{{if .EvidenceType}}<div class="text-[11px] text-slate-500">Verification: {{.EvidenceType}}</div>{{end}}
-	{{if .EvidenceSummary}}<p class="text-xs text-slate-300 leading-relaxed">{{.EvidenceSummary}}</p>{{end}}
+	{{if .Description}}<p class="text-xs text-slate-300 leading-relaxed">{{.Description}}</p>{{else}}<p class="text-xs text-slate-500">No descriptive summary was available in the collected snippets.</p>{{end}}
 </div>
 {{end}}
 
@@ -409,6 +430,37 @@
 	{{if .Synthesis.KeyDevelopments}}<div><h4 class="text-sm font-semibold text-slate-300 mb-2">Key developments</h4><ul class="list-disc pl-5 text-sm text-slate-400 space-y-1">{{range .Synthesis.KeyDevelopments}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
 	{{if .Synthesis.Conflicts}}<div><h4 class="text-sm font-semibold text-slate-300 mb-2">Conflicting reporting</h4><div class="space-y-2">{{range .Synthesis.Conflicts}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-3"><div class="text-xs text-white">{{.Claim}}</div><div class="text-[11px] text-indigo-300 mt-1">{{.Resolution}}</div><p class="text-xs text-slate-400 mt-1">{{.Explanation}}</p></div>{{end}}</div></div>{{end}}
 	{{if .Articles}}<details class="border-t border-slate-800 pt-5"><summary class="cursor-pointer text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Sources and evidence</summary><div class="mt-3 space-y-3">{{range .Articles}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-3"><a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-xs text-indigo-400 hover:underline">{{.Title}}</a><div class="text-[11px] text-slate-500 mt-1">{{.Source}} · {{.PublishedAt}} · {{len .Chunks}} chunk(s)</div><p class="text-[11px] text-slate-500 mt-1">{{.Snippet}}</p></div>{{end}}</div></details>{{end}}
+</div>
+{{end}}
+
+{{define "market_rocketreach_company_result"}}
+<div class="mt-2 w-full rounded-lg border border-indigo-900/60 bg-indigo-950/20 p-2 text-[11px] text-slate-300">
+	<div class="flex flex-wrap items-baseline justify-between gap-2"><span class="font-medium text-indigo-200">RocketReach contacts</span><span class="text-[10px] text-slate-500">{{.Location}} · 5+ years</span></div>
+	{{if .Query}}<div class="text-[10px] text-slate-500 mt-0.5">{{.Query}}</div>{{end}}
+	{{if .Error}}<div class="text-amber-300 mt-2">{{.Error}}</div>{{end}}
+	{{if .Warning}}<div class="text-amber-300 mt-2">{{.Warning}}</div>{{end}}
+	{{range .Groups}}
+	<div class="mt-2">
+		<div class="text-[10px] uppercase tracking-wide text-slate-500">{{.Label}} · {{len .Profiles}}</div>
+		{{range .Profiles}}
+		<div class="mt-1 rounded border border-slate-800 bg-slate-950/70 p-2">
+			<div class="flex flex-wrap items-baseline justify-between gap-2">
+				<span class="text-slate-100">{{.Name}}</span>
+				{{if .ID}}<form hx-post="/api/market-landscape/rocketreach" hx-target="#rr-profile-{{.ID}}" hx-swap="innerHTML" class="inline">
+					<input type="hidden" name="rocketreach_id" value="{{.ID}}">
+					<input type="hidden" name="person_name" value="{{.Name}}">
+					<input type="hidden" name="company_name" value="{{.CurrentEmployer}}">
+					<button type="submit" class="text-[10px] text-indigo-300 hover:text-indigo-200 underline">Fetch contact</button>
+				</form>{{end}}
+			</div>
+			{{if .CurrentTitle}}<div class="text-slate-400">{{.CurrentTitle}}{{if .CurrentEmployer}} · {{.CurrentEmployer}}{{end}}</div>{{end}}
+			{{if .Location}}<div class="text-slate-500">{{.Location}}</div>{{end}}
+			{{if .LinkedInURL}}<a href="{{.LinkedInURL}}" target="_blank" rel="noreferrer" class="text-indigo-300 hover:underline">LinkedIn</a>{{end}}
+			<div id="rr-profile-{{.ID}}"></div>
+		</div>
+		{{end}}
+	</div>
+	{{end}}
 </div>
 {{end}}
 

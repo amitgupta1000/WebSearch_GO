@@ -1,10 +1,28 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
+
+func TestMarketDescriptionUsesOnlyCollectedEvidence(t *testing.T) {
+	company := &models.MarketLandscapeCompany{
+		Name: "Acme Lubricants",
+		Evidence: []models.MarketLandscapeEvidence{{
+			Title: "Acme Lubricants", Snippet: "Acme manufactures and blends industrial lubricants from its Pune plant.",
+		}},
+	}
+	description := marketDescriptionFor(company)
+	if !strings.Contains(description, "Pune plant") {
+		t.Fatalf("description = %q, want the scraped snippet", description)
+	}
+	empty := marketDescriptionFor(&models.MarketLandscapeCompany{Name: "Name Only"})
+	if empty != "" {
+		t.Fatalf("description = %q, want no invented summary for a name-only row", empty)
+	}
+}
 
 func TestMarketRoleClassificationSeparatesManufacturersAndIntermediaries(t *testing.T) {
 	cases := []struct {

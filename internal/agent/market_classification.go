@@ -19,7 +19,33 @@ func classifyMarketCompanies(companies map[string]*models.MarketLandscapeCompany
 		company.PresenceCountry = country
 		company.PresenceReason = reason
 		company.HQCountry = hq
+		company.Description = marketDescriptionFor(company)
 	}
+}
+
+// marketDescriptionFor uses only collected evidence. The fallback is an empty
+// string: a directory hit with just a name must not become an invented profile.
+func marketDescriptionFor(company *models.MarketLandscapeCompany) string {
+	candidates := []string{company.EvidenceSummary}
+	for _, evidence := range company.Evidence {
+		candidates = append(candidates, evidence.Snippet)
+	}
+	for _, evidence := range company.Evidence {
+		candidates = append(candidates, evidence.Content)
+	}
+	nameKey := strings.ToLower(strings.TrimSpace(company.Name))
+	for _, candidate := range candidates {
+		description := strings.Join(strings.Fields(candidate), " ")
+		description = strings.TrimSpace(description)
+		if len(description) < 24 || strings.EqualFold(description, nameKey) {
+			continue
+		}
+		if len([]rune(description)) > 280 {
+			description = string([]rune(description)[:280]) + "…"
+		}
+		return description
+	}
+	return ""
 }
 
 func marketRoleFor(company *models.MarketLandscapeCompany) (string, []string) {

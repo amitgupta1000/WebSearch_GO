@@ -325,6 +325,32 @@ func postForm(path, body string) *http.Request {
 	return r
 }
 
+func TestMarketRocketReachCompanyQueriesAreStrict(t *testing.T) {
+	queries := marketRocketReachCompanyQueries("Acme Lubricants", "India")
+	if len(queries) != 3 {
+		t.Fatalf("queries = %d, want leadership, procurement/purchasing and sales/marketing", len(queries))
+	}
+	for _, query := range queries {
+		if query.Query["current_employer"][0] != "Acme Lubricants" ||
+			query.Query["location"][0] != "India" ||
+			query.Query["years_experience"][0] != "5+" {
+			t.Errorf("%s query = %#v, want strict employer/location/5+ filters", query.Label, query.Query)
+		}
+		if len(query.Query["management_levels"]) != 4 {
+			t.Errorf("%s management levels = %v, want cxo/vp/director/manager", query.Label, query.Query["management_levels"])
+		}
+	}
+	if got := strings.Join(queries[1].Query["department"], ","); got != "procurement,purchasing" {
+		t.Errorf("procurement departments = %q", got)
+	}
+	if got := strings.Join(queries[2].Query["department"], ","); got != "sales,marketing" {
+		t.Errorf("sales departments = %q", got)
+	}
+	if len(queries[0].Query["department"]) != 0 {
+		t.Errorf("leadership query must not carry a department filter: %v", queries[0].Query["department"])
+	}
+}
+
 func TestMarketLandscapeQueryCarriesEditableQCPrompt(t *testing.T) {
 	query := marketLandscapeQueryFromForm(postForm("/api/research", "market_qc_prompt=CUSTOM+QC+POLICY"), "lubricant blending")
 	if query.QCPrompt != "CUSTOM QC POLICY" {
