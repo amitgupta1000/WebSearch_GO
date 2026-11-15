@@ -112,6 +112,10 @@ var marketLandscapeHTMLTemplate = documentTemplate("market-landscape", `
 {{if .Market.Coverage}}<p>Coverage: {{.Market.Coverage.Companies}} / {{.Market.Coverage.Minimum}} companies ({{if .Market.Coverage.Pass}}PASS{{else}}FAIL{{end}}).</p>{{end}}
 {{range .Market.Reviews}}<p><strong>{{.Verdict}}</strong> · score {{printf "%.2f" .Score}}{{if .Reason}} — {{.Reason}}{{end}}</p>{{if .Rejected}}<ul>{{range .Rejected}}<li>Rejected {{.Name}} — {{.Reason}}</li>{{end}}</ul>{{end}}{{end}}
 </section>
+<section><h2>QC results</h2>
+{{if .Market.QCPromptSource}}<p class="dim">QC prompt source: {{.Market.QCPromptSource}}</p>{{end}}
+{{if .Market.Reviews}}{{range .Market.Reviews}}<p><strong>{{.Verdict}}</strong> · {{.Passed}} passed · {{.Failed}} failed</p>{{if .Verdicts}}<table><thead><tr><th>Company</th><th>QC tag</th><th>Reason</th></tr></thead><tbody>{{range .Verdicts}}<tr><td>{{.Name}}</td><td>qc {{.Verdict}}</td><td>{{.Reason}}</td></tr>{{end}}</tbody></table>{{else}}<p>No per-company QC verdicts were recorded.</p>{{end}}{{end}}{{else}}<p>No QC review was recorded for this run.</p>{{end}}
+</section>
 <section><h2>Method summary</h2><p>{{.Market.SearchHits}} raw hits, {{.Market.LeadsReviewed}} leads reviewed, {{.Market.LeadsExtracted}} entities extracted, {{.Market.LeadsResolved}} resolved, {{.Market.PagesEnriched}} pages enriched, {{.Market.FallbackQueries}} category fallback queries.</p></section>
 <section><h2>Appendix — sources and validation evidence</h2>{{range .Market.Appendix}}<p class="src">{{.Title}} — {{.URL}} ({{.SourceTier}}, {{.Status}})</p>{{end}}</section>
 <footer>Crystal AI &middot; detailed source evidence is retained in the appendix.</footer>

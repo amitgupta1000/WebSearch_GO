@@ -258,6 +258,17 @@
                             <input type="text" name="market_exclusions" placeholder="e.g. brokers, logistics-only firms"
                                    class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm mt-1">
                         </div>
+                        <div class="sm:col-span-2">
+                            <div class="flex items-center justify-between gap-3">
+                                <label for="market-qc-prompt" class="text-xs font-medium text-slate-400">QC review prompt (editable)</label>
+                                <button type="button" onclick="resetMarketQCPrompt()"
+                                        class="text-[11px] text-indigo-300 hover:text-indigo-200 underline underline-offset-2">Reset default</button>
+                            </div>
+                            <textarea id="market-qc-prompt" name="market_qc_prompt" rows="8" maxlength="6000"
+                                      class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs font-mono mt-1">{{.MarketQCPrompt}}</textarea>
+                            <textarea id="market-qc-prompt-default" class="hidden" aria-hidden="true" tabindex="-1">{{.MarketQCPrompt}}</textarea>
+                            <p class="text-[11px] text-slate-500 mt-1">The reviewer sees this policy after results are assembled. It can reject companies, report missing coverage, and correct scope, but never add a company. QC outcomes are saved in the <span class="text-slate-400">QC results</span> tab of the report.</p>
+                        </div>
                         <div class="sm:col-span-2 flex flex-wrap gap-4 text-xs text-slate-300">
                             <label><input type="checkbox" name="market_contacts" value="1" class="mr-1 accent-indigo-500"> Collect public business contacts</label>
                         </div>
@@ -463,6 +474,27 @@
             if (!table) return;
             const showing = !table.classList.toggle('hidden');
             button.textContent = (showing ? 'Hide table' : 'Show table') + button.textContent.replace(/^(Hide table|Show table)/, '');
+        }
+
+        function resetMarketQCPrompt() {
+            const prompt = document.getElementById('market-qc-prompt');
+            const fallback = document.getElementById('market-qc-prompt-default');
+            if (prompt && fallback) prompt.value = fallback.value;
+        }
+
+        function showMarketTab(tab) {
+            document.querySelectorAll('[data-market-tab]').forEach(function(button) {
+                const active = button.dataset.marketTab === tab;
+                button.classList.toggle('bg-indigo-500/15', active);
+                button.classList.toggle('text-indigo-200', active);
+                button.classList.toggle('text-slate-400', !active);
+                button.classList.toggle('border-indigo-500', active);
+                button.classList.toggle('border-transparent', !active);
+                button.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+            document.querySelectorAll('[data-market-panel]').forEach(function(panel) {
+                panel.classList.toggle('hidden', panel.dataset.marketPanel !== tab);
+            });
         }
 
         function toggleFields(mode) {

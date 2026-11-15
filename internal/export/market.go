@@ -35,6 +35,27 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 		}
 		fmt.Fprintf(&b, "\nCoverage: %d/%d companies (%s).\n", report.Coverage.Companies, report.Coverage.Minimum, status)
 	}
+	b.WriteString("\n## QC results\n\n")
+	if strings.TrimSpace(report.QCPromptSource) != "" {
+		fmt.Fprintf(&b, "QC prompt source: **%s**.\n\n", report.QCPromptSource)
+	}
+	if len(report.Reviews) == 0 {
+		b.WriteString("No QC review was recorded for this run.\n")
+	}
+	for _, review := range report.Reviews {
+		fmt.Fprintf(&b, "Verdict: **%s**; score %.2f; %d passed, %d failed.\n\n", strings.TrimSpace(review.Verdict), review.Score, review.Passed, review.Failed)
+		if len(review.Verdicts) > 0 {
+			b.WriteString("| Company | QC tag | Reason |\n|---|---|---|\n")
+			for _, verdict := range review.Verdicts {
+				fmt.Fprintf(&b, "| %s | qc %s | %s |\n", verdict.Name, verdict.Verdict, verdict.Reason)
+			}
+		} else {
+			for _, rejected := range review.Rejected {
+				fmt.Fprintf(&b, "| %s | qc failed | %s |\n", rejected.Name, rejected.Reason)
+			}
+		}
+		b.WriteString("\n")
+	}
 	for _, review := range report.Reviews {
 		fmt.Fprintf(&b, "\n### Quality review\n\nVerdict: **%s**; score %.2f.%s\n\n", strings.TrimSpace(review.Verdict), review.Score, func() string {
 			if strings.TrimSpace(review.Reason) == "" {

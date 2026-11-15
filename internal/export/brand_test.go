@@ -199,7 +199,35 @@ func TestMarketCoverRenders(t *testing.T) {
 	}
 }
 
-// TestDemandChainMarkdownAndHTMLCarryTheChain pins the buyer-side branded
+// TestMarketQCTableRenders preserves the producer QC audit in both artifacts:
+// passed and failed companies stay visible with their reasons, not only the
+// rejections.
+func TestMarketQCTableRenders(t *testing.T) {
+	report := &models.MarketLandscapeReport{
+		Activity: "lubricant blending", Objective: "Map lubricant blenders.",
+		QCPrompt: "Reject publishers.", QCPromptSource: "custom",
+		Reviews: []models.MarketLandscapeReview{{
+			Verdict: "revise", Score: 0.8, Passed: 1, Failed: 1,
+			Verdicts: []models.MarketQCVerdict{
+				{Name: "Acme Lubricants", Verdict: "passed", Reason: "manufacturer with a blending plant"},
+				{Name: "Oil Weekly", Verdict: "failed", Reason: "publisher"},
+			},
+		}},
+	}
+	markdown := renderMarketLandscapeMarkdown(report)
+	for _, expected := range []string{"## QC results", "qc passed", "qc failed", "manufacturer with a blending plant", "publisher", "custom"} {
+		if !strings.Contains(markdown, expected) {
+			t.Errorf("market Markdown is missing %q", expected)
+		}
+	}
+	html := renderMarketLandscapeHTML(report)
+	for _, expected := range []string{"QC results", "qc passed", "qc failed", "manufacturer with a blending plant", "publisher"} {
+		if !strings.Contains(html, expected) {
+			t.Errorf("market HTML is missing %q", expected)
+		}
+	}
+}
+
 // report: the value chain leads the body, the demand claims travel with the
 // evidence, and the cover carries the demand-chain kicker.
 func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {

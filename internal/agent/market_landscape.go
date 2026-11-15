@@ -61,6 +61,9 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 		ResearchID: researchID, Objective: query.Objective, Activity: query.Activity,
 		Lanes: marketLanes(query), Iterations: 2, StartedAt: time.Now(),
 	}
+	qcPolicy, qcPromptSource := marketQCPolicy(query)
+	report.QCPrompt = qcPolicy
+	report.QCPromptSource = qcPromptSource
 	if query.IncludeContacts {
 		report.Warnings = append(report.Warnings, "Public business-contact collection is reserved for a later bounded pass; use the per-person Fetch contact details action for RocketReach enrichment.")
 	}
@@ -215,54 +218,46 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 // applies only rejections of names already in the run, and records the deterministic coverage.
 func (a *MarketLandscapeAgent) reviewMarketReport(ctx context.Context, query models.MarketLandscapeQuery, companies map[string]*models.MarketLandscapeCompany, report *models.MarketLandscapeReport, eventCh chan<- models.AgentEvent) models.MarketLandscapeReview {
 	review := models.MarketLandscapeReview{}
-	names := make([]string, 0, len(companies))
+	qcPolicy, qcPromptSource := marketQCPolicy(query)
+	report.QCPrompt = qcPolicy
+	report.QCPromptSource = qcPromptSource
+	submitted := make([]*models.MarketLandscapeCompany, 0, len(companies))
 	for _, company := range companies {
-		names = append(names, company.Name)
+		submitted = append(submitted, company)
 	}
-	sort.Strings(names)
+	sort.Slice(submitted, func(i, j int) bool {
+		return submitted[i].Name < submitted[j].Name
+	})
 	var rows strings.Builder
-	for index, name := range names {
+	for index, company := range submitted {
 		if index >= 50 {
 			break
 		}
-		for _, company := range companies {
-			if company.Name != name {
-				continue
-			}
-			fmt.Fprintf(&rows, "- %s | status=%s | country=%s | confidence=%.2f\n", company.Name, marketStatus(company), company.Country, company.Confidence)
-			evidenceLimit := len(company.Evidence)
-			if evidenceLimit > 2 {
-				evidenceLimit = 2
-			}
-			for _, evidence := range company.Evidence[:evidenceLimit] {
-				fmt.Fprintf(&rows, "  source: %s | %s | tier=%s | %s\n", evidence.Title, evidence.URL, evidence.SourceTier, truncateMarketText(evidence.Snippet, 220))
-			}
-			break
+		fmt.Fprintf(&rows, "- %s | status=%s | country=%s | confidence=%.2f\n", company.Name, marketStatus(company), company.Country, company.Confidence)
+		evidenceLimit := len(company.Evidence)
+		if evidenceLimit > 2 {
+			evidenceLimit = 2
+		}
+		for _, evidence := range company.Evidence[:evidenceLimit] {
+			fmt.Fprintf(&rows, "  source: %s | %s | tier=%s | %s\n", evidence.Title, evidence.URL, evidence.SourceTier, truncateMarketText(evidence.Snippet, 220))
 		}
 	}
 	prompt := fmt.Sprintf(`Adversarially review this producer/seller landscape for %q.
-Reject a company when it is a publisher, directory, procurement portal, person, category, article,
-product page, association or generic aggregator; when it does not actually produce, manufacture or
-sell %q; when it belongs to a different activity; or when its evidence only mentions the activity in
-passing. Reject engineering firms, plant/equipment vendors, automation suppliers and process
-explainers unless the evidence shows they also operate the production/blending process themselves.
-Important process-activity rule: if %q names a process such as blending, manufacturing or processing,
-accept a company that operates that process for its own products or output, even when it does not
-offer the process as a service to third parties. A lubricant manufacturer that runs a blending plant
-is a valid producer/seller of lubricant blending; a plant/equipment vendor, engineering consultancy,
-laboratory or directory is not. Do not require the word "blending" in the evidence: evidence that a
-company manufactures or refines the product is sufficient unless it shows the company is only a
-reseller, distributor, consultant or equipment vendor.
-Do not invent companies or replacements. The landscape should identify at least %d separate
-companies; report missing coverage if it does not. Return JSON with verdict (pass or revise), score
-0-1, rejected (name and reason), missing, and reason.
+
+QC POLICY SUPPLIED BY THE OPERATOR:
+%s
+
+The landscape should identify at least %d separate companies; report missing coverage if it does
+not. Return JSON with verdict (pass or revise), score 0-1, rejected (name and reason), missing, and
+reason. Never add a company that is not in the supplied list.
 Companies:
-%s`, query.Activity, query.Activity, query.Activity, marketCoverageMinimum, rows.String())
+%s`, query.Activity, qcPolicy, marketCoverageMinimum, rows.String())
 	if err := a.engine.GenerateStructured(ctx,
 		"You are a strict producer/seller landscape reviewer. Reject publishers, directories, people, categories, articles, product pages and unrelated companies. For a process activity, a manufacturer that operates the process for its own products is a valid producer/seller; do not require it to sell the process as a service. Never invent a company or a replacement.",
 		prompt, &review); err != nil {
 		review.Verdict = "unavailable"
 		review.Reason = err.Error()
+		review.Verdicts, review.Passed, review.Failed = marketQCVerdicts(submitted, nil, "QC review unavailable: "+err.Error())
 		report.Warnings = append(report.Warnings, "Producer QC review unavailable: "+err.Error())
 		review.Coverage = &models.MarketCoverage{Companies: len(companies), Minimum: marketCoverageMinimum, Pass: len(companies) >= marketCoverageMinimum}
 		report.Reviews = append(report.Reviews, review)
@@ -295,6 +290,11 @@ Companies:
 	if len(review.Missing) > 0 {
 		review.Verdict = "revise"
 	}
+	qcUnavailableReason := ""
+	if review.Verdict == "unavailable" {
+		qcUnavailableReason = "QC reviewer returned no verdict."
+	}
+	review.Verdicts, review.Passed, review.Failed = marketQCVerdicts(submitted, rejected, qcUnavailableReason)
 	review.Coverage = &models.MarketCoverage{Companies: len(companies), Minimum: marketCoverageMinimum, Pass: len(companies) >= marketCoverageMinimum}
 	if !review.Coverage.Pass {
 		report.Warnings = append(report.Warnings, fmt.Sprintf("Producer coverage is weak after QC: %d company(ies) identified; target is at least %d.", len(companies), marketCoverageMinimum))

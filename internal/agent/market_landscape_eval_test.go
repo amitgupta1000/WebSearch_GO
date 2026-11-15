@@ -123,6 +123,18 @@ func marketEvalScorecard(exp marketEvalCase, report *models.MarketLandscapeRepor
 			fmt.Fprintf(&b, "- **%s** — %s · %s · %.2f\n", result.Name, result.Country, result.Status, result.Confidence)
 		}
 	}
+	if len(report.Reviews) > 0 {
+		b.WriteString("\n## QC results\n\n")
+		if report.QCPromptSource != "" {
+			fmt.Fprintf(&b, "Prompt source: **%s**.\n\n", report.QCPromptSource)
+		}
+		b.WriteString("| Company | QC tag | Reason |\n|---|---|---|\n")
+		for _, review := range report.Reviews {
+			for _, verdict := range review.Verdicts {
+				fmt.Fprintf(&b, "| %s | qc %s | %s |\n", verdict.Name, verdict.Verdict, verdict.Reason)
+			}
+		}
+	}
 	if len(report.Reviews) > 0 || len(report.Warnings) > 0 {
 		b.WriteString("\n## Review and warnings\n\n")
 		for _, review := range report.Reviews {

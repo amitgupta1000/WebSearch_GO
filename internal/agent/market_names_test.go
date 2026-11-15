@@ -596,6 +596,50 @@ func TestMarketQCRejectsNonProducerNames(t *testing.T) {
 	if len(report.Reviews) != 1 || len(report.Appendix) == 0 {
 		t.Errorf("review/appendix = %+v/%d, want the rejection audited", report.Reviews, len(report.Appendix))
 	}
+	if review.Passed != 1 || review.Failed != 1 || len(review.Verdicts) != 2 {
+		t.Errorf("verdict counts = passed:%d failed:%d rows:%d, want 1/1/2", review.Passed, review.Failed, len(review.Verdicts))
+	}
+	verdicts := map[string]models.MarketQCVerdict{}
+	for _, verdict := range review.Verdicts {
+		verdicts[verdict.Name] = verdict
+	}
+	if verdicts["Acme Lubricants"].Verdict != "passed" || verdicts["Acme Lubricants"].Reason == "" {
+		t.Errorf("kept company verdict = %+v, want passed with a reason", verdicts["Acme Lubricants"])
+	}
+	if verdicts["Lubricant Market Report"].Verdict != "failed" || verdicts["Lubricant Market Report"].Reason == "" {
+		t.Errorf("rejected company verdict = %+v, want failed with the reviewer reason", verdicts["Lubricant Market Report"])
+	}
+}
+
+// TestMarketQCPolicyDistinguishesDefaultFromEdit: the prefilled textarea
+// submits the default policy on every run; that must stay "default", while a
+// changed policy is recorded as "custom".
+func TestMarketQCPolicyDistinguishesDefaultFromEdit(t *testing.T) {
+	policy, source := marketQCPolicy(models.MarketLandscapeQuery{QCPrompt: "  " + strings.ReplaceAll(DefaultMarketQCPrompt, "\n", "\r\n") + "  "})
+	if source != "default" || policy != DefaultMarketQCPrompt {
+		t.Errorf("prefilled default = %q/%q, want default policy", source, policy)
+	}
+	_, source = marketQCPolicy(models.MarketLandscapeQuery{QCPrompt: DefaultMarketQCPrompt + "\nReject banks."})
+	if source != "custom" {
+		t.Errorf("edited policy source = %q, want custom", source)
+	}
+}
+
+// policy in the reviewer prompt and be recorded on the report for audit.
+func TestMarketQCUsesOperatorPrompt(t *testing.T) {
+	llm := &marketPromptLLM{review: models.MarketLandscapeReview{Verdict: "pass", Score: 0.9}}
+	agent := NewMarketLandscapeAgent(NewEngine(llm, &demandSearcher{}, &mockScraper{}, cache.NewMemoryCache(10), 5, 3, 10))
+	companies := map[string]*models.MarketLandscapeCompany{"a": {Name: "Acme Lubricants"}}
+	report := &models.MarketLandscapeReport{Activity: "lubricant blending"}
+	query := models.MarketLandscapeQuery{Activity: "lubricant blending", QCPrompt: "CUSTOM POLICY: reject every bank."}
+	agent.reviewMarketReport(context.Background(), query, companies, report, nil)
+	joined := strings.Join(llm.prompts(), " ")
+	if !strings.Contains(joined, "CUSTOM POLICY: reject every bank.") {
+		t.Errorf("custom QC prompt was not sent to the reviewer: %s", joined)
+	}
+	if report.QCPromptSource != "custom" || report.QCPrompt != query.QCPrompt {
+		t.Errorf("report prompt = %q/%q, want custom policy", report.QCPrompt, report.QCPromptSource)
+	}
 }
 
 // TestMarketQCAllowsOwnUseProcessActivity: the producer QC prompt must not require a process

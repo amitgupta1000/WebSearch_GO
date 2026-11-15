@@ -325,6 +325,17 @@ func postForm(path, body string) *http.Request {
 	return r
 }
 
+func TestMarketLandscapeQueryCarriesEditableQCPrompt(t *testing.T) {
+	query := marketLandscapeQueryFromForm(postForm("/api/research", "market_qc_prompt=CUSTOM+QC+POLICY"), "lubricant blending")
+	if query.QCPrompt != "CUSTOM QC POLICY" {
+		t.Fatalf("QCPrompt = %q, want the operator-edited policy", query.QCPrompt)
+	}
+	empty := marketLandscapeQueryFromForm(postForm("/api/research", "market_max_companies=12"), "lubricant blending")
+	if empty.QCPrompt != "" {
+		t.Fatalf("QCPrompt = %q, want an empty field to select the agent default", empty.QCPrompt)
+	}
+}
+
 // TestHandleResolveEntityWithATypedDomainSpendsNoSearch pins the cheap half of "always
 // confirm": when the operator already typed the domain, the step renders that domain as the
 // single pre-selected candidate. The server's agent is deliberately nil — reaching it would
@@ -611,4 +622,3 @@ func TestRocketReachProfileCacheServesAndExpires(t *testing.T) {
 		t.Fatal("an expired cache entry must be removed on read")
 	}
 }
-

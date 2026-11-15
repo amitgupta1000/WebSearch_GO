@@ -32,8 +32,17 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 	}
 
 	report := &models.MarketLandscapeReport{
-		Activity:  "oil blending",
-		Objective: "Find active blenders and their commercial contacts",
+		Activity:       "oil blending",
+		Objective:      "Find active blenders and their commercial contacts",
+		QCPrompt:       "Reject publishers and unrelated companies.",
+		QCPromptSource: "custom",
+		Reviews: []models.MarketLandscapeReview{{
+			Verdict: "revise", Score: 0.8, Passed: 1, Failed: 1,
+			Verdicts: []models.MarketQCVerdict{
+				{Name: "Peninsula", Verdict: "passed", Reason: "No QC objection."},
+				{Name: "Oil Weekly", Verdict: "failed", Reason: "publisher, not an operator"},
+			},
+		}},
 		Results: []models.MarketLandscapeCompany{{
 			Name:      "Peninsula",
 			Status:    "verified",
@@ -54,6 +63,12 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 	for _, expected := range []string{
 		`<h3 class="text-2xl font-bold text-white">Producer/Seller Landscape</h3>`,
 		"Storage and blending",
+		"QC results",
+		"qc passed",
+		"qc failed",
+		"No QC objection.",
+		"publisher, not an operator",
+		"Reject publishers and unrelated companies.",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("market_landscape_report is missing %q", expected)
@@ -72,6 +87,12 @@ func TestIndexHasStableQueryControls(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `id="primary-query"`) {
 		t.Error("expected stable primary query input id")
+	}
+	if !strings.Contains(out.String(), `name="market_qc_prompt"`) {
+		t.Error("expected the editable producer QC prompt field")
+	}
+	if !strings.Contains(out.String(), "Reset default") {
+		t.Error("expected a QC prompt reset action")
 	}
 }
 
@@ -248,6 +269,7 @@ func TestErrorBoxEscapesMessage(t *testing.T) {
 type indexViewStub struct {
 	BrowserToggle    bool
 	BrowserDefaultOn bool
+	MarketQCPrompt   string
 }
 
 func TestIndexShowsBrowserToggleOnlyWhenAvailable(t *testing.T) {

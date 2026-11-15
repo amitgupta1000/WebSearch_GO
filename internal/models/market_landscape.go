@@ -15,6 +15,8 @@ type MarketLandscapeQuery struct {
 	Exclusions      []string `json:"exclusions,omitempty"`
 	MaxCompanies    int      `json:"max_companies,omitempty"`
 	IncludeContacts bool     `json:"include_contacts,omitempty"`
+	// QCPrompt is the operator-editable review policy. Empty means the default policy.
+	QCPrompt string `json:"qc_prompt,omitempty"`
 }
 
 // MarketLandscapeEvidence is a tagged source record in the vector-free corpus.
@@ -121,12 +123,29 @@ type MarketCoverage struct {
 	Pass      bool `json:"pass"`
 }
 
+// MarketQCVerdict records the QC outcome for every company the reviewer saw,
+// including companies it kept. Verdict is "passed", "failed", or "unreviewed";
+// Reason is retained even for a pass so the tab is auditable rather than a bare
+// badge.
+type MarketQCVerdict struct {
+	Name        string `json:"name"`
+	Verdict     string `json:"verdict"`
+	Reason      string `json:"reason"`
+	Status      string `json:"status,omitempty"`
+	Country     string `json:"country,omitempty"`
+	Domain      string `json:"domain,omitempty"`
+	EvidenceURL string `json:"evidence_url,omitempty"`
+}
+
 // MarketLandscapeReview is the post-assembly producer/seller QC review. It is deterministic on
 // coverage and applies only rejections of companies already present in the run.
 type MarketLandscapeReview struct {
 	Verdict  string               `json:"verdict"`
 	Score    float64              `json:"score"`
 	Rejected []DemandRejectedName `json:"rejected,omitempty"`
+	Verdicts []MarketQCVerdict    `json:"verdicts,omitempty"`
+	Passed   int                  `json:"passed"`
+	Failed   int                  `json:"failed"`
 	Missing  []string             `json:"missing,omitempty"`
 	Coverage *MarketCoverage      `json:"coverage,omitempty"`
 	Reason   string               `json:"reason,omitempty"`
@@ -140,6 +159,8 @@ type MarketLandscapeReport struct {
 	ProductCategory   string                    `json:"product_category,omitempty"`
 	CategoryRationale string                    `json:"category_rationale,omitempty"`
 	CategorySource    string                    `json:"category_source,omitempty"`
+	QCPrompt          string                    `json:"qc_prompt,omitempty"`
+	QCPromptSource    string                    `json:"qc_prompt_source,omitempty"`
 	Coverage          *MarketCoverage           `json:"coverage,omitempty"`
 	Reviews           []MarketLandscapeReview   `json:"reviews,omitempty"`
 	FallbackQueries   int                       `json:"fallback_queries,omitempty"`

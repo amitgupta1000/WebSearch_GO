@@ -64,6 +64,8 @@ type indexView struct {
 	BrowserToggle bool
 	// BrowserDefaultOn mirrors the deployment default so the checkbox reflects it.
 	BrowserDefaultOn bool
+	// MarketQCPrompt is the default producer/seller QC policy, editable per run.
+	MarketQCPrompt string
 }
 
 type companyResultView struct {
@@ -401,6 +403,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	view := indexView{
 		BrowserToggle:    s.allowBrowserToggle && s.browserAvailable,
 		BrowserDefaultOn: s.cfg.EnableBrowserFallback,
+		MarketQCPrompt:   agent.DefaultMarketQCPrompt,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "index.html", view); err != nil {
 		log.Printf("[ERROR] index template execution failed: %v", err)
@@ -649,6 +652,7 @@ func marketLandscapeQueryFromForm(r *http.Request, activity string) models.Marke
 		Exclusions:      splitFormList(r.FormValue("market_exclusions")),
 		MaxCompanies:    parseBoundedInt(r.FormValue("market_max_companies"), 48, 1, 80),
 		IncludeContacts: r.FormValue("market_contacts") == "1",
+		QCPrompt:        strings.TrimSpace(r.FormValue("market_qc_prompt")),
 	}
 }
 
