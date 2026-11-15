@@ -199,6 +199,41 @@ func TestMarketCoverRenders(t *testing.T) {
 	}
 }
 
+// TestMarketRoleAndGlobalSectionsRender: the Markdown/HTML exports use the
+// same role/global split as the console, so global-only companies never look
+// like local manufacturers again.
+func TestMarketRoleAndGlobalSectionsRender(t *testing.T) {
+	local := models.MarketLandscapeCompany{
+		Name: "Pune Blending", Status: "verified", Role: models.MarketRoleManufacturer,
+		Presence: models.MarketPresenceLocal, PresenceCountry: "India",
+	}
+	global := models.MarketLandscapeCompany{
+		Name: "Global Additives", Status: "corroborated", Role: models.MarketRoleManufacturer,
+		Presence: models.MarketPresenceGlobal, HQCountry: "Germany",
+	}
+	report := &models.MarketLandscapeReport{
+		Activity: "lubricant blending", Objective: "Map lubricant blenders.",
+		Results: []models.MarketLandscapeCompany{local, global},
+		Groups: []models.MarketLandscapeGroup{
+			{Key: models.MarketRoleManufacturer, Label: "Manufacturers / producers", Presence: models.MarketPresenceLocal, Companies: []models.MarketLandscapeCompany{local}},
+			{Key: "global", Label: "Global / cross-border", Presence: models.MarketPresenceGlobal, Companies: []models.MarketLandscapeCompany{global}},
+		},
+		Coverage: &models.MarketCoverage{Companies: 1, Minimum: 6, Global: 1, Pass: false},
+	}
+	markdown := renderMarketLandscapeMarkdown(report)
+	for _, expected := range []string{"### Manufacturers / producers", "### Global / cross-border", "excluded from local coverage", "1/6 in-scope", "1 global/cross-border"} {
+		if !strings.Contains(markdown, expected) {
+			t.Errorf("market Markdown is missing %q", expected)
+		}
+	}
+	html := renderMarketLandscapeHTML(report)
+	for _, expected := range []string{"Manufacturers / producers", "Global / cross-border", "excluded from local coverage"} {
+		if !strings.Contains(html, expected) {
+			t.Errorf("market HTML is missing %q", expected)
+		}
+	}
+}
+
 // TestMarketQCTableRenders preserves the producer QC audit in both artifacts:
 // passed and failed companies stay visible with their reasons, not only the
 // rejections.

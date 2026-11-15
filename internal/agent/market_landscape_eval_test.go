@@ -113,14 +113,38 @@ func marketEvalScorecard(exp marketEvalCase, report *models.MarketLandscapeRepor
 		fmt.Fprintf(&b, "- **Category**: %s (%s)\n", report.ProductCategory, report.CategorySource)
 	}
 	if report.Coverage != nil {
-		fmt.Fprintf(&b, "- **Coverage**: %d/%d (%s)\n", report.Coverage.Companies, report.Coverage.Minimum, map[bool]string{true: "PASS", false: "FAIL"}[report.Coverage.Pass])
+		fmt.Fprintf(&b, "- **Coverage**: %d/%d in-scope (%s)", report.Coverage.Companies, report.Coverage.Minimum, map[bool]string{true: "PASS", false: "FAIL"}[report.Coverage.Pass])
+		if report.Coverage.Global > 0 {
+			fmt.Fprintf(&b, "; %d global/cross-border excluded", report.Coverage.Global)
+		}
+		b.WriteString("\n")
 	}
 	fmt.Fprintf(&b, "- **Verified companies**: %d\n- **Candidates**: %d\n\n## Results\n\n", len(report.Results), report.CandidatesFound)
 	if len(report.Results) == 0 {
 		b.WriteString("No verified companies were promoted.\n")
+	} else if len(report.Groups) > 0 {
+		for _, group := range report.Groups {
+			fmt.Fprintf(&b, "### %s (%d)\n\n", group.Label, len(group.Companies))
+			for _, result := range group.Companies {
+				operating := result.PresenceCountry
+				if result.Presence == models.MarketPresenceGlobal || result.Presence == models.MarketPresenceUnknown {
+					operating = "Global / cross-border"
+				} else if operating == "" {
+					operating = result.Country
+				}
+				fmt.Fprintf(&b, "- **%s** — role=%s · presence=%s · operating=%s · HQ=%s · %s · %.2f\n", result.Name, result.Role, result.Presence, operating, result.HQCountry, result.Status, result.Confidence)
+			}
+			b.WriteString("\n")
+		}
 	} else {
 		for _, result := range report.Results {
-			fmt.Fprintf(&b, "- **%s** — %s · %s · %.2f\n", result.Name, result.Country, result.Status, result.Confidence)
+			operating := result.PresenceCountry
+			if result.Presence == models.MarketPresenceGlobal || result.Presence == models.MarketPresenceUnknown {
+				operating = "Global / cross-border"
+			} else if operating == "" {
+				operating = result.Country
+			}
+			fmt.Fprintf(&b, "- **%s** — role=%s · presence=%s · operating=%s · HQ=%s · %s · %.2f\n", result.Name, result.Role, result.Presence, operating, result.HQCountry, result.Status, result.Confidence)
 		}
 	}
 	if len(report.Reviews) > 0 {

@@ -87,6 +87,7 @@ func marketQCVerdicts(submitted []*models.MarketLandscapeCompany, rejected map[s
 			Name: company.Name, Verdict: verdict, Reason: reason,
 			Status: marketStatus(company), Country: company.Country,
 			Domain: company.Domain, EvidenceURL: evidenceURL,
+			Role: company.Role, Presence: company.Presence, PresenceReason: company.PresenceReason,
 		})
 	}
 	return verdicts, passed, failed

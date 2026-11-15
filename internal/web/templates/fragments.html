@@ -143,6 +143,27 @@
 </div>
 {{end}}
 
+{{define "market_result_card"}}
+<div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+	<div class="flex justify-between gap-3"><span class="font-semibold text-white">{{.Name}}</span><span class="text-[10px] text-emerald-300">{{.Status}}</span></div>
+	<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
+		<span class="rounded-full border border-indigo-900/70 bg-indigo-950/30 px-2 py-0.5">{{if .Role}}{{.Role}}{{else}}unclassified{{end}}</span>
+		<span class="rounded-full border border-slate-700 px-2 py-0.5">{{if .Presence}}{{.Presence}}{{else}}location unknown{{end}}</span>
+	</div>
+	<div class="text-xs text-indigo-300">{{.Activity}}</div>
+	<div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+		<div><span class="text-slate-600">Domain</span><br>{{if .Domain}}{{.Domain}}{{else}}Not established{{end}}</div>
+		<div><span class="text-slate-600">Operating geography</span><br>{{if eq .Presence "global"}}Global / cross-border{{else if eq .Presence "unknown"}}Unverified{{else if .PresenceCountry}}{{.PresenceCountry}}{{else if .HQCountry}}{{.HQCountry}}{{else}}Not established{{end}}</div>
+		<div><span class="text-slate-600">Evidence</span><br>{{len .Evidence}} qualifying record(s)</div>
+		<div><span class="text-slate-600">Confidence</span><br>{{printf "%.0f" (mul .Confidence 100)}}%</div>
+	</div>
+	{{if and .HQCountry .PresenceCountry}}<div class="text-[11px] text-slate-500">HQ: {{.HQCountry}}</div>{{end}}
+	{{if .PresenceReason}}<div class="text-[11px] text-slate-500">{{.PresenceReason}}</div>{{end}}
+	{{if .EvidenceType}}<div class="text-[11px] text-slate-500">Verification: {{.EvidenceType}}</div>{{end}}
+	{{if .EvidenceSummary}}<p class="text-xs text-slate-300 leading-relaxed">{{.EvidenceSummary}}</p>{{end}}
+</div>
+{{end}}
+
 {{define "market_landscape_report"}}
 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
 	<div class="flex items-start justify-between border-b border-slate-800 pb-4">
@@ -166,27 +187,29 @@
 	<div data-market-panel="results" role="tabpanel" class="space-y-6">
 	<div class="border-l-2 border-indigo-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Results</div>
-		<p class="text-xs text-slate-500 mt-1">Only verified or corroborated companies are promoted here.</p>
+		<p class="text-xs text-slate-500 mt-1">Verified or corroborated companies grouped by role. Global-only findings are shown separately and excluded from local coverage.</p>
 	</div>
 	{{template "export_files" .Exports}}
-{{if .Coverage}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">Coverage: {{.Coverage.Companies}} / {{.Coverage.Minimum}} companies · {{if .Coverage.Pass}}<span class="text-emerald-300">PASS</span>{{else}}<span class="text-amber-300">FAIL</span>{{end}}</div>{{end}}
+{{if .Coverage}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">Coverage: {{.Coverage.Companies}} / {{.Coverage.Minimum}} in-scope companies · {{if .Coverage.Pass}}<span class="text-emerald-300">PASS</span>{{else}}<span class="text-amber-300">FAIL</span>{{end}}{{if .Coverage.Global}} · {{.Coverage.Global}} global/cross-border excluded{{end}}</div>{{end}}
 
 
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
-	{{if .Results}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Results}}
-		<div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
-			<div class="flex justify-between gap-3"><span class="font-semibold text-white">{{.Name}}</span><span class="text-[10px] text-emerald-300">{{.Status}}</span></div>
-			<div class="text-xs text-indigo-300">{{.Activity}}</div>
-			<div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
-				<div><span class="text-slate-600">Domain</span><br>{{if .Domain}}{{.Domain}}{{else}}Not established{{end}}</div>
-				<div><span class="text-slate-600">Geography</span><br>{{if .Country}}{{.Country}}{{else}}Not established{{end}}</div>
-				<div><span class="text-slate-600">Evidence</span><br>{{len .Evidence}} qualifying record(s)</div>
-				<div><span class="text-slate-600">Confidence</span><br>{{printf "%.0f" (mul .Confidence 100)}}%</div>
-			</div>
-			{{if .EvidenceType}}<div class="text-[11px] text-slate-500">Verification: {{.EvidenceType}}</div>{{end}}
-			{{if .EvidenceSummary}}<p class="text-xs text-slate-300 leading-relaxed">{{.EvidenceSummary}}</p>{{end}}
+	{{if .Results}}
+	{{if .Groups}}
+	{{range .Groups}}
+	<div class="space-y-3">
+		<div class="flex flex-wrap items-baseline justify-between gap-2 border-l-2 border-slate-700 pl-3">
+			<div class="text-xs font-semibold uppercase tracking-wide text-slate-300">{{.Label}} <span class="text-slate-600">({{len .Companies}})</span></div>
+			{{if eq .Presence "global"}}<div class="text-[10px] text-amber-300">Visible for audit · excluded from local coverage</div>{{end}}
 		</div>
-	{{end}}</div>{{else}}<p class="text-sm text-slate-500">No verified companies were promoted.</p>{{end}}
+		{{if eq .Presence "global"}}<p class="text-[11px] text-slate-500 pl-3">These companies show a global/cross-border footprint but no evidence of a plant, office or operation in the requested geography.</p>{{end}}
+		<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Companies}}{{template "market_result_card" .}}{{end}}</div>
+	</div>
+	{{end}}
+	{{else}}
+	<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Results}}{{template "market_result_card" .}}{{end}}</div>
+	{{end}}
+	{{else}}<p class="text-sm text-slate-500">No verified companies were promoted.</p>{{end}}
 	<details class="border-t border-slate-800 pt-5">
 		<summary class="cursor-pointer text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Research links and evidence</summary>
 		<div class="mt-3 space-y-2">
@@ -204,7 +227,7 @@
 			<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">QC results</div>
 			<p class="text-xs text-slate-500 mt-1">Every company the reviewer saw, tagged passed or failed with the reason. Companies removed by QC remain in the appendix as evidence.</p>
 		</div>
-		{{if .Coverage}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">Coverage after QC: {{.Coverage.Companies}} / {{.Coverage.Minimum}} companies · {{if .Coverage.Pass}}<span class="text-emerald-300">PASS</span>{{else}}<span class="text-amber-300">FAIL</span>{{end}}</div>{{end}}
+		{{if .Coverage}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">Coverage after QC: {{.Coverage.Companies}} / {{.Coverage.Minimum}} in-scope companies · {{if .Coverage.Pass}}<span class="text-emerald-300">PASS</span>{{else}}<span class="text-amber-300">FAIL</span>{{end}}{{if .Coverage.Global}} · {{.Coverage.Global}} global/cross-border excluded{{end}}</div>{{end}}
 		{{range .Reviews}}
 		<div class="rounded-xl border border-slate-800 bg-slate-950 p-4 space-y-3">
 			<div class="flex flex-wrap items-center justify-between gap-2">
@@ -221,6 +244,8 @@
 							<span class="text-sm font-semibold text-white">{{.Name}}</span>
 							{{if .Country}}<span class="text-[11px] text-slate-400"> · {{.Country}}</span>{{end}}
 							{{if .Status}}<span class="text-[11px] text-slate-500"> · {{.Status}}</span>{{end}}
+							{{if .Role}}<span class="text-[11px] text-indigo-300"> · {{.Role}}</span>{{end}}
+							{{if .Presence}}<span class="text-[11px] text-slate-500"> · {{.Presence}}</span>{{end}}
 						</div>
 						<span class="text-[10px] uppercase tracking-wide rounded-full border px-2 py-0.5 {{if eq .Verdict "passed"}}border-emerald-800 text-emerald-300{{else if eq .Verdict "failed"}}border-rose-800 text-rose-300{{else}}border-slate-700 text-slate-400{{end}}">qc {{.Verdict}}</span>
 					</div>

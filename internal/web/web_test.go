@@ -43,16 +43,35 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 				{Name: "Oil Weekly", Verdict: "failed", Reason: "publisher, not an operator"},
 			},
 		}},
-		Results: []models.MarketLandscapeCompany{{
-			Name:      "Peninsula",
-			Status:    "verified",
-			Activity:  "Fuel oil blending",
-			KeyPeople: []string{"Jeroen De Vos", "Victor Morales"},
-			Evidence: []models.MarketLandscapeEvidence{{
-				Title: "Storage and blending", URL: "https://example.com/peninsula",
-				Lane: "company", ClaimType: "capability", SourceTier: "primary", Status: "kept",
-			}},
-		}},
+		Results: []models.MarketLandscapeCompany{
+			{
+				Name:            "Peninsula",
+				Status:          "verified",
+				Activity:        "Fuel oil blending",
+				Role:            models.MarketRoleManufacturer,
+				Presence:        models.MarketPresenceLocal,
+				PresenceCountry: "India",
+				KeyPeople:       []string{"Jeroen De Vos", "Victor Morales"},
+				Evidence: []models.MarketLandscapeEvidence{{
+					Title: "Storage and blending", URL: "https://example.com/peninsula",
+					Lane: "company", ClaimType: "capability", SourceTier: "primary", Status: "kept",
+				}},
+			},
+			{
+				Name: "Global Additives", Status: "corroborated", Role: models.MarketRoleManufacturer,
+				Presence: models.MarketPresenceGlobal, HQCountry: "Germany",
+			},
+		},
+		Groups: []models.MarketLandscapeGroup{
+			{Key: models.MarketRoleManufacturer, Label: "Manufacturers / producers", Presence: models.MarketPresenceLocal, Companies: []models.MarketLandscapeCompany{{
+				Name: "Peninsula", Status: "verified", Role: models.MarketRoleManufacturer,
+				Presence: models.MarketPresenceLocal, PresenceCountry: "India",
+			}}},
+			{Key: "global", Label: "Global / cross-border", Presence: models.MarketPresenceGlobal, Companies: []models.MarketLandscapeCompany{{
+				Name: "Global Additives", Status: "corroborated", Role: models.MarketRoleManufacturer,
+				Presence: models.MarketPresenceGlobal, HQCountry: "Germany",
+			}}},
+		},
 	}
 
 	var out strings.Builder
@@ -63,7 +82,9 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 	for _, expected := range []string{
 		`<h3 class="text-2xl font-bold text-white">Producer/Seller Landscape</h3>`,
 		"Storage and blending",
-		"QC results",
+		"Manufacturers / producers",
+		"Global / cross-border",
+		"excluded from local coverage",
 		"qc passed",
 		"qc failed",
 		"No QC objection.",

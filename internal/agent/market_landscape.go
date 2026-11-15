@@ -176,6 +176,7 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 		}
 	}
 
+	classifyMarketCompanies(companies, query)
 	a.reviewMarketReport(ctx, query, companies, report, eventCh)
 
 	report.CandidatesFound = len(companies)
@@ -202,9 +203,13 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	if len(report.Results) == 0 {
 		report.Warnings = append(report.Warnings, "No company met the verification threshold; discovery leads remain in the appendix.")
 	}
-	report.Coverage = &models.MarketCoverage{Companies: len(companies), Minimum: marketCoverageMinimum, Pass: len(companies) >= marketCoverageMinimum}
+	report.Groups = marketGroupsFor(report.Results, query)
+	report.Coverage = marketCoverageFor(companies, query)
 	if !report.Coverage.Pass {
-		report.Warnings = append(report.Warnings, fmt.Sprintf("Market coverage is weak: %d company(ies) identified; target is at least %d.", len(companies), marketCoverageMinimum))
+		report.Warnings = append(report.Warnings, fmt.Sprintf("Market coverage is weak: %d in-scope company(ies) identified; target is at least %d. Global/cross-border findings are listed separately and are not counted.", report.Coverage.Companies, marketCoverageMinimum))
+	}
+	if report.Coverage.Global > 0 {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("%d global/cross-border company(ies) have no evidence of a plant, office or operation in the requested geography; they remain visible in the Global / cross-border section and are excluded from local coverage.", report.Coverage.Global))
 	}
 	report.CompletedAt = time.Now()
 	if exports := a.engine.ExportMarketLandscape(ctx, report); len(exports) > 0 {
@@ -218,6 +223,7 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 // applies only rejections of names already in the run, and records the deterministic coverage.
 func (a *MarketLandscapeAgent) reviewMarketReport(ctx context.Context, query models.MarketLandscapeQuery, companies map[string]*models.MarketLandscapeCompany, report *models.MarketLandscapeReport, eventCh chan<- models.AgentEvent) models.MarketLandscapeReview {
 	review := models.MarketLandscapeReview{}
+	classifyMarketCompanies(companies, query)
 	qcPolicy, qcPromptSource := marketQCPolicy(query)
 	report.QCPrompt = qcPolicy
 	report.QCPromptSource = qcPromptSource
@@ -233,7 +239,7 @@ func (a *MarketLandscapeAgent) reviewMarketReport(ctx context.Context, query mod
 		if index >= 50 {
 			break
 		}
-		fmt.Fprintf(&rows, "- %s | status=%s | country=%s | confidence=%.2f\n", company.Name, marketStatus(company), company.Country, company.Confidence)
+		fmt.Fprintf(&rows, "- %s | role=%s | presence=%s | status=%s | country=%s | confidence=%.2f\n", company.Name, company.Role, company.Presence, marketStatus(company), company.Country, company.Confidence)
 		evidenceLimit := len(company.Evidence)
 		if evidenceLimit > 2 {
 			evidenceLimit = 2
@@ -259,7 +265,8 @@ Companies:
 		review.Reason = err.Error()
 		review.Verdicts, review.Passed, review.Failed = marketQCVerdicts(submitted, nil, "QC review unavailable: "+err.Error())
 		report.Warnings = append(report.Warnings, "Producer QC review unavailable: "+err.Error())
-		review.Coverage = &models.MarketCoverage{Companies: len(companies), Minimum: marketCoverageMinimum, Pass: len(companies) >= marketCoverageMinimum}
+		review.Coverage = marketCoverageFor(companies, query)
+		report.Coverage = review.Coverage
 		report.Reviews = append(report.Reviews, review)
 		return review
 	}
@@ -295,10 +302,8 @@ Companies:
 		qcUnavailableReason = "QC reviewer returned no verdict."
 	}
 	review.Verdicts, review.Passed, review.Failed = marketQCVerdicts(submitted, rejected, qcUnavailableReason)
-	review.Coverage = &models.MarketCoverage{Companies: len(companies), Minimum: marketCoverageMinimum, Pass: len(companies) >= marketCoverageMinimum}
-	if !review.Coverage.Pass {
-		report.Warnings = append(report.Warnings, fmt.Sprintf("Producer coverage is weak after QC: %d company(ies) identified; target is at least %d.", len(companies), marketCoverageMinimum))
-	}
+	review.Coverage = marketCoverageFor(companies, query)
+	report.Coverage = review.Coverage
 	report.Reviews = append(report.Reviews, review)
 	emitAgentEvent(eventCh, models.EventThinking,
 		fmt.Sprintf("Producer QC review: %s (%.2f), %d rejection(s), coverage %d/%d", review.Verdict, review.Score, len(rejected), review.Coverage.Companies, review.Coverage.Minimum),
@@ -490,7 +495,7 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 			leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 		}
 		var batch []models.MarketLandscapeLeadCandidate
-		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. These leads include company pages, directory pages, news articles and market-research report pages. A report or an article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a top-companies, key-players or competitive-landscape table, using the company's own trading name exactly as the page writes it and dropping any tagline. Name the operator, never the page: a report title, article headline, publisher name, site name, navigation label, region, project or generic category is not a company. Never return a headline that contains an action verb (opens, launches, announces, plans, acquires, sells) as a name. Return a JSON array where every element has a non-empty name, country, reason, evidence_url as a string, source_type (operator, news_article or research_report), mention_context and supporting_quote. A research_report or news_article candidate must be independently verified before promotion. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
+		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. These leads include company pages, directory pages, news articles and market-research report pages. A report or an article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a top-companies, key-players or competitive-landscape table, using the company's own trading name exactly as the page writes it and dropping any tagline. Name the operator, never the page: a report title, article headline, publisher name, site name, navigation label, region, project or generic category is not a company. Never return a headline that contains an action verb (opens, launches, announces, plans, acquires, sells) as a name. Return a JSON array where every element has a non-empty name, country, reason, evidence_url as a string, source_type (operator, news_article or research_report), mention_context and supporting_quote, and role (manufacturer, distributor, wholesaler, trader, or unknown) based on the page's description. A research_report or news_article candidate must be independently verified before promotion. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
 		if err := a.engine.GenerateStructured(ctx, "You extract company names for a market research verification queue. Return the operating company's own trading name only: never a report title, headline, publisher, site name or category. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
 			rejected += end - start
 			extractionErrors = append(extractionErrors, err.Error())
@@ -561,6 +566,7 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 					company = &models.MarketLandscapeCompany{
 						EntityKey: "company:name:" + normalizeMarketName(lead.Name), Name: lead.Name,
 						Country: lead.Country, Activity: query.Activity, EvidenceType: "company-page", Confidence: 0.62,
+						Role: marketNormalizeRole(lead.Role),
 					}
 					verified = append(verified, company)
 				}
@@ -676,6 +682,9 @@ func mergeMarketCompany(companies map[string]*models.MarketLandscapeCompany, can
 				existing.EvidenceType = candidate.EvidenceType
 			} else if candidate.EvidenceType == "roster-extracted" && existing.EvidenceType == "discovery-lead" {
 				existing.EvidenceType = candidate.EvidenceType
+			}
+			if existing.Role == "" && candidate.Role != "" {
+				existing.Role = candidate.Role
 			}
 			// A company first seen through a product-shaped demand lane has no stage.
 			// A later stage-specific hit gives it one; without this, gap searches can

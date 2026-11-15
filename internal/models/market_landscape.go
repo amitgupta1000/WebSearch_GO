@@ -19,6 +19,19 @@ type MarketLandscapeQuery struct {
 	QCPrompt string `json:"qc_prompt,omitempty"`
 }
 
+const (
+	MarketRoleManufacturer = "manufacturer"
+	MarketRoleDistributor  = "distributor"
+	MarketRoleWholesaler   = "wholesaler"
+	MarketRoleTrader       = "trader"
+	MarketRoleUnknown      = "unknown"
+
+	MarketPresenceLocal    = "local"
+	MarketPresenceRegional = "regional"
+	MarketPresenceGlobal   = "global"
+	MarketPresenceUnknown  = "unknown"
+)
+
 // MarketLandscapeEvidence is a tagged source record in the vector-free corpus.
 type MarketLandscapeEvidence struct {
 	URL         string    `json:"url"`
@@ -52,6 +65,9 @@ type MarketLandscapeLeadCandidate struct {
 	// producer gate; zero-valued (false) on supplier-side runs.
 	Producer  bool     `json:"producer,omitempty"`
 	KeyPeople []string `json:"key_people,omitempty"`
+	// Role is the extractor's page-language hint, later validated against the
+	// evidence by the deterministic role classifier.
+	Role string `json:"role,omitempty"`
 }
 
 // UnmarshalJSON tolerates the field names models use for a company's name: `name`,
@@ -88,6 +104,18 @@ type MarketLandscapeCompany struct {
 	Activity   string  `json:"activity,omitempty"`
 	Status     string  `json:"status"`
 	Confidence float64 `json:"confidence"`
+	// Role and RoleTags separate a manufacturer from a distributor, wholesaler
+	// or trader. RoleTags retains secondary roles (a manufacturer that also
+	// distributes is still filed under manufacturers).
+	Role     string   `json:"role,omitempty"`
+	RoleTags []string `json:"role_tags,omitempty"`
+	// Presence distinguishes evidenced local/regional operation from a
+	// global-only corporate footprint. HQCountry is only a headquarters hint;
+	// it is never proof of local operating presence.
+	Presence        string `json:"presence,omitempty"`
+	PresenceCountry string `json:"presence_country,omitempty"`
+	PresenceReason  string `json:"presence_reason,omitempty"`
+	HQCountry       string `json:"hq_country,omitempty"`
 	// Stage names the consuming stage a buyer-side (demand chain) run tied the
 	// company to; empty on supplier-side runs.
 	Stage string `json:"stage,omitempty"`
@@ -121,6 +149,19 @@ type MarketCoverage struct {
 	Companies int  `json:"companies"`
 	Minimum   int  `json:"minimum"`
 	Pass      bool `json:"pass"`
+	// Global counts identified companies that are visible in the report but
+	// have no local/regional operating evidence for the requested geography.
+	// They are deliberately excluded from Companies and the coverage floor.
+	Global int `json:"global,omitempty"`
+}
+
+// MarketLandscapeGroup is one section of the producer/seller report: a role
+// section for in-scope companies, or the separate Global / cross-border bucket.
+type MarketLandscapeGroup struct {
+	Key       string                   `json:"key"`
+	Label     string                   `json:"label"`
+	Presence  string                   `json:"presence,omitempty"`
+	Companies []MarketLandscapeCompany `json:"companies,omitempty"`
 }
 
 // MarketQCVerdict records the QC outcome for every company the reviewer saw,
@@ -128,13 +169,16 @@ type MarketCoverage struct {
 // Reason is retained even for a pass so the tab is auditable rather than a bare
 // badge.
 type MarketQCVerdict struct {
-	Name        string `json:"name"`
-	Verdict     string `json:"verdict"`
-	Reason      string `json:"reason"`
-	Status      string `json:"status,omitempty"`
-	Country     string `json:"country,omitempty"`
-	Domain      string `json:"domain,omitempty"`
-	EvidenceURL string `json:"evidence_url,omitempty"`
+	Name           string `json:"name"`
+	Verdict        string `json:"verdict"`
+	Reason         string `json:"reason"`
+	Status         string `json:"status,omitempty"`
+	Country        string `json:"country,omitempty"`
+	Domain         string `json:"domain,omitempty"`
+	EvidenceURL    string `json:"evidence_url,omitempty"`
+	Role           string `json:"role,omitempty"`
+	Presence       string `json:"presence,omitempty"`
+	PresenceReason string `json:"presence_reason,omitempty"`
 }
 
 // MarketLandscapeReview is the post-assembly producer/seller QC review. It is deterministic on
@@ -162,6 +206,7 @@ type MarketLandscapeReport struct {
 	QCPrompt          string                    `json:"qc_prompt,omitempty"`
 	QCPromptSource    string                    `json:"qc_prompt_source,omitempty"`
 	Coverage          *MarketCoverage           `json:"coverage,omitempty"`
+	Groups            []MarketLandscapeGroup    `json:"groups,omitempty"`
 	Reviews           []MarketLandscapeReview   `json:"reviews,omitempty"`
 	FallbackQueries   int                       `json:"fallback_queries,omitempty"`
 	Results           []MarketLandscapeCompany  `json:"results,omitempty"`

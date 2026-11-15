@@ -22,10 +22,29 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 	b.WriteString("## Results\n\n")
 	if len(report.Results) == 0 {
 		b.WriteString("No verified companies were promoted.\n")
+	} else if len(report.Groups) > 0 {
+		for _, group := range report.Groups {
+			fmt.Fprintf(&b, "### %s (%d)\n\n", group.Label, len(group.Companies))
+			if group.Presence == models.MarketPresenceGlobal {
+				b.WriteString("Global/cross-border footprint only; visible for audit and excluded from local coverage.\n\n")
+			}
+			b.WriteString("| Company | Role | Presence | Operating geography | HQ | Status | Confidence |\n|---|---|---|---|---|---|---|\n")
+			for _, result := range group.Companies {
+				operating := result.PresenceCountry
+				if result.Presence == models.MarketPresenceGlobal || result.Presence == models.MarketPresenceUnknown {
+					operating = "Global / cross-border"
+				} else if operating == "" {
+					operating = result.Country
+				}
+				fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %.0f%% |\n",
+					result.Name, result.Role, result.Presence, operating, result.HQCountry, result.Status, result.Confidence*100)
+			}
+			b.WriteString("\n")
+		}
 	} else {
-		b.WriteString("| Company | Country | Activity | Status | Confidence |\n|---|---|---|---|---|\n")
+		b.WriteString("| Company | Role | Country | Activity | Status | Confidence |\n|---|---|---|---|---|---|\n")
 		for _, result := range report.Results {
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | %.0f%% |\n", result.Name, result.Country, result.Activity, result.Status, result.Confidence*100)
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %.0f%% |\n", result.Name, result.Role, result.Country, result.Activity, result.Status, result.Confidence*100)
 		}
 	}
 	if report.Coverage != nil {
@@ -33,7 +52,11 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 		if report.Coverage.Pass {
 			status = "PASS"
 		}
-		fmt.Fprintf(&b, "\nCoverage: %d/%d companies (%s).\n", report.Coverage.Companies, report.Coverage.Minimum, status)
+		fmt.Fprintf(&b, "\nCoverage: %d/%d in-scope companies (%s)", report.Coverage.Companies, report.Coverage.Minimum, status)
+		if report.Coverage.Global > 0 {
+			fmt.Fprintf(&b, "; %d global/cross-border companies excluded", report.Coverage.Global)
+		}
+		b.WriteString(".\n")
 	}
 	b.WriteString("\n## QC results\n\n")
 	if strings.TrimSpace(report.QCPromptSource) != "" {
