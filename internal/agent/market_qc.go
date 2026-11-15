@@ -31,6 +31,29 @@ the company is only a reseller, distributor, consultant or equipment vendor.
 Do not invent companies or replacements. Report missing coverage rather than adding names that are
 not in the supplied list.`
 
+// DefaultDemandQCPrompt is the operator-editable policy for the buyer
+// per-company QC review. The adversarial value-chain review has its own fixed
+// policy and is intentionally not editable here.
+const DefaultDemandQCPrompt = `Reject a row when it is a publisher, person, category/process title, article or product page,
+a supplier or trader rather than a buyer, tied to the wrong consuming stage, or supported only by
+passing mention with no demand evidence. Keep a company that consumes the product as an input or
+buys it to resell. Do not invent companies. Propose only bounded follow-up searches anchored on the
+activity and a stage or company.`
+
+func demandQCPolicy(query models.DemandChainQuery) (string, string) {
+	policy := strings.TrimSpace(query.QCPrompt)
+	if policy == "" {
+		return DefaultDemandQCPrompt, "default"
+	}
+	if strings.Join(strings.Fields(policy), " ") == strings.Join(strings.Fields(DefaultDemandQCPrompt), " ") {
+		return DefaultDemandQCPrompt, "default"
+	}
+	if len(policy) > MarketQCPromptLimit {
+		policy = policy[:MarketQCPromptLimit]
+	}
+	return policy, "custom"
+}
+
 // marketQCPolicy resolves the editable policy and labels its source for the
 // report. An empty field is the default, not an instruction to skip QC.
 func marketQCPolicy(query models.MarketLandscapeQuery) (string, string) {
@@ -54,6 +77,10 @@ func marketQCPolicy(query models.MarketLandscapeQuery) (string, string) {
 // it saw. A pass still carries a reason: the QC tab is evidence about the review,
 // not just a coloured badge.
 func marketQCVerdicts(submitted []*models.MarketLandscapeCompany, rejected map[string]string, fallbackReason string) ([]models.MarketQCVerdict, int, int) {
+	return marketQCVerdictsForList(submitted, rejected, fallbackReason)
+}
+
+func marketQCVerdictsForList(submitted []*models.MarketLandscapeCompany, rejected map[string]string, fallbackReason string) ([]models.MarketQCVerdict, int, int) {
 	verdicts := make([]models.MarketQCVerdict, 0, len(submitted))
 	passed, failed := 0, 0
 	for _, company := range submitted {
@@ -88,6 +115,7 @@ func marketQCVerdicts(submitted []*models.MarketLandscapeCompany, rejected map[s
 			Status: marketStatus(company), Country: company.Country,
 			Domain: company.Domain, EvidenceURL: evidenceURL,
 			Role: company.Role, Presence: company.Presence, PresenceReason: company.PresenceReason,
+			Stage: company.Stage,
 		})
 	}
 	return verdicts, passed, failed

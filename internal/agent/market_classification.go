@@ -11,16 +11,31 @@ import (
 // evidence scan decides the report section.
 func classifyMarketCompanies(companies map[string]*models.MarketLandscapeCompany, query models.MarketLandscapeQuery) {
 	for _, company := range companies {
-		role, tags := marketRoleFor(company)
-		company.Role = role
-		company.RoleTags = tags
-		presence, country, reason, hq := marketPresenceFor(company, query)
-		company.Presence = presence
-		company.PresenceCountry = country
-		company.PresenceReason = reason
-		company.HQCountry = hq
-		company.Description = marketDescriptionFor(company)
+		classifyMarketCompany(company, query)
 	}
+}
+
+func classifyDemandCompanies(companies []*models.MarketLandscapeCompany, query models.DemandChainQuery) {
+	scope := models.MarketLandscapeQuery{Countries: query.Countries, Regions: query.Regions}
+	for _, company := range companies {
+		classifyMarketCompany(company, scope)
+	}
+}
+
+func classifyMarketCompany(company *models.MarketLandscapeCompany, query models.MarketLandscapeQuery) {
+	if company == nil {
+		return
+	}
+	role, tags := marketRoleFor(company)
+	company.Role = role
+	company.RoleTags = tags
+	presence, country, reason, hq := marketPresenceFor(company, query)
+	company.Presence = presence
+	company.PresenceCountry = country
+	company.PresenceReason = reason
+	company.HQCountry = hq
+	company.InScope = marketCoverageEligible(company, query)
+	company.Description = marketDescriptionFor(company)
 }
 
 // marketDescriptionFor uses only collected evidence. The fallback is an empty

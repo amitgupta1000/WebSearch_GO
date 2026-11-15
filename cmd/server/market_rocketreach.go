@@ -34,7 +34,7 @@ type marketRocketReachQuery struct {
 // an explicit person location, management levels and 5+ years on every query.
 // Leadership is searched without a department; procurement/purchasing and
 // sales/marketing get their department facets.
-func marketRocketReachCompanyQueries(company, location string) []marketRocketReachQuery {
+func marketRocketReachCompanyQueries(company, location, audience string) []marketRocketReachQuery {
 	base := func() map[string][]string {
 		return map[string][]string{
 			"current_employer":  {strings.TrimSpace(company)},
@@ -44,6 +44,15 @@ func marketRocketReachCompanyQueries(company, location string) []marketRocketRea
 		}
 	}
 	leadership := marketRocketReachQuery{Label: "Leadership", Query: base()}
+	if strings.EqualFold(strings.TrimSpace(audience), "buyer") {
+		procurement := marketRocketReachQuery{Label: "Procurement & purchasing", Query: base()}
+		procurement.Query["department"] = []string{"procurement", "purchasing"}
+		supply := marketRocketReachQuery{Label: "Supply chain & logistics", Query: base()}
+		supply.Query["department"] = []string{"supply chain", "logistics"}
+		operations := marketRocketReachQuery{Label: "Operations & plant management", Query: base()}
+		operations.Query["department"] = []string{"operations"}
+		return []marketRocketReachQuery{leadership, procurement, supply, operations}
+	}
 	procurement := marketRocketReachQuery{Label: "Procurement & purchasing", Query: base()}
 	procurement.Query["department"] = []string{"procurement", "purchasing"}
 	sales := marketRocketReachQuery{Label: "Sales & marketing", Query: base()}
@@ -54,6 +63,7 @@ func marketRocketReachCompanyQueries(company, location string) []marketRocketRea
 func (s *Server) handleMarketRocketReachCompany(w http.ResponseWriter, r *http.Request) {
 	company := strings.TrimSpace(r.FormValue("company_name"))
 	location := strings.TrimSpace(r.FormValue("location"))
+	audience := strings.TrimSpace(r.FormValue("audience"))
 	if company == "" || location == "" {
 		s.render(w, "market_rocketreach_company_result", marketRocketReachCompanyView{
 			Company: company, Location: location,
@@ -68,13 +78,17 @@ func (s *Server) handleMarketRocketReachCompany(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	roleScope := "leadership + procurement/purchasing + sales/marketing"
+	if strings.EqualFold(audience, "buyer") {
+		roleScope = "leadership + procurement/purchasing + supply chain/logistics + operations/plant"
+	}
 	view := marketRocketReachCompanyView{
 		Company: company, Location: location,
-		Query: "leadership + procurement/purchasing + sales/marketing; management levels; 5+ years; location " + location,
+		Query: roleScope + "; management levels; 5+ years; location " + location,
 	}
 	seen := make(map[string]bool)
 	var searchErrors []string
-	for _, roleQuery := range marketRocketReachCompanyQueries(company, location) {
+	for _, roleQuery := range marketRocketReachCompanyQueries(company, location, audience) {
 		profiles, err := s.rocketReach.SearchCompany(r.Context(), roleQuery.Query)
 		if err != nil {
 			log.Printf("[ROCKETREACH] company search %q (%s) failed: %v", company, roleQuery.Label, err)

@@ -301,6 +301,13 @@
 		</div>
 		<div class="text-right text-xs text-slate-500">{{.QueriesUsed}} discovery queries · {{.GapQueries}} gap/QC · {{.SearchHits}} hits · {{.VerificationQueries}} verification queries · {{.PagesEnriched}} pages enriched</div>
 	</div>
+	<div class="flex items-center gap-2 border-b border-slate-800" role="tablist" aria-label="Buyer landscape sections">
+		<button type="button" data-market-tab="results" aria-selected="true" onclick="showMarketTab('results')"
+		        class="bg-indigo-500/15 text-indigo-200 text-xs font-medium rounded-t-lg px-3 py-2 border-b-2 border-indigo-500">Results <span class="text-slate-500">({{len .Results}})</span></button>
+		<button type="button" data-market-tab="qc" aria-selected="false" onclick="showMarketTab('qc')"
+		        class="text-slate-400 hover:text-slate-200 text-xs font-medium rounded-t-lg px-3 py-2 border-b-2 border-transparent">QC results <span class="text-slate-600">({{if .Reviews}}{{range .Reviews}}{{.Passed}} passed / {{.Failed}} failed{{end}}{{else}}0 passed / 0 failed{{end}})</span></button>
+	</div>
+	<div data-market-panel="results" class="space-y-6">
 	<div class="border-l-2 border-indigo-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Value chain</div>
 		<p class="text-xs text-slate-500 mt-1">The consuming stages the search was organised around. Operator-supplied stages override the model.</p>
@@ -323,16 +330,33 @@
 	{{template "export_files" .Exports}}
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
 	{{if .Results}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Results}}
-		<div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
-			<div class="flex justify-between gap-3"><span class="font-semibold text-white">{{.Name}}</span><span class="text-[10px] text-emerald-300">{{.Status}}</span></div>
+		<div class="rr-company-card bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+			<div class="flex flex-wrap justify-between gap-3"><span class="font-semibold text-white">{{.Name}}</span>
+				<div class="flex flex-wrap items-center gap-2">
+					<span class="text-[10px] text-emerald-300">{{.Status}}</span>
+					{{if or .PresenceCountry .HQCountry .Country}}<form hx-post="/api/market-landscape/rocketreach/company" hx-target="next .rr-company-results" hx-swap="innerHTML" class="inline">
+						<input type="hidden" name="audience" value="buyer">
+						<input type="hidden" name="company_name" value="{{.Name}}">
+						<input type="hidden" name="location" value="{{if .PresenceCountry}}{{.PresenceCountry}}{{else if .HQCountry}}{{.HQCountry}}{{else}}{{.Country}}{{end}}">
+						<button type="submit" title="Strict RocketReach buyer contacts: leadership, procurement/purchasing, supply chain/logistics, operations/plant; 5+ years" class="text-[10px] rounded-full border border-cyan-800 bg-cyan-950/40 px-2 py-1 text-cyan-200 hover:bg-cyan-900/50">RR contacts</button>
+					</form>{{else}}<span class="text-[10px] text-slate-600" title="No verified buyer location is available for a strict search">RR needs location</span>{{end}}
+					<div class="rr-company-results w-full"></div>
+				</div>
+			</div>
 			{{if .Stage}}<div class="text-xs text-indigo-300">Consuming stage: {{.Stage}}</div>{{end}}
+			<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
+				{{if .Presence}}<span class="rounded-full border border-slate-700 px-2 py-0.5">{{.Presence}}</span>{{end}}
+				{{if .Role}}<span class="rounded-full border border-indigo-900/70 bg-indigo-950/30 px-2 py-0.5">{{.Role}}</span>{{end}}
+			</div>
 			<div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
 				<div><span class="text-slate-600">Domain</span><br>{{if .Domain}}{{.Domain}}{{else}}Not established{{end}}</div>
-				<div><span class="text-slate-600">Geography</span><br>{{if .Country}}{{.Country}}{{else}}Not established{{end}}</div>
+				<div><span class="text-slate-600">Geography</span><br>{{if .PresenceCountry}}{{.PresenceCountry}}{{else}}{{if .Country}}{{.Country}}{{else}}Not established{{end}}{{end}}</div>
 				<div><span class="text-slate-600">Evidence</span><br>{{len .Evidence}} qualifying record(s)</div>
 				<div><span class="text-slate-600">Confidence</span><br>{{printf "%.0f" (mul .Confidence 100)}}%</div>
 			</div>
-			{{if .EvidenceSummary}}<p class="text-xs text-slate-300 leading-relaxed">{{.EvidenceSummary}}</p>{{end}}
+			{{if and .HQCountry .PresenceCountry}}<div class="text-[11px] text-slate-500">HQ: {{.HQCountry}}</div>{{end}}
+			{{if .PresenceReason}}<div class="text-[11px] text-slate-500">{{.PresenceReason}}</div>{{end}}
+			{{if .Description}}<p class="text-xs text-slate-300 leading-relaxed">{{.Description}}</p>{{else}}<p class="text-xs text-slate-500">No descriptive summary was available in the collected snippets.</p>{{end}}
 		</div>
 	{{end}}</div>{{else}}<p class="text-sm text-slate-500">No company met the consumption-verification threshold.</p>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">
@@ -346,17 +370,12 @@
 			{{range .StageCoverage}}<div class="flex items-center justify-between rounded-lg border border-slate-800 px-2 py-1 text-[11px]"><span class="text-slate-300">{{.Stage}}</span><span class="{{if .Pass}}text-emerald-300{{else}}text-amber-300{{end}}">{{.Count}} / {{.Minimum}} {{if .Pass}}PASS{{else}}FAIL{{end}}</span></div>{{end}}
 		</div>
 	</div>{{end}}
-	{{range .Reviews}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-4">
-		<div class="flex justify-between gap-2"><span class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Quality review</span><span class="text-[11px] {{if eq .Verdict "pass"}}text-emerald-300{{else}}text-amber-300{{end}}">{{if .Verdict}}{{.Verdict}}{{else}}unavailable{{end}} · {{printf "%.2f" .Score}}</span></div>
-		{{if .Reason}}<p class="text-xs text-slate-400 mt-1">{{.Reason}}</p>{{end}}
-		{{if .Rejected}}<div class="mt-2 text-[11px] text-slate-400">{{range .Rejected}}<div>Rejected <span class="text-slate-200">{{.Name}}</span> — {{.Reason}}</div>{{end}}</div>{{end}}
-		{{if .MissingStages}}<p class="text-[11px] text-amber-300 mt-1">Under-covered: {{range .MissingStages}}{{.}}; {{end}}</p>{{end}}
-	</div>{{end}}
 	{{range .StageCandidates}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
 		<div class="flex justify-between gap-2"><span class="font-semibold text-white">{{.Stage.Name}}</span><span class="text-[10px] text-slate-500">{{if eq .Stage.Source "category"}}channel category · resale{{else if eq .Stage.Distance 2}}step 2 · derived{{else}}step 1 · direct{{end}} · {{.Stage.Source}}</span></div>
 		{{if .Stage.Rationale}}<p class="text-xs text-slate-400 mt-1">{{.Stage.Rationale}}</p>{{end}}
-		{{if .Companies}}<div class="mt-2 flex flex-wrap gap-1.5">{{range .Companies}}<span class="inline-block text-[11px] {{if eq .Status "lead"}}text-slate-300{{else}}text-emerald-300{{end}} bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5">{{.Name}} · {{.Status}}</span>{{end}}</div>
+		{{if .Companies}}<div class="mt-2 flex flex-wrap gap-1.5">{{range .Companies}}<span class="inline-block text-[11px] {{if eq .Status "lead"}}text-slate-300{{else}}text-emerald-300{{end}} bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5" title="{{.Description}}">{{.Name}} · {{.Status}}{{if .Presence}} · {{.Presence}}{{end}}</span>{{end}}</div>
 		{{else}}<p class="text-xs text-slate-500 mt-1">No stage-active companies surfaced.</p>{{end}}
+		{{if .GlobalCompanies}}<div class="mt-2 border-t border-slate-800 pt-2"><div class="text-[10px] uppercase tracking-wide text-amber-300">Global / cross-border · {{len .GlobalCompanies}}</div><div class="mt-1 flex flex-wrap gap-1.5">{{range .GlobalCompanies}}<span class="inline-block text-[11px] text-slate-300 bg-slate-900 border border-amber-900/60 rounded px-1.5 py-0.5" title="{{.Description}}">{{.Name}} · {{.Status}} · global</span>{{end}}</div></div>{{end}}
 	</div>{{end}}
 	<details class="border-t border-slate-800 pt-5">
 		<summary class="cursor-pointer text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Research links and demand signals</summary>
@@ -368,6 +387,31 @@
 	<div class="border-t border-slate-800 pt-5">
 		<div class="text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Appendix</div>
 		<p class="text-xs text-slate-600 mt-1">Discovery leads, rejected candidates, excluded intermediaries, and demand-signal records remain available under Research links for audit and follow-up.</p>
+	</div>
+	</div>
+	<div data-market-panel="qc" class="hidden space-y-4">
+		<div class="border-l-2 border-indigo-500 pl-3">
+			<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">QC results</div>
+			<p class="text-xs text-slate-500 mt-1">Every buyer company the reviewer saw, tagged passed or failed with the reason. Global/cross-border buyers stay visible in their stage but do not count toward stage coverage.</p>
+		</div>
+		{{if .StageCoverage}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-4">
+			<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Stage coverage — QC minimum</div>
+			<div class="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">{{range .StageCoverage}}<div class="flex items-center justify-between rounded-lg border border-slate-800 px-2 py-1 text-[11px]"><span class="text-slate-300">{{.Stage}}</span><span class="{{if .Pass}}text-emerald-300{{else}}text-amber-300{{end}}">{{.Count}} / {{.Minimum}} {{if .Pass}}PASS{{else}}FAIL{{end}}</span></div>{{end}}</div>
+		</div>{{end}}
+		{{range .Reviews}}
+		<div class="rounded-xl border border-slate-800 bg-slate-950 p-4 space-y-3">
+			<div class="flex flex-wrap items-center justify-between gap-2"><div class="text-xs text-slate-300"><span class="text-[10px] uppercase tracking-wide text-indigo-400">Quality review</span> · buyer · {{if .Verdict}}{{.Verdict}}{{else}}unavailable{{end}} · score {{printf "%.2f" .Score}}</div><div class="text-[11px] text-slate-500">{{.Passed}} passed · {{.Failed}} failed</div></div>
+			{{if .Reason}}<p class="text-xs text-slate-400">{{.Reason}}</p>{{end}}
+			{{if .Verdicts}}<div class="space-y-2">{{range .Verdicts}}<div class="rounded-lg border p-3 {{if eq .Verdict "passed"}}border-emerald-900/60 bg-emerald-950/20{{else if eq .Verdict "failed"}}border-rose-900/60 bg-rose-950/20{{else}}border-slate-800 bg-slate-900/60{{end}}">
+				<div class="flex flex-wrap items-start justify-between gap-2"><div><span class="text-sm font-semibold text-white">{{.Name}}</span>{{if .Country}}<span class="text-[11px] text-slate-400"> · {{.Country}}</span>{{end}}{{if .Stage}}<span class="text-[11px] text-slate-500"> · {{.Stage}}</span>{{end}}</div><span class="text-[10px] uppercase tracking-wide rounded-full border px-2 py-0.5 {{if eq .Verdict "passed"}}border-emerald-800 text-emerald-300{{else if eq .Verdict "failed"}}border-rose-800 text-rose-300{{else}}border-slate-700 text-slate-400{{end}}">qc {{.Verdict}}</span></div>
+				<p class="text-xs text-slate-300 mt-2">{{.Reason}}</p>
+				{{if .Presence}}<div class="text-[11px] text-slate-500 mt-1">{{.Presence}}{{if .PresenceReason}} · {{.PresenceReason}}{{end}}</div>{{end}}
+				{{if .EvidenceURL}}<a href="{{.EvidenceURL}}" target="_blank" rel="noreferrer" class="inline-block text-[11px] text-indigo-400 hover:underline mt-1">{{if .Domain}}{{.Domain}}{{else}}Open evidence{{end}}</a>{{end}}
+			</div>{{end}}</div>{{else}}<div class="text-xs text-slate-500">{{range .Rejected}}<div class="text-rose-300">QC failed {{.Name}} — {{.Reason}}</div>{{else}}No per-company QC verdicts were recorded.{{end}}</div>{{end}}
+			{{if .MissingStages}}<div class="text-[11px] text-amber-300">Under-covered: {{range $index, $stage := .MissingStages}}{{if $index}}, {{end}}{{$stage}}{{end}}</div>{{end}}
+		</div>
+		{{else}}<p class="text-sm text-slate-500">No QC review was recorded for this run.</p>{{end}}
+		{{if .QCPrompt}}<details class="border-t border-slate-800 pt-4"><summary class="cursor-pointer text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">QC prompt used · {{.QCPromptSource}}</summary><pre class="mt-3 whitespace-pre-wrap text-[11px] leading-relaxed text-slate-400 bg-slate-950 border border-slate-800 rounded-xl p-3">{{.QCPrompt}}</pre></details>{{end}}
 	</div>
 </div>
 {{end}}

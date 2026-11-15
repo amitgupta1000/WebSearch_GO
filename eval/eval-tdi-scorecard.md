@@ -1,59 +1,48 @@
 # Demand eval — Toluene Diisocyanate
 
-_Run eval-tdi · 26 discovery queries (287 hits) · 144 verification queries · 20 pages enriched · 14 leads rejected · completed 2026-11-14 22:23_
+_Run eval-tdi · 27 discovery queries (376 hits) · 144 verification queries · 20 pages enriched · 12 leads rejected · completed 2026-11-15 23:18_
 
 ## Inferred chain
 
 | Stage | Steps from the product | Rationale |
 | :--- | :--- | :--- |
 | Polyurethane Foam Manufacturing | 1 | Consumes toluene diisocyanate and polyols to create flexible and rigid foams. |
-| Polyurethane Elastomer Production | 1 | Reacts toluene diisocyanate with polyols and chain extenders to produce elastomers. |
-| Polyurethane Resin Synthesis | 1 | Forms polyurethane prepolymers and resins by reacting toluene diisocyanate with polyols. |
+| Polyurethane Elastomer and Coating Manufacturing | 1 | Consumes toluene diisocyanate and polyols to produce elastomers, coatings, adhesives, and sealants. |
+| Polyurethane Fiber Production | 1 | Consumes toluene diisocyanate and polyols to create polyurethane fibers. |
 
 ## Scorecard
 
-- **Expected direct stages captured: 3/6**
+- **Expected direct stages captured: 4/6**
+  - coating — labelled step 1
   - elastomer — labelled step 1
   - foam — labelled step 1
   - polyurethane — labelled step 1
-  - missed: coating, adhesive, sealant
+  - missed: adhesive, sealant
 - **Scope leaks in the chain: 0** — none
 - **Proposals dropped by the two-step gate: 0** — none
 - **Bait leakage in verified results: 0** — none
 - **Intermediary leakage in verified results: 0** — none
-- **Verified buyers: 29** — 26 tied to expected direct stage(s), 0 to a derived stage, 3 unclassified
+- **Verified buyers: 17** — 15 tied to expected direct stage(s), 0 to a derived stage, 2 unclassified
 
 ## Verified buyers
 
-- **Arco** — stage: Polyurethane Elastomer Production · country:  · status: verified · confidence: 0.98
-- **Bode** — stage: Polyurethane Resin Synthesis · country: Nigeria · status: verified · confidence: 0.98
-- **Dow Chemical** — stage: Polyurethane Resin Synthesis · country:  · status: verified · confidence: 0.98
-- **ECHEMI** — stage: Distribution and wholesale · country:  · status: verified · confidence: 0.98
-- **Fisher Scientific** — stage: Distribution and wholesale · country:  · status: verified · confidence: 0.98
-- **Huntsman** — stage: Polyurethane Elastomer Production · country:  · status: verified · confidence: 0.98
-- **Huntsman International LLC** — stage: Polyurethane Elastomer Production · country: US · status: verified · confidence: 0.98
-- **ICI** — stage: Polyurethane Elastomer Production · country:  · status: verified · confidence: 0.98
-- **Mobay** — stage: Polyurethane Resin Synthesis · country:  · status: verified · confidence: 0.98
-- **Olin** — stage: Polyurethane Elastomer Production · country:  · status: verified · confidence: 0.98
+- **HYOSUNG** — stage: Polyurethane Fiber Production · country:  · status: verified · confidence: 0.98
 - **Shakti Chemicals** — stage: Polyurethane Foam Manufacturing · country: India · status: corroborated · confidence: 0.98
-- **Union Carbide** — stage: Polyurethane Elastomer Production · country:  · status: verified · confidence: 0.98
-- **Catalynt Solutions, Inc.** — stage: Polyurethane Resin Synthesis · country: USA · status: verified · confidence: 0.98
-- **Upjohn** — stage: Polyurethane Elastomer Production · country:  · status: verified · confidence: 0.98
-- **DuPont** — stage: Polyurethane Elastomer Production · country:  · status: verified · confidence: 0.94
-- **BASF** — stage: Polyurethane Foam Manufacturing · country: North America · status: verified · confidence: 0.88
-- **Rhone Poulenc** — stage: Polyurethane Elastomer Production · country:  · status: verified · confidence: 0.88
-- **Bayer AG** — stage: Polyurethane Elastomer Production · country: Germany · status: verified · confidence: 0.86
-- **Mitsui Chemicals, Inc.** — stage: Polyurethane Elastomer Production · country: Japan · status: corroborated · confidence: 0.86
-- **Tosoh Corporation** — stage: Polyurethane Elastomer Production · country: Japan · status: corroborated · confidence: 0.78
-- **PCIPL** — stage: Polyurethane Resin Synthesis · country:  · status: corroborated · confidence: 0.75
-- **SAE Manufacturing Specialties Corp** — stage: Polyurethane Resin Synthesis · country: USA · status: corroborated · confidence: 0.70
-- **Covestro AG** — stage: Polyurethane Foam Manufacturing · country:  · status: verified · confidence: 0.52
-- **Hiseachem** — stage: Distribution and wholesale · country: China · status: verified · confidence: 0.52
-- **Arpadis** — stage: Polyurethane Foam Manufacturing · country:  · status: corroborated · confidence: 0.45
-- **Decase Chemicals Ltd** — stage: Polyurethane Foam Manufacturing · country:  · status: corroborated · confidence: 0.45
-- **PMA** — stage: Polyurethane Elastomer Production · country:  · status: corroborated · confidence: 0.45
-- **TURI** — stage: Polyurethane Foam Manufacturing · country:  · status: corroborated · confidence: 0.45
-- **domi (hk) industrial co., limited** — stage: Polyurethane Foam Manufacturing · country:  · status: corroborated · confidence: 0.45
+- **The Dow Chemical Company** — stage: Polyurethane Fiber Production · country:  · status: verified · confidence: 0.88
+- **Bayer AG** — stage: Polyurethane Elastomer and Coating Manufacturing · country:  · status: verified · confidence: 0.86
+- **Asahi Kasei Corporation** — stage: Polyurethane Fiber Production · country:  · status: verified · confidence: 0.78
+- **PCIPL** — stage: Polyurethane Elastomer and Coating Manufacturing · country:  · status: corroborated · confidence: 0.75
+- **Covestro AG** — stage: Polyurethane Foam Manufacturing · country:  · status: verified · confidence: 0.62
+- **BASF** — stage: Polyurethane Foam Manufacturing · country: North America · status: verified · confidence: 0.52
+- **Circularise** — stage: Polyurethane Fiber Production · country:  · status: verified · confidence: 0.52
+- **ECHEMI** — stage: Distribution and wholesale · country:  · status: verified · confidence: 0.52
+- **Carlisle PS** — stage: Polyurethane Foam Manufacturing · country:  · status: corroborated · confidence: 0.45
+- **Enhance Comfort with Spray Polyurethane Foam Insulation** — stage: Polyurethane Foam Manufacturing · country:  · status: corroborated · confidence: 0.45
+- **Exportv.ru** — stage: Distribution and wholesale · country:  · status: corroborated · confidence: 0.45
+- **Polyurethanes** — stage: Polyurethane Foam Manufacturing · country:  · status: corroborated · confidence: 0.45
+- **Poured Polyurethane Foam** — stage: Polyurethane Foam Manufacturing · country:  · status: corroborated · confidence: 0.45
+- **The article detailed information** — stage: Polyurethane Fiber Production · country:  · status: corroborated · confidence: 0.45
+- **ecoQuery** — stage: Polyurethane Fiber Production · country:  · status: corroborated · confidence: 0.45
 
 ## Warnings
 
@@ -61,16 +50,44 @@ _Run eval-tdi · 26 discovery queries (287 hits) · 144 verification queries · 
 - Buyer scope: manufacturers whose process consumes the product directly (step 1) or via one intermediate transformation (step 2); deeper value-chain stages are out of scope.
 - Model-inferred stages are hypotheses; each result names the consuming stage it was tied to.
 - Traders, brokers and trading houses are excluded; rerun with intermediaries to include them.
-- Buyer QC removed Chemical Products Tenders Worldwide: This is an aggregator of tenders, not a direct buyer of TDI..
-- Buyer QC removed global Chemical tenders eprocurement: This is an aggregator of tenders, not a direct buyer of TDI..
-- Buyer QC removed Chemical Tenders: This is a platform for tenders, not a direct buyer of TDI..
-- Buyer QC removed seair.co.in: This provides import data, not direct evidence of TDI consumption or resale..
-- Buyer QC removed Renewable Toluene Diisocyanate (TDI) Production Plant: This is a report about a production plant, not a buyer of TDI..
-- Buyer QC removed alliedmarketresearch.com: This is a market research firm, not a buyer of TDI..
-- Buyer QC removed Anti-dumping investigation on imports of 'Toluene Di: This is a regulatory investigation, not a buyer..
-- Buyer QC removed Dinitrotoluene Producers Absorb Toluene Feedstock ...: This article discusses Dinitrotoluene producers and TDI prices, not direct TDI buyers..
-- Buyer QC removed Industry Tenders, RFPs & Government Procurement: This is an aggregator of tenders, not a direct buyer of TDI..
-- Buyer QC removed cybex.in: This provides import data, not direct evidence of TDI consumption or resale..
-- Buyer QC removed Request For Proposal Details: This is a tender opportunity, not a confirmed buyer..
-- Buyer QC removed Tenders: This is a government procurement portal, not a direct buyer of TDI..
-- Buyer QC removed Request for Bid: This is a request for bid, not a confirmed buyer..
+- Buyer QC removed discovery.patsnap.com: This entry is a publisher/directory and does not represent a buyer..
+- Buyer QC removed gminsights.com: This entry is a consultancy and does not represent a buyer..
+- Buyer QC removed Polyurethane Suppliers Manufacturers: This entry is a directory/category title and does not represent a buyer..
+- Buyer QC removed Why can't we use TDI (toluene diisocyanate) to produce: This entry is an article/question and does not represent a buyer..
+- Buyer QC removed 23 Urethane Foam Manufacturers in 2026: This entry is a directory/category title and does not represent a buyer..
+- Buyer QC removed Polyurethane Elastic (Spandex) Fiber Production Process: This entry is an article/process description and does not represent a buyer..
+- Buyer QC removed Air Concentrations of TDI and Total Reactive Isocyanate: This entry is a regulatory document and does not represent a buyer..
+- Buyer QC removed chemicaltoday.in: This entry is a publisher/news site and does not represent a buyer..
+- Buyer QC removed Risk assessment for consumer exposure to toluene: This entry is a publisher/article and does not represent a buyer..
+- Buyer QC removed alliedmarketresearch.com: This entry is a consultancy and does not represent a buyer..
+- Buyer QC removed Toluene diisocyanate (TDI) 80/20: This entry is a product page and does not represent a buyer..
+- Buyer QC removed eureka.patsnap.com: This entry is a directory/material page and does not represent a buyer..
+- Buyer QC removed Polyurethane Producers: This entry is a category title and does not represent a buyer..
+- Buyer QC removed Toluene Diisocyanate Manufacturer and Exporter from India: This entry is a product/company page and does not represent a buyer..
+- Buyer QC removed Chemical Products Tenders Worldwide: This entry is an aggregator of tenders and does not represent a buyer..
+- Buyer QC removed fortunebusinessinsights.com: This entry is a consultancy and does not represent a buyer..
+- Buyer QC removed marketreportsworld.com: This entry is a publisher/news site and does not represent a buyer..
+- Buyer QC removed Procurement of D.N.T: This entry is a tender document and does not represent a buyer..
+- Buyer QC removed What Is LYCRA® Fiber? The Original Spandex & Elastane: This entry is an informational page about a brand/product and does not represent a buyer..
+- Buyer QC removed linkedin.com: This entry is a publisher/directory and does not represent a buyer..
+- Buyer QC removed revenuebase.ai: This entry is a directory/list and does not represent a buyer..
+- Buyer QC removed Tdi Toluene Diisocyanate Imports: This entry is an import data record and does not represent a buyer..
+- Buyer QC removed Foam and Coating Manufacturer: This entry is a category title and does not represent a buyer..
+- Buyer QC removed Polyurethane Foam Suppliers for Industrial Use: This entry is a category title and does not represent a buyer..
+- Buyer QC removed OEHHA: This entry is a regulatory agency page and does not represent a buyer..
+- Buyer QC removed Open RFPs: This entry is a tender aggregator and does not represent a buyer..
+- Buyer QC removed transparencymarketresearch.com: This entry is a consultancy and does not represent a buyer..
+- Buyer QC removed Marco Rubber: This entry is a product/chemical compatibility page and does not represent a buyer..
+- Buyer QC removed Toluene Diisocyanates Profile: This entry is a chemical profile page and does not represent a buyer..
+- Buyer QC removed Black polyurethane foam is created by reacting TDI (toluene: This entry is a social media post and does not represent a buyer..
+- Buyer QC removed eximpedia.app: This entry is an import data aggregator and does not represent a buyer..
+- Buyer QC removed Toluene diisocyanates (TDI), TDA and DNT REACH: This entry is a consortium/regulatory page and does not represent a buyer..
+- Buyer QC removed thundersaidenergy.com: This entry is a publisher/report site and does not represent a buyer..
+- Buyer QC removed Anti-dumping investigation on imports of 'Toluene Di: This entry is a regulatory investigation notice and does not represent a buyer..
+- Buyer QC removed Toxicological Profile for Toluene Diisocyanate and: This entry is a regulatory document and does not represent a buyer..
+- Buyer QC removed Supply of Toluene Di-Isocyanate (TDI): This entry is a tender notice and does not represent a buyer..
+- Buyer QC removed Find a Foam Producer: This entry is a directory/resource page and does not represent a buyer..
+- Buyer QC removed Toluene diisocyanate: This entry is a Wikipedia page and does not represent a buyer..
+- Buyer QC removed Request for information about Toluene Diisocyanates: This entry is a regulatory/NIOSH docket page and does not represent a buyer..
+- Buyer QC removed Diisocyanates Explained: This entry is an informational page and does not represent a buyer..
+- Buyer QC removed wwwn.cdc.gov: This entry is a regulatory agency page and does not represent a buyer..

@@ -116,6 +116,9 @@ type MarketLandscapeCompany struct {
 	PresenceCountry string `json:"presence_country,omitempty"`
 	PresenceReason  string `json:"presence_reason,omitempty"`
 	HQCountry       string `json:"hq_country,omitempty"`
+	// InScope is true when the company counts toward the requested coverage
+	// floor. Global/unknown companies remain visible but are false.
+	InScope bool `json:"in_scope"`
 	// Stage names the consuming stage a buyer-side (demand chain) run tied the
 	// company to; empty on supplier-side runs.
 	Stage string `json:"stage,omitempty"`
@@ -182,6 +185,7 @@ type MarketQCVerdict struct {
 	Role           string `json:"role,omitempty"`
 	Presence       string `json:"presence,omitempty"`
 	PresenceReason string `json:"presence_reason,omitempty"`
+	Stage          string `json:"stage,omitempty"`
 }
 
 // MarketLandscapeReview is the post-assembly producer/seller QC review. It is deterministic on

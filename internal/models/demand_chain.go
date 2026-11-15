@@ -128,6 +128,9 @@ type DemandChainQuery struct {
 	// StagesOverride supplies the consuming stages directly; when set, the
 	// value-chain inference call is skipped entirely.
 	StagesOverride []string `json:"stages_override,omitempty"`
+	// QCPrompt is the operator-editable per-company buyer QC policy. Empty
+	// selects the default. The adversarial chain review remains fixed.
+	QCPrompt string `json:"qc_prompt,omitempty"`
 	// IncludeIntermediaries keeps traders, brokers and trading houses — who are
 	// simultaneously buyers and sellers — in the results. They are excluded by
 	// default because a buyer list dominated by middlemen is rarely what the
@@ -150,6 +153,10 @@ type DemandChainQuery struct {
 type StageCandidates struct {
 	Stage     ValueChainStage          `json:"stage"`
 	Companies []MarketLandscapeCompany `json:"companies,omitempty"`
+	// GlobalCompanies are stage-relevant but have no local/regional operating
+	// evidence for the requested geography. They stay visible for audit and do
+	// not count toward StageCoverage.
+	GlobalCompanies []MarketLandscapeCompany `json:"global_companies,omitempty"`
 }
 
 // DemandStageCoverage is the deterministic QC check for one consuming stage (or the separate
@@ -178,6 +185,9 @@ type DemandChainReview struct {
 	Verdict         string                `json:"verdict"`
 	Score           float64               `json:"score"`
 	Rejected        []DemandRejectedName  `json:"rejected,omitempty"`
+	Verdicts        []MarketQCVerdict     `json:"verdicts,omitempty"`
+	Passed          int                   `json:"passed"`
+	Failed          int                   `json:"failed"`
 	MissingStages   []string              `json:"missing_stages,omitempty"`
 	FollowUpQueries []string              `json:"follow_up_queries,omitempty"`
 	StageCoverage   []DemandStageCoverage `json:"stage_coverage,omitempty"`
@@ -241,6 +251,8 @@ type DemandChainReport struct {
 	ProductCategory   string `json:"product_category,omitempty"`
 	CategoryRationale string `json:"category_rationale,omitempty"`
 	CategorySource    string `json:"category_source,omitempty"`
+	QCPrompt          string `json:"qc_prompt,omitempty"`
+	QCPromptSource    string `json:"qc_prompt_source,omitempty"`
 	// Chain is the consuming stages the search was organised around, in the
 	// order the lanes were built from them.
 	Chain []ValueChainStage `json:"chain,omitempty"`

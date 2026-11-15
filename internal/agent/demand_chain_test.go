@@ -1561,3 +1561,44 @@ func TestDemandEvalLeaksAreRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestDemandStageCandidatesSeparateGlobalBuyers(t *testing.T) {
+	query := models.DemandChainQuery{Countries: []string{"India"}}
+	local := &models.MarketLandscapeCompany{
+		Name: "Pune Biodiesel", Stage: "biodiesel production", Country: "India",
+		EvidenceType: "company-page", Evidence: []models.MarketLandscapeEvidence{{
+			Snippet: "Operates a biodiesel plant in Pune, India and buys used cooking oil.",
+		}},
+	}
+	global := &models.MarketLandscapeCompany{
+		Name: "Global Feedstock", Stage: "biodiesel production", Country: "Germany",
+		EvidenceType: "company-page", Evidence: []models.MarketLandscapeEvidence{{
+			Snippet: "A global supplier of feedstocks with operations worldwide.",
+		}},
+	}
+	classifyDemandCompanies([]*models.MarketLandscapeCompany{local, global}, query)
+	sections, _ := buildStageCandidates(
+		[]*models.MarketLandscapeCompany{local, global},
+		[]models.ValueChainStage{{Name: "biodiesel production", Distance: models.StageDistanceDirect}},
+	)
+	if len(sections) == 0 || len(sections[0].Companies) != 1 || len(sections[0].GlobalCompanies) != 1 {
+		t.Fatalf("sections = %+v, want one local and one global company in the stage", sections)
+	}
+	if coverage := demandStageCoverage(sections); len(coverage) == 0 || coverage[0].Count != 1 || coverage[0].Pass {
+		t.Fatalf("coverage = %+v, want only the local company counted", coverage)
+	}
+	if local.Description == "" || !strings.Contains(local.Description, "biodiesel plant") {
+		t.Fatalf("local description = %q, want scraped evidence", local.Description)
+	}
+}
+
+func TestDemandQCPolicyDistinguishesDefaultFromCustom(t *testing.T) {
+	policy, source := demandQCPolicy(models.DemandChainQuery{QCPrompt: DefaultDemandQCPrompt})
+	if source != "default" || policy != DefaultDemandQCPrompt {
+		t.Fatalf("default buyer QC policy = %q/%q", policy, source)
+	}
+	_, source = demandQCPolicy(models.DemandChainQuery{QCPrompt: "Reject every distributor."})
+	if source != "custom" {
+		t.Fatalf("custom buyer QC source = %q", source)
+	}
+}

@@ -326,7 +326,7 @@ func postForm(path, body string) *http.Request {
 }
 
 func TestMarketRocketReachCompanyQueriesAreStrict(t *testing.T) {
-	queries := marketRocketReachCompanyQueries("Acme Lubricants", "India")
+	queries := marketRocketReachCompanyQueries("Acme Lubricants", "India", "producer")
 	if len(queries) != 3 {
 		t.Fatalf("queries = %d, want leadership, procurement/purchasing and sales/marketing", len(queries))
 	}
@@ -348,6 +348,35 @@ func TestMarketRocketReachCompanyQueriesAreStrict(t *testing.T) {
 	}
 	if len(queries[0].Query["department"]) != 0 {
 		t.Errorf("leadership query must not carry a department filter: %v", queries[0].Query["department"])
+	}
+}
+
+func TestMarketRocketReachBuyerQueriesUseBuyerRoles(t *testing.T) {
+	queries := marketRocketReachCompanyQueries("Acme Chemicals", "India", "buyer")
+	if len(queries) != 4 {
+		t.Fatalf("queries = %d, want leadership, procurement/purchasing, supply chain/logistics and operations", len(queries))
+	}
+	for _, query := range queries {
+		if query.Query["location"][0] != "India" || query.Query["years_experience"][0] != "5+" {
+			t.Errorf("%s query = %#v, want strict location/5+ filters", query.Label, query.Query)
+		}
+	}
+	if got := strings.Join(queries[2].Query["department"], ","); got != "supply chain,logistics" {
+		t.Errorf("supply chain departments = %q", got)
+	}
+	if got := strings.Join(queries[3].Query["department"], ","); got != "operations" {
+		t.Errorf("operations departments = %q", got)
+	}
+}
+
+func TestDemandQueryCarriesEditableQCPrompt(t *testing.T) {
+	query := demandChainQueryFromForm(postForm("/api/research", "demand_qc_prompt=CUSTOM+BUYER+QC"), "used cooking oil")
+	if query.QCPrompt != "CUSTOM BUYER QC" {
+		t.Fatalf("QCPrompt = %q, want the operator-edited buyer policy", query.QCPrompt)
+	}
+	empty := demandChainQueryFromForm(postForm("/api/research", "demand_max_companies=12"), "used cooking oil")
+	if empty.QCPrompt != "" {
+		t.Fatalf("QCPrompt = %q, want an empty field to select the agent default", empty.QCPrompt)
 	}
 }
 

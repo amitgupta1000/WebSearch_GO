@@ -90,6 +90,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		Geography:  demandGeography(query),
 		Iterations: 2, StartedAt: time.Now(),
 	}
+	report.QCPrompt, report.QCPromptSource = demandQCPolicy(query)
 
 	// Phase 1 — the value chain. The operator's stages win; otherwise one
 	// structured call proposes the consuming stages the whole run is organised
@@ -212,6 +213,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	// Alias-level dedupe: "IndianOil" and "Indian Oil Corporation" are one
 	// house; their evidence unions and the strongest verdict represents them.
 	merged := demandDedupeCompanies(pool)
+	classifyDemandCompanies(merged, query)
 
 	// Stage coverage gate: every consuming stage and the distribution category must have more
 	// than a handful of identity-passed companies. Spend bounded fresh searches on the gaps
@@ -226,6 +228,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 			}
 			pool = append(pool, verified...)
 			merged = demandDedupeCompanies(pool)
+			classifyDemandCompanies(merged, query)
 		}
 	}
 	sections, _ = buildStageCandidates(merged, report.Chain)
@@ -268,6 +271,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 					pool = append(pool, company)
 				}
 				merged = demandDedupeCompanies(pool)
+				classifyDemandCompanies(merged, query)
 			}
 		}
 	}
@@ -282,6 +286,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		}
 		pool = append(pool, verified...)
 		merged = demandDedupeCompanies(pool)
+		classifyDemandCompanies(merged, query)
 	}
 	// Gap extraction and follow-ups run after the judge's first pass. Re-apply its rejections
 	// so a page cannot reintroduce a company the judge already removed.
@@ -373,6 +378,13 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	report.StageCandidates, demotedEvidence = buildStageCandidates(merged, report.Chain)
 	report.Appendix = append(report.Appendix, demotedEvidence...)
 	report.StageCoverage = demandStageCoverage(report.StageCandidates)
+	globalStageCompanies := 0
+	for _, section := range report.StageCandidates {
+		globalStageCompanies += len(section.GlobalCompanies)
+	}
+	if globalStageCompanies > 0 {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("%d global/cross-border buyer(s) are shown inside their stages for audit but excluded from stage coverage.", globalStageCompanies))
+	}
 	review.StageCoverage = report.StageCoverage
 	review.MissingStages = nil
 	for _, item := range report.StageCoverage {
@@ -1369,6 +1381,8 @@ func demandStageCoverage(sections []models.StageCandidates) []models.DemandStage
 // before the call and is always a hard criterion, even when the judge is unavailable.
 func (a *DemandChainAgent) reviewDemandReport(ctx context.Context, query models.DemandChainQuery, chain []models.ValueChainStage, merged []*models.MarketLandscapeCompany, coverage []models.DemandStageCoverage, eventCh chan<- models.AgentEvent) models.DemandChainReview {
 	review := models.DemandChainReview{StageCoverage: coverage}
+	submitted := append([]*models.MarketLandscapeCompany(nil), merged...)
+	policy, _ := demandQCPolicy(query)
 	var rows strings.Builder
 	limit := len(merged)
 	if limit > 50 {
@@ -1379,8 +1393,8 @@ func (a *DemandChainAgent) reviewDemandReport(ctx context.Context, query models.
 		if company == nil {
 			continue
 		}
-		fmt.Fprintf(&rows, "- %s | stage=%s | country=%s | status=%s | confidence=%.2f\n",
-			company.Name, company.Stage, company.Country, demandStatus(company), company.Confidence)
+		fmt.Fprintf(&rows, "- %s | stage=%s | presence=%s | country=%s | status=%s | confidence=%.2f\n",
+			company.Name, company.Stage, company.Presence, company.Country, demandStatus(company), company.Confidence)
 		evidenceLimit := len(company.Evidence)
 		if evidenceLimit > 2 {
 			evidenceLimit = 2
@@ -1395,6 +1409,8 @@ func (a *DemandChainAgent) reviewDemandReport(ctx context.Context, query models.
 		coverageText = append(coverageText, fmt.Sprintf("%s: %d (minimum %d)", item.Stage, item.Count, item.Minimum))
 	}
 	prompt := fmt.Sprintf(`Review this buyer-landscape result for "%s" in %s.
+OPERATOR QC POLICY:
+%s
 The buyer definition: a company that consumes the product as an input, or buys it to resell;
 manufacturers at most two transformation steps downstream, plus a separate distribution and
 wholesale category. Every stage and the distribution category should have at least %d
@@ -1405,12 +1421,14 @@ Do not invent companies. Propose at most 3 follow-up searches, each anchored on 
 a stage/company. Return JSON with verdict (pass or revise), score 0-1, rejected (name and
 reason), missing_stages, follow_up_queries, and reason.
 Rows:
-%s`, query.Activity, demandGeography(query), demandMinStageCompanies, strings.Join(coverageText, "; "), rows.String())
+%s`, query.Activity, demandGeography(query), policy, demandMinStageCompanies, strings.Join(coverageText, "; "), rows.String())
 	if err := a.engine.GenerateStructured(ctx, "You are a strict buyer-research quality reviewer. Prefer a shorter, accurate list over a longer list containing publishers, people, categories or suppliers. Never invent a company or a source.", prompt, &review); err != nil {
 		review.Verdict = "unavailable"
 		review.Reason = err.Error()
 		review.Rejected = nil
 		review.FollowUpQueries = nil
+		review.Verdicts, review.Passed, review.Failed = marketQCVerdictsForList(submitted, nil, "Buyer QC review unavailable: "+err.Error())
+
 		emitAgentEvent(eventCh, models.EventError, "Buyer QC review unavailable: "+err.Error(), "demand_qc", "")
 		return review
 	}
@@ -1426,13 +1444,27 @@ Rows:
 	if len(review.MissingStages) > 0 || len(review.Rejected) > 0 {
 		review.Verdict = "revise"
 	}
+	rejected := make(map[string]string, len(review.Rejected))
+	for _, rejection := range review.Rejected {
+		if key := normalizeMarketName(rejection.Name); key != "" {
+			rejected[key] = rejection.Reason
+		}
+	}
+	fallback := ""
+	if review.Verdict == "unavailable" {
+		fallback = "QC reviewer returned no verdict."
+	}
+	review.Verdicts, review.Passed, review.Failed = marketQCVerdictsForList(submitted, rejected, fallback)
+
 	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Buyer QC review: %s (%.2f) — %d rejection(s), %d under-covered stage(s)", review.Verdict, review.Score, len(review.Rejected), len(review.MissingStages)), "demand_qc", "")
 	return review
 }
 
 func buildStageCandidates(pool []*models.MarketLandscapeCompany, chain []models.ValueChainStage) ([]models.StageCandidates, []models.MarketLandscapeEvidence) {
 	byStage := make(map[string][]*models.MarketLandscapeCompany)
+	byStageGlobal := make(map[string][]*models.MarketLandscapeCompany)
 	var unclassified []*models.MarketLandscapeCompany
+	var unclassifiedGlobal []*models.MarketLandscapeCompany
 	var demoted []models.MarketLandscapeEvidence
 	for _, company := range pool {
 		if !demandCompanyTitle(company.Name) {
@@ -1450,7 +1482,11 @@ func buildStageCandidates(pool []*models.MarketLandscapeCompany, chain []models.
 		}
 		company.Status = demandStatus(company)
 		if strings.TrimSpace(company.Stage) == "" {
-			unclassified = append(unclassified, company)
+			if company.InScope || company.Presence == "" {
+				unclassified = append(unclassified, company)
+			} else {
+				unclassifiedGlobal = append(unclassifiedGlobal, company)
+			}
 			continue
 		}
 		// A verified company need not spell its consuming stage in its name; it
@@ -1461,7 +1497,11 @@ func buildStageCandidates(pool []*models.MarketLandscapeCompany, chain []models.
 			demoted = append(demoted, company.Evidence...)
 			continue
 		}
-		byStage[company.Stage] = append(byStage[company.Stage], company)
+		if company.InScope || company.Presence == "" {
+			byStage[company.Stage] = append(byStage[company.Stage], company)
+		} else {
+			byStageGlobal[company.Stage] = append(byStageGlobal[company.Stage], company)
+		}
 	}
 	sortStageCompanies := func(companies []*models.MarketLandscapeCompany) []models.MarketLandscapeCompany {
 		sort.Slice(companies, func(i, j int) bool {
@@ -1478,21 +1518,21 @@ func buildStageCandidates(pool []*models.MarketLandscapeCompany, chain []models.
 	}
 	sections := make([]models.StageCandidates, 0, len(chain)+1)
 	for _, stage := range chain {
-		sections = append(sections, models.StageCandidates{Stage: stage, Companies: sortStageCompanies(byStage[stage.Name])})
+		sections = append(sections, models.StageCandidates{Stage: stage, Companies: sortStageCompanies(byStage[stage.Name]), GlobalCompanies: sortStageCompanies(byStageGlobal[stage.Name])})
 	}
 	// The channel category is always present in the roster (empty when the run found none), so
 	// the operator can see the distributor/wholesaler lane was run and judge its coverage.
 	sections = append(sections, models.StageCandidates{
-		Stage: demandDistributionStage(), Companies: sortStageCompanies(byStage[demandDistributionStageName]),
+		Stage: demandDistributionStage(), Companies: sortStageCompanies(byStage[demandDistributionStageName]), GlobalCompanies: sortStageCompanies(byStageGlobal[demandDistributionStageName]),
 	})
-	if len(unclassified) > 0 {
+	if len(unclassified) > 0 || len(unclassifiedGlobal) > 0 {
 		sections = append(sections, models.StageCandidates{
 			Stage: models.ValueChainStage{
 				Name:      "General demand lanes",
 				Source:    "lanes",
 				Rationale: "Companies the product-shaped demand lanes surfaced, not tied to a single consuming stage.",
 			},
-			Companies: sortStageCompanies(unclassified),
+			Companies: sortStageCompanies(unclassified), GlobalCompanies: sortStageCompanies(unclassifiedGlobal),
 		})
 	}
 	return sections, demoted

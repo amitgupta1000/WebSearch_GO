@@ -163,8 +163,8 @@ func TestIndexHasStableQueryControls(t *testing.T) {
 	if !strings.Contains(out.String(), `name="market_qc_prompt"`) {
 		t.Error("expected the editable producer QC prompt field")
 	}
-	if !strings.Contains(out.String(), "Reset default") {
-		t.Error("expected a QC prompt reset action")
+	if !strings.Contains(out.String(), `name="demand_qc_prompt"`) {
+		t.Error("expected the editable buyer QC prompt field")
 	}
 }
 
@@ -342,6 +342,7 @@ type indexViewStub struct {
 	BrowserToggle    bool
 	BrowserDefaultOn bool
 	MarketQCPrompt   string
+	DemandQCPrompt   string
 }
 
 func TestIndexShowsBrowserToggleOnlyWhenAvailable(t *testing.T) {
@@ -445,6 +446,10 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 			{
 				Stage:     models.ValueChainStage{Name: "biodiesel production", Rationale: "Biodiesel is produced from UCO.", Source: "model"},
 				Companies: []models.MarketLandscapeCompany{{Name: "Jayant Oleochemicals", Status: "lead", Confidence: 0.45}},
+				GlobalCompanies: []models.MarketLandscapeCompany{{
+					Name: "Global UCO Buyer", Status: "lead", Presence: models.MarketPresenceGlobal, Country: "Germany",
+					Description: "A global UCO buyer.",
+				}},
 			},
 			{
 				Stage:     models.ValueChainStage{Name: "Distribution and wholesale", Source: "category", Distance: models.StageDistanceDirect},
@@ -456,14 +461,21 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 			{Stage: "Distribution and wholesale", Count: 5, Minimum: 6, Pass: false},
 		},
 		Reviews: []models.DemandChainReview{{
-			Verdict: "revise", Score: 0.7,
-			Rejected:      []models.DemandRejectedName{{Name: "ACS Publications", Reason: "publisher"}},
+			Verdict: "revise", Score: 0.7, Passed: 1, Failed: 1,
+			Rejected: []models.DemandRejectedName{{Name: "ACS Publications", Reason: "publisher"}},
+			Verdicts: []models.MarketQCVerdict{
+				{Name: "GreenDiesel Sdn Bhd", Verdict: "passed", Reason: "consumes UCO", Stage: "biodiesel production"},
+				{Name: "ACS Publications", Verdict: "failed", Reason: "publisher", Stage: "biodiesel production"},
+			},
 			MissingStages: []string{"Distribution and wholesale"},
 		}},
 		Results: []models.MarketLandscapeCompany{{
 			Name: "GreenDiesel Sdn Bhd", Domain: "greendiesel.com.my", Status: "verified",
 			Stage: "biodiesel production", Confidence: 0.86,
-			KeyPeople: []string{"Asha Rao"},
+			Country: "India", PresenceCountry: "India", Presence: models.MarketPresenceLocal,
+			Description: "GreenDiesel operates a biodiesel plant and buys used cooking oil.",
+			Role:        models.MarketRoleManufacturer,
+			KeyPeople:   []string{"Asha Rao"},
 			Evidence: []models.MarketLandscapeEvidence{{
 				Title: "GreenDiesel wins state tender", URL: "https://tenderportal.example.com/uco-tender",
 				Lane: "demand verification", ClaimType: "demand-tender",
@@ -486,6 +498,10 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 		"Stage coverage — QC minimum", "Distribution and wholesale", "FAIL",
 		"Quality review", "ACS Publications", "publisher",
 		"gap/QC", "GreenDiesel Sdn Bhd", "Consuming stage: biodiesel production",
+		"Global / cross-border", "Global UCO Buyer",
+		"RR contacts", "/api/market-landscape/rocketreach/company",
+		"GreenDiesel operates a biodiesel plant and buys used cooking oil.",
+		"QC results", "5+ years", "qc passed", "qc failed",
 		"Private procurement is invisible",
 	} {
 		if !strings.Contains(rendered, expected) {

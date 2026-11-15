@@ -66,6 +66,8 @@ type indexView struct {
 	BrowserDefaultOn bool
 	// MarketQCPrompt is the default producer/seller QC policy, editable per run.
 	MarketQCPrompt string
+	// DemandQCPrompt is the default buyer per-company QC policy, editable per run.
+	DemandQCPrompt string
 }
 
 type companyResultView struct {
@@ -405,6 +407,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
 		BrowserToggle:    s.allowBrowserToggle && s.browserAvailable,
 		BrowserDefaultOn: s.cfg.EnableBrowserFallback,
 		MarketQCPrompt:   agent.DefaultMarketQCPrompt,
+		DemandQCPrompt:   agent.DefaultDemandQCPrompt,
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "index.html", view); err != nil {
 		log.Printf("[ERROR] index template execution failed: %v", err)
@@ -855,6 +858,7 @@ func demandChainQueryFromForm(r *http.Request, activity string) models.DemandCha
 		MaxCompanies:          parseBoundedInt(r.FormValue("demand_max_companies"), 48, 1, 80),
 		StagesOverride:        splitFormList(r.FormValue("demand_stages")),
 		IncludeIntermediaries: r.FormValue("demand_intermediaries") == "1",
+		QCPrompt:              strings.TrimSpace(r.FormValue("demand_qc_prompt")),
 	}
 }
 
