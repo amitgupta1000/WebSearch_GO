@@ -244,13 +244,22 @@ func (a *MarketLandscapeAgent) reviewMarketReport(ctx context.Context, query mod
 Reject a company when it is a publisher, directory, procurement portal, person, category, article,
 product page, association or generic aggregator; when it does not actually produce, manufacture or
 sell %q; when it belongs to a different activity; or when its evidence only mentions the activity in
-passing. Do not invent companies or replacements. The landscape should identify at least %d separate
+passing. Reject engineering firms, plant/equipment vendors, automation suppliers and process
+explainers unless the evidence shows they also operate the production/blending process themselves.
+Important process-activity rule: if %q names a process such as blending, manufacturing or processing,
+accept a company that operates that process for its own products or output, even when it does not
+offer the process as a service to third parties. A lubricant manufacturer that runs a blending plant
+is a valid producer/seller of lubricant blending; a plant/equipment vendor, engineering consultancy,
+laboratory or directory is not. Do not require the word "blending" in the evidence: evidence that a
+company manufactures or refines the product is sufficient unless it shows the company is only a
+reseller, distributor, consultant or equipment vendor.
+Do not invent companies or replacements. The landscape should identify at least %d separate
 companies; report missing coverage if it does not. Return JSON with verdict (pass or revise), score
 0-1, rejected (name and reason), missing, and reason.
 Companies:
-%s`, query.Activity, query.Activity, marketCoverageMinimum, rows.String())
+%s`, query.Activity, query.Activity, query.Activity, marketCoverageMinimum, rows.String())
 	if err := a.engine.GenerateStructured(ctx,
-		"You are a strict producer/seller landscape reviewer. Reject publishers, directories, people, categories, articles, product pages and unrelated companies. Never invent a company or a replacement.",
+		"You are a strict producer/seller landscape reviewer. Reject publishers, directories, people, categories, articles, product pages and unrelated companies. For a process activity, a manufacturer that operates the process for its own products is a valid producer/seller; do not require it to sell the process as a service. Never invent a company or a replacement.",
 		prompt, &review); err != nil {
 		review.Verdict = "unavailable"
 		review.Reason = err.Error()
@@ -371,6 +380,13 @@ func marketCandidate(hit models.SearchResult, lane string, query models.MarketLa
 	// where a reader can audit it.
 	name := marketCanonicalName(title, domain)
 	usableName := name != ""
+	if usableName {
+		if cleaned := marketLeadName(name, ""); cleaned == "" {
+			usableName = false
+		} else {
+			name = cleaned
+		}
+	}
 	if !usableName {
 		// No company segment (report, listicle, publisher page): the domain is
 		// the placeholder identity. The raw title still travels in the evidence

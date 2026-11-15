@@ -212,6 +212,18 @@ func TestMarketLeadNameRejectsEchoesOfTheQueryAndPage(t *testing.T) {
 	if marketLeadName("Top 5 Linear Alkyl Benzene (LAB) Companies", "") != "" {
 		t.Error("a ranked-companies heading must never become a roster name")
 	}
+	if marketLeadName("Lube Oil Blending Process Explained", "") != "" {
+		t.Error("a process explainer must never become a roster name")
+	}
+	if marketLeadName("Lube Blending Plant Capacity", "") != "" {
+		t.Error("a plant-capacity concept must never become a roster name")
+	}
+	if marketLeadName("Bharat Lubricants: Best Lubricant Engine Oil Manufacturer India", "") != "" {
+		t.Error("an SEO headline must never become a roster name")
+	}
+	if marketLeadName("Frigmaires Engineers: Leading Lubricants & Grease", "") != "" {
+		t.Error("an engineering vendor headline must never become a roster name")
+	}
 }
 
 // TestMarketOnlyOperatorTiersLendTheCompanyItsDomain: a directory page hosts
@@ -533,8 +545,8 @@ func TestMarketCategoryFallbackBroadensWeakDiscovery(t *testing.T) {
 	hits := make([]models.SearchResult, 0, 6)
 	for index := 0; index < 6; index++ {
 		hits = append(hits, models.SearchResult{
-			Title:   "Acme Lubricants " + string(rune('A'+index)) + " Pvt Ltd",
-			Link:    "https://acmelubricants" + string(rune('a'+index)) + ".com",
+			Title:   fmt.Sprintf("Acme Lubricants Unit%d Pvt Ltd", index),
+			Link:    fmt.Sprintf("https://acmelubricantsunit%d.com", index),
 			Snippet: "Lubricant blending manufacturer and operator.",
 		})
 	}
@@ -583,5 +595,20 @@ func TestMarketQCRejectsNonProducerNames(t *testing.T) {
 	}
 	if len(report.Reviews) != 1 || len(report.Appendix) == 0 {
 		t.Errorf("review/appendix = %+v/%d, want the rejection audited", report.Reviews, len(report.Appendix))
+	}
+}
+
+// TestMarketQCAllowsOwnUseProcessActivity: the producer QC prompt must not require a process
+// activity to be sold as a third-party service; a manufacturer that blends for its own products
+// is still a producer/seller.
+func TestMarketQCAllowsOwnUseProcessActivity(t *testing.T) {
+	llm := &marketPromptLLM{review: models.MarketLandscapeReview{Verdict: "pass", Score: 0.9}}
+	agent := NewMarketLandscapeAgent(NewEngine(llm, &demandSearcher{}, &mockScraper{}, cache.NewMemoryCache(10), 5, 3, 10))
+	companies := map[string]*models.MarketLandscapeCompany{"a": {Name: "Acme Lubricants", Evidence: []models.MarketLandscapeEvidence{{URL: "https://acme.com", SourceTier: "official"}}}}
+	report := &models.MarketLandscapeReport{Activity: "lubricant blending"}
+	agent.reviewMarketReport(context.Background(), models.MarketLandscapeQuery{Activity: "lubricant blending"}, companies, report, nil)
+	joined := strings.Join(strings.Fields(strings.Join(llm.prompts(), " ")), " ")
+	if !strings.Contains(joined, "for its own products") || !strings.Contains(joined, "does not offer the process as a service") {
+		t.Errorf("QC prompt does not explain own-use process activity: %s", joined)
 	}
 }

@@ -482,6 +482,16 @@ func marketLeadName(name, domain string) string {
 	if marketDocumentTitle(cleaned) || marketHeadlineTitle(cleaned) || marketPublisherSuffix(cleaned) {
 		return ""
 	}
+	if strings.Contains(strings.ToLower(cleaned), "plant capacity") {
+		return ""
+	}
+	lowered := strings.ToLower(cleaned)
+	if strings.Contains(lowered, "process explained") || strings.Contains(lowered, "explained") ||
+		strings.Contains(lowered, "how to ") || strings.Contains(lowered, "overview") ||
+		strings.Contains(lowered, "best ") || strings.Contains(lowered, "leading ") ||
+		strings.Contains(lowered, "manufacturer india") || strings.Contains(lowered, "engineers") {
+		return ""
+	}
 	if len(cleaned) < 2 || len(cleaned) > 120 {
 		return ""
 	}

@@ -126,7 +126,11 @@ func marketEvalScorecard(exp marketEvalCase, report *models.MarketLandscapeRepor
 	if len(report.Reviews) > 0 || len(report.Warnings) > 0 {
 		b.WriteString("\n## Review and warnings\n\n")
 		for _, review := range report.Reviews {
-			fmt.Fprintf(&b, "- QC: **%s** (%.2f) — %s\n", review.Verdict, review.Score, review.Reason)
+			fmt.Fprintf(&b, "- QC: **%s** (%.2f)", review.Verdict, review.Score)
+			if reason := strings.TrimSpace(review.Reason); reason != "" {
+				fmt.Fprintf(&b, " — %s", reason)
+			}
+			b.WriteString("\n")
 			for _, rejection := range review.Rejected {
 				fmt.Fprintf(&b, "  - Rejected: **%s** — %s\n", rejection.Name, rejection.Reason)
 			}
