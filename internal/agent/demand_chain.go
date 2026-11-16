@@ -2682,6 +2682,14 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 		lane.productAnchored = true
 		lanes = append(lanes, lane)
 	}
+	// Market-intelligence directories (ensun, revenuebase): any page on them
+	// that mentions the product is a lead worth reading — the profiles rank
+	// manufacturers and their products, and the verification sorts buyers from
+	// sellers.
+	for _, lane := range demandMarketIntelLanes() {
+		lane.productAnchored = true
+		lanes = append(lanes, lane)
+	}
 	for _, country := range query.Countries {
 		lanes = append(lanes, demandLane{term: strings.TrimSpace(country) + " importer tender procurement", productAnchored: true})
 	}

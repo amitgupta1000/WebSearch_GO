@@ -106,6 +106,35 @@ func marketTradeDataLanes() []string {
 	}
 }
 
+// demandMarketIntelLanes are the buyer-side lanes for the operator-promoted
+// market-intelligence directories (ensun, revenuebase). A generic site-scoped
+// query is deliberate: an ensun or revenuebase page that mentions the product
+// at all is a lead worth reading — the profiles rank manufacturers and their
+// products, the read extracts the names, and the buyer verification (producer
+// gate, consumption evidence) sorts buyers from sellers.
+func demandMarketIntelLanes() []demandLane {
+	return []demandLane{
+		{term: "site:ensun.io", productAnchored: true},
+		{term: "site:revenuebase.ai", productAnchored: true},
+	}
+}
+
+// sellerMarketIntelLanes are the seller-side lanes for the same directories:
+// the seller landscape wants producers, so the site query names the activity
+// and the role the profiles are organized around.
+func sellerMarketIntelLanes(activity string) []string {
+	trimmed := strings.TrimSpace(activity)
+	lanes := make([]string, 0, len(sourceMarketIntelMarkers))
+	for _, site := range sourceMarketIntelMarkers {
+		if trimmed == "" {
+			lanes = append(lanes, "site:"+site+" manufacturers")
+			continue
+		}
+		lanes = append(lanes, "site:"+site+" "+trimmed+" manufacturers")
+	}
+	return lanes
+}
+
 // demandTradeDataLanes are the buyer-side discovery lanes added alongside the
 // existing "importer import data" lane. They ask for the record itself rather
 // than only for a company description.

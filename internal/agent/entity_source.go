@@ -30,6 +30,12 @@ func classifyDiscoverySource(hit models.SearchResult) discoverySourceKind {
 		// A shipment listing names companies; it is not one of them.
 		return sourceOther
 	}
+	if isMarketIntelDomain(host) {
+		// A market-intelligence profile page names companies and ranks them;
+		// it is not one of them — but it is exactly the dense roster the
+		// discovery reads first.
+		return sourceDirectory
+	}
 	if isResearchPublisherDomain(host) || isResearchDocumentTitle(hit.Title) {
 		return sourceResearchReport
 	}
@@ -141,6 +147,32 @@ func sharedSourceOverride(domain string) string {
 		}
 	}
 	return ""
+}
+
+// sourceMarketIntelMarkers are the market-intelligence directories the
+// operator has promoted for buyer/seller landscape discovery (ensun,
+// revenuebase): they publish structured company profiles and ranked
+// manufacturer rosters for the chemicals trade. Their pages are dense
+// discovery sources that are read ahead of company homepages — but they
+// publish ABOUT companies and are never one of them.
+var sourceMarketIntelMarkers = []string{
+	"ensun.io",
+	"revenuebase.ai",
+}
+
+// isMarketIntelDomain reports whether a host is an operator-promoted
+// market-intelligence directory.
+func isMarketIntelDomain(domain string) bool {
+	domain = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(domain), "www."))
+	if domain == "" {
+		return false
+	}
+	for _, marker := range sourceMarketIntelMarkers {
+		if strings.Contains(domain, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func isNewsSourceDomain(domain string) bool {

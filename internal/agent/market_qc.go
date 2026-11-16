@@ -21,6 +21,9 @@ sell the activity; when it belongs to a different activity; or when its evidence
 activity in passing. Reject engineering firms, plant/equipment vendors, automation suppliers and
 process explainers unless the evidence shows they also operate the production/blending process
 themselves.
+Source rule: a company found on a market-intelligence directory (ensun, RevenueBase) is judged on
+its own evidence like any other row — never reject or accept it because of where it was found, and
+never credit the directory itself as the company.
 Important process-activity rule: if the activity names a process such as blending, manufacturing or
 processing, accept a company that operates that process for its own products or output, even when it
 does not offer the process as a service to third parties. A lubricant manufacturer that runs a
@@ -37,7 +40,12 @@ not in the supplied list.`
 const DefaultDemandQCPrompt = `Reject a row when it is a publisher, person, category/process title, article or product page,
 a supplier or trader rather than a buyer, tied to the wrong consuming stage, or supported only by
 passing mention with no demand evidence. Keep a company that consumes the product as an input or
-buys it to resell. Do not invent companies. Propose only bounded follow-up searches anchored on the
+buys it to resell.
+Source rule: a company found on a market-intelligence directory (ensun, RevenueBase) is judged on
+its own evidence like any other row — a manufacturer listed there is a legitimate buyer-landscape
+lead when its own evidence shows it consumes the product or an input; never reject a company merely
+because it was found on such a directory, and never credit the directory itself as the company.
+Do not invent companies. Propose only bounded follow-up searches anchored on the
 activity and a stage or company.`
 
 func demandQCPolicy(query models.DemandChainQuery) (string, string) {

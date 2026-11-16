@@ -181,6 +181,31 @@ when the model happened to infer them. The **category downstep** resolves this:
 - Tests: `internal/agent/demand_downstep_test.go` (downstep append, deterministic fallback, dedupe,
   non-intermediate skip, known-direct upgrade) + updated `TestDemandInferenceCategoryIsValidated`.
 
+## Market-intelligence directory promotion — ensun + revenuebase (this session)
+
+The operator promoted two market-intelligence directories for buyer/seller landscape discovery:
+**ensun.io** and **revenuebase.ai**. Previously unclassified (they would land in the "official" tier
+— able to present as the operating company itself), and revenuebase-sourced rows were being dropped
+by the buyer QC for the source's sake. Now:
+
+- **Classification** (`entity_source.go` `sourceMarketIntelMarkers`): both domains are
+  **directory-tier** everywhere — `classifyDiscoverySource` → `sourceDirectory` (never the operating
+  company), `marketSourceTier`/`marketDiscoveryTier` → "directory" (qualifying for corroboration but
+  never identity-owning), buyer `demandSourceTierForHit` → "directory". Directory tier is already the
+  read-first class (`marketLeadReadPriority` 1 for roster-shaped titles) and a roster source, so
+  their ranked manufacturer tables are scraped ahead of company homepages and their names extracted
+  and verified like any other lead.
+- **Deterministic site-scoped lanes** (`trade_data.go`): the seller landscape gains
+  `site:ensun.io <activity> manufacturers` + `site:revenuebase.ai <activity> manufacturers`;
+  the buyer landscape gains product-anchored `site:ensun.io` / `site:revenuebase.ai` lanes (a
+  generic product-scoped query is deliberate — any directory page mentioning the product is a lead
+  worth reading; the producer gate and consumption verification sort buyers from sellers).
+- **QC policy promotion**: both default QC policies gained a source rule — a company found on ensun
+  or RevenueBase is judged on its own evidence like any other row, never rejected/accepted for its
+  source, and the directory itself is never credited as the company.
+- Tests: `internal/agent/market_intel_test.go` (tier + read priority, lanes in both landscapes, QC
+  policy promotion + default-policy identity).
+
 ## Future goals / improvement areas
 
 Prioritized from the live runs and the code:

@@ -435,6 +435,10 @@ func marketLanes(query models.MarketLandscapeQuery) []string {
 	// Seller-side trade data: an exporter or shipment record is direct evidence
 	// that a company supplies the product, not merely that it operates a plant.
 	lanes = append(lanes, marketTradeDataLanes()...)
+	// Seller-side market-intelligence directories (ensun, revenuebase): their
+	// pages rank manufacturers of the product and are read ahead of company
+	// homepages, so a site-scoped query surfaces the densest rosters in the run.
+	lanes = append(lanes, sellerMarketIntelLanes(strings.TrimSpace(query.Activity))...)
 	for _, country := range query.Countries {
 		lanes = append(lanes, strings.TrimSpace(country)+" company operator manufacturer")
 	}
@@ -810,6 +814,12 @@ func marketSourceTier(domain string) string {
 	}
 	if isTradeDataDomain(domain) {
 		return "trade"
+	}
+	if isMarketIntelDomain(domain) {
+		// Operator-promoted market-intelligence directories (ensun,
+		// revenuebase): ranked manufacturer rosters — dense discovery sources
+		// that are read first, never the operating company itself.
+		return "directory"
 	}
 	if isResearchPublisherDomain(domain) {
 		return "research"
