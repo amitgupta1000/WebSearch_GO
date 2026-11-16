@@ -99,7 +99,11 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 		if category != "" {
 			fmt.Fprintf(&b, "Category: **%s**", category)
 			if len(report.CategoryLanes) > 0 {
-				fmt.Fprintf(&b, "; discovery lanes: %s", strings.Join(report.CategoryLanes, ", "))
+				if report.CategoryQueries > 0 {
+					fmt.Fprintf(&b, "; discovery lanes: %s (%d queries)", strings.Join(report.CategoryLanes, ", "), report.CategoryQueries)
+				} else {
+					fmt.Fprintf(&b, "; discovery lanes: %s", strings.Join(report.CategoryLanes, ", "))
+				}
 			}
 			b.WriteString(".\n\n")
 		}
@@ -265,7 +269,7 @@ var demandChainHTMLTemplate = documentTemplate("demand-chain", `
 {{if .Chain.ChainReview.MissingStages}}<p class="dim">Suggested missing stages (not added automatically): {{range .Chain.ChainReview.MissingStages}}{{.}}; {{end}}</p>{{end}}
 </section>{{end}}
 {{if or .Chain.ProductCategory .Chain.CategoryResults .Chain.CategoryQueries}}<section><h2>category level results</h2>
-{{if .Chain.ProductCategory}}<p class="dim">Category: {{.Chain.ProductCategory}}{{if .Chain.CategoryLanes}} · discovery lanes: {{range .Chain.CategoryLanes}}{{.}}; {{end}}{{end}}</p>{{end}}
+{{if .Chain.ProductCategory}}<p class="dim">Category: {{.Chain.ProductCategory}}{{if .Chain.CategoryLanes}} · discovery lanes: {{range .Chain.CategoryLanes}}{{.}}; {{end}}{{if .Chain.CategoryQueries}}({{.Chain.CategoryQueries}} queries){{end}}{{end}}</p>{{end}}
 {{if .Chain.CategoryResults}}<p class="dim">Independent downstream-category findings; these are separate from exact-product buyer results.</p><table><thead><tr><th>Company</th><th>Category</th><th>Role</th><th>Country</th><th>Employees</th><th>Turnover</th><th>Description</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Chain.CategoryResults}}<tr><td>{{.Name}}</td><td>{{.Activity}}</td><td>{{.Role}}</td><td>{{.Country}}</td><td>{{.Employees}}</td><td>{{.Turnover}}</td><td>{{.Description}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{else}}<p>No category-level company met the verification threshold. Category findings never enter product-level buyer results.</p>{{end}}
 </section>{{end}}
 <section><h2>Results — verified consumers</h2>

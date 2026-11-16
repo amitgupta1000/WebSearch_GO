@@ -64,7 +64,11 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 		if category != "" {
 			fmt.Fprintf(&b, "Category: **%s**", category)
 			if len(report.CategoryLanes) > 0 {
-				fmt.Fprintf(&b, "; discovery lanes: %s", strings.Join(report.CategoryLanes, ", "))
+				if report.CategoryQueries > 0 {
+					fmt.Fprintf(&b, "; discovery lanes: %s (%d queries)", strings.Join(report.CategoryLanes, ", "), report.CategoryQueries)
+				} else {
+					fmt.Fprintf(&b, "; discovery lanes: %s", strings.Join(report.CategoryLanes, ", "))
+				}
 			}
 			b.WriteString(".\n\n")
 		}

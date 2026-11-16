@@ -35,6 +35,7 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 		Activity:        "oil blending",
 		Objective:       "Find active blenders and their commercial contacts",
 		ProductCategory: "lubricants",
+		CategoryLanes:   []string{"lubricants manufacturers", "lubricants companies"},
 		QCPrompt:        "Reject publishers and unrelated companies.",
 		QCPromptSource:  "custom",
 		Reviews: []models.MarketLandscapeReview{{
@@ -100,7 +101,7 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 		"No QC objection.",
 		"publisher, not an operator",
 		"Reject publishers and unrelated companies.",
-		"category level results", "Acme manufactures industrial lubricants.",
+		"category level results", "Discovery lanes: lubricants manufacturers", "Acme manufactures industrial lubricants.",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("market_landscape_report is missing %q", expected)
@@ -443,6 +444,7 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 		Activity: "used cooking oil", Objective: "Find refiners that buy UCO.",
 		Geography:       "India",
 		ProductCategory: "polyurethanes",
+		CategoryLanes:   []string{"polyurethanes manufacturers", "polyurethanes companies"},
 		ChainInferred:   true,
 		Chain: []models.ValueChainStage{{
 			Name: "biodiesel production", Rationale: "Biodiesel is produced from UCO.",
@@ -514,7 +516,7 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 		"GreenDiesel operates a biodiesel plant and buys used cooking oil.",
 		"QC results", "5+ years", "qc passed", "qc failed",
 		"Private procurement is invisible",
-		"category level results", "Polyurethane Works produces polyurethane systems.",
+		"category level results", "Discovery lanes: polyurethanes manufacturers", "Polyurethane Works produces polyurethane systems.",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("demand_chain_report fragment is missing %q", expected)
