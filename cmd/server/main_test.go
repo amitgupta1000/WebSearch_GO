@@ -346,70 +346,32 @@ func postForm(path, body string) *http.Request {
 	return r
 }
 
-func TestMarketRocketReachCompanyQueriesAreStrict(t *testing.T) {
-	queries := marketRocketReachCompanyQueries("Acme Lubricants", "India", "producer")
-	if len(queries) != 3 {
-		t.Fatalf("queries = %d, want leadership, procurement/purchasing and sales/marketing", len(queries))
+// TestCompanyResearchLaunchFormPrefillsTheBrief pins the card-to-brief mapping:
+// the landscape card's company becomes the query, its verified geography the
+// brief's country, the landscape's product the industry, the run's provenance
+// travels in the notes, and RocketReach discovery stays off — the dossier's
+// roster spends provider quota only per selected person.
+func TestCompanyResearchLaunchFormPrefillsTheBrief(t *testing.T) {
+	form := companyResearchLaunchForm("KLJ Group", "India", "caustic soda", "buyer")
+	if form.Get("query") != "KLJ Group" || form.Get("company_country") != "India" || form.Get("company_industry") != "caustic soda" {
+		t.Fatalf("form = %v, want the card fields mapped onto the brief", form)
 	}
-	for _, query := range queries {
-		if query.Query["current_employer"][0] != "Acme Lubricants" ||
-			query.Query["location"][0] != "India" ||
-			query.Query["years_experience"][0] != "5+" {
-			t.Errorf("%s query = %#v, want strict employer/location/5+ filters", query.Label, query.Query)
-		}
-		if len(query.Query["management_levels"]) != 4 {
-			t.Errorf("%s management levels = %v, want cxo/vp/director/manager", query.Label, query.Query["management_levels"])
-		}
+	if form.Get("mode") != "company" {
+		t.Errorf("mode = %q, want company", form.Get("mode"))
 	}
-	if got := strings.Join(queries[1].Query["department"], ","); got != "procurement,purchasing" {
-		t.Errorf("procurement departments = %q", got)
+	if form.Get("use_rocketreach_discovery") != "" {
+		t.Errorf("use_rocketreach_discovery = %q, want empty (off by default)", form.Get("use_rocketreach_discovery"))
 	}
-	if got := strings.Join(queries[2].Query["department"], ","); got != "sales,marketing" {
-		t.Errorf("sales departments = %q", got)
+	if !strings.Contains(form.Get("research_notes"), "Buyer Landscape") || !strings.Contains(form.Get("research_notes"), "caustic soda") {
+		t.Errorf("notes = %q, want the launch provenance", form.Get("research_notes"))
 	}
-	if len(queries[0].Query["department"]) != 0 {
-		t.Errorf("leadership query must not carry a department filter: %v", queries[0].Query["department"])
-	}
-}
 
-func TestMarketRocketReachBuyerQueriesUseBuyerRoles(t *testing.T) {
-	queries := marketRocketReachCompanyQueries("Acme Chemicals", "India", "buyer")
-	if len(queries) != 4 {
-		t.Fatalf("queries = %d, want leadership, procurement/purchasing, supply chain/logistics and operations", len(queries))
+	seller := companyResearchLaunchForm("Acme", "", "used cooking oil", "seller")
+	if !strings.Contains(seller.Get("research_notes"), "Seller Landscape") {
+		t.Errorf("seller notes = %q, want the Seller Landscape provenance", seller.Get("research_notes"))
 	}
-	for _, query := range queries {
-		if query.Query["location"][0] != "India" || query.Query["years_experience"][0] != "5+" {
-			t.Errorf("%s query = %#v, want strict location/5+ filters", query.Label, query.Query)
-		}
-	}
-	if got := strings.Join(queries[2].Query["department"], ","); got != "supply chain,logistics" {
-		t.Errorf("supply chain departments = %q", got)
-	}
-	if got := strings.Join(queries[3].Query["department"], ","); got != "operations" {
-		t.Errorf("operations departments = %q", got)
-	}
-}
-
-func TestMarketRocketReachCompanyQueriesPreserveBroadAndMissingLocations(t *testing.T) {
-	for _, testCase := range []struct {
-		name     string
-		location string
-		present  bool
-	}{
-		{name: "broad region", location: "Asia", present: true},
-		{name: "missing location", location: "", present: false},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			for _, query := range marketRocketReachCompanyQueries("Acme Chemicals", testCase.location, "buyer") {
-				location, present := query.Query["location"]
-				if present != testCase.present {
-					t.Fatalf("%s location present = %t, want %t (%#v)", query.Label, present, testCase.present, query.Query)
-				}
-				if testCase.present && (len(location) != 1 || location[0] != testCase.location) {
-					t.Errorf("%s location = %v, want %q", query.Label, location, testCase.location)
-				}
-			}
-		})
+	if !strings.Contains(seller.Get("research_notes"), "no verified location") {
+		t.Errorf("notes = %q, want the confirm-or-add-location hint", seller.Get("research_notes"))
 	}
 }
 

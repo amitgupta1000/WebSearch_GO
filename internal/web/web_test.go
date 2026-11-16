@@ -13,7 +13,7 @@ func TestTemplatesParseAndLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Templates(): %v", err)
 	}
-	for _, name := range []string{"index.html", "company_chart", "company_result", "question_answer", "person_dossier", "error_box", "workflow_console", "log_entry", "market_landscape_report", "market_rocketreach_result", "market_rocketreach_company_result", "demand_chain_report", "news_report"} {
+	for _, name := range []string{"index.html", "company_chart", "company_result", "question_answer", "person_dossier", "error_box", "workflow_console", "log_entry", "market_landscape_report", "market_rocketreach_result", "company_research_launch", "demand_chain_report", "news_report"} {
 		if tmpl.Lookup(name) == nil {
 			t.Errorf("template %q not found", name)
 		}
@@ -95,8 +95,8 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 		"Global / cross-border",
 		"excluded from local coverage",
 		"qc passed",
-		"RR discovery",
-		"/api/market-landscape/rocketreach/company",
+		"Company research",
+		"/api/market-landscape/company-research",
 		"qc failed",
 		"No QC objection.",
 		"publisher, not an operator",
@@ -109,48 +109,35 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 	}
 }
 
-// TestMarketRocketReachCompanyResultRenders keeps the on-demand contact
-// surface honest: strict filter text, grouped profiles and a paid contact
-// action must all be present in the returned fragment.
-func TestMarketRocketReachCompanyResultRenders(t *testing.T) {
+// TestCompanyResearchLaunchRenders keeps the on-demand research surface
+// honest: the card's button posts the launch endpoint with the company, the
+// verified location, the audience and the landscape's product prefilled, and
+// targets the results area that receives the identity-confirmation card.
+func TestCompanyResearchLaunchRenders(t *testing.T) {
 	tmpl, err := Templates()
 	if err != nil {
 		t.Fatal(err)
 	}
-	type profile struct {
-		ID              int
-		Name            string
-		CurrentTitle    string
-		CurrentEmployer string
-		Location        string
-		LinkedInURL     string
-	}
-	type group struct {
-		Label    string
-		Profiles []profile
-	}
-	view := struct {
-		Company  string
-		Location string
-		Query    string
-		Groups   []group
-		Error    string
-		Warning  string
-	}{
-		Company: "Acme Lubricants", Location: "India",
-		Query: "leadership + procurement/purchasing + sales/marketing; 5+ years",
-		Groups: []group{{Label: "Leadership", Profiles: []profile{{
-			ID: 42, Name: "Asha Rao", CurrentTitle: "Head of Procurement", CurrentEmployer: "Acme Lubricants", Location: "Mumbai, India",
-		}}}},
-	}
 	var out strings.Builder
-	if err := tmpl.ExecuteTemplate(&out, "market_rocketreach_company_result", view); err != nil {
-		t.Fatalf("execute market_rocketreach_company_result: %v", err)
+	if err := tmpl.ExecuteTemplate(&out, "company_research_launch", map[string]any{
+		"Company":  map[string]any{"Name": "Acme Lubricants", "Activity": "lubricant blending"},
+		"Audience": "producer",
+		"Location": "India",
+	}); err != nil {
+		t.Fatalf("execute company_research_launch: %v", err)
 	}
 	rendered := out.String()
-	for _, expected := range []string{"RocketReach contacts", "5+ years", "Leadership", "Asha Rao", "Fetch contact", "/api/market-landscape/rocketreach"} {
+	for _, expected := range []string{
+		"Company research",
+		"/api/market-landscape/company-research",
+		`name="company_name" value="Acme Lubricants"`,
+		`name="location" value="India"`,
+		`name="audience" value="producer"`,
+		`name="activity" value="lubricant blending"`,
+		"rr-company-results",
+	} {
 		if !strings.Contains(rendered, expected) {
-			t.Errorf("market_rocketreach_company_result is missing %q", expected)
+			t.Errorf("company_research_launch is missing %q", expected)
 		}
 	}
 }
@@ -512,9 +499,9 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 		"Quality review", "ACS Publications", "publisher",
 		"gap/QC", "GreenDiesel Sdn Bhd", "Consuming stage: biodiesel production",
 		"Global / cross-border", "Global UCO Buyer",
-		"RR discovery", "/api/market-landscape/rocketreach/company",
+		"Company research", "/api/market-landscape/company-research",
 		"GreenDiesel operates a biodiesel plant and buys used cooking oil.",
-		"QC results", "5+ years", "qc passed", "qc failed",
+		"QC results", "qc passed", "qc failed",
 		"Private procurement is invisible",
 		"category level results", "Discovery lanes: polyurethanes manufacturers", "Polyurethane Works produces polyurethane systems.",
 	} {

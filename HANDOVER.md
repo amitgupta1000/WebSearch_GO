@@ -134,6 +134,27 @@ opt-in data source:
   (`JEBEL ALI, AE`) unmatched in v1; `/api/query`'s fuzzy product search matches non-chemical rows
   (prefer the standardized ranking endpoints or pin HS codes).
 
+## RR discovery pivot — Company research button (this session)
+
+The per-card "RR discovery" button on Buyer/Seller Landscape results (which fired 3-4 RocketReach
+searches × up to 3 pages = up to 12 metered calls per click, uncached) is **replaced by a
+"Company research" button** (`POST /api/market-landscape/company-research`):
+
+- The handler (`handleCompanyResearchLaunch`) maps the card onto the existing identity-confirmation
+  flow (`handleResolveEntity`): name → query, verified location → brief country, landscape product →
+  industry, run provenance → notes; RocketReach discovery stays **off** for the run.
+- One Enter confirms the identity and the dossier runs with the entity gate; its research roster
+  already offers per-person **Fetch RR** (cached by profile ID), so provider quota is spent only on
+  the people the operator picks. The dead RR-discovery handler, route and template were removed.
+- **RocketReach client hardening** (needed because Fetch RR lookups and person-mode RR discovery
+  still call the provider): the client now uses a **direct-egress transport (`Proxy: nil`)** — the
+  shared `HTTPS_PROXY` (residential proxy) was routing RR API traffic and produced intermittent
+  mid-response cuts (live: `unexpected EOF` on `/person/search`); timeout 20s→45s; one bounded retry
+  for transport cuts/5xx (429 only when `Retry-After` ≤ 10s); and `RocketReachHTTPError.Detail` now
+  carries the provider's own error text, which was previously discarded.
+- Tests: `internal/tools/rocketreach_retry_test.go` (transport-cut retry, no-retry on long windows,
+  provider detail, direct egress) + web/launch mapping tests. Full suite green.
+
 ## Future goals / improvement areas
 
 Prioritized from the live runs and the code:

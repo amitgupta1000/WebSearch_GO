@@ -1,146 +1,65 @@
 package main
 
 import (
-	"errors"
-	"log"
+	"fmt"
+	"io"
 	"net/http"
-	"strconv"
+	"net/url"
 	"strings"
-
-	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
-const marketRocketReachSeniority = "5+"
-
-type marketRocketReachGroup struct {
-	Label    string
-	Profiles []tools.RocketReachProfile
-}
-
-type marketRocketReachCompanyView struct {
-	Company  string
-	Location string
-	Query    string
-	Groups   []marketRocketReachGroup
-	Error    string
-	Warning  string
-}
-
-type marketRocketReachQuery struct {
-	Label string
-	Query map[string][]string
-}
-
-// marketRocketReachCompanyQueries is deliberately strict: an exact company,
-// management levels and 5+ years on every query. A location is included when
-// the search model provides one. Leadership is searched without a department;
-// procurement/purchasing and sales/marketing get their department facets.
-func marketRocketReachCompanyQueries(company, location, audience string) []marketRocketReachQuery {
-	base := func() map[string][]string {
-		query := map[string][]string{
-			"current_employer":  {strings.TrimSpace(company)},
-			"management_levels": {"cxo", "vp", "director", "manager"},
-			"years_experience":  {marketRocketReachSeniority},
-		}
-		if location = strings.TrimSpace(location); location != "" {
-			query["location"] = []string{location}
-		}
-		return query
-	}
-	leadership := marketRocketReachQuery{Label: "Leadership", Query: base()}
-	if strings.EqualFold(strings.TrimSpace(audience), "buyer") {
-		procurement := marketRocketReachQuery{Label: "Procurement & purchasing", Query: base()}
-		procurement.Query["department"] = []string{"procurement", "purchasing"}
-		supply := marketRocketReachQuery{Label: "Supply chain & logistics", Query: base()}
-		supply.Query["department"] = []string{"supply chain", "logistics"}
-		operations := marketRocketReachQuery{Label: "Operations & plant management", Query: base()}
-		operations.Query["department"] = []string{"operations"}
-		return []marketRocketReachQuery{leadership, procurement, supply, operations}
-	}
-	procurement := marketRocketReachQuery{Label: "Procurement & purchasing", Query: base()}
-	procurement.Query["department"] = []string{"procurement", "purchasing"}
-	sales := marketRocketReachQuery{Label: "Sales & marketing", Query: base()}
-	sales.Query["department"] = []string{"sales", "marketing"}
-	return []marketRocketReachQuery{leadership, procurement, sales}
-}
-
-func (s *Server) handleMarketRocketReachCompany(w http.ResponseWriter, r *http.Request) {
+// handleCompanyResearchLaunch turns a landscape card's company into the
+// Company research flow. The card supplies the name, the geography it was
+// verified against and the landscape's product; the handler prefills the
+// identity-confirmation card from them and renders it. The operator confirms
+// with one Enter and the dossier runs exactly as it does from the console —
+// including the entity gate — and its research roster then offers per-person
+// Fetch RR for the people it identified. That is the conservative replacement
+// for firing RocketReach searches from every card: provider quota is spent on
+// the dossiers the operator chose, and then only on the people they pick.
+func (s *Server) handleCompanyResearchLaunch(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	company := strings.TrimSpace(r.FormValue("company_name"))
-	location := strings.TrimSpace(r.FormValue("location"))
-	audience := strings.TrimSpace(r.FormValue("audience"))
 	if company == "" {
-		s.render(w, "market_rocketreach_company_result", marketRocketReachCompanyView{
-			Company: company, Location: location,
-			Error: "A company is required for a RocketReach search.",
-		})
+		s.renderError(w, "A company is required to launch company research.")
 		return
 	}
-	if s.rocketReach == nil || !s.rocketReach.Enabled() {
-		s.render(w, "market_rocketreach_company_result", marketRocketReachCompanyView{
-			Company: company, Location: location, Error: "RocketReach is not configured.",
-		})
-		return
-	}
+	location := strings.TrimSpace(r.FormValue("location"))
+	activity := strings.TrimSpace(r.FormValue("activity"))
+	audience := strings.TrimSpace(r.FormValue("audience"))
 
-	roleScope := "leadership + procurement/purchasing + sales/marketing"
-	if strings.EqualFold(audience, "buyer") {
-		roleScope = "leadership + procurement/purchasing + supply chain/logistics + operations/plant"
+	launch := companyResearchLaunchForm(company, location, activity, audience)
+	launchRequest := r.Clone(r.Context())
+	launchRequest.Body = io.NopCloser(strings.NewReader(launch.Encode()))
+	launchRequest.ContentLength = int64(len(launch.Encode()))
+	launchRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	launchRequest.PostForm = launch
+	launchRequest.Form = launch
+	s.handleResolveEntity(w, launchRequest)
+}
+
+// companyResearchLaunchForm maps a landscape card onto the identity-
+// confirmation form the console flow already speaks. The card's geography
+// prefills the brief's country, the landscape's product prefills the industry,
+// and the run's provenance travels in the notes so the dossier says where it
+// came from. RocketReach discovery stays off for the run itself: the roster's
+// per-person Fetch RR spends provider quota only on the people the operator
+// actually picks.
+func companyResearchLaunchForm(company, location, activity, audience string) url.Values {
+	audienceLabel := "Seller"
+	if strings.EqualFold(strings.TrimSpace(audience), "buyer") {
+		audienceLabel = "Buyer"
 	}
-	view := marketRocketReachCompanyView{
-		Company: company, Location: location,
-		Query: roleScope + "; management levels; 5+ years",
+	notes := fmt.Sprintf("Launched from the %s Landscape for %q.", audienceLabel, activity)
+	if strings.TrimSpace(location) == "" {
+		notes += " The card carried no verified location; confirm or add one before running."
 	}
-	if location != "" {
-		view.Query += "; location " + location
-	} else {
-		view.Query += "; location not specified"
-		view.Warning = "No company location was verified; RocketReach is searching the company and role filters without a location constraint."
-	}
-	seen := make(map[string]bool)
-	var searchErrors []string
-	for _, roleQuery := range marketRocketReachCompanyQueries(company, location, audience) {
-		profiles, err := s.rocketReach.SearchCompany(r.Context(), roleQuery.Query)
-		if err != nil {
-			log.Printf("[ROCKETREACH] company search %q (%s) failed: %v", company, roleQuery.Label, err)
-			searchErrors = append(searchErrors, roleQuery.Label+": "+err.Error())
-			var httpErr *tools.RocketReachHTTPError
-			if errors.As(err, &httpErr) {
-				switch httpErr.StatusCode {
-				case http.StatusUnauthorized, http.StatusForbidden:
-					view.Warning += " RocketReach rejected the configured API key; verify the key has API access and is not expired."
-				case http.StatusTooManyRequests:
-					view.Warning += " RocketReach rate-limited the remaining role searches; retry after the provider window resets."
-					break
-				}
-				if httpErr.StatusCode == http.StatusTooManyRequests {
-					break
-				}
-			}
-			continue
-		}
-		group := marketRocketReachGroup{Label: roleQuery.Label}
-		for _, profile := range profiles {
-			key := strings.TrimSpace(strconv.Itoa(profile.ID))
-			if key == "0" || key == "" {
-				key = strings.ToLower(strings.TrimSpace(profile.Name + "|" + profile.CurrentTitle + "|" + profile.CurrentEmployer))
-			}
-			if key == "" || seen[key] {
-				continue
-			}
-			seen[key] = true
-			group.Profiles = append(group.Profiles, profile)
-		}
-		if len(group.Profiles) > 0 {
-			view.Groups = append(view.Groups, group)
-		}
-	}
-	if len(view.Groups) == 0 {
-		view.Error = "No RocketReach profiles matched the strict company, role, location and 5+ year filters."
-		if len(searchErrors) > 0 {
-			view.Error += " " + strings.Join(searchErrors, "; ")
-		}
-	} else if len(searchErrors) > 0 {
-		view.Warning += " Some role searches failed: " + strings.Join(searchErrors, "; ")
-	}
-	s.render(w, "market_rocketreach_company_result", view)
+	form := url.Values{}
+	form.Set("query", company)
+	form.Set("company_country", strings.TrimSpace(location))
+	form.Set("company_industry", strings.TrimSpace(activity))
+	form.Set("research_notes", notes)
+	form.Set("mode", "company")
+	form.Set("use_rocketreach_discovery", "")
+	return form
 }

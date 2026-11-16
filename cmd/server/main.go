@@ -400,7 +400,7 @@ func main() {
 	mux.HandleFunc("GET /{$}", srv.handleIndex)
 	mux.HandleFunc("POST /api/research", srv.handleResearch)
 	mux.HandleFunc("POST /api/market-landscape/rocketreach", srv.handleMarketRocketReach)
-	mux.HandleFunc("POST /api/market-landscape/rocketreach/company", srv.handleMarketRocketReachCompany)
+	mux.HandleFunc("POST /api/market-landscape/company-research", srv.handleCompanyResearchLaunch)
 	mux.HandleFunc("POST /api/resolve-entity", srv.handleResolveEntity)
 	mux.HandleFunc("POST /api/resolve-person", srv.handleResolvePerson)
 	mux.HandleFunc("POST /api/rerun", srv.handleRerun)

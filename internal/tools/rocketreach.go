@@ -3,7 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,7 +19,32 @@ const (
 	rocketReachSearchURL       = "https://api.rocketreach.co/api/v2/person/search"
 	rocketReachMaxPages        = 3
 	rocketReachCompanyPageSize = 100
+	// rocketReachTimeout is one request's budget. The search endpoint answers
+	// 100-result pages in tens of seconds under load; 20s cut healthy responses.
+	rocketReachTimeout = 45 * time.Second
+	// rocketReachMaxAttempts is one logical call's attempt count: exactly one
+	// retry for the transport cuts and blips, never for stable rejections.
+	rocketReachMaxAttempts = 2
+	// rocketReachRetryBackoff is the pause between attempts of a transport cut.
+	rocketReachRetryBackoff = 750 * time.Millisecond
+	// rocketReachMaxRetryAfter caps a 429 Retry-After the client is willing to
+	// wait out. Longer windows (minutes, hours) are the provider saying the
+	// quota is done for the period — retrying would just extend the wait, so
+	// the error surfaces instead.
+	rocketReachMaxRetryAfter = 10 * time.Second
+	// rocketReachMaxErrorBody caps how much of a non-2xx body is preserved.
+	// The body is where RocketReach explains itself (quota exhausted, invalid
+	// facet, plan limit) — discarding it made every failure undiagnosable.
+	rocketReachMaxErrorBody = 256
 )
+
+// rocketReachTransport pins the client to the machine's own egress. The
+// RocketReach API is an authenticated JSON endpoint with no IP-reputation gate,
+// and routing it through the shared HTTPS_PROXY — a residential proxy on the
+// Cloud Run deployment — produced intermittent mid-response cuts ("unexpected
+// EOF") on the search endpoint. The scraper's per-host proxy scoping does not
+// apply here: this client owns its transport.
+var rocketReachTransport = &http.Transport{Proxy: nil}
 
 // RocketReachClient performs explicitly requested contact lookups. Search
 // discovery is intentionally not part of this client because the application
@@ -30,17 +58,23 @@ type RocketReachClient struct {
 
 // RocketReachHTTPError preserves provider status metadata so callers can
 // distinguish authentication failures from rate limiting and report a useful
-// retry hint without exposing credentials or response bodies.
+// retry hint. Detail carries the provider's own explanation (quota exhausted,
+// invalid facet, plan limit), truncated, because that text is what makes a
+// failure diagnosable instead of a bare status code.
 type RocketReachHTTPError struct {
 	Operation  string
 	StatusCode int
 	RetryAfter string
+	Detail     string
 }
 
 func (e *RocketReachHTTPError) Error() string {
 	message := fmt.Sprintf("RocketReach %s returned HTTP %d", e.Operation, e.StatusCode)
 	if e.RetryAfter != "" {
 		message += " (retry after " + e.RetryAfter + ")"
+	}
+	if e.Detail != "" {
+		message += ": " + e.Detail
 	}
 	return message
 }
@@ -96,7 +130,7 @@ type RocketReachProfile struct {
 func NewRocketReachClient(apiKey string) *RocketReachClient {
 	return &RocketReachClient{
 		apiKey:    strings.TrimSpace(apiKey),
-		client:    &http.Client{Timeout: 20 * time.Second},
+		client:    &http.Client{Timeout: rocketReachTimeout, Transport: rocketReachTransport},
 		baseURL:   rocketReachLookupURL,
 		searchURL: rocketReachSearchURL,
 	}
@@ -123,9 +157,25 @@ func (c *RocketReachClient) search(ctx context.Context, query map[string][]strin
 	start := 1
 	var profiles []RocketReachProfile
 	for page := 0; page < rocketReachMaxPages; page++ {
-		result, err := c.searchPage(ctx, query, start, pageSize)
-		if err != nil {
-			return nil, err
+		var result *rocketReachSearchResponse
+		var err error
+		for attempt := 1; attempt <= rocketReachMaxAttempts; attempt++ {
+			result, err = c.searchPage(ctx, query, start, pageSize)
+			if err == nil {
+				break
+			}
+			if attempt >= rocketReachMaxAttempts {
+				return nil, err
+			}
+			wait, retriable := rocketReachRetryWait(err)
+			if !retriable {
+				return nil, err
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(wait):
+			}
 		}
 		profiles = append(profiles, result.Profiles...)
 		if result.Pagination.Next <= start || result.Pagination.Next == 0 {
@@ -159,10 +209,12 @@ func (c *RocketReachClient) searchPage(ctx context.Context, query map[string][]s
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, rocketReachMaxErrorBody))
 		return nil, &RocketReachHTTPError{
 			Operation:  "search",
 			StatusCode: resp.StatusCode,
 			RetryAfter: strings.TrimSpace(resp.Header.Get("Retry-After")),
+			Detail:     strings.TrimSpace(string(body)),
 		}
 	}
 	var result rocketReachSearchResponse
@@ -170,6 +222,42 @@ func (c *RocketReachClient) searchPage(ctx context.Context, query map[string][]s
 		return nil, fmt.Errorf("decode RocketReach search response: %w", err)
 	}
 	return &result, nil
+}
+
+// rocketReachRetryWait classifies a failure and returns the pause one retry
+// should take. Transport-level cuts (unexpected EOF, resets, timeouts) are the
+// flaky-egress signature and get a short backoff; 5xx gets the same; a 429 is
+// retried only when its Retry-After fits inside the wait cap — a longer window
+// means the quota is done for the period and the error should surface. Stable
+// rejections (401, 403, 400, decode errors) never retry.
+func rocketReachRetryWait(err error) (time.Duration, bool) {
+	var httpErr *RocketReachHTTPError
+	if errors.As(err, &httpErr) {
+		switch {
+		case httpErr.StatusCode >= 500:
+			return rocketReachRetryBackoff, true
+		case httpErr.StatusCode == http.StatusTooManyRequests:
+			after, parseErr := strconv.Atoi(strings.TrimSpace(httpErr.RetryAfter))
+			if parseErr != nil || after <= 0 {
+				return 0, false
+			}
+			wait := time.Duration(after) * time.Second
+			if wait > rocketReachMaxRetryAfter {
+				return 0, false
+			}
+			return wait, true
+		default:
+			return 0, false
+		}
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return rocketReachRetryBackoff, true
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+		return rocketReachRetryBackoff, true
+	}
+	return 0, false
 }
 
 type rocketReachSearchResponse struct {
@@ -219,7 +307,34 @@ func (c *RocketReachClient) LookupByID(ctx context.Context, id int) (*RocketReac
 	return c.lookupWithParams(ctx, url.Values{"id": []string{strconv.Itoa(id)}})
 }
 
+// lookupWithParams runs one lookup with the same bounded retry the search
+// path gets: a paid call should not fail on a transport cut that a second
+// attempt would survive.
 func (c *RocketReachClient) lookupWithParams(ctx context.Context, params url.Values) (*RocketReachProfile, error) {
+	var lastErr error
+	for attempt := 1; attempt <= rocketReachMaxAttempts; attempt++ {
+		profile, err := c.lookupAttempt(ctx, params)
+		if err == nil {
+			return profile, nil
+		}
+		lastErr = err
+		if attempt >= rocketReachMaxAttempts {
+			break
+		}
+		wait, retriable := rocketReachRetryWait(err)
+		if !retriable {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+	return nil, lastErr
+}
+
+func (c *RocketReachClient) lookupAttempt(ctx context.Context, params url.Values) (*RocketReachProfile, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"?"+params.Encode(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create RocketReach lookup request: %w", err)
@@ -235,10 +350,12 @@ func (c *RocketReachClient) lookupWithParams(ctx context.Context, params url.Val
 		return nil, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, rocketReachMaxErrorBody))
 		return nil, &RocketReachHTTPError{
 			Operation:  "lookup",
 			StatusCode: resp.StatusCode,
 			RetryAfter: strings.TrimSpace(resp.Header.Get("Retry-After")),
+			Detail:     strings.TrimSpace(string(body)),
 		}
 	}
 	var profile RocketReachProfile
