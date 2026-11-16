@@ -1,0 +1,91 @@
+=== RUN   TestDemandChainLive
+2026/11/16 11:28:25 [EXPORT] md -> C:\Users\amitg\AppData\Local\Temp\crystal-live-nbutanol3\live\demand-chain\20261116-055825-n-butanol.md (141655 bytes)
+2026/11/16 11:28:27 [EXPORT] pdf -> C:\Users\amitg\AppData\Local\Temp\crystal-live-nbutanol3\live\demand-chain\20261116-055825-n-butanol.pdf (700324 bytes)
+    demand_chain_live_test.go:85: [event] tool_result: Inferred 3 consuming stage(s): Plasticizer Production, Acrylate Ester Production, Solvent Blending; category: plasticizers
+    demand_chain_live_test.go:85: [event] thinking: Adversarial chain review: pass (1.00), 0 rejected stage(s), 0 correction(s)
+    demand_chain_live_test.go:85: [event] tool_call: Searching category plasticizers
+    demand_chain_live_test.go:85: [event] tool_call: Searching category plasticizers
+    demand_chain_live_test.go:85: [event] thinking: Gap search for Distribution and wholesale was weak (9 new company(ies)); broadened to category terms
+    demand_chain_live_test.go:85: [event] thinking: Buyer QC review: revise (0.40) — 46 rejection(s), 3 under-covered stage(s)
+    demand_chain_live_test.go:85: [event] thinking: Gap search for Distribution and wholesale was weak (2 new company(ies)); broadened to category terms
+    demand_chain_live_test.go:89: geography: "India"; chain inferred: true
+    demand_chain_live_test.go:91: stage [] Plasticizer Production — Consumes N-Butanol as an alcohol reactant. (operators: Plasticizer manufacturers; Esterification plants; Chemical additive producers)
+    demand_chain_live_test.go:91: stage [] Acrylate Ester Production — Consumes N-Butanol in esterification reactions. (operators: Acrylate ester manufacturers; Polymer precursor producers; Specialty chemical plants)
+    demand_chain_live_test.go:91: stage [] Solvent Blending — Consumes N-Butanol as a component in solvent formulations. (operators: Solvent blenders; Chemical formulators; Paint and coating additive suppliers)
+    demand_chain_live_test.go:93: lanes: 29 queries, 568 hits, 141 verification queries, 36 pages enriched
+    demand_chain_live_test.go:99: result 1: India Glycols Ltd. | stage=Solvent Blending | country=India | status=verified | confidence=0.98 | claims=operator-verification(official),demand-tender(official),operator-verification(official),import-record(trade),import-record(trade)
+    demand_chain_live_test.go:99: result 2: LG Chem | stage=Acrylate Ester Production | country=South Korea | status=verified | confidence=0.98 | claims=operator-verification(consultancy),operator-verification(official),import-record(trade),import-record(trade),operator-verification(official),operator-verification(official)
+    demand_chain_live_test.go:99: result 3: Pearl Chemicals | stage=Distribution and wholesale | country= | status=corroborated | confidence=0.98 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 4: The Dow Chemical Company | stage=Acrylate Ester Production | country=United States | status=verified | confidence=0.98 | claims=import-record(trade),import-record(trade),import-record(trade),import-record(regulatory)
+    demand_chain_live_test.go:99: result 5: Mitsubishi Chemical Holdings | stage=Acrylate Ester Production | country=Japan | status=verified | confidence=0.86 | claims=operator-verification(consultancy),demand-tender(official),demand-tender(regulatory)
+    demand_chain_live_test.go:99: result 6: Nayakem | stage=Plasticizer Production | country=India | status=corroborated | confidence=0.85 | claims=operator-verification(official),operator-verification(official)
+    demand_chain_live_test.go:99: result 7: Yukti Exim | stage=Distribution and wholesale | country= | status=corroborated | confidence=0.85 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 8: Bharti group | stage=Plasticizer Production | country= | status=corroborated | confidence=0.75 | claims=operator-verification(official),operator-verification(official)
+    demand_chain_live_test.go:99: result 9: Eastman Chemical Company | stage=Plasticizer Production | country=United States | status=verified | confidence=0.74 | claims=import-record(regulatory)
+    demand_chain_live_test.go:99: result 10: Deepak Nitrite Ltd. | stage=Solvent Blending | country=India | status=corroborated | confidence=0.70 | claims=operator-verification(regulatory)
+    demand_chain_live_test.go:99: result 11: CGSpace | stage=Acrylate Ester Production | country= | status=corroborated | confidence=0.65 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 12: Antares Chem Private Limited, Mumbai | stage=Distribution and wholesale | country= | status=corroborated | confidence=0.55 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 13: Himadri Speciality Chemical Ltd: Home | stage=Acrylate Ester Production | country= | status=corroborated | confidence=0.55 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 14: Oxford Lab | stage=Solvent Blending | country= | status=corroborated | confidence=0.55 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 15: Pickle Mixing Machine Exporter & | stage=Solvent Blending | country= | status=corroborated | confidence=0.55 | claims=operator-verification(official)
+    demand_chain_live_test.go:103: warning: Private procurement is invisible to web research: this run only sees demand that surfaced publicly.
+    demand_chain_live_test.go:103: warning: Buyer scope: manufacturers whose process consumes the product directly (step 1) or via one intermediate transformation (step 2); deeper value-chain stages are out of scope.
+    demand_chain_live_test.go:103: warning: Model-inferred stages are hypotheses; each result names the consuming stage it was tied to.
+    demand_chain_live_test.go:103: warning: Traders, brokers and trading houses are excluded; rerun with intermediaries to include them.
+    demand_chain_live_test.go:103: warning: Category research rejected 1 extracted lead(s).
+    demand_chain_live_test.go:103: warning: Buyer QC removed N Butanol Butanol Exports: Tier is 'trade' and claim is 'import-record', indicating a focus on trade data rather than direct buyer activity..
+    demand_chain_live_test.go:103: warning: Buyer QC removed HTS Code 2905.13.0000 Butan-1-ol (n-butyl Alcohol): Tier is 'trade' and claim is 'import-record', indicating a focus on trade data rather than direct buyer activity..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Esterification Plant Setup in Mumbai, India: This describes a service provider for plant setup, not a buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Continuous Biodiesel Production Plant: This describes a type of plant and process, not a buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Sritech Lipid Process Technologies Pvt Ltd: This company provides technologies for biodiesel production, not a direct buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Innovative and Cost-effective Technologies for Route of: This is a document title and does not represent a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Ethyl acrylate manufacturers and suppliers in india: This is a search result for manufacturers and suppliers, not a buyer. 'Company Type: Trader' is also present..
+    demand_chain_live_test.go:103: warning: Buyer QC removed King Of Portable Blender in India !! Agaro: This is related to blenders, not N-Butanol consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Stainless Steel Industrial Liquid Blender, Capacity: 400 L, ...: This is a product listing for industrial blenders, not a buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed scribd.com: This is a publisher/platform, not a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed How to Set Up a Biodiesel Manufacturing Plant in India: This is a guide on setting up a plant, not a buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed wirecable.in: This website is about cables and mentions KLJ Group as a plasticizer manufacturer, but does not directly indicate N-Butanol consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed 2-Ethyl Hexyl Acrylate: This is a product page for 2-Ethyl Hexyl Acrylate, not a buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed China Dioctyl Phthalate Suppliers, Manufacturing Company: This is a product page for Dioctyl Phthalate, not a buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Dibutyl Sebacate (DBS) NF: This is a product page for Dibutyl Sebacate, not a buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed N Butanol Imports in India Nov-26: Tier is 'trade' and claim is 'import-record', indicating a focus on trade data rather than direct buyer activity..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Chemical industry in India: This is a Wikipedia article about the chemical industry, not a specific buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Green Plasticizers: This is a product category, not a specific buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Dibutyl Sebacate: This is a product page, not a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed rainchem.com: This is a chemical company website, but the content focuses on their manufacturing capabilities, not specific N-Butanol consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed price-watch.ai: This is a price tracking website, not a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed n Butanol 99percent, Qty: 1 500ml, (BOQ Item #107): This is a tender listing, not a direct buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed ROSS Mixers: Industrial Mixers and Blenders used throughout: This is a manufacturer of industrial mixers, not a buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed prismaneconsulting.com: This is a market research and consulting firm, not a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Global e-tender for Import of Muriate of Potash (MOP): This is a tender for Muriate of Potash, not N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed eprocure.gov.in: This is a government e-procurement portal, not a direct buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Tender Notices: This is a general link to tender notices, not a specific buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Goldstab Organics Pvt.: Listed as a plasticizer manufacturer, but no direct evidence of N-Butanol consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Platinum: Listed as a plasticizer manufacturer, but no direct evidence of N-Butanol consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed theindustryoutlook.com: This is a business listing website, not a direct buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Tenders: This is a general link to tenders, not a specific buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Department of Revenue tender: This is a tender listing, not a direct buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed The Baerlocher Group: Listed as a plasticizer manufacturer, but no direct evidence of N-Butanol consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed APL: This is a polymer manufacturer, but the link does not confirm N-Butanol usage..
+    demand_chain_live_test.go:103: warning: Buyer QC removed chemanalyst.com: This is a market analysis website, not a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Paint & Coating Chemicals India: This is a product category, not a specific buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Ink Industry: This is an industry overview, not a specific buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed ibhaprocess.com: This is a provider of biodiesel plant manufacturing services, not a buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Payal Group: Listed as a plasticizer manufacturer, but no direct evidence of N-Butanol consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Kushal Polysacks Pvt Ltd: Listed as a plasticizer manufacturer, but no direct evidence of N-Butanol consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Dibutyl Sebacate (DBS) Supplier and Distributor: This is a product page for a distributor, not a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed shreejichemicalindia.com: This company offers custom chemical formulation services, not a direct buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed inkworldmagazine.com: This is a magazine about the ink industry, not a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Dhanraj: Listed as a plasticizer manufacturer, but no direct evidence of N-Butanol consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed lookchem.com: This is a chemical supplier directory, not a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed linkedin.com: This is a social media platform and general directory, not a specific buyer..
+    demand_chain_live_test.go:103: warning: 7 result(s) carry a country outside the requested geography — check the Country column: Arkema (France), Eastman Chemical Company (United States), BASF SE (United States), Nippon Shokubai (Japan), LG Chem (South Korea), The Dow Chemical Company (United States), Mitsubishi Chemical Holdings (Japan).
+    demand_chain_live_test.go:103: warning: 58 global/cross-border buyer(s) are shown inside their stages for audit but excluded from stage coverage.
+    demand_chain_live_test.go:103: warning: Stage coverage gap: Solvent Blending has 3 company(ies); QC minimum is 6. The report states the gap rather than inventing companies.
+    demand_chain_live_test.go:103: warning: Stage coverage gap: Distribution and wholesale has 1 company(ies); QC minimum is 6. The report states the gap rather than inventing companies.
+    demand_chain_live_test.go:110: artifact md -> C:\Users\amitg\AppData\Local\Temp\crystal-live-nbutanol3\live\demand-chain\20261116-055825-n-butanol.md
+    demand_chain_live_test.go:110: artifact pdf -> C:\Users\amitg\AppData\Local\Temp\crystal-live-nbutanol3\live\demand-chain\20261116-055825-n-butanol.pdf
+    demand_chain_live_test.go:146: summary -> C:\Users\amitg\AppData\Local\Temp\crystal-live-nbutanol3\live-run-summary.txt
+--- PASS: TestDemandChainLive (371.80s)
+PASS
+ok  	github.com/amitgupta1000/WebSearch_GO/internal/agent	372.371s

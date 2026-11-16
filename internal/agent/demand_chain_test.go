@@ -1656,13 +1656,13 @@ func TestDemandAdversarialChainReviewCannotDropKnownDirectInputs(t *testing.T) {
 		Verdict: "revise", Score: 0.8,
 		RejectedStages: []models.DemandStageRejection{
 			{Name: "Plasticizer Production", Reason: "consumes N-Butanol derivatives, not N-Butanol itself"},
-			{Name: "Butyl Acetate Production", Reason: "unsupported consumption claim"},
+			{Name: "Mattress Manufacturing", Reason: "end-use sector, not an input"},
 		},
 	}}
 	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
 	chain := []models.ValueChainStage{
-		{Name: "Butyl Acetate Production", Distance: models.StageDistanceDirect},
 		{Name: "Plasticizer Production", Distance: models.StageDistanceDerived},
+		{Name: "Mattress Manufacturing", Distance: models.StageDistanceDirect},
 	}
 	reviewed, _, warnings := agent.reviewDemandChain(context.Background(), models.DemandChainQuery{Activity: "n-butanol"}, chain, nil)
 	if len(reviewed) != 1 || reviewed[0].Name != "Plasticizer Production" {

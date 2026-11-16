@@ -1043,7 +1043,12 @@ are read and extracted the same way), **verify** (consumption evidence
 through consumption-shaped purposes; only operator-owned or regulatory sources
 verify, while directory/trade/news/research/publisher pages are corroboration.
 A trade-data page can supply an import record but never ownership, so a trade
-record alone leaves the company a lead and only upgrades an owned-page buyer),
+record alone leaves the company a lead and only upgrades an owned-page buyer;
+the adversarial chain review cannot drop a chemically established direct input
+on derivative wording — `demandKnownDirectInputStages` pins those relations
+(n-butanol is esterified with phthalic anhydride directly into dibutyl
+phthalate), overrides the rejection, restores distance 1, and records the
+override as a warning),
 and **assemble** (deterministically). Demand claims carry a directness-weighted
 confidence ladder (import/tender record > the buyer's own input language > stage
 verification), buyer bait ("buyers list" listicles, market-research vendors)

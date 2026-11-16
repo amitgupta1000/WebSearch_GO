@@ -2,211 +2,133 @@
 
 ## Current state
 
-- Repository: `amitgupta1000/WebSearch_GO`
-- Latest commit: `1677dae` — `Narrow company research focus defaults`
-- Worktree was clean after the commit.
-- Full Go test suite passed: `472/472` (now larger: WeeDoo browser search + DIN attribution tests).
+- Repository: `amitgupta1000/WebSearch_GO`, branch `main`, pushed to `origin/main`.
+- Latest commits: the "trade based search made explicit" series (`a2a8a5b` and the docs commit
+  that carries this file) â€” see `git log --oneline -5` for the exact chain.
+- Worktree clean after the docs commit.
+- Full Go suite: **634 tests passing, 0 failing** (`go test ./... -count=1`), `go vet` and
+  `go build` clean.
+- Live-verified this session: three full Buyer Landscape (`demand_chain`) runs on the sample
+  query `"n-butanol" "India"` (`TestDemandChainLive`, deep budget). Logs:
+  `eval/nbutanol-live*.log`; artifacts under `%TEMP%\crystal-live-nbutanol*`.
 
-## WeeDoo integration (related-entity + company modes), live-verified
+## Discovery landscape â€” current stage (buyer + seller)
 
-- **Search-bar discovery** (`tools/weedoo.go`, `WeeDooBrowserClient`): WeeDoo is a
-  client-rendered SPA the search provider barely indexes, so a CIN-less run resolves the
-  company through WeeDoo's own search bar in the shared Playwright browser — the typeahead
-  pairs each suggestion with the company's CIN (element-scoped extraction, so the homepage's
-  showcase CINs are never attributed). Live: KLJ Resources Limited -> L67120WB1986PLC041487.
-  Enabled via `agent.WithWeeDooSearch` in `cmd/server/main.go` (off by default so unit tests
-  stay hermetic; `WEEDOO_ENRICHMENT=0` disables).
-- **CIN attribution hardened** (`company.go`): a CIN is taken only when it sits in the URL as
-  the company's slug page (`/company/klj-resources-ltd/<CIN>`) or is paired with the name
-  inside a 100-char snippet window. This replaced token-anywhere matching, which had grabbed a
-  subsidiary's CIN (U24110MH2005PTC152375) from a KLJ-named page.
-- **Browser-rendered pages** (`FetchCompanyPageText`): WeeDoo's server-rendered pages are
-  trimmed to ~1.5KB of navigation by the goquery extractor, so the registry enrichment reads
-  them in the browser whenever the render yields more text (7560 vs 1522 chars live). The
-  rendered registry page carries the full directors/DIN table.
-- **Identity gates**: `containsCompanyIdentity` now uses the entity matcher (spelling variants,
-  collapsed slugs like Klj-Resources-Ltd) instead of exact substring.
-- **DIN resolution**: the directors table prints Appointment/Name/DIN/Designation rows, so
-  `weeDooRegistryDIN` pairs a leader with the eight-digit run on their row (name must sit
-  within 60 chars before the digits — flattened plain-fetch extractions otherwise pair every
-  director with the first table DIN); `labelledDINFor` makes the labelled DIN extraction
-  name-adjacent for the same reason. Masked rows resolve to nothing.
-- **Per-leader director pages**: constructed /director/<NAME>/<DIN>, rendered in the browser,
-  and moved to the FRONT of the per-leader evidence payload (`reorderWeeDooFirst`) so the
-  bounded window always carries the other-directorship lists. Live: 8 director pages fetched
-  with correct DINs; Dilip Kumar Karn's other companies flow into leadership-derived relations
-  citing the WeeDoo page.
-- Registry hits are also PREPENDED to the direct/leader extraction payloads (they were
-  previously appended and could fall beyond the bounded-evidence count caps), and WeeDoo
-  registry/director hits keep a 6000-rune snippet budget in `boundedRelatedEvidence` (the
-  ordinary 1200-rune cap cut the directors table off).
-- Known remaining tuning item: the affiliation extraction under-reports (emits a subset of the
-  director-page companies; common-name leaders pick up namesake noise despite the prompt
-  nudge).
-- Probe scripts: `scripts/weedoo-browser-probe.py`, `weedoo-search-bar-probe.py`,
-  `weedoo-page-text-probe.py`, `weedoo-director-probe.py`.
-- **Deployed**: `deploy-gcp.ps1` built and shipped this to Cloud Run
-  (`websearch-go`, asia-south1). Health-check the service on `/api/health` — Cloud Run's
-  Knative queue-proxy reserves `/healthz` at the edge, so the container never sees it
-  (fixed in `d49a27a` by adding the unreserved route).
-- **Person identity hygiene** (`validate.go`, `company.go`, `related_entity.go`,
-  `person_gate.go`): title conflicts only fire for **singular offices** (chairman, managing
-  director, the C-suite, company secretary — `singularLeadershipTitles` + the
-  "chief … officer" pattern); multiple directors are normal board practice and never a
-  conflict. Person names match across initials renderings: `personNamesMatch` aligns
-  "K L Jain"/"Kl Jain"/"K.L. Jain" positionally with "Kanhaiya Lal Jain" (surname must match
-  exactly), and the roster/leadership dedupe plus the person gate (`personNamedInText`)
-  apply it — the fuller name wins as the display name, and the initials variant does not
-  spawn a second search branch.
-- **zaubacorp at the registry tier** (`company.go`, `related_entity.go`): zaubacorp pages
-  classify as `company_registry` (quality 0.85, India profile) alongside WeeDoo — the top
-  third-party tier, above leadership/external/indexed sources; only the company's own pages
-  outrank them. The company page is also constructible (`zaubacorp.com/<SLUG>-<CIN>`) and
-  joins the priority registry pass after the WeeDoo URLs, and frozen leaders get their
-  zaubacorp director page (`/<NAME-SLUG>-<DIN>`) fetched after the WeeDoo director page —
-  both pages server-rendered with the directors/DIN table (now extracted via the leaf-table
-  fix). RocketReach ordering is unchanged: RR discovery runs before web research in company
-  and market/demand modes, and the RR person lookup is the first operation in person mode;
-  WeeDoo/zaubacorp follow RR and now outrank every other third-party source in the scrape
-  order.
-- **Name+DIN freeze before any person search** (`related_entity.go`): the Business Network
-  section of the WeeDoo company page is parsed as the FIRST option — its Direct/Ultimate
-  child companies (with LEI codes) become a network hit that feeds the direct branch without
-  any person search. Per leader, `frozenLeaderDIN` freezes the (name, DIN) pair from the
-  directors table (or a labelled DIN in retained evidence) BEFORE searching; frozen leaders
-  search with the DIN anchored into every query, and when WeeDoo covers the company but a
-  leader's DIN cannot be frozen (masked rows), that leader is skipped entirely — name-only
-  related-entity searching stays off.
-- **Cloud Run caveat (live-verified)**: the mcr playwright base image lacked the Go
-  binding's Node driver — fixed by shipping the driver and pointing
-  `PLAYWRIGHT_DRIVER_PATH` at it (`b213ba1`/`7fa9864`), and the default 512Mi Cloud Run
-  memory OOM-killed the container when Chromium launched — deploy-gcp.ps1 now deploys with
-  `--memory 2Gi --cpu 2` (`70b8855`). Remaining environmental limit: weedoo.in does not
-  serve its search bar (and barely hydrates pages) to the datacenter-IP browser, so the
-  search-bar discovery and browser re-reads work locally but not reliably from Cloud Run;
-  the CIN-from-hits path (plain fetch of the server-rendered page) still works there, and
-  DINs frozen from retained evidence keep the freeze functional.
+The research modes are the product's core: Buyer Landscape (`mode=demand_chain`), Seller
+Landscape (`mode=market_landscape`), plus company/person/legal/related/deep-search modes. This
+session closed the category-lane gaps and fixed the discovery failures the live n-butanol run
+exposed. Details in `docs/BUYER_LANDSCAPE_REVIEW.md` (2026-11-16 pass section) and
+`docs/ARCHITECTURE.md` (buyer landscape section).
 
-## Person social section (unverified)
+**What is in place now**
 
-- **Separate by construction.** `models.SocialSignal` + `PersonProfile.Socials`/`SocialNote`
-  are attached by the agent, never by the model. `PublicAccounts` is now a projection of the
-  same signals, so the API cannot present a second, divergent list. The fixed
-  `models.PersonSocialDisclaimer` says the section may not be accurate and that it is not
-  identity/employment evidence.
-- **Plan.** Five bounded, snippets-only platform queries (X/Twitter, Facebook, Instagram,
-  LinkedIn posts, YouTube), each anchored on the quoted name plus company/location and carrying
-  an `after:` recency window. A company run plans 10 queries, a name-alone run 8; cap 12.
-- **Admission.** `personGate.personalizationVerdict` requires the hit to name the person and
-  state the confirmed company (0.7), the confirmed place (0.4 with a company, 0.5 without), or a
-  recognisable role (0.3/0.35); a headline naming a different employer is refused. Name-only
-  hits are excluded — the section is allowed to be thin, not to present a stranger.
-- **No fetch.** A social URL is skipped by `addCandidate` and by the confirmed-seed fetch, is
-  never counted in the employment identity check, and is not listed in `profile.Sources`. The
-  operator-confirmed profile leads the section at confidence 1.0 when it is a social page.
-- **Rendering.** A distinct “Social signals (unverified)” section with the warning in the
-  console (`person_dossier`), Markdown/PDF, and HTML export; omitted when empty. The
-  model-derived interests/themes block is now “Interests and themes (unverified)”.
-- **Tests.** `person_social_test.go` (signals, basis, dates, no fetch), `person_plan_test.go`
-  (10/8 plan, five platforms), `person_gate_test.go` (admission), `render_test.go` and
-  `web_test.go` (separate section + warning on every surface).
+- **Trade-data lanes are explicit and tiered.** Seller side: exporter/shipment/customs lanes;
+  buyer side: importer/customs/shipment/bill-of-lading lanes plus claim-conditioned
+  verification (`import data OR importer of OR customs shipment`). Public trade platforms
+  (Volza, Trademo, Seair, Eximpedia, Zauba) are tiered as `trade`: a trade import record can
+  corroborate demand but never owns company identity â€” a trade record alone keeps a buyer at
+  `lead`; only an owned-page buyer upgrades to `verified`. (`internal/agent/trade_data.go`)
+- **Category lanes are stored and auditable end to end.** Both agents resolve a first-pass
+  product category (`n-butanol â†’ plasticizers` / `acrylates and acetates`), run independent
+  category discovery lanes, and store `CategoryLanes` + `CategoryResults` on both reports. The
+  lane names, category and query counts render in the console (`fragments.html`), Markdown and
+  HTML/PDF exports; the category section is emitted only when a category/results exist, and its
+  rows carry Employees/Turnover like the main tables. Category findings never enter
+  exact-product results.
+- **Company metrics.** Evidence-backed Employees/Turnover (plus financial year and a
+  metrics-source link) flow through discovery, cards and exports for both landscapes.
+- **2026-11-16 discovery-composition fixes** (the KLJ failure):
+  1. Stage-anchored lanes no longer carry the product prefix â€” `Plasticizer Manufacturers
+     India` instead of `N-Butanol Plasticizer Manufacturers India`; only product-shaped lanes
+     (tender, importer, trade-data, procurement, distribution) keep it
+     (`demandLane.productAnchored`, `demandLaneSearchQuery`). Gap searches likewise search the
+     stage vocabulary clean.
+  2. The buyer-side category relation gate is morphology-tolerant (`demandTokenRelates`:
+     singular/plural/`-ies` variants), so `acrylates and acetates` is no longer rejected against
+     singular stage names; `acrylates`, `acetates`, `esters`, `glycol ethers` joined the
+     product-family token map.
+  3. `demandKnownDirectInputStages` + `demandKnownDirectConsumption` guard: the adversarial
+     chain review can no longer drop (or demote) a chemically established direct input on
+     "consumes derivatives" wording â€” n-butanol is esterified with phthalic anhydride directly
+     into dibutyl phthalate, so Plasticizer Production is distance 1. The override is recorded
+     as a warning; unrelated rejections still apply.
+- **Live outcome (KLJ regression test):** the run resolves `Category: plasticizers (model)`;
+  the `category level results` section lists **KLJ** as a corroborated plasticizer manufacturer
+  in India (98%); the Plasticizer Production stage roster carries KLJ (QC `passed`); HS 29051300
+  (butan-1-ol) customs records in the run's evidence name **KLJ PETROPLAST LIMITED** as a top
+  butanol importer. Indian buyers (India Glycols 0.98 with trade import records, Deepak Nitrite,
+  Nayakem, Bharti group) now surface with real country attribution.
 
-## RocketReach person disambiguation
+## Standing subsystem notes (still accurate)
 
-- **Career history is already decoded** (`tools.RocketReachProfile.JobHistory`) and is used:
-  - in the person synthesis prompt (`formatRocketReachProfile`) and merged into the dossier's
-    experience/education/skills rows (`mergeRocketReachProfile`), with the LinkedIn URL or
-    "RocketReach" as the row source;
-  - as the company roster's `CareerHistory` column (`rocketReachCareerHistory`);
-  - by related-entity discovery, which accepts a current **or past** employer match
-    (`rocketReachProfileMatchesCompany`).
-- **Person candidate selection now uses it too.** `selectRocketReachCandidateWithBasis` ranks:
-  confirmed seed URL → current employer → most recent past role at the confirmed employer →
-  lone exact name (only when there is no company or seed). Ties among past roles are broken by
-  end date, with an open-ended role treated as newest.
-- **Search fallback is two-pass and still free.** `searchRocketReachCandidate` first searches
-  with `current_employer`; if that selects nobody, it retries once without the filter so a
-  former director/employee can be found by career history. Only the selected candidate costs a
-  paid lookup.
-- **Paid lookup is pinned.** When the search summary carries an `ID`, the full record is fetched
-  with `LookupByID`; name/employer lookup is only the fallback. This avoids re-resolving the
-  ambiguity the selection just settled.
-- **Past-role matches are labelled.** `rocketReachPastRoleWarning` adds a dossier warning when
-  the profile's current employer differs from the confirmed company but career history matches:
-  “matched by a past role at X … current employer is listed as Y; verify the current role.”
-- **Provenance.** `Experience` and `Education` now carry `Provider`; RocketReach merges set
-  `Provider: RocketReach` while keeping the provider's LinkedIn URL as the source link. Console,
-  Markdown/PDF and HTML render the provider so a provider record is not mistaken for a scraped
-  page.
-- **Provider-aware QC.** `qcPersonProfile` keeps a RocketReach career-history row even when the
-  employer is not the confirmed one, adding
-  “RocketReach career-history row; not independently verified by web evidence” instead of
-  dropping the paid history.
-- **Fetch RR is persistent and cached.** The company roster's per-row action now sends
-  `session_id`; `handleMarketRocketReach` merges the full profile into the completed chart's
-  `ResearchRoster` row (`agent.ApplyRocketReachProfileToRoster`) and publishes a copy-on-write
-  chart, so reloads/CSV show career history, education, skills and verified contacts. Lookups
-  are cached by RR profile ID for 24 hours in a bounded process-local map, so repeated clicks
-  do not spend another credit. The row's result fragment says whether the answer came from cache
-  and whether it was saved.
-- **CSV** gained `Emails`, `Phones`, `Education` and `RR enriched at` columns.
-- **Deliberate limits.** Company-mode discovery and market-landscape discovery still filter on
-  current employer only — their rosters are current people, not alumni. Contact-detail lookup
-  remains on-demand (explicit person run or the market “Fetch contact details” action).
-- **Tests.** `person_rocketreach_test.go`: past-role selection, current-employer precedence,
-  recency tie-break, unfiltered retry, ID-pinned lookup, warning text.
-
-## Company mode behavior
-
-CompanyAgent now defaults to leadership-focused research:
-
-- Leadership queries remain enabled by default.
-- Location and company-context queries remain available for identity and background.
-- Department/function searches are generated only when the user explicitly enters focus areas.
-- The UI provides examples such as procurement, supply chain, and sales/marketing.
-- The planner no longer adds default procurement, marketing, finance, engineering, or generic department searches.
-- Indexed LinkedIn role searches are also limited to explicitly requested focus areas.
-- Focus areas still steer which departments get dedicated searches, but people the collected evidence names (for example LinkedIn profiles) are included in the roster even when their function was not requested.
-
-Relevant files:
-
-- `internal/agent/company.go`
-- `internal/agent/company_test.go`
-- `internal/agent/sources_test.go`
-- `internal/web/templates/index.html`
-
-## Important finding
-
-Search scope and output scope are separate.
-
-The search planner can be narrowed while the final synthesis model still receives broad company evidence and may populate a full `departments` array. A deterministic post-synthesis department filter was tested, but rolled back at the user's request. Therefore, a full org chart can still appear even when the query plan is leadership-focused.
-
-If output narrowing is revisited, decide explicitly whether to:
-
-1. Keep the full org-chart schema but populate departments only from explicit focus areas; or
-2. Return leadership plus company context by default and omit department output unless requested.
-
-Any future output-scope change should be covered by synthesis-level regression tests, not only fallback-query tests.
-
-## RocketReach and workflow context
-
-- RocketReach discovery is opt-in in Company mode only.
-- Company RR discovery starts before web research.
-- Company RR uses `current_employer` and `current_title`.
-- Seller Landscape and Buyer Landscape no longer run key-person/RocketReach discovery; their search budgets are reserved for company and demand discovery.
-- CompanyAgent is reserved for deep, specific-company research.
-- Company SSE terminal-session protection prevents completed logs from replaying on reconnect.
+- **Registry tiering (India):** WeeDoo browser search-bar discovery + CIN attribution rules,
+  zaubacorp at the company-registry tier, WeeDoo/zaubacorp director pages and the frozen
+  (name, DIN) discipline before any person search (`related_entity.go`, `company.go`). WeeDoo's
+  search bar does not serve the datacenter-IP browser on Cloud Run; the CIN-from-hits path and
+  evidence-frozen DINs keep working there. Probe scripts under `scripts/weedoo-*.py`.
+- **Cloud Run:** deploy via `deploy-gcp.ps1` (2Gi/2cpu for Chromium); health-check on
+  `/api/health` (Knative reserves `/healthz`).
+- **Person identity hygiene:** singular-office title conflicts, initials-vs-full-name positional
+  matching (`personNamesMatch`), masked DIN rows resolve to nothing.
+- **RocketReach:** opt-in in company mode; person candidate selection ranks seed URL â†’ current
+  employer â†’ most recent past role â†’ lone exact name; paid lookups ID-pinned and cached 24h;
+  provider labels flow through console/exports. Key-person discovery is deliberately NOT run in
+  the landscape modes â€” the budget stays on company/demand discovery.
+- **Person social section** is attached by the agent, never by the model, and carries a fixed
+  disclaimer; contact lookups remain on-demand.
+- **Company mode** defaults to leadership-focused research; department searches require explicit
+  focus areas (the planner does not add default department queries).
+- **Standing finding:** search scope and output scope are separate â€” a narrowed query plan can
+  still yield a full org chart from broad evidence; a deterministic post-synthesis department
+  filter was rolled back at the user's request. Any output-scope change needs synthesis-level
+  regression tests.
 
 ## Validation
 
-The latest full validation command was the repository Go test suite, with all 472 tests passing. The focused CompanyAgent and web tests also passed before the full suite.
+- `go build ./...`, `go vet ./...`, `go test ./... -count=1` â€” all green (634 tests).
+- `gofmt` clean on touched files (repo-wide `gofmt -l` shows pre-existing CRLF drift in
+  committed files; do not bulk-reformat).
+- Live buyer-pipeline harness: `DEMAND_INTEGRATION=1 DEMAND_LIVE_DIR=<dir> go test
+  ./internal/agent/ -run TestDemandChainLive -v -timeout 45m` (needs SERPER_API_KEY + Vertex
+  ADC; ~5â€“10 min at the deep budget). Eval harness: `DEMAND_EVAL=1 go test ./internal/agent/
+  -run TestDemandChainEval` writes scorecards to `eval/`.
+- Caution: env vars set in a terminal session persist across commands in that session â€” clear
+  `DEMAND_INTEGRATION` before package-wide test runs or the live test will run and spend budget.
 
-## Suggested next steps
+## Future goals / improvement areas
 
-1. Run a live Company-mode test with an empty Focus areas field and inspect:
-   - planned queries,
-   - selected evidence,
-   - final department output.
-2. Decide the desired output contract for default Company mode.
-3. If departments must be absent by default, implement an explicit synthesis/output contract and add regression coverage around the final `OrgChart`, rather than filtering only after synthesis.
-4. Preserve explicit focus-area behavior and confirmation-form propagation for RocketReach.
+Prioritized from the live runs and the code:
+
+1. **Group-entity identity linking (top).** Discovery extracts "KLJ" while the customs record
+   names "KLJ PETROPLAST LIMITED" â€” group entities (KLJ / KLJ Group / KLJ Plasticizers / KLJ
+   Petroplast / KLJ Resources) must resolve to one corporate family so a trade import record
+   naming a group entity corroborates the parent lead and can promote it past `lead`. Add an
+   alias/corporate-family resolution step to verification (seeded by registry group data and
+   shared name prefixes + registered-office matches).
+2. **Own-site consumption-language promotion.** Category-manufacturer leads whose own pages
+   show consuming-stage vocabulary (e.g. KLJ's DBP/phthalate pages) should earn
+   operator-verification evidence instead of staying `candidate` â€” currently the KLJ page was
+   read but did not upgrade the lead.
+3. **QC judge calibration for known-direct stages.** The live run QC-removed several listed
+   plasticizer manufacturers (Baerlocher, Payal, Kushal, Dhanraj) for "no direct evidence of
+   N-Butanol consumption" even though plasticizer production consumes n-butanol directly. Feed
+   the known-direct relation into the buyer-QC policy prompt (or accept stage-membership +
+   producer status for known-direct stages deterministically).
+4. **Presence/country attribution.** Rows with `Country: India` still land in the
+   global/cross-border audit bucket, and many corroborated rows have an empty country. Presence
+   should be promoted when the evidence names an Indian address/city (Mumbai, Hyderabad, Delhi)
+   even without an explicit country token.
+5. **Trade-site name extraction.** Volza/Trademo/Seair serve 403/captcha walls (proxy does not
+   help), so importer names come only from search snippets. Options: browser-rendered reads for
+   the trade tier, or expanding which snippets are mined for buyer names (the HS-code
+   "top importers" lists already carry names like KLJ PETROPLAST).
+6. **Stage coverage QC floor.** The six-company minimum is regularly unmet (honest gaps are
+   reported, never invented). Widen operator vocabulary per stage, add deterministic
+   `largest manufacturers of <stage-product>` lanes for stage products, and/or tune the
+   minimum per stage distance.
+7. **Name hygiene leaks seen live.** Roster names like "Pickle Mixing Machine Exporter &",
+   "CGSpace", "Himadri Speciality Chemical Ltd: Home" passed the gates; tighten the title-fold
+   and non-company-shape rejection (trailing "&", ": Home" suffixes, repository/aggregator
+   hosts).
+8. **Ship to Cloud Run.** The current fixes are local-only; redeploy with `deploy-gcp.ps1` and
+   re-run the n-butanol sample against the service.

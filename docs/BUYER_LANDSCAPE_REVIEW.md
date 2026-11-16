@@ -2,7 +2,42 @@
 
 Status: implemented. The P0/P1 items below that this review identified were applied on 2026-11-14;
 the historical review text is kept so the failure modes and their fixes remain auditable. Sections
-below the implementation summary describe the pre-fix state.
+below the implementation summary describe the pre-fix state. A follow-up pass on 2026-11-16 fixed
+the discovery-composition failures the live n-butanol/India run exposed (see below).
+
+## Implemented in the 2026-11-16 pass (live n-butanol/India run)
+
+The sample query `"n-butanol" "India"` missed KLJ Plasticizers — India's largest plasticizer
+manufacturer and a significant n-butanol importer. Three defects were found and fixed
+(live-verified across three `TestDemandChainLive` runs; artifacts under
+`%TEMP%\crystal-live-nbutanol*`, logs in `eval/nbutanol-live*.log`):
+
+- **D1 — stage lanes carried the product prefix.** Every discovery query was composed as
+  `Activity + lane term + geography`, so the Plasticizer stage searched
+  `N-Butanol Plasticizer Manufacturers India`, which returns n-butanol supplier and market
+  pages, never the consuming industry's manufacturer pages (where `kljindia.com` ranks). Now
+  `demandLane.productAnchored` marks only the generic lanes (procurement, tender, importer,
+  trade-data, distribution) that need the product; stage operator/label lanes search clean
+  (`Plasticizer Manufacturers India`), and gap searches no longer re-add the prefix
+  (`demandLaneSearchQuery`).
+- **D2 — the category gate rejected the correct category on plural wording.**
+  `demandCategoryLooksRelated` did raw substring checks, so `acrylates and acetates` failed
+  against the singular stages `Butyl Acrylate Production` / `Butyl Acetate Production` and fell
+  back to a generic `solvents` category. `demandTokenRelates` now matches singular/plural
+  (`-s`/`-es`/`-ies`) variants, and the product-family token map gained `acrylates`, `acetates`,
+  `esters` and `glycol ethers`.
+- **D3 — the adversarial chain review intermittently deleted the Plasticizer stage.** The judge
+  rejected it as "consumes N-Butanol derivatives, not N-Butanol itself" — chemically wrong:
+  dibutyl phthalate is esterified directly from phthalic anhydride and n-butanol (distance 1).
+  `demandKnownDirectInputStages` + `demandKnownDirectConsumption` now pin chemically established
+  direct inputs: such a rejection is overridden, the stage is restored to distance 1, and the
+  override is recorded as a warning. Unrelated rejections still apply. The chain-inference and
+  review prompts carry the same concrete counter-example.
+
+Live result after the pass: the category lane resolves `plasticizers (model)` and its report
+section lists KLJ as a corroborated plasticizer manufacturer in India (98%), the Plasticizer
+Production stage roster carries KLJ (QC passed), and HS 29051300 (butan-1-ol) customs records
+name KLJ PETROPLAST LIMITED as a top importer in the run's evidence.
 
 ## Implemented in the 2026-11-14 pass
 
@@ -87,9 +122,12 @@ The pipeline has real strengths worth preserving:
   as a manufacturer consuming the product directly (distance 1) or one transformation step
   downstream (distance 2); `sanitizeDemandStages` drops deeper proposals and reports them
   (`demand_chain.go:823`–`941`). The saved scorecards show 0 chain scope leaks.
-- **Every search is anchored.** Each lane query is `Activity + lane term + geography`
-  (`demand_chain.go:140`), and every verification query is `"Company" Activity purpose
-  geography` (`demand_chain.go:1427`), so a query cannot drift to another product.
+- **Every search is anchored.** Each lane query is `lane term + geography` for the
+  stage-anchored lanes and `Activity + lane term + geography` for the product-shaped lanes
+  (`demand_chain.go`, `demandLaneSearchQuery` — amended in the 2026-11-16 pass; the old
+  product-prefixed composition returned supply-side pages for buyer-side queries), and every
+  verification query is `"Company" Activity purpose geography`, so a query cannot drift to
+  another product.
 - **Mandatory demand lanes are reserved.** `selectDemandLanes` keeps the direct
   procurement/purchase and tender/RFP lanes even when the discovery budget is small
   (`demand_chain.go:1073`), and tests pin that.

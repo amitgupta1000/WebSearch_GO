@@ -538,7 +538,7 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
   separate resale category. Every stage (and that category) must identify at least six
   companies; a validated first-pass product category (e.g. TDI → polyurethanes, coal → coal products,
   never `fuel`) runs as an independent research lane and is reported under `category level results`,
-  outside ordinary results, stages and coverage. Bounded gap searches and list-page extraction fill
+  outside ordinary results, stages and coverage. The category relation gate is morphology-tolerant (`acrylates and acetates` matches singular stage names), the adversarial reviewer cannot drop a chemically established direct input on derivative wording (`demandKnownDirectInputStages`), and only the product-shaped lanes (tender, importer, trade-data, procurement, distribution) carry the product in their search string — a product prefix on a stage operator lane turns a buyer-side query into a supply-side one. Bounded gap searches and list-page extraction fill
   what they can, and a post-assembly QC review records coverage, rejections and follow-ups. Its
   artifacts land under `demand-chain/` with the value chain leading both documents.
 - **Seller Landscape** uses the same validated category research lane and a post-assembly QC
