@@ -1031,7 +1031,12 @@ stages of the product plus a validated buyer-side product category; the operator
 rather than failing the run),
 **discover** (stage-operator lanes built from the chain's own vocabulary, plus
 product-shaped demand lanes: tenders, importers, input language, and explicit
-customs/shipment/bill-of-lading trade-data lanes), **read**
+customs/shipment/bill-of-lading trade-data lanes; only the product-shaped lanes
+carry the product prefix — a stage-operator lane such as "Plasticizer
+Manufacturers India" searches without it, because "N-Butanol Plasticizer
+Manufacturers India" returns n-butanol supplier and market pages instead of the
+consuming industry's manufacturer pages, and the same rule keeps gap searches
+stage-anchored), **read**
 (research/news/directory/trade pages are read for the companies they name even
 though they can never be buyers themselves; stage-gap listicles and articles
 are read and extracted the same way), **verify** (consumption evidence

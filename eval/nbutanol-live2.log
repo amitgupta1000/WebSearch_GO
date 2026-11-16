@@ -1,0 +1,76 @@
+=== RUN   TestDemandChainLive
+2026/11/16 11:08:49 [EXPORT] md -> C:\Users\amitg\AppData\Local\Temp\crystal-live-nbutanol2\live\demand-chain\20261116-053849-n-butanol.md (89569 bytes)
+2026/11/16 11:08:51 [EXPORT] pdf -> C:\Users\amitg\AppData\Local\Temp\crystal-live-nbutanol2\live\demand-chain\20261116-053849-n-butanol.pdf (632873 bytes)
+    demand_chain_live_test.go:85: [event] tool_result: Inferred 3 consuming stage(s): Butyl Acrylate Production, Butyl Acetate Production, Plasticizer Production; category: acrylates and acetates
+    demand_chain_live_test.go:85: [event] thinking: Adversarial chain review: revise (0.67), 1 rejected stage(s), 2 correction(s)
+    demand_chain_live_test.go:85: [event] tool_call: Searching category acrylates and acetates
+    demand_chain_live_test.go:85: [event] tool_call: Searching category acrylates and acetates
+    demand_chain_live_test.go:85: [event] thinking: Gap search for Butyl Acetate Production was weak (6 new company(ies)); broadened to category terms
+    demand_chain_live_test.go:85: [event] thinking: Buyer QC review: revise (0.40) — 29 rejection(s), 3 under-covered stage(s)
+    demand_chain_live_test.go:85: [event] thinking: Gap search for Butyl Acetate Production was weak (5 new company(ies)); broadened to category terms
+    demand_chain_live_test.go:85: [event] thinking: Gap search for Distribution and wholesale was weak (6 new company(ies)); broadened to category terms
+    demand_chain_live_test.go:89: geography: "India"; chain inferred: true
+    demand_chain_live_test.go:91: stage [] Butyl Acrylate Production — Consumes N-Butanol as an alcohol component for esterification with acrylic acid. (operators: Acrylic Ester Manufacturers; Chemical Synthesis Plants; Specialty Monomer Producers)
+    demand_chain_live_test.go:91: stage [] Butyl Acetate Production — Consumes N-Butanol as an alcohol component for esterification with acetic acid. (operators: Ester Solvent Manufacturers; Chemical Synthesis Plants; Acetate Ester Producers)
+    demand_chain_live_test.go:93: lanes: 18 queries, 439 hits, 141 verification queries, 33 pages enriched
+    demand_chain_live_test.go:99: result 1: Esters and Solvents LLP | stage=Butyl Acetate Production | country=India | status=corroborated | confidence=0.98 | claims=operator-verification(aggregator),operator-verification(aggregator),operator-verification(aggregator),demand-signal(aggregator),operator-verification(aggregator),operator-verification(aggregator),operator-verification(aggregator),operator-verification(official),operator-verification(directory),operator-verification(aggregator),operator-verification(official),operator-verification(aggregator)
+    demand_chain_live_test.go:99: result 2: Yukti Exim | stage=Distribution and wholesale | country=India | status=corroborated | confidence=0.98 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 3: Pearl Chemicals | stage=Distribution and wholesale | country=India | status=corroborated | confidence=0.95 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 4: Celanese Corporation | stage=Butyl Acetate Production | country=United States | status=corroborated | confidence=0.94 | claims=operator-verification(official),operator-verification(official),operator-verification(official),operator-verification(official)
+    demand_chain_live_test.go:99: result 5: Eastman Chemical Company | stage=Butyl Acetate Production | country=United States | status=verified | confidence=0.82 | claims=operator-verification(official),import-record(regulatory)
+    demand_chain_live_test.go:99: result 6: Shatabdi Chemicals (P) Ltd. | stage=Butyl Acetate Production | country=India | status=corroborated | confidence=0.70 | claims=operator-verification(official),operator-verification(official),operator-verification(official),operator-verification(official)
+    demand_chain_live_test.go:99: result 7: Godavari | stage=Butyl Acetate Production | country= | status=corroborated | confidence=0.55 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 8: Riddhi Chemicals, Mumbai | stage=Distribution and wholesale | country= | status=corroborated | confidence=0.55 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 9: Bill of Lading Data | stage= | country= | status=verified | confidence=0.45 | claims=import-record(official)
+    demand_chain_live_test.go:99: result 10: NAL | stage= | country= | status=verified | confidence=0.45 | claims=demand-tender(official)
+    demand_chain_live_test.go:99: result 11: PCIPL: Global Chemical Manufacturing and Distribution | stage=Butyl Acrylate Production | country= | status=corroborated | confidence=0.45 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 12: Prakash Chemicals | stage=Distribution and wholesale | country= | status=corroborated | confidence=0.45 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 13: Rhythm Chemicals Pvt. Ltd | stage=Distribution and wholesale | country= | status=corroborated | confidence=0.45 | claims=operator-verification(official)
+    demand_chain_live_test.go:99: result 14: Supreme Petro Chemicals: Industrial Chemical Supplier Chennai | stage=Distribution and wholesale | country= | status=corroborated | confidence=0.45 | claims=operator-verification(official)
+    demand_chain_live_test.go:103: warning: Adversarial chain review rejected stage "Plasticizer Production": The rationale states consumption of N-Butanol derivatives, not N-Butanol itself. The link to N-Butanol is indirect via n-butyraldehyde, which is not explicitly stated as a distance-1 input for plasticizer production. The claimed distance of 2 is not supported by the rationale provided..
+    demand_chain_live_test.go:103: warning: Private procurement is invisible to web research: this run only sees demand that surfaced publicly.
+    demand_chain_live_test.go:103: warning: Buyer scope: manufacturers whose process consumes the product directly (step 1) or via one intermediate transformation (step 2); deeper value-chain stages are out of scope.
+    demand_chain_live_test.go:103: warning: Model-inferred stages are hypotheses; each result names the consuming stage it was tied to.
+    demand_chain_live_test.go:103: warning: Traders, brokers and trading houses are excluded; rerun with intermediaries to include them.
+    demand_chain_live_test.go:103: warning: Category research rejected 2 extracted lead(s).
+    demand_chain_live_test.go:103: warning: Buyer QC removed N Butanol Imports in India Nov-26: Stage is empty, and the source is a trade data aggregator with no direct evidence of buyer activity..
+    demand_chain_live_test.go:103: warning: Buyer QC removed BPCL e-Procurement: Stage is empty, and the source is an e-procurement portal, not a direct buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Lummus and Synthomer partner to license acrylic acid esters technology: This is a news article about technology licensing, not a direct buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed verifiedmarketresearch.com: This is a consultancy report, not a direct buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed kenresearch.com: This is a market research report, not a direct buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Case No. AD (OI)- 30/2025: This is a regulatory document concerning an anti-dumping investigation, not direct evidence of a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Seeks to continue anti dumping duty on imports of 'Normal: This is a notification about anti-dumping duties, not direct evidence of a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Acrylic polymers (in primary forms) suppliers in India: This is a list of suppliers, not direct buyers. The stage is also not directly tied to N-Butanol consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Acrylic Polymer by Amorphos Chemicals Private Limited, Delhi: This is a YouTube video about a company's products, not direct evidence of N-Butanol purchase or consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Optimal Planning of Feedstock for Butanol Production: This is a research paper about production, not a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Global e-tender for Import of Urea (46:00:00): This is a tender for Urea, not N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Tenders by Organisation: This is a general tender aggregator, not specific to N-Butanol buyers..
+    demand_chain_live_test.go:103: warning: Buyer QC removed imarcgroup.com: This is a market research report, not a direct buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed mcgc.com: This is a news release about technology development, not a direct buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed EMS Online Courses: This is an educational resource about butanol production, not a buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Chemical industry in India: This is a general overview of the chemical industry and a definition of butyl acrylate, not specific buyer information for N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Bharat Petroleum Corporation Limited: While BPCL is mentioned as a producer, the sources do not explicitly confirm them as a buyer of N-Butanol for downstream production in the context of this dataset. The stage is also not clearly defined as a consumer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed cdhfinechemical.com: This is a supplier of chemical synthesis products, not a direct buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Multipurpose Chemical Plants Design & Construction: This is a service provider for chemical plant design, not a buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed revenuebase.ai: This is a directory of manufacturers, not direct buyers of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed HTS Code 2905.13.0000 Butan-1-ol (n-butyl Alcohol): This is trade data with no specific buyer identification..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Bill of Lading Data in International Trade Research with an: This is a research paper about trade data, not a direct buyer..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Speciality Monomers: This is a product page for specialty monomers, not a direct buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Acrylate Copolymer For Homecare: This is a product page for acrylate copolymer, not a direct buyer of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed gravitychemicals.com: This is a company profile focused on manufacturing, not direct evidence of N-Butanol purchase..
+    demand_chain_live_test.go:103: warning: Buyer QC removed chemeurope.com: This is a directory of chemical companies, not direct buyers of N-Butanol..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Leading Chemical, Acrylic Polymer Manufacturer in India: This is a company profile focused on manufacturing, not direct evidence of N-Butanol purchase..
+    demand_chain_live_test.go:103: warning: Buyer QC removed Acrylic anhydride manufacturers and suppliers in india: This lists manufacturers and suppliers of acrylic anhydride, not direct buyers of N-Butanol. The stage is also not directly tied to N-Butanol consumption..
+    demand_chain_live_test.go:103: warning: Buyer QC removed marketsandmarkets.com: This is a market research report, not a direct buyer..
+    demand_chain_live_test.go:103: warning: QC follow-up skipped (no stage anchor): Companies consuming N-Butanol as input in India
+    demand_chain_live_test.go:103: warning: 4 result(s) carry a country outside the requested geography — check the Country column: Celanese Corporation (United States), BASF SE (Germany), Dow Chemical Company (United States), Eastman Chemical Company (United States).
+    demand_chain_live_test.go:103: warning: 20 global/cross-border buyer(s) are shown inside their stages for audit but excluded from stage coverage.
+    demand_chain_live_test.go:103: warning: Stage coverage gap: Butyl Acrylate Production has 2 company(ies); QC minimum is 6. The report states the gap rather than inventing companies.
+    demand_chain_live_test.go:103: warning: Stage coverage gap: Butyl Acetate Production has 4 company(ies); QC minimum is 6. The report states the gap rather than inventing companies.
+    demand_chain_live_test.go:103: warning: Stage coverage gap: Distribution and wholesale has 2 company(ies); QC minimum is 6. The report states the gap rather than inventing companies.
+    demand_chain_live_test.go:110: artifact md -> C:\Users\amitg\AppData\Local\Temp\crystal-live-nbutanol2\live\demand-chain\20261116-053849-n-butanol.md
+    demand_chain_live_test.go:110: artifact pdf -> C:\Users\amitg\AppData\Local\Temp\crystal-live-nbutanol2\live\demand-chain\20261116-053849-n-butanol.pdf
+    demand_chain_live_test.go:146: summary -> C:\Users\amitg\AppData\Local\Temp\crystal-live-nbutanol2\live-run-summary.txt
+--- PASS: TestDemandChainLive (370.46s)
+PASS
+ok  	github.com/amitgupta1000/WebSearch_GO/internal/agent	371.107s

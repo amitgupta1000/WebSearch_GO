@@ -1487,6 +1487,72 @@ func TestDemandCategoryValidation(t *testing.T) {
 	}
 }
 
+// TestDemandLaneQueriesAnchorOnlyGenericLanes pins the discovery query
+// composition: stage-anchored lanes search WITHOUT the product prefix (the
+// prefix trades the consuming industry's manufacturer pages for supply-side
+// product pages — "N-Butanol Plasticizer Manufacturers India" returns n-butanol
+// traders, never KLJ Plasticizers), while generic demand lanes whose term is
+// meaningless alone keep the product anchor.
+func TestDemandLaneQueriesAnchorOnlyGenericLanes(t *testing.T) {
+	chain := []models.ValueChainStage{{
+		Name: "Plasticizer Production", Distance: models.StageDistanceDirect,
+		Operators: []string{"Plasticizer Manufacturers", "PVC Additive Plants"},
+	}}
+	lanes := demandChainLanes(models.DemandChainQuery{Activity: "N-Butanol", Countries: []string{"India"}}, chain)
+	byTerm := make(map[string]demandLane, len(lanes))
+	for _, lane := range lanes {
+		byTerm[lane.term] = lane
+	}
+	type expectation struct {
+		term     string
+		anchored bool
+		query    string
+	}
+	for _, want := range []expectation{
+		{term: "largest manufacturers of plasticizer", anchored: false, query: "largest manufacturers of plasticizer India"},
+		{term: "Plasticizer Manufacturers", anchored: false, query: "Plasticizer Manufacturers India"},
+		{term: "importer import data", anchored: true, query: "N-Butanol importer import data India"},
+		{term: "buyer procurement purchase", anchored: true, query: "N-Butanol buyer procurement purchase India"},
+		{term: "importer customs shipment data", anchored: true, query: "N-Butanol importer customs shipment data India"},
+		{term: "distributor wholesaler of", anchored: true, query: "N-Butanol distributor wholesaler of India"},
+	} {
+		lane, ok := byTerm[want.term]
+		if !ok {
+			t.Fatalf("lane %q missing from %v", want.term, byTerm)
+		}
+		if lane.productAnchored != want.anchored {
+			t.Errorf("lane %q productAnchored = %v, want %v", want.term, lane.productAnchored, want.anchored)
+		}
+		if got := demandLaneSearchQuery("N-Butanol", lane, "India"); got != want.query {
+			t.Errorf("lane %q composes %q, want %q", want.term, got, want.query)
+		}
+	}
+}
+
+// TestDemandCategoryAcceptsPluralProductFamilies keeps the morphology-tolerant
+// relation gate: the model's correct category for n-butanol ("acrylates and
+// acetates") must not be rejected because the inferred stages are singular
+// ("Butyl Acrylate Production"); known singular families still pass and
+// forbidden end-use sectors still fail.
+func TestDemandCategoryAcceptsPluralProductFamilies(t *testing.T) {
+	stages := []models.ValueChainStage{
+		{Name: "Butyl Acrylate Production"},
+		{Name: "Butyl Acetate Production"},
+		{Name: "Plasticizer Production"},
+		{Name: "Glycol Ether Production"},
+	}
+	category, source, _ := validateDemandCategory("acrylates and acetates", "n-butanol is esterified into butyl acrylate and butyl acetate", "n-butanol", stages)
+	if category != "acrylates and acetates" || source != "model" {
+		t.Fatalf("category = %q/%q, want the model category accepted", category, source)
+	}
+	if category, source, _ := validateDemandCategory("plasticizers", "n-butanol feeds phthalate plasticizers", "n-butanol", stages); category != "plasticizers" || source != "model" {
+		t.Fatalf("category = %q/%q, want plasticizers accepted", category, source)
+	}
+	if _, source, warnings := validateDemandCategory("fuel", "burned for energy", "coal", stages); source == "model" || len(warnings) == 0 {
+		t.Fatalf("forbidden end-use category must stay rejected, got %q/%v", source, warnings)
+	}
+}
+
 // TestDemandStageBroadenTermsUsesProductCategory: the first-pass category is the first fallback
 // query dimension, but only after it has passed the validation gate.
 func TestDemandStageBroadenTermsUsesProductCategory(t *testing.T) {
@@ -1576,6 +1642,62 @@ func TestDemandAdversarialChainReviewCorrectsDistance(t *testing.T) {
 	reviewed, _, _ := agent.reviewDemandChain(context.Background(), models.DemandChainQuery{Activity: "Toluene Diisocyanate"}, chain, nil)
 	if len(reviewed) != 1 || reviewed[0].Distance != models.StageDistanceDerived {
 		t.Errorf("reviewed chain = %+v, want the mattress stage corrected to distance 2", reviewed)
+	}
+}
+
+// TestDemandAdversarialChainReviewCannotDropKnownDirectInputs: a review that
+// rejects plasticizer production for "consumes butanol derivatives" wording
+// must not remove the stage — dibutyl phthalate is esterified directly from
+// phthalic anhydride and n-butanol, so the stage is a distance-1 consumer and
+// dropping it removes the product's real buyer pool. The guard must not
+// blanket-veto: an unrelated rejection still applies.
+func TestDemandAdversarialChainReviewCannotDropKnownDirectInputs(t *testing.T) {
+	llm := &demandLLM{chainReview: models.ValueChainReview{
+		Verdict: "revise", Score: 0.8,
+		RejectedStages: []models.DemandStageRejection{
+			{Name: "Plasticizer Production", Reason: "consumes N-Butanol derivatives, not N-Butanol itself"},
+			{Name: "Butyl Acetate Production", Reason: "unsupported consumption claim"},
+		},
+	}}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
+	chain := []models.ValueChainStage{
+		{Name: "Butyl Acetate Production", Distance: models.StageDistanceDirect},
+		{Name: "Plasticizer Production", Distance: models.StageDistanceDerived},
+	}
+	reviewed, _, warnings := agent.reviewDemandChain(context.Background(), models.DemandChainQuery{Activity: "n-butanol"}, chain, nil)
+	if len(reviewed) != 1 || reviewed[0].Name != "Plasticizer Production" {
+		t.Fatalf("reviewed chain = %+v, want only the plasticizer stage kept", reviewed)
+	}
+	if reviewed[0].Distance != models.StageDistanceDirect {
+		t.Errorf("plasticizer stage distance = %d, want the override to restore direct consumption", reviewed[0].Distance)
+	}
+	overridden := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "known direct consumer") {
+			overridden = true
+		}
+	}
+	if !overridden {
+		t.Errorf("warnings = %v, want the rejection-override note", warnings)
+	}
+
+	// The same guard vetoes a demotion of a known direct consumer.
+	demoter := &demandLLM{chainReview: models.ValueChainReview{
+		Verdict: "revise", Score: 0.7,
+		DistanceCorrections: []models.DemandDistanceCorrection{{Name: "Plasticizer Production", Distance: models.StageDistanceDerived}},
+	}}
+	agent = NewDemandChainAgent(demandChainTestEngine(demoter, &demandSearcher{}))
+	reviewed, _, _ = agent.reviewDemandChain(context.Background(), models.DemandChainQuery{Activity: "n-butanol"}, []models.ValueChainStage{{Name: "Plasticizer Production", Distance: models.StageDistanceDirect}}, nil)
+	if len(reviewed) != 1 || reviewed[0].Distance != models.StageDistanceDirect {
+		t.Errorf("reviewed chain = %+v, want the demotion overridden", reviewed)
+	}
+
+	// Without the product/stage relation the guard stays silent.
+	if demandKnownDirectConsumption("toluene", models.ValueChainStage{Name: "Plasticizer Production"}) {
+		t.Error("toluene must not claim the butanol direct-input relation")
+	}
+	if demandKnownDirectConsumption("n-butanol", models.ValueChainStage{Name: "Mattress Manufacturing"}) {
+		t.Error("mattress manufacturing must not claim the butanol direct-input relation")
 	}
 }
 

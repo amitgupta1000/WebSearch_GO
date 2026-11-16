@@ -160,7 +160,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 				laneResults[index].err = err
 				return
 			}
-			searchQuery := strings.TrimSpace(query.Activity + " " + lane.term + " " + demandGeography(query))
+			searchQuery := demandLaneSearchQuery(query.Activity, lane, demandGeography(query))
 			emitAgentEvent(eventCh, models.EventToolCall, "Searching "+lane.term, "search", searchQuery)
 			hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
 			laneResults[index].hits, laneResults[index].err = hits, err
@@ -729,14 +729,16 @@ func (a *DemandChainAgent) fillDemandStageGaps(ctx context.Context, query models
 				}
 			}
 		}
-		runSearch := func(term string, includeActivity bool) {
+		runSearch := func(term string) {
 			if err := ctx.Err(); err != nil {
 				return
 			}
+			// Gap terms are stage-anchored (operator phrases, stage labels,
+			// stage products) or already carry the product (the distribution
+			// lane). Prefixing the product again would trade buyer-side
+			// manufacturer pages for supply-side product pages, so the term
+			// searches with the geography clause alone.
 			searchQuery := strings.TrimSpace(term + " " + demandGeography(query))
-			if includeActivity {
-				searchQuery = strings.TrimSpace(query.Activity + " " + term + " " + demandGeography(query))
-			}
 			emitAgentEvent(eventCh, models.EventToolCall, "Gap search for "+stage, "search", searchQuery)
 			hits, err := a.engine.SearchFresh(ctx, searchQuery, marketMaxResults)
 			report.GapQueries++
@@ -748,7 +750,7 @@ func (a *DemandChainAgent) fillDemandStageGaps(ctx context.Context, query models
 		}
 		terms := demandStageGapTerms(query, stage, report.Chain)
 		for attempt := 0; attempt < demandStageGapQueries && attempt < len(terms); attempt++ {
-			runSearch(terms[attempt], true)
+			runSearch(terms[attempt])
 		}
 		// The exact stage/operator phrases can be too narrow. If they produced almost no
 		// companies, retry with the wider category vocabulary (solvents, aromatics,
@@ -756,7 +758,7 @@ func (a *DemandChainAgent) fillDemandStageGaps(ctx context.Context, query models
 		if stageAdded < demandStageBroadenThreshold || gap.Count+stageAdded < demandMinStageCompanies {
 			broadTerms := demandStageBroadenTerms(query, stage, report.Chain, report.ProductCategory)
 			for attempt := 0; attempt < demandStageBroadenQueries && attempt < len(broadTerms); attempt++ {
-				runSearch(broadTerms[attempt], false)
+				runSearch(broadTerms[attempt])
 			}
 			if len(broadTerms) > 0 {
 				emitAgentEvent(eventCh, models.EventThinking,
@@ -1810,12 +1812,33 @@ func normalizeDemandBudget(query *models.DemandChainQuery) {
 	}
 }
 
-// demandLane is one discovery lane: the phrase appended to the activity in the
-// search query, and the consuming stage it serves (empty for product-shaped
-// demand lanes that speak about the product itself).
+// demandLane is one discovery lane: the search phrase it contributes, the
+// consuming stage it serves (empty for product-shaped demand lanes that speak
+// about the product itself), and whether the phrase needs the product anchored
+// in front of it to be meaningful.
 type demandLane struct {
 	term  string
 	stage string
+	// productAnchored marks the generic demand lanes whose term is meaningless
+	// without the product: procurement, tender, importer, trade-data and
+	// distribution lanes. Stage operator vocabulary and stage labels are
+	// already anchored to the consuming industry, so those lanes search
+	// without the product — "Plasticizer Manufacturers India" surfaces the
+	// plasticizer producers that "N-Butanol Plasticizer Manufacturers India"
+	// never reaches (the prefix pulls n-butanol supplier and market pages
+	// instead of the consuming industry's own manufacturer pages).
+	productAnchored bool
+}
+
+// demandLaneSearchQuery composes a lane's search string. Only productAnchored
+// lanes carry the product; a stage-anchored term prefixed with the product
+// hands the search engine a supply-side query instead of a buyer-side one.
+func demandLaneSearchQuery(activity string, lane demandLane, geography string) string {
+	query := lane.term + " " + geography
+	if lane.productAnchored {
+		query = activity + " " + query
+	}
+	return strings.TrimSpace(query)
 }
 
 // inferDemandChain builds the consuming stages the run is organised around.
@@ -1852,7 +1875,7 @@ func (a *DemandChainAgent) inferDemandChainWithCategory(ctx context.Context, que
 	// transformation steps downstream — deeper steps are context, not buyers.
 	prompt := fmt.Sprintf(`Identify the industrial manufacturing processes that are potential buyers of %q: processes that consume the product%s. Scope: at most two transformation steps downstream.
 Also identify a broad buyer-side category for the product: the immediate downstream product family or industry that consumes it, specific enough to search, not an end-use sector and not a generic superclass. Examples: toluene diisocyanate -> polyurethanes; acetic acid -> solvents or acetates; toluene -> aromatics; coal -> coal products, never fuel or energy. Use one to four words. Return a JSON object with category, category_rationale, and stages.
-Each stage has name (the consuming manufacturing process), rationale (one line naming which input the stage consumes), products (up to 4 concrete products made within the stage that consume the product or its immediate derivative; do not return generic category labels), operators (2-3 search phrases for the plants or companies operating that stage), and distance: 1 when the stage consumes %q directly as an input or raw material, 2 when it consumes the output of a distance-1 process. For example, decompose a generic solvent stage into concrete acetate-esters or other product families actually derived from the input. Exclude stages beyond two steps, end-use sectors that manufacture nothing, retail, logistics, trading and publication stages.`, query.Activity, demandGeographyClause(query), query.Activity)
+Each stage has name (the consuming manufacturing process), rationale (one line naming which input the stage consumes), products (up to 4 concrete products made within the stage that consume the product or its immediate derivative; do not return generic category labels), operators (2-3 search phrases for the plants or companies operating that stage), and distance: 1 when the stage consumes %q directly as an input or raw material, 2 when it consumes the output of a distance-1 process. For example, decompose a generic solvent stage into concrete acetate-esters or other product families actually derived from the input. Exclude stages beyond two steps, end-use sectors that manufacture nothing, retail, logistics, trading and publication stages. State direct consumption plainly: e.g. plasticizer production esterifies phthalic anhydride with n-butanol directly (dibutyl phthalate), so its distance is 1.`, query.Activity, demandGeographyClause(query), query.Activity)
 	if err := a.engine.GenerateStructured(ctx,
 		"You infer industrial value chains for buyer research. A buyer is a manufacturer whose process consumes the product as an input; never propose stages more than two transformation steps downstream, and keep operator phrases as concrete plant vocabulary. The category must be the immediate downstream product family, not an end-use sector.",
 		prompt, &inference); err != nil {
@@ -1936,6 +1959,10 @@ var demandCategoryRelatedTokens = map[string][]string{
 	"oleochemicals":           {"oleochemical", "fatty", "palm", "glycerin", "oil", "soap"},
 	"surfactants":             {"surfactant", "detergent", "fatty", "soap", "linear alkyl benzene"},
 	"plasticizers":            {"plasticizer", "phthalate", "ester"},
+	"acrylates":               {"acrylate", "acrylic", "ester", "butanol", "butyl"},
+	"acetates":                {"acetate", "acetic", "ester", "butanol", "butyl"},
+	"esters":                  {"ester", "acetate", "acrylate", "oleochemical"},
+	"glycol ethers":           {"glycol", "ether", "butanol"},
 	"lubricants":              {"lubricant", "oil", "ester"},
 	"biodiesel":               {"biodiesel", "fatty", "oil", "glycerin"},
 	"coal products":           {"coal", "coke", "carbon"},
@@ -1955,7 +1982,7 @@ func demandCategoryLooksRelated(category, activity string, stages []models.Value
 		text += strings.ToLower(stage.Name) + " " + strings.Join(stage.Products, " ") + " " + strings.Join(stage.Operators, " ") + " "
 	}
 	for _, token := range fields {
-		if len(token) >= 4 && strings.Contains(text, token) {
+		if demandTokenRelates(text, token) {
 			return true
 		}
 	}
@@ -1968,6 +1995,30 @@ func demandCategoryLooksRelated(category, activity string, stages []models.Value
 				return true
 			}
 		}
+	}
+	return false
+}
+
+// demandTokenRelates matches a category token against the product/stage text,
+// tolerant of the singular/plural shapes the model flips between: the perfectly
+// valid category "acrylates and acetates" must not be rejected just because the
+// inferred stages are named "Butyl Acrylate Production" and "Butyl Acetate
+// Production" (singular).
+func demandTokenRelates(text, token string) bool {
+	if len(token) < 4 {
+		return false
+	}
+	if strings.Contains(text, token) {
+		return true
+	}
+	if strings.HasSuffix(token, "ies") && len(token) > 4 && strings.Contains(text, token[:len(token)-3]+"y") {
+		return true
+	}
+	if strings.HasSuffix(token, "es") && len(token) > 4 && strings.Contains(text, token[:len(token)-2]) {
+		return true
+	}
+	if strings.HasSuffix(token, "s") && strings.Contains(text, token[:len(token)-1]) {
+		return true
 	}
 	return false
 }
@@ -2042,6 +2093,53 @@ func demandFallbackCategory(activity string, stages []models.ValueChainStage) st
 	return ""
 }
 
+// demandKnownDirectInputStages pins the chemically established direct-input
+// relations the adversarial chain review must never reject on derivative
+// wording. n-Butanol is esterified with phthalic anhydride directly into
+// dibutyl phthalate, so plasticizer production consumes n-butanol itself
+// (distance 1); a review that calls that stage "indirect via derivatives" is
+// wrong, not strict, and dropping the stage removes the product's largest
+// buyer pool from the run.
+var demandKnownDirectInputStages = []struct {
+	productTokens []string
+	stageTokens   []string
+}{
+	{
+		productTokens: []string{"butanol", "butyl alcohol"},
+		stageTokens:   []string{"plasticizer", "phthalate", "butyl acrylate", "butyl acetate", "glycol ether"},
+	},
+}
+
+// demandKnownDirectConsumption reports whether the stage is a known direct
+// consumer of the product, independent of the model's rationale wording: the
+// activity text must name the product family and the stage text must name the
+// consuming process.
+func demandKnownDirectConsumption(activity string, stage models.ValueChainStage) bool {
+	activityText := strings.ToLower(strings.TrimSpace(activity))
+	if activityText == "" {
+		return false
+	}
+	stageText := strings.ToLower(strings.TrimSpace(stage.Name) + " " + strings.Join(stage.Products, " "))
+	for _, relation := range demandKnownDirectInputStages {
+		productMatch := false
+		for _, token := range relation.productTokens {
+			if strings.Contains(activityText, token) {
+				productMatch = true
+				break
+			}
+		}
+		if !productMatch {
+			continue
+		}
+		for _, token := range relation.stageTokens {
+			if strings.Contains(stageText, token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // reviewDemandChain is the adversarial first-pass chain review. It asks whether each proposed
 // stage really consumes the product under the two-step definition, and applies only rejections and
 // distance corrections to stages the model already proposed. It never adds a stage from the judge.
@@ -2068,6 +2166,9 @@ manufacturing process.
 Example: TDI is not consumed directly by mattress manufacturing. A mattress plant consumes
 polyurethane foam made from TDI, so it can only be distance 2; if it was claimed as distance 1,
 correct it or reject it. A furniture retailer or a "mattress market" is not a manufacturing stage.
+Counter-example: plasticizer production consumes n-butanol directly (dibutyl phthalate is
+esterified from phthalic anhydride and n-butanol), so do not reject it for mentioning butanol
+derivatives, and do not push it to distance 2.
 Return JSON with verdict (pass or revise), score 0-1, rejected_stages (name and reason),
 distance_corrections (name and distance 1 or 2), missing_stages, and reason.
 Chain:
@@ -2096,6 +2197,17 @@ Chain:
 		kept := make([]models.ValueChainStage, 0, len(chain))
 		for _, stage := range chain {
 			if reason, ok := rejected[normalizeMarketName(stage.Name)]; ok {
+				// A chemically established direct input survives a review
+				// rejection that rests on derivative wording: dropping it
+				// would remove the product's real buyer pool from the run.
+				if demandKnownDirectConsumption(query.Activity, stage) {
+					warnings = append(warnings, fmt.Sprintf("Adversarial chain review rejected stage %q (%s), but the stage is a known direct consumer of the product; the rejection was overridden and the stage stays at distance 1.", stage.Name, reason))
+					if stage.Distance != models.StageDistanceDirect {
+						stage.Distance = models.StageDistanceDirect
+					}
+					kept = append(kept, stage)
+					continue
+				}
 				warnings = append(warnings, fmt.Sprintf("Adversarial chain review rejected stage %q: %s.", stage.Name, reason))
 				continue
 			}
@@ -2109,6 +2221,13 @@ Chain:
 		}
 		for index := range chain {
 			if normalizeMarketName(chain[index].Name) == normalizeMarketName(correction.Name) {
+				// The same known-direct guard holds for distance demotions:
+				// plasticizer production cannot be pushed to step 2 when the
+				// product itself is esterified inside it.
+				if correction.Distance != models.StageDistanceDirect && demandKnownDirectConsumption(query.Activity, chain[index]) && chain[index].Distance == models.StageDistanceDirect {
+					warnings = append(warnings, fmt.Sprintf("Adversarial chain review demoted %q to distance %d, but the stage is a known direct consumer of the product; the demotion was overridden.", chain[index].Name, correction.Distance))
+					break
+				}
 				if chain[index].Distance != correction.Distance {
 					warnings = append(warnings, fmt.Sprintf("Adversarial chain review corrected %q to distance %d.", chain[index].Name, correction.Distance))
 					chain[index].Distance = correction.Distance
@@ -2253,26 +2372,29 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 		}
 	}
 	lanes = append(lanes,
-		demandLane{term: "buyer procurement purchase"},
-		demandLane{term: "tender RFP e-procurement"},
-		demandLane{term: "importer import data"},
-		demandLane{term: "raw material feedstock consumption"},
-		demandLane{term: "industrial applications manufacturers"},
+		demandLane{term: "buyer procurement purchase", productAnchored: true},
+		demandLane{term: "tender RFP e-procurement", productAnchored: true},
+		demandLane{term: "importer import data", productAnchored: true},
+		demandLane{term: "raw material feedstock consumption", productAnchored: true},
+		demandLane{term: "industrial applications manufacturers", productAnchored: true},
 		// Distributors and wholesalers are retained as buyers: they purchase
 		// the product to resell it, which is real demand. They are a separate
 		// channel category rather than a manufacturing stage, and two lanes keep
 		// the category from being lost when the query budget is tight.
-		demandLane{term: "distributor wholesaler of", stage: demandDistributionStageName},
-		demandLane{term: "authorised distributor wholesale supplier of", stage: demandDistributionStageName},
+		demandLane{term: "distributor wholesaler of", stage: demandDistributionStageName, productAnchored: true},
+		demandLane{term: "authorised distributor wholesale supplier of", stage: demandDistributionStageName, productAnchored: true},
 	)
 	// Customs, shipment and bill-of-lading lanes ask for the transaction
 	// record itself, rather than a page that merely describes a buyer.
-	lanes = append(lanes, demandTradeDataLanes()...)
+	for _, lane := range demandTradeDataLanes() {
+		lane.productAnchored = true
+		lanes = append(lanes, lane)
+	}
 	for _, country := range query.Countries {
-		lanes = append(lanes, demandLane{term: strings.TrimSpace(country) + " importer tender procurement"})
+		lanes = append(lanes, demandLane{term: strings.TrimSpace(country) + " importer tender procurement", productAnchored: true})
 	}
 	for _, region := range query.Regions {
-		lanes = append(lanes, demandLane{term: strings.TrimSpace(region) + " importer tender procurement"})
+		lanes = append(lanes, demandLane{term: strings.TrimSpace(region) + " importer tender procurement", productAnchored: true})
 	}
 	unique := make([]demandLane, 0, len(lanes))
 	seen := make(map[string]bool)
