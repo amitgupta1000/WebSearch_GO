@@ -147,6 +147,11 @@ type Config struct {
 	// Postgres read surface behind Cloud Run whose workers serve requests one
 	// at a time, so a small pool is what it can actually parallelize.
 	TradeDBConcurrency int
+	// TradeDBMaxPartners caps how many company names the trade-DB sections may
+	// carry in one report, across all of their sections. The DB ranks partners
+	// by shipment value, so the cap keeps the head of the ranking without
+	// letting a high-volume chemical swamp the report.
+	TradeDBMaxPartners int
 }
 
 const (
@@ -198,6 +203,11 @@ const (
 	// can serve without queueing.
 	defaultTradeDBTimeoutSeconds = 60
 	defaultTradeDBConcurrency    = 3
+	// defaultTradeDBMaxPartners and maxTradeDBPartnersCap bound the report-wide
+	// trade-DB name cap: twenty names by default (the ranking head), never more
+	// than forty however the operator configures it.
+	defaultTradeDBMaxPartners = 20
+	maxTradeDBPartnersCap     = 40
 )
 
 // Load loads configuration from environment variables with sensible defaults.
@@ -293,7 +303,21 @@ func Load() *Config {
 		TradeDBAPIURL:      envString("TRADE_DB_API_URL", ""),
 		TradeDBTimeout:     time.Duration(envInt("TRADE_DB_TIMEOUT_SECONDS", defaultTradeDBTimeoutSeconds)) * time.Second,
 		TradeDBConcurrency: envInt("TRADE_DB_CONCURRENCY", defaultTradeDBConcurrency),
+		TradeDBMaxPartners: clampTradeDBPartners(envInt("TRADE_DB_MAX_PARTNERS", defaultTradeDBMaxPartners)),
 	}
+}
+
+// clampTradeDBPartners bounds the configured partner cap: at least one name so
+// the capability stays meaningful, at most maxTradeDBPartnersCap so a typo
+// cannot swamp a report, and the default when the value is unusable.
+func clampTradeDBPartners(value int) int {
+	if value < 1 {
+		return defaultTradeDBMaxPartners
+	}
+	if value > maxTradeDBPartnersCap {
+		return maxTradeDBPartnersCap
+	}
+	return value
 }
 
 // LegalTimeoutFor returns the budget a legal mode run gets. Legal runs do not

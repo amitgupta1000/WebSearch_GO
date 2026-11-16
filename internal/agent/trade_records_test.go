@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -31,14 +32,22 @@ func (m *tradeDBMock) TopImporters(ctx context.Context, product string, hsCodes 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.topImportersCalls++
-	return m.partners, m.importersErr
+	out := m.partners
+	if rankLimit > 0 && len(out) > rankLimit {
+		out = out[:rankLimit]
+	}
+	return out, m.importersErr
 }
 
 func (m *tradeDBMock) TopSuppliers(ctx context.Context, product string, hsCodes []string, rankLimit int) ([]models.TradePartner, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.topSuppliersCalls++
-	return m.suppliers, nil
+	out := m.suppliers
+	if rankLimit > 0 && len(out) > rankLimit {
+		out = out[:rankLimit]
+	}
+	return out, nil
 }
 
 func (m *tradeDBMock) FilterOptions(ctx context.Context) (*models.TradeFilterOptions, error) {
@@ -328,6 +337,109 @@ func TestAttachTradePartnersGlobalSuppliersAreLabelled(t *testing.T) {
 	}
 	if !unscoped {
 		t.Errorf("warnings = %v, want the unscoped note", report.Warnings)
+	}
+}
+
+// TestTradeDBPartnerLimitCapsTheSections pins the report-wide budget: with a
+// limit of three, a buyer run's importer section carries at most three names
+// even when the DB ranks more.
+func TestTradeDBPartnerLimitCapsTheSections(t *testing.T) {
+	var partners []models.TradePartner
+	for i := 1; i <= 5; i++ {
+		partners = append(partners, models.TradePartner{
+			Name: fmt.Sprintf("Importer %d Private Limited", i), Direction: models.TradeDirectionImporter,
+			Product: "CAUSTIC SODA", TransactionCount: 20 - i, TotalValueUSD: float64(1000 * (6 - i)), Rank: i,
+		})
+	}
+	mock := &tradeDBMock{partners: partners}
+	engine := NewEngine(nil, nil, nil, cache.NewMemoryCache(16), 1, 1, 1, WithTradeDB(mock), WithTradeDBPartnerLimit(3))
+	agent := NewDemandChainAgent(engine)
+	report := &models.DemandChainReport{}
+	agent.attachTradeImporters(context.Background(), models.DemandChainQuery{
+		Activity: "caustic soda", Countries: []string{"India"}, IncludeTradeRecords: true,
+	}, report, make(chan models.AgentEvent, 16))
+	if len(report.TradeImporters) != 3 {
+		t.Fatalf("trade importers = %d, want the configured cap of 3", len(report.TradeImporters))
+	}
+	// The head of the ranking survives: the DB ranks by shipment value, so the
+	// cap keeps the strongest names, not arbitrary ones.
+	if report.TradeImporters[0].Name != "Importer 1 Private Limited" || report.TradeImporters[2].Name != "Importer 3 Private Limited" {
+		t.Errorf("rows = %+v, want the ranking head", report.TradeImporters)
+	}
+}
+
+// TestTradeDBPartnerLimitCapsEachSection pins the budget per section: the
+// sections are mutually exclusive by geography (India runs query importers;
+// single-region and global runs query suppliers), and each is capped at the
+// report-wide partner budget.
+func TestTradeDBPartnerLimitCapsEachSection(t *testing.T) {
+	var importerPartners []models.TradePartner
+	for i := 1; i <= 5; i++ {
+		importerPartners = append(importerPartners, models.TradePartner{
+			Name: fmt.Sprintf("Importer %d Private Limited", i), Direction: models.TradeDirectionImporter,
+			Product: "CAUSTIC SODA", Rank: i,
+		})
+	}
+	mock := &tradeDBMock{
+		partners: importerPartners,
+		options:  &models.TradeFilterOptions{ForeignPorts: []string{"HAMBURG GERMANY"}},
+		records: []models.TradeRecord{
+			{Supplier: "BASF SE", OriginCountry: "GERMANY", TotalValueUSD: 1000, Quantity: 10},
+			{Supplier: "Covestro AG", OriginCountry: "GERMANY", TotalValueUSD: 900, Quantity: 9},
+			{Supplier: "Dow Europe", OriginCountry: "GERMANY", TotalValueUSD: 800, Quantity: 8},
+		},
+	}
+	engine := NewEngine(nil, nil, nil, cache.NewMemoryCache(16), 1, 1, 1, WithTradeDB(mock), WithTradeDBPartnerLimit(2))
+	agent := NewMarketLandscapeAgent(engine)
+	eventCh := make(chan models.AgentEvent, 32)
+
+	// India run: importers only, capped at two.
+	india := &models.MarketLandscapeReport{}
+	agent.attachTradePartners(context.Background(), models.MarketLandscapeQuery{
+		Activity: "caustic soda", Countries: []string{"India"}, IncludeTradeRecords: true,
+	}, india, eventCh)
+	if len(india.TradeImporters) != 2 {
+		t.Fatalf("India importers = %d, want the cap of 2", len(india.TradeImporters))
+	}
+	if india.TradeImporters[0].Name != "Importer 1 Private Limited" || india.TradeImporters[1].Name != "Importer 2 Private Limited" {
+		t.Errorf("rows = %+v, want the ranking head", india.TradeImporters)
+	}
+	if len(india.TradeSuppliers) != 0 {
+		t.Errorf("India suppliers = %d, want none (out of supplier scope)", len(india.TradeSuppliers))
+	}
+
+	// Germany run: suppliers only (records aggregation), capped at two — the
+	// third-ranked name is dropped by the budget, not by the origin filter.
+	germany := &models.MarketLandscapeReport{}
+	agent.attachTradePartners(context.Background(), models.MarketLandscapeQuery{
+		Activity: "caustic soda", Countries: []string{"Germany"}, IncludeTradeRecords: true,
+	}, germany, eventCh)
+	if len(germany.TradeImporters) != 0 {
+		t.Errorf("Germany importers = %d, want none (out of importer scope)", len(germany.TradeImporters))
+	}
+	if len(germany.TradeSuppliers) != 2 {
+		t.Fatalf("Germany suppliers = %d, want the cap of 2", len(germany.TradeSuppliers))
+	}
+	if germany.TradeSuppliers[0].Name != "BASF SE" || germany.TradeSuppliers[1].Name != "Covestro AG" {
+		t.Errorf("rows = %+v, want the value-ranked head", germany.TradeSuppliers)
+	}
+}
+
+// TestTradeDBPartnerLimitDefaultsAndClamps pins the accessor contract: the
+// default is twenty, a misconfigured ceiling clamps to forty, and a
+// non-positive value falls back to the default rather than disabling the cap.
+func TestTradeDBPartnerLimitDefaultsAndClamps(t *testing.T) {
+	if got := NewEngine(nil, nil, nil, cache.NewMemoryCache(16), 1, 1, 1).TradeDBPartnerLimit(); got != 20 {
+		t.Errorf("default limit = %d, want 20", got)
+	}
+	if got := NewEngine(nil, nil, nil, cache.NewMemoryCache(16), 1, 1, 1, WithTradeDBPartnerLimit(500)).TradeDBPartnerLimit(); got != 40 {
+		t.Errorf("clamped limit = %d, want 40", got)
+	}
+	if got := NewEngine(nil, nil, nil, cache.NewMemoryCache(16), 1, 1, 1, WithTradeDBPartnerLimit(0)).TradeDBPartnerLimit(); got != 20 {
+		t.Errorf("zero limit = %d, want the default 20", got)
+	}
+	if got := NewEngine(nil, nil, nil, cache.NewMemoryCache(16), 1, 1, 1, WithTradeDBPartnerLimit(1)).TradeDBPartnerLimit(); got != 1 {
+		t.Errorf("limit one = %d, want 1 (the capability stays meaningful)", got)
 	}
 }
 

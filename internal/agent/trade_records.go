@@ -26,9 +26,6 @@ const (
 	// hanging DB must never consume a run's whole budget: the collection
 	// degrades to a warning and the run continues on web lanes.
 	tradeCollectionTimeout = 90 * time.Second
-	// tradePartnerRankLimit is how many ranked partners one section carries.
-	// The DB ranks by shipment value; a landscape needs the head, not the tail.
-	tradePartnerRankLimit = 10
 	// tradeRecordPageLimit is the record page the supplier aggregation reads.
 	// The DB accepts up to 10000 rows; a chemical's recent shipments fit in a
 	// few hundred, and the aggregation only needs the names that repeat.
@@ -175,17 +172,21 @@ func tradePartnerClaimType(partner models.TradePartner) string {
 }
 
 // collectTradeImporters queries the DB for the product's ranked Indian
-// importers. The opt-in is the caller's; this layer enforces the capability
-// and the geography: importer records are Indian importers, so a non-India
-// run is skipped with the reason in a warning rather than silently queried.
-func collectTradeImporters(ctx context.Context, client TradeDBSource, activity string, countries, regions []string, eventCh chan<- models.AgentEvent) ([]*models.MarketLandscapeCompany, []string) {
+// importers, capped at the report-wide partner budget. The opt-in is the
+// caller's; this layer enforces the capability and the geography: importer
+// records are Indian importers, so a non-India run is skipped with the reason
+// in a warning rather than silently queried.
+func collectTradeImporters(ctx context.Context, client TradeDBSource, activity string, limit int, countries, regions []string, eventCh chan<- models.AgentEvent) ([]*models.MarketLandscapeCompany, []string) {
 	if !tradeDBImporterScope(countries, regions) {
 		return nil, []string{"Trade-record importers come from India's import data, so they are only queried for India-scoped runs; this run's geography skipped them."}
+	}
+	if limit <= 0 {
+		limit = defaultTradeDBPartnerLimit
 	}
 	tctx, cancel := context.WithTimeout(ctx, tradeCollectionTimeout)
 	defer cancel()
 	emitAgentEvent(eventCh, models.EventThinking, "Querying the Crystal trade DB for the product's ranked importers", "", "")
-	partners, err := client.TopImporters(tctx, activity, nil, tradePartnerRankLimit)
+	partners, err := client.TopImporters(tctx, activity, nil, limit)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("Trade-record importers unavailable; the run continues on web lanes: %v", err)}
 	}
@@ -204,15 +205,19 @@ func tradePartnerCompanies(partners []models.TradePartner, activity string) []*m
 	return companies
 }
 
-// collectTradeSuppliers builds the seller-side section. When the run is scoped
-// to exactly one non-India region, the suppliers come from raw records so the
-// origin country can filter them: the ranking endpoint does not return the
-// origin, but every record carries it, and the region's foreign ports (resolved
-// from the DB's own vocabulary) only narrow the query. A global run takes the
-// product's ranked exporters unscoped, labelled as cross-origin. An India run
-// skips the section: the DB's suppliers are foreign exporters into India, so
-// Indian sellers are out of their scope by construction.
-func collectTradeSuppliers(ctx context.Context, client TradeDBSource, activity string, countries, regions []string, eventCh chan<- models.AgentEvent) ([]*models.MarketLandscapeCompany, []string) {
+// collectTradeSuppliers builds the seller-side section, capped at the
+// report-wide partner budget. When the run is scoped to exactly one non-India
+// region, the suppliers come from raw records so the origin country can filter
+// them: the ranking endpoint does not return the origin, but every record
+// carries it, and the region's foreign ports (resolved from the DB's own
+// vocabulary) only narrow the query. A global run takes the product's ranked
+// exporters unscoped, labelled as cross-origin. An India run skips the
+// section: the DB's suppliers are foreign exporters into India, so Indian
+// sellers are out of their scope by construction.
+func collectTradeSuppliers(ctx context.Context, client TradeDBSource, activity string, limit int, countries, regions []string, eventCh chan<- models.AgentEvent) ([]*models.MarketLandscapeCompany, []string) {
+	if limit <= 0 {
+		limit = defaultTradeDBPartnerLimit
+	}
 	region := tradeSellerRegion(countries, regions)
 	tctx, cancel := context.WithTimeout(ctx, tradeCollectionTimeout)
 	defer cancel()
@@ -221,7 +226,7 @@ func collectTradeSuppliers(ctx context.Context, client TradeDBSource, activity s
 			return nil, []string{"Trade-record suppliers are foreign exporters into India; Indian sellers are out of their scope, so the section was skipped for this India run."}
 		}
 		emitAgentEvent(eventCh, models.EventThinking, "Querying the Crystal trade DB for the product's ranked exporters", "", "")
-		partners, err := client.TopSuppliers(tctx, activity, nil, tradePartnerRankLimit)
+		partners, err := client.TopSuppliers(tctx, activity, nil, limit)
 		if err != nil {
 			return nil, []string{fmt.Sprintf("Trade-record suppliers unavailable; the run continues on web lanes: %v", err)}
 		}
@@ -236,14 +241,18 @@ func collectTradeSuppliers(ctx context.Context, client TradeDBSource, activity s
 	if err != nil {
 		return nil, []string{fmt.Sprintf("Trade-record suppliers unavailable; the run continues on web lanes: %v", err)}
 	}
-	return aggregateTradeSuppliers(records, activity, region)
+	return aggregateTradeSuppliers(records, activity, region, limit)
 }
 
-// aggregateTradeSuppliers folds one page of records into ranked supplier rows.
-// When a region was requested, records whose origin country does not share the
-// region's tokens are dropped — origin_country is the authoritative geography,
-// the port vocabulary only narrowed the query.
-func aggregateTradeSuppliers(records []models.TradeRecord, activity, region string) ([]*models.MarketLandscapeCompany, []string) {
+// aggregateTradeSuppliers folds one page of records into ranked supplier rows,
+// capped at the report-wide partner budget. When a region was requested,
+// records whose origin country does not share the region's tokens are dropped
+// — origin_country is the authoritative geography, the port vocabulary only
+// narrowed the query.
+func aggregateTradeSuppliers(records []models.TradeRecord, activity, region string, limit int) ([]*models.MarketLandscapeCompany, []string) {
+	if limit <= 0 {
+		limit = defaultTradeDBPartnerLimit
+	}
 	type tally struct {
 		count  int
 		value  float64
@@ -284,8 +293,8 @@ func aggregateTradeSuppliers(records []models.TradeRecord, activity, region stri
 		}
 		return tallies[names[i]].value > tallies[names[j]].value
 	})
-	if len(names) > tradePartnerRankLimit {
-		names = names[:tradePartnerRankLimit]
+	if len(names) > limit {
+		names = names[:limit]
 	}
 	companies := make([]*models.MarketLandscapeCompany, 0, len(names))
 	var warnings []string
@@ -321,7 +330,13 @@ func (a *DemandChainAgent) attachTradeImporters(ctx context.Context, query model
 		report.Warnings = append(report.Warnings, "Trade records were requested, but the trade DB API is not configured on this deployment.")
 		return
 	}
-	companies, warnings := collectTradeImporters(ctx, client, query.Activity, query.Countries, query.Regions, eventCh)
+	limit := a.engine.TradeDBPartnerLimit()
+	companies, warnings := collectTradeImporters(ctx, client, query.Activity, limit, query.Countries, query.Regions, eventCh)
+	// The cap is enforced here as well as in the request: the API's rank limit
+	// is advisory, and the report budget is a hard promise.
+	if len(companies) > limit {
+		companies = companies[:limit]
+	}
 	report.Warnings = append(report.Warnings, warnings...)
 	for _, company := range companies {
 		report.TradeImporters = append(report.TradeImporters, *company)
@@ -331,7 +346,9 @@ func (a *DemandChainAgent) attachTradeImporters(ctx context.Context, query model
 // attachTradePartners populates the seller report's first-party sections when
 // the run opted in. The two collections run concurrently — the DB's ranking
 // queries are slow, and each is bounded by the client's own semaphore and the
-// collection timeout.
+// collection timeout. The sections are mutually exclusive by geography (India
+// runs query importers; single-region and global runs query suppliers), and
+// each is capped at the report-wide partner budget.
 func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query models.MarketLandscapeQuery, report *models.MarketLandscapeReport, eventCh chan<- models.AgentEvent) {
 	if !query.IncludeTradeRecords {
 		return
@@ -341,6 +358,7 @@ func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query mo
 		report.Warnings = append(report.Warnings, "Trade records were requested, but the trade DB API is not configured on this deployment.")
 		return
 	}
+	limit := a.engine.TradeDBPartnerLimit()
 	var (
 		wg           sync.WaitGroup
 		importers    []*models.MarketLandscapeCompany
@@ -351,15 +369,23 @@ func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query mo
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		importers, importerWarn = collectTradeImporters(ctx, client, query.Activity, query.Countries, query.Regions, eventCh)
+		importers, importerWarn = collectTradeImporters(ctx, client, query.Activity, limit, query.Countries, query.Regions, eventCh)
 	}()
 	go func() {
 		defer wg.Done()
-		suppliers, supplierWarn = collectTradeSuppliers(ctx, client, query.Activity, query.Countries, query.Regions, eventCh)
+		suppliers, supplierWarn = collectTradeSuppliers(ctx, client, query.Activity, limit, query.Countries, query.Regions, eventCh)
 	}()
 	wg.Wait()
 	report.Warnings = append(report.Warnings, importerWarn...)
 	report.Warnings = append(report.Warnings, supplierWarn...)
+	// The cap is enforced here as well as in the requests: the API's rank
+	// limit is advisory, and the report budget is a hard promise.
+	if len(importers) > limit {
+		importers = importers[:limit]
+	}
+	if len(suppliers) > limit {
+		suppliers = suppliers[:limit]
+	}
 	for _, company := range importers {
 		report.TradeImporters = append(report.TradeImporters, *company)
 	}

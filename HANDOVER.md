@@ -123,8 +123,10 @@ opt-in data source:
 - **Rendering**: console (`fragments.html` trade record importers/suppliers sections), markdown +
   HTML exports (`internal/export/trade.go`, `html.go`, `demand_chain.go`, `market.go`).
 - **Config**: `TRADE_DB_API_URL` (empty = capability off), `TRADE_DB_TIMEOUT_SECONDS` (60),
-  `TRADE_DB_CONCURRENCY` (3); startup summary reports `trade-db=`. Deploy values in
-  `deploy/cloud-run.env.yaml`.
+  `TRADE_DB_CONCURRENCY` (3), `TRADE_DB_MAX_PARTNERS` (**20**, clamped 1..40 — the report-wide cap on
+  trade-DB names across the sections, so a high-volume chemical cannot swamp the report; each
+  section carries at most the cap, the ranking head by shipment value); startup summary reports
+  `trade-db=`. Deploy values in `deploy/cloud-run.env.yaml`.
 - **Tests**: `internal/tools/tradedb_test.go` (11 hermetic), `tradedb_integration_test.go`
   (opt-in live smoke: `TRADE_DB_INTEGRATION=1 TRADE_DB_API_URL=<url> go test ./internal/tools/ -run
   TestTradeDBLiveSmoke -v`), `internal/agent/trade_records_test.go` (gates, mapping, policy,

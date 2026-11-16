@@ -323,7 +323,8 @@ func main() {
 	// records are Indian importers), so an unconfigured URL degrades to the
 	// same warnings the agents already handle.
 	if cfg.TradeDBAPIURL != "" {
-		options = append(options, agent.WithTradeDB(tools.NewTradeDBClient(cfg.TradeDBAPIURL, cfg.TradeDBTimeout, cfg.TradeDBConcurrency)))
+		options = append(options, agent.WithTradeDB(tools.NewTradeDBClient(cfg.TradeDBAPIURL, cfg.TradeDBTimeout, cfg.TradeDBConcurrency)),
+			agent.WithTradeDBPartnerLimit(cfg.TradeDBMaxPartners))
 	}
 	// Finished runs are written to the configured destination as Markdown and PDF.
 	// A nil exporter simply means the runs are not saved.

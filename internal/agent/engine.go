@@ -136,6 +136,10 @@ type Engine struct {
 	// and the trade-records sections are additionally gated on the run's
 	// opt-in and geography.
 	tradeDB TradeDBSource
+	// tradeDBPartnerLimit caps how many trade-DB names one report carries
+	// across its sections. Zero falls back to the default in the accessor;
+	// the accessor clamps the ceiling.
+	tradeDBPartnerLimit int
 }
 
 // TradeDBSource serves ranked first-party customs partners and raw records
@@ -169,6 +173,40 @@ func (e *Engine) TradeDB() TradeDBSource {
 		return nil
 	}
 	return e.tradeDB
+}
+
+const (
+	// defaultTradeDBPartnerLimit is the report-wide cap on trade-DB names: the
+	// head of the shipment-value ranking, enough to act on without swamping
+	// the report.
+	defaultTradeDBPartnerLimit = 20
+	// maxTradeDBPartnerLimit is the ceiling the operator cap clamps to.
+	maxTradeDBPartnerLimit = 40
+)
+
+// WithTradeDBPartnerLimit sets the report-wide cap on trade-DB names. A
+// non-positive value keeps the default; values above the ceiling clamp to it
+// in the accessor.
+func WithTradeDBPartnerLimit(limit int) EngineOption {
+	return func(e *Engine) {
+		if e != nil && limit > 0 {
+			e.tradeDBPartnerLimit = limit
+		}
+	}
+}
+
+// TradeDBPartnerLimit returns the report-wide cap on trade-DB names, clamped:
+// at least one (the capability must stay meaningful) and at most
+// maxTradeDBPartnerLimit (a misconfigured value must not swamp a report).
+func (e *Engine) TradeDBPartnerLimit() int {
+	limit := defaultTradeDBPartnerLimit
+	if e != nil && e.tradeDBPartnerLimit > 0 {
+		limit = e.tradeDBPartnerLimit
+	}
+	if limit > maxTradeDBPartnerLimit {
+		limit = maxTradeDBPartnerLimit
+	}
+	return limit
 }
 
 // Entity gate modes.
