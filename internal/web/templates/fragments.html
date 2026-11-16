@@ -252,7 +252,13 @@
 {{if .Coverage}}<div class="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">Coverage: {{.Coverage.Companies}} / {{.Coverage.Minimum}} in-scope companies · {{if .Coverage.Pass}}<span class="text-emerald-300">PASS</span>{{else}}<span class="text-amber-300">FAIL</span>{{end}}{{if .Coverage.Global}} · {{.Coverage.Global}} global/cross-border excluded{{end}}</div>{{end}}
 
 
-	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
+	{{if .Warnings}}<details class="group rounded-xl border border-amber-900/60 bg-amber-950/20">
+		<summary class="inline-flex w-full items-center gap-2 cursor-pointer select-none list-none p-3 text-xs text-amber-300 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-amber-500 transition-transform group-open:rotate-90">&#9656;</span>
+			QC Result
+		</summary>
+		<div class="border-t border-amber-900/60 px-3 pb-3 pt-2 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>
+	</details>{{end}}
 	{{if .ProductCategory}}<div class="space-y-3 border-l-2 border-emerald-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-emerald-400 font-semibold">category level results <span class="text-slate-600">({{len .CategoryResults}})</span></div>
 		<p class="text-xs text-slate-500">Independent research for the resolved downstream category {{.ProductCategory}}. These findings are not exact-product seller results.</p>
@@ -382,7 +388,13 @@
 		{{if .ChainReview.MissingStages}}<p class="text-[11px] text-slate-500 mt-1">Suggested missing stages (not added automatically): {{range .ChainReview.MissingStages}}{{.}}; {{end}}</p>{{end}}
 	</div>{{end}}
 	{{template "export_files" .Exports}}
-	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
+	{{if .Warnings}}<details class="group rounded-xl border border-amber-900/60 bg-amber-950/20">
+		<summary class="inline-flex w-full items-center gap-2 cursor-pointer select-none list-none p-3 text-xs text-amber-300 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-amber-500 transition-transform group-open:rotate-90">&#9656;</span>
+			QC Result
+		</summary>
+		<div class="border-t border-amber-900/60 px-3 pb-3 pt-2 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>
+	</details>{{end}}
 	{{if .ProductCategory}}<div class="space-y-3 border-l-2 border-emerald-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-emerald-400 font-semibold">category level results <span class="text-slate-600">({{len .CategoryResults}})</span></div>
 		<p class="text-xs text-slate-500">Independent research for the resolved downstream category {{.ProductCategory}}. These findings are not product-level buyer results or stage candidates.</p>

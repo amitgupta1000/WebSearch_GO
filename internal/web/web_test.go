@@ -69,6 +69,7 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 			Name: "Acme Lubricants", Activity: "lubricants", Role: models.MarketRoleManufacturer,
 			Status: "verified", Country: "India", Description: "Acme manufactures industrial lubricants.",
 		}},
+		Warnings: []string{"Private procurement is invisible to web research."},
 		Groups: []models.MarketLandscapeGroup{
 			{Key: models.MarketRoleManufacturer, Label: "Manufacturers / producers", Presence: models.MarketPresenceLocal, Companies: []models.MarketLandscapeCompany{{
 				Name: "Peninsula", Status: "verified", Role: models.MarketRoleManufacturer,
@@ -101,6 +102,7 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 		"No QC objection.",
 		"publisher, not an operator",
 		"Reject publishers and unrelated companies.",
+		"QC Result",
 		"category level results", "Discovery lanes: lubricants manufacturers", "Acme manufactures industrial lubricants.",
 	} {
 		if !strings.Contains(rendered, expected) {
@@ -501,7 +503,7 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 		"Global / cross-border", "Global UCO Buyer",
 		"Company research", "/api/market-landscape/company-research",
 		"GreenDiesel operates a biodiesel plant and buys used cooking oil.",
-		"QC results", "qc passed", "qc failed",
+		"QC results", "QC Result", "qc passed", "qc failed",
 		"Private procurement is invisible",
 		"category level results", "Discovery lanes: polyurethanes manufacturers", "Polyurethane Works produces polyurethane systems.",
 	} {
