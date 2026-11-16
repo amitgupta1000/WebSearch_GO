@@ -249,15 +249,21 @@ func TestMarketQCTableRenders(t *testing.T) {
 				{Name: "Oil Weekly", Verdict: "failed", Reason: "publisher"},
 			},
 		}},
+		ProductCategory: "lubricants",
+		CategoryLanes:   []string{"lubricants manufacturers", "lubricants companies"},
+		CategoryResults: []models.MarketLandscapeCompany{{
+			Name: "Acme Lubricants", Activity: "lubricants", Role: models.MarketRoleManufacturer,
+			Status: "verified", Country: "India", Description: "Acme manufactures industrial lubricants.", Confidence: 0.9,
+		}},
 	}
 	markdown := renderMarketLandscapeMarkdown(report)
-	for _, expected := range []string{"## QC results", "qc passed", "qc failed", "manufacturer with a blending plant", "publisher", "custom"} {
+	for _, expected := range []string{"## category level results", "discovery lanes: lubricants manufacturers", "Acme manufactures industrial lubricants.", "## QC results", "qc passed", "qc failed", "manufacturer with a blending plant", "publisher", "custom"} {
 		if !strings.Contains(markdown, expected) {
 			t.Errorf("market Markdown is missing %q", expected)
 		}
 	}
 	html := renderMarketLandscapeHTML(report)
-	for _, expected := range []string{"QC results", "qc passed", "qc failed", "manufacturer with a blending plant", "publisher"} {
+	for _, expected := range []string{"category level results", "discovery lanes: lubricants manufacturers", "Acme manufactures industrial lubricants.", "QC results", "qc passed", "qc failed", "manufacturer with a blending plant", "publisher"} {
 		if !strings.Contains(html, expected) {
 			t.Errorf("market HTML is missing %q", expected)
 		}
@@ -287,6 +293,12 @@ func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 				Lane: "demand verification", ClaimType: models.DemandClaimTender,
 				SourceTier: "official", Status: "tender or procurement record",
 			}},
+		}},
+		CategoryQueries: 2,
+		CategoryLanes:   []string{"polyurethanes manufacturers", "polyurethanes companies"},
+		CategoryResults: []models.MarketLandscapeCompany{{
+			Name: "Polyurethane Works", Activity: "polyurethanes", Role: models.MarketRoleManufacturer,
+			Status: "verified", Country: "Malaysia", Description: "Polyurethane Works produces polyurethane systems.", Confidence: 0.88,
 		}},
 		QueriesUsed: 12, GapQueries: 3, SearchHits: 31, LeadsReviewed: 31, VerificationQueries: 6,
 		StageCandidates: []models.StageCandidates{
@@ -333,6 +345,7 @@ func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 		"# used cooking oil — Demand Chain",
 		"Geography: Malaysia",
 		"Category: polyurethanes (model)",
+		"## category level results", "Polyurethane Works produces polyurethane systems.",
 		"## Value chain", "biodiesel production", "Biodiesel is produced from used cooking oil.",
 		"## Results — verified consumers", "GreenDiesel Sdn Bhd", "biodiesel production",
 		"## Potential buyers by stage", "### biodiesel production", "Jayant Oleochemicals",
@@ -354,6 +367,7 @@ func TestDemandChainMarkdownAndHTMLCarryTheChain(t *testing.T) {
 		`src="data:image/jpeg;base64,`,
 		"Value chain", "Operator vocabulary",
 		"Category: polyurethanes",
+		"category level results", "Polyurethane Works produces polyurethane systems.",
 		"Potential buyers by stage", "Jayant Oleochemicals",
 		"channel category (resale)", "Delta Distribution Pvt Ltd",
 		"Stage coverage — QC minimum", "Quality review", "ACS Publications", "publisher",

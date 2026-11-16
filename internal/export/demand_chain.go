@@ -94,6 +94,26 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 		}
 		b.WriteString("\n")
 	}
+	if category := strings.TrimSpace(report.ProductCategory); category != "" || len(report.CategoryResults) > 0 || report.CategoryQueries > 0 {
+		b.WriteString("## category level results\n\n")
+		if category != "" {
+			fmt.Fprintf(&b, "Category: **%s**", category)
+			if len(report.CategoryLanes) > 0 {
+				fmt.Fprintf(&b, "; discovery lanes: %s", strings.Join(report.CategoryLanes, ", "))
+			}
+			b.WriteString(".\n\n")
+		}
+		if len(report.CategoryResults) == 0 {
+			b.WriteString("No category-level company met the verification threshold. Category findings never enter product-level buyer results.\n\n")
+		} else {
+			b.WriteString("Independent downstream-category findings; these are separate from exact-product buyer results.\n\n")
+			b.WriteString("| Company | Category | Role | Country | Employees | Turnover | Description | Status | Confidence |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
+			for _, result := range report.CategoryResults {
+				fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %.0f%% |\n", markdownCell(result.Name), markdownCell(result.Activity), markdownCell(result.Role), markdownCell(result.Country), markdownCell(result.Employees), markdownCell(result.Turnover), markdownCell(result.Description), markdownCell(result.Status), result.Confidence*100)
+			}
+			b.WriteString("\n")
+		}
+	}
 	b.WriteString("## Results — verified consumers\n\n")
 	if len(report.Results) == 0 {
 		b.WriteString("No company met the consumption-verification threshold.\n")
@@ -201,8 +221,8 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 		}
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, "\n## Method summary\n\n%d discovery queries; %d gap/QC queries; %d raw hits; %d leads reviewed; %d entities extracted; %d rejected; %d pages enriched; %d verification queries.\n\n",
-		report.QueriesUsed, report.GapQueries, report.SearchHits, report.LeadsReviewed, report.LeadsExtracted,
+	fmt.Fprintf(&b, "\n## Method summary\n\n%d discovery queries; %d category queries; %d gap/QC queries; %d raw hits; %d leads reviewed; %d entities extracted; %d rejected; %d pages enriched; %d verification queries.\n\n",
+		report.QueriesUsed, report.CategoryQueries, report.GapQueries, report.SearchHits, report.LeadsReviewed, report.LeadsExtracted,
 		report.LeadsRejected, report.PagesEnriched, report.VerificationQueries)
 	b.WriteString(renderListMarkdown("Honesty notes", report.Warnings))
 	b.WriteString("## Appendix — sources and demand signals\n\n")
@@ -244,6 +264,10 @@ var demandChainHTMLTemplate = documentTemplate("demand-chain", `
 {{if .Chain.ChainReview.DistanceCorrections}}<ul>{{range .Chain.ChainReview.DistanceCorrections}}<li>Corrected {{.Name}} to distance {{.Distance}}</li>{{end}}</ul>{{end}}
 {{if .Chain.ChainReview.MissingStages}}<p class="dim">Suggested missing stages (not added automatically): {{range .Chain.ChainReview.MissingStages}}{{.}}; {{end}}</p>{{end}}
 </section>{{end}}
+{{if or .Chain.ProductCategory .Chain.CategoryResults .Chain.CategoryQueries}}<section><h2>category level results</h2>
+{{if .Chain.ProductCategory}}<p class="dim">Category: {{.Chain.ProductCategory}}{{if .Chain.CategoryLanes}} · discovery lanes: {{range .Chain.CategoryLanes}}{{.}}; {{end}}{{end}}</p>{{end}}
+{{if .Chain.CategoryResults}}<p class="dim">Independent downstream-category findings; these are separate from exact-product buyer results.</p><table><thead><tr><th>Company</th><th>Category</th><th>Role</th><th>Country</th><th>Employees</th><th>Turnover</th><th>Description</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Chain.CategoryResults}}<tr><td>{{.Name}}</td><td>{{.Activity}}</td><td>{{.Role}}</td><td>{{.Country}}</td><td>{{.Employees}}</td><td>{{.Turnover}}</td><td>{{.Description}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{else}}<p>No category-level company met the verification threshold. Category findings never enter product-level buyer results.</p>{{end}}
+</section>{{end}}
 <section><h2>Results — verified consumers</h2>
 {{if .Chain.Results}}<table><thead><tr><th>Company</th><th>Consuming stage</th><th>Presence</th><th>Employees</th><th>Turnover</th><th>Description</th><th>Country</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Chain.Results}}<tr><td>{{.Name}}</td><td>{{.Stage}}</td><td>{{.Presence}}</td><td>{{.Employees}}</td><td>{{.Turnover}}</td><td>{{.Description}}</td><td>{{.Country}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{else}}<p>No company met the consumption-verification threshold.</p>{{end}}
 </section>
@@ -265,7 +289,7 @@ var demandChainHTMLTemplate = documentTemplate("demand-chain", `
 {{if .Rejected}}<ul>{{range .Rejected}}<li>Rejected {{.Name}} — {{.Reason}}</li>{{end}}</ul>{{end}}
 {{if .MissingStages}}<p class="dim">Under-covered: {{range .MissingStages}}{{.}}; {{end}}</p>{{end}}{{end}}
 </section>{{end}}
-{{if .Chain.Reviews}}<section><h2>QC results</h2><p class="dim">QC prompt source: {{.Chain.QCPromptSource}}</p>{{range .Chain.Reviews}}<p><strong>{{.Verdict}}</strong> Â· {{.Passed}} passed Â· {{.Failed}} failed</p>{{if .Verdicts}}<table><thead><tr><th>Company</th><th>Stage</th><th>QC tag</th><th>Reason</th></tr></thead><tbody>{{range .Verdicts}}<tr><td>{{.Name}}</td><td>{{.Stage}}</td><td>qc {{.Verdict}}</td><td>{{.Reason}}</td></tr>{{end}}</tbody></table>{{end}}{{end}}</section>{{end}}<section><h2>Method summary</h2><p>{{.Chain.QueriesUsed}} discovery queries, {{.Chain.GapQueries}} gap/QC queries, {{.Chain.SearchHits}} raw hits, {{.Chain.LeadsReviewed}} leads reviewed, {{.Chain.LeadsExtracted}} entities extracted, {{.Chain.LeadsRejected}} rejected, {{.Chain.PagesEnriched}} pages enriched, {{.Chain.VerificationQueries}} verification queries.</p></section>
+{{if .Chain.Reviews}}<section><h2>QC results</h2><p class="dim">QC prompt source: {{.Chain.QCPromptSource}}</p>{{range .Chain.Reviews}}<p><strong>{{.Verdict}}</strong> Â· {{.Passed}} passed Â· {{.Failed}} failed</p>{{if .Verdicts}}<table><thead><tr><th>Company</th><th>Stage</th><th>QC tag</th><th>Reason</th></tr></thead><tbody>{{range .Verdicts}}<tr><td>{{.Name}}</td><td>{{.Stage}}</td><td>qc {{.Verdict}}</td><td>{{.Reason}}</td></tr>{{end}}</tbody></table>{{end}}{{end}}</section>{{end}}<section><h2>Method summary</h2><p>{{.Chain.QueriesUsed}} discovery queries, {{.Chain.CategoryQueries}} category queries, {{.Chain.GapQueries}} gap/QC queries, {{.Chain.SearchHits}} raw hits, {{.Chain.LeadsReviewed}} leads reviewed, {{.Chain.LeadsExtracted}} entities extracted, {{.Chain.LeadsRejected}} rejected, {{.Chain.PagesEnriched}} pages enriched, {{.Chain.VerificationQueries}} verification queries.</p></section>
 {{if .Chain.Warnings}}<section class="card">
 	<h2>Honesty notes</h2>
 	<ul>{{range .Chain.Warnings}}<li>{{.}}</li>{{end}}</ul>

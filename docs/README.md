@@ -175,7 +175,9 @@ rounds:
 1. **Decompose** — the planner takes the question apart into its sub-questions. It designs
    the decomposition; it never answers the question.
 2. **Compose** — each sub-question gets up to 5 custom search queries (recency-composed
-   queries carry current-year/“latest” qualifiers). Each round executes a bounded round-robin
+   queries carry current-year/“latest” qualifiers). When the question concerns a product,
+   commodity or market, the composer is instructed to include a trade-data query covering
+   imports, exports, customs, shipments or an HS code. Each round executes a bounded round-robin
    sample (10 per round) so every sub-question is covered before any gets a second search.
 3. **Search & select** — the round's queries run concurrently through the cached search path,
    hits are deduplicated across rounds, and a relevance judge scores the candidates on title,
@@ -528,17 +530,22 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
   it infers the product's value chain scoped to the buyer definition — manufacturers whose process
   consumes the product directly as an input (step 1) plus one derived step (step 2) — and an
   adversarial reviewer rejects unsupported/end-use stages or corrects their distance before any
-  search. It searches operators of those consuming stages plus tender/import/input-language lanes,
-  reads research, news and directory pages for the companies they name (including stage-gap
-  listicles), and verifies consumption with claim-typed evidence. Distributors and wholesalers are
-  reported as a separate resale category. Every stage (and that category) must identify at least six
+  search. It searches operators of those consuming stages plus tender/import/input-language and
+  customs/shipment/bill-of-lading trade-data lanes, reads research, news and directory pages for
+  the companies they name (including stage-gap listicles), and verifies consumption with
+  claim-typed evidence. A trade-data import record corroborates a buyer but never owns its
+  identity, so a trade page alone remains a lead. Distributors and wholesalers are reported as a
+  separate resale category. Every stage (and that category) must identify at least six
   companies; a validated first-pass product category (e.g. TDI → polyurethanes, coal → coal products,
-  never `fuel`) broadens only weak stage searches. Bounded gap searches and list-page extraction fill
+  never `fuel`) runs as an independent research lane and is reported under `category level results`,
+  outside ordinary results, stages and coverage. Bounded gap searches and list-page extraction fill
   what they can, and a post-assembly QC review records coverage, rejections and follow-ups. Its
   artifacts land under `demand-chain/` with the value chain leading both documents.
-- **Seller Landscape** uses the same validated category fallback and a post-assembly QC
+- **Seller Landscape** uses the same validated category research lane and a post-assembly QC
   review: the judge challenges company identity/relevance, rejected names remain auditable, and
-  the report records coverage (minimum six companies). Key-person discovery is not run; the budget
+  the report records coverage (minimum six companies). Exporter, shipment and customs-data lanes
+  run alongside the operator lanes, and public trade-data domains are tiered as `trade` — useful
+  discovery evidence, never the seller's own identity. Key-person discovery is not run; the budget
   stays on company search.
 - **Search results** remain available in the console per query, with each hit split into what
   the identity/entity gate kept and what it excluded. Exported runs contain only the Markdown
@@ -623,7 +630,9 @@ and pins the selected employer and location before the dossier run starts.
 
 1. **Query plan** — a planned query that names neither the company, an alias, the domain
    nor the registration id is dropped, and the plan is refilled with anchored queries
-   (`site:<domain> …`). It is the cheapest gate: an unanchored query is never fetched.
+   (`site:<domain> …`). Two deterministic trade-data slots are always added: an
+   import/export/customs/shipment query and a public trade-platform query. It is the cheapest
+   gate: an unanchored query is never fetched.
 2. **Ranker** — every candidate records *how* it is tied to the company (`domain`,
    `registration-id`, `name`, `alias`), and one that names it nowhere is pushed to the
    back of the queue.

@@ -1243,10 +1243,13 @@ func (ca *CompanyAgent) planQueries(ctx context.Context, brief models.CompanyBri
 	request += fmt.Sprintf("\nPerson of interest: %s", brief.PersonOfInterest)
 	llmCtx, cancel := context.WithTimeout(ctx, companyPlanningTimeout)
 	defer cancel()
-	err := ca.engine.GenerateStructured(llmCtx, `Create a focused company web research query plan. Return JSON with a queries array. Each query needs query, purpose, target_area, and priority from 1 to 5. EVERY query must contain the company name, one of its aliases, or its domain — a query without one of those is discarded before it runs, because an unanchored query returns another company's pages that merely look relevant. Prefer "site:<domain>" queries for the company's own pages. Always cover leadership and locations. Add functional departments only when they are explicitly listed in Areas; do not broaden an unspecified request into procurement, marketing, finance, engineering, or generic department searches. Write department queries against the company ("<company> chief procurement officer", not "chief procurement officer India"). Conference speaker lists may only be searched together with the company name. Use title variants relevant to any explicitly requested department. You may use site:linkedin.com/in/ in search queries to find public profile snippets, but do not assume LinkedIn pages can be directly scraped or that snippets prove employment without corroboration. `+profileSourceHint(), request, &plan)
+	err := ca.engine.GenerateStructured(llmCtx, `Create a focused company web research query plan. Return JSON with a queries array. Each query needs query, purpose, target_area, and priority from 1 to 5. EVERY query must contain the company name, one of its aliases, or its domain — a query without one of those is discarded before it runs, because an unanchored query returns another company's pages that merely look relevant. Prefer "site:<domain>" queries for the company's own pages. Always cover leadership and locations. Always cover trade data: include at least one import/export/customs/shipment query anchored on the company, because a shipment or customs record is the strongest evidence that the company actually trades the product. Add functional departments only when they are explicitly listed in Areas; do not broaden an unspecified request into procurement, marketing, finance, engineering, or generic department searches. Write department queries against the company ("<company> chief procurement officer", not "chief procurement officer India"). Conference speaker lists may only be searched together with the company name. Use title variants relevant to any explicitly requested department. You may use site:linkedin.com/in/ in search queries to find public profile snippets, but do not assume LinkedIn pages can be directly scraped or that snippets prove employment without corroboration. `+profileSourceHint(), request, &plan)
 	if err != nil || len(plan.Queries) == 0 {
 		return fallbackQueryPlan(brief), 0
 	}
+	// Trade-data slots are prepended so they survive the plan cap even when the
+	// planner's own output fills every other slot.
+	plan.Queries = append(companyTradeDataQueries(brief), plan.Queries...)
 	// The planner is instructed to anchor every query, but an LLM plan is not a
 	// guarantee, and an unanchored query is what produced a 2016 conference archive
 	// and a Malaysian research paper in one live run. The filter is deterministic.
@@ -1338,7 +1341,7 @@ func personOfInterestQueries(brief models.CompanyBrief) []models.PlannedQuery {
 // whose name is also a person's name.
 func entityAnchoredQueries(brief models.CompanyBrief) []models.PlannedQuery {
 	base := strings.TrimSpace(strings.Join([]string{brief.CompanyName, brief.Country, brief.City}, " "))
-	queries := make([]models.PlannedQuery, 0, 6)
+	queries := make([]models.PlannedQuery, 0, 8)
 	if domain := normalizeDomain(brief.Domain); domain != "" {
 		queries = append(queries,
 			models.PlannedQuery{Query: "site:" + domain + " leadership management team", Purpose: "read the company's own leadership pages", TargetArea: "leadership", Priority: 1},
@@ -1351,6 +1354,10 @@ func entityAnchoredQueries(brief models.CompanyBrief) []models.PlannedQuery {
 			models.PlannedQuery{Query: base + " leadership executive team management", Purpose: "identify leadership", TargetArea: "leadership", Priority: 1},
 		)
 	}
+	// Trade-data slots are deterministic, not planner-dependent: import,
+	// export, customs and shipment records are a required research angle for
+	// every company, and a full plan must not push them past the query cap.
+	queries = append(queries, companyTradeDataQueries(brief)...)
 	// The indexed profile sources and promoted aggregators publish the same
 	// title-and-employer facts a LinkedIn profile would; reserve their slots so they
 	// cannot be crowded out.

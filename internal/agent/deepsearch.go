@@ -747,7 +747,9 @@ Return exactly one JSON object with these keys:
 }
 Vary phrasing, key entities, and phrasing style across the queries so the results complement
 each other rather than duplicate. No boolean operators, no site: prefixes unless a specific
-authoritative site is clearly required. %s %s`, focusNote, deepGroundingClause)
+authoritative site is clearly required. When the question concerns a product, commodity or
+market, include at least one trade-data query covering imports, exports, customs, shipments or
+an HS code. %s %s`, focusNote, deepGroundingClause)
 }
 
 func deepJudgeSystemPrompt(focus string) string {

@@ -32,10 +32,11 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 	}
 
 	report := &models.MarketLandscapeReport{
-		Activity:       "oil blending",
-		Objective:      "Find active blenders and their commercial contacts",
-		QCPrompt:       "Reject publishers and unrelated companies.",
-		QCPromptSource: "custom",
+		Activity:        "oil blending",
+		Objective:       "Find active blenders and their commercial contacts",
+		ProductCategory: "lubricants",
+		QCPrompt:        "Reject publishers and unrelated companies.",
+		QCPromptSource:  "custom",
 		Reviews: []models.MarketLandscapeReview{{
 			Verdict: "revise", Score: 0.8, Passed: 1, Failed: 1,
 			Verdicts: []models.MarketQCVerdict{
@@ -63,6 +64,10 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 				Presence: models.MarketPresenceGlobal, HQCountry: "Germany",
 			},
 		},
+		CategoryResults: []models.MarketLandscapeCompany{{
+			Name: "Acme Lubricants", Activity: "lubricants", Role: models.MarketRoleManufacturer,
+			Status: "verified", Country: "India", Description: "Acme manufactures industrial lubricants.",
+		}},
 		Groups: []models.MarketLandscapeGroup{
 			{Key: models.MarketRoleManufacturer, Label: "Manufacturers / producers", Presence: models.MarketPresenceLocal, Companies: []models.MarketLandscapeCompany{{
 				Name: "Peninsula", Status: "verified", Role: models.MarketRoleManufacturer,
@@ -95,6 +100,7 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 		"No QC objection.",
 		"publisher, not an operator",
 		"Reject publishers and unrelated companies.",
+		"category level results", "Acme manufactures industrial lubricants.",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("market_landscape_report is missing %q", expected)
@@ -435,8 +441,9 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 
 	report := &models.DemandChainReport{
 		Activity: "used cooking oil", Objective: "Find refiners that buy UCO.",
-		Geography:     "India",
-		ChainInferred: true,
+		Geography:       "India",
+		ProductCategory: "polyurethanes",
+		ChainInferred:   true,
 		Chain: []models.ValueChainStage{{
 			Name: "biodiesel production", Rationale: "Biodiesel is produced from UCO.",
 			Operators: []string{"biodiesel plant"}, Source: "model",
@@ -481,6 +488,10 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 				Lane: "demand verification", ClaimType: "demand-tender",
 			}},
 		}},
+		CategoryResults: []models.MarketLandscapeCompany{{
+			Name: "Polyurethane Works", Activity: "polyurethanes", Role: models.MarketRoleManufacturer,
+			Status: "verified", Country: "India", Description: "Polyurethane Works produces polyurethane systems.",
+		}},
 		Warnings: []string{"Private procurement is invisible to web research."},
 	}
 
@@ -503,6 +514,7 @@ func TestDemandChainReportFragmentRenders(t *testing.T) {
 		"GreenDiesel operates a biodiesel plant and buys used cooking oil.",
 		"QC results", "5+ years", "qc passed", "qc failed",
 		"Private procurement is invisible",
+		"category level results", "Polyurethane Works produces polyurethane systems.",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("demand_chain_report fragment is missing %q", expected)

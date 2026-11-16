@@ -191,6 +191,17 @@
 </div>
 {{end}}
 
+{{define "category_result_card"}}
+<div class="bg-slate-950 border border-emerald-900/50 rounded-xl p-4 space-y-2">
+	<div class="flex flex-wrap items-center justify-between gap-2"><span class="font-semibold text-white">{{.Name}}</span><span class="text-[10px] text-emerald-300">{{.Status}}</span></div>
+	<div class="text-xs text-emerald-300">{{.Activity}}{{if .Role}} · {{.Role}}{{end}}</div>
+	<div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400"><div><span class="text-slate-600">Domain</span><br>{{if .Domain}}{{.Domain}}{{else}}Not established{{end}}</div><div><span class="text-slate-600">Geography</span><br>{{if .PresenceCountry}}{{.PresenceCountry}}{{else if .Country}}{{.Country}}{{else}}Not established{{end}}</div><div><span class="text-slate-600">Employees</span><br>{{if .Employees}}{{.Employees}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Turnover</span><br>{{if .Turnover}}{{.Turnover}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Financial year</span><br>{{if .FinancialYear}}{{.FinancialYear}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Evidence</span><br>{{len .Evidence}} qualifying record(s)</div><div><span class="text-slate-600">Confidence</span><br>{{printf "%.0f" (mul .Confidence 100)}}%</div></div>
+	{{if .Description}}<p class="text-xs text-slate-300 leading-relaxed">{{.Description}}</p>{{else}}<p class="text-xs text-slate-500">No descriptive summary was available in the collected snippets.</p>{{end}}
+	{{if .MetricsSource}}<a href="{{.MetricsSource}}" target="_blank" rel="noreferrer" class="block text-[11px] text-emerald-400 hover:underline break-all">Metrics source</a>{{end}}
+	{{range .Evidence}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="block text-[11px] text-emerald-400 hover:underline break-all">{{.Title}}</a>{{end}}
+</div>
+{{end}}
+
 {{define "market_landscape_report"}}
 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
 	<div class="flex items-start justify-between border-b border-slate-800 pb-4">
@@ -221,6 +232,12 @@
 
 
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
+	{{if .ProductCategory}}<div class="space-y-3 border-l-2 border-emerald-500 pl-3">
+		<div class="text-[11px] uppercase tracking-[.2em] text-emerald-400 font-semibold">category level results <span class="text-slate-600">({{len .CategoryResults}})</span></div>
+		<p class="text-xs text-slate-500">Independent research for the resolved downstream category {{.ProductCategory}}. These findings are not exact-product seller results.</p>
+		{{if .CategoryLanes}}<p class="text-[11px] text-slate-600">Discovery lanes: {{range .CategoryLanes}}{{.}}; {{end}}</p>{{end}}
+		{{if .CategoryResults}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .CategoryResults}}{{template "category_result_card" .}}{{end}}</div>{{else}}<p class="text-sm text-slate-500">No category-level companies met the verification threshold.</p>{{end}}
+	</div>{{end}}
 	{{if .Results}}
 	{{if .Groups}}
 	{{range .Groups}}
@@ -335,6 +352,12 @@
 	</div>{{end}}
 	{{template "export_files" .Exports}}
 	{{if .Warnings}}<div class="rounded-xl border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">{{range .Warnings}}<div>{{.}}</div>{{end}}</div>{{end}}
+	{{if .ProductCategory}}<div class="space-y-3 border-l-2 border-emerald-500 pl-3">
+		<div class="text-[11px] uppercase tracking-[.2em] text-emerald-400 font-semibold">category level results <span class="text-slate-600">({{len .CategoryResults}})</span></div>
+		<p class="text-xs text-slate-500">Independent research for the resolved downstream category {{.ProductCategory}}. These findings are not product-level buyer results or stage candidates.</p>
+		{{if .CategoryLanes}}<p class="text-[11px] text-slate-600">Discovery lanes: {{range .CategoryLanes}}{{.}}; {{end}}</p>{{end}}
+		{{if .CategoryResults}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .CategoryResults}}{{template "category_result_card" .}}{{end}}</div>{{else}}<p class="text-sm text-slate-500">No category-level companies met the verification threshold.</p>{{end}}
+	</div>{{end}}
 	{{if .Results}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Results}}
 		<div class="rr-company-card bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
 			<div class="flex flex-wrap justify-between gap-3"><span class="font-semibold text-white">{{.Name}}</span>

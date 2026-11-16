@@ -34,14 +34,16 @@ below the implementation summary describe the pre-fix state.
 - **Distributors/wholesalers are a separate category.** They keep their own reserved lane and
   `StageCandidates` section (`Distribution and wholesale`, source `category`) and are counted by
   the same six-company QC floor, instead of being folded into a manufacturing stage.
-- **First-pass category with a deterministic guardrail.** The chain inference also returns a
+- **Resolved category is a separate research objective.** The chain inference also returns a
   buyer-side category (the immediate downstream product family, e.g. TDI → polyurethanes,
   acetic acid → solvents, coal → coal products). It is validated before use: one to four words,
   no end-use/generic superclass (`fuel`, `energy`, `chemicals`, `industrial`, `automotive`, …),
   no process suffix (`manufacturing`, `production`, `synthesis`), not the product or a stage name,
   and it must share a real token/product-family relation with the product or inferred stages.
-  A rejected category is reported and the stage-derived fallback is used instead. The category is
-  never a buyer or a value-chain stage; it only broadens a weak stage search.
+  A rejected category is reported and the stage-derived fallback is used instead. When accepted,
+  the category runs its own bounded search and verification lane and is reported under
+  **category level results**. Category findings never become buyers, value-chain stages, ordinary
+  `Results`, stage candidates, or stage-coverage counts.
 - **Adversarial chain review.** After inference, a skeptical reviewer challenges every stage:
   does it actually consume the product or its immediate derivative under the two-step definition,
   is the distance right, and is it a manufacturing process rather than an end-use market? It can
@@ -49,7 +51,7 @@ below the implementation summary describe the pre-fix state.
   distance 2, not a direct TDI consumer); suggestions are reported but never auto-added.
 - **Key-person discovery was removed from the landscape modes.** The former web/RocketReach people
   pass consumed search and API budget without improving buyer/company identification. Those budgets
-  now go to discovery, verification, category fallback and gap extraction. Company mode's separate
+  now go to discovery, verification, category research and gap extraction. Company mode's separate
   RocketReach discovery and on-demand person lookup remain.
 - **Artifacts and UI** render stage coverage, the QC verdict/rejections, the adversarial chain
   review, the separate channel category, and the validated product category in the console,

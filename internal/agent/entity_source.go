@@ -26,6 +26,10 @@ func classifyDiscoverySource(hit models.SearchResult) discoverySourceKind {
 	if parsed, err := url.Parse(strings.TrimSpace(hit.Link)); err == nil {
 		host = strings.ToLower(strings.TrimPrefix(parsed.Hostname(), "www."))
 	}
+	if isTradeDataDomain(host) {
+		// A shipment listing names companies; it is not one of them.
+		return sourceOther
+	}
 	if isResearchPublisherDomain(host) || isResearchDocumentTitle(hit.Title) {
 		return sourceResearchReport
 	}

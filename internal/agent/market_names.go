@@ -582,7 +582,7 @@ var marketRosterMarkers = []string{
 	"key players", "market players", "major players", "leading companies",
 	"competitive landscape", "company profiles", "companies", "top 5",
 	"top 10", "top 20", "top 25", "largest", "suppliers", "manufacturers",
-	"producers", "vendors",
+	"producers", "vendors", "importers", "buyers", "exporters", "shipments",
 }
 
 // marketTitleHintsRoster reports whether a lead title announces a company list.

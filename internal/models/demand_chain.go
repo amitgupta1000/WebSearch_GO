@@ -93,7 +93,7 @@ type ValueChainReview struct {
 }
 
 // DemandChainInference is the first-pass value-chain result. Category is deliberately separate
-// from the stages because it is a fallback search dimension, not a buyer and not a stage.
+// from the stages because it is a research dimension, not a buyer and not a stage.
 type DemandChainInference struct {
 	Category          string            `json:"category,omitempty"`
 	CategoryRationale string            `json:"category_rationale,omitempty"`
@@ -246,13 +246,15 @@ type DemandChainReport struct {
 	// countries win over regions, empty means global — so the reader can see
 	// what the execution was scoped to.
 	Geography string `json:"geography,omitempty"`
-	// ProductCategory is the validated first-pass broad category. It is a search fallback only:
-	// it never enters Results or the value chain as a buyer stage.
-	ProductCategory   string `json:"product_category,omitempty"`
-	CategoryRationale string `json:"category_rationale,omitempty"`
-	CategorySource    string `json:"category_source,omitempty"`
-	QCPrompt          string `json:"qc_prompt,omitempty"`
-	QCPromptSource    string `json:"qc_prompt_source,omitempty"`
+	// ProductCategory is the validated first-pass broad category. It has its own research lane and
+	// never enters Results or the value chain as a buyer stage.
+	ProductCategory   string                   `json:"product_category,omitempty"`
+	CategoryRationale string                   `json:"category_rationale,omitempty"`
+	CategorySource    string                   `json:"category_source,omitempty"`
+	CategoryLanes     []string                 `json:"category_lanes,omitempty"`
+	CategoryResults   []MarketLandscapeCompany `json:"category_results,omitempty"`
+	QCPrompt          string                   `json:"qc_prompt,omitempty"`
+	QCPromptSource    string                   `json:"qc_prompt_source,omitempty"`
 	// Chain is the consuming stages the search was organised around, in the
 	// order the lanes were built from them.
 	Chain []ValueChainStage `json:"chain,omitempty"`
@@ -273,6 +275,7 @@ type DemandChainReport struct {
 	Lanes               []string                  `json:"lanes,omitempty"`
 	Iterations          int                       `json:"iterations"`
 	QueriesUsed         int                       `json:"queries_used"`
+	CategoryQueries     int                       `json:"category_queries,omitempty"`
 	GapQueries          int                       `json:"gap_queries,omitempty"`
 	SearchHits          int                       `json:"search_hits"`
 	LeadsReviewed       int                       `json:"leads_reviewed"`

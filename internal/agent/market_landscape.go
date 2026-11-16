@@ -19,7 +19,6 @@ const (
 	marketMaxResults             = 10
 	marketMaxCandidates          = 48
 	marketMinDiscoveryFindings   = 6
-	marketMaxCategoryQueries     = 2
 	marketCoverageMinimum        = 6
 	// Verification spends three searches per company. The query budget is the
 	// real cap; this bound only stops an extraction flood from queueing work
@@ -72,6 +71,12 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	report.CategoryRationale = categoryRationale
 	report.CategorySource = categorySource
 	report.Warnings = append(report.Warnings, categoryWarnings...)
+	report.CategoryLanes = marketCategoryLanes(category)
+	categoryResults, categoryQueries, categoryHits, categoryVerificationQueries, categoryLaneWarnings := a.researchCategoryLane(ctx, query, category, eventCh)
+	report.CategoryResults = categoryResults
+	report.CategoryQueries = categoryQueries
+	report.SearchHits += categoryHits
+	report.Warnings = append(report.Warnings, categoryLaneWarnings...)
 
 	companies := make(map[string]*models.MarketLandscapeCompany)
 	var leads []models.MarketLandscapeEvidence
@@ -128,42 +133,11 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 		processHits(hits, lane)
 	}
 
-	// If the exact producer lanes are weak, broaden to the validated first-pass category. The
-	// category is a search fallback only; candidates still pass the normal identity and
-	// verification gates, and the category page is never promoted as a company.
-	if len(companies)+len(leads) < marketMinDiscoveryFindings && category != "" {
-		for _, lane := range marketCategoryLanes(category) {
-			if queriesUsed >= marketMaxDiscoveryQueries+marketMaxCategoryQueries {
-				break
-			}
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			searchQuery := strings.TrimSpace(lane + " " + marketGeography(query))
-			emitAgentEvent(eventCh, models.EventToolCall, "Broadened category search "+category, "search", searchQuery)
-			hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
-			queriesUsed++
-			report.FallbackQueries++
-			report.SearchHits += len(hits)
-			if err != nil {
-				report.Warnings = append(report.Warnings, fmt.Sprintf("category fallback %q failed: %v", lane, err))
-				continue
-			}
-			processHits(hits, lane)
-		}
-		report.Lanes = uniqueStrings(append(report.Lanes, marketCategoryLanes(category)...))
-		emitAgentEvent(eventCh, models.EventThinking,
-			fmt.Sprintf("Discovery was weak (%d finding(s)); broadened to category %q", len(companies)+len(leads), category),
-			"market_category", "")
-	} else if len(companies)+len(leads) < marketMinDiscoveryFindings {
-		report.Warnings = append(report.Warnings, "Discovery was weak and no validated product category was available for a category fallback.")
-	}
-
 	report.LeadsReviewed = len(leads)
-	report.QueriesUsed = queriesUsed
+	report.QueriesUsed = queriesUsed + categoryQueries
 	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Extracting companies from %d discovery lead(s)", len(leads)), "", "")
 	resolved, verificationQueries, extracted, rejected, enriched, _, _, _, err := a.verifyMarketLeads(ctx, leads, query, eventCh)
-	report.QueriesUsed += verificationQueries
+	report.QueriesUsed += verificationQueries + categoryVerificationQueries
 	report.LeadsExtracted = extracted
 	report.LeadsRejected = rejected
 	report.PagesEnriched = enriched
@@ -353,6 +327,83 @@ func marketCategoryLanes(category string) []string {
 	return []string{category + " manufacturers", category + " companies"}
 }
 
+func (a *MarketLandscapeAgent) researchCategoryLane(ctx context.Context, query models.MarketLandscapeQuery, category string, eventCh chan<- models.AgentEvent) ([]models.MarketLandscapeCompany, int, int, int, []string) {
+	category = strings.TrimSpace(category)
+	if category == "" {
+		return nil, 0, 0, 0, nil
+	}
+	categoryQuery := query
+	categoryQuery.Activity = category
+	categoryQuery.Objective = "Category-level results for " + category
+	companies := make(map[string]*models.MarketLandscapeCompany)
+	var leads []models.MarketLandscapeEvidence
+	leadURLs := make(map[string]bool)
+	warnings := []string{}
+	queriesUsed := 0
+	hitsUsed := 0
+	for _, lane := range marketCategoryLanes(category) {
+		if err := ctx.Err(); err != nil {
+			warnings = append(warnings, "Category research stopped: "+err.Error())
+			break
+		}
+		searchQuery := strings.TrimSpace(lane + " " + marketGeography(query))
+		emitAgentEvent(eventCh, models.EventToolCall, "Searching category "+category, "search", searchQuery)
+		hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+		queriesUsed++
+		hitsUsed += len(hits)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("category search %q failed: %v", lane, err))
+			continue
+		}
+		for _, hit := range hits {
+			candidate := marketCandidate(hit, lane, categoryQuery)
+			if candidate == nil {
+				continue
+			}
+			if excludedMarketDomain(candidate.Domain, query.Exclusions) {
+				continue
+			}
+			if candidate.EvidenceType == "discovery-lead" {
+				evidence := candidate.Evidence[0]
+				if !leadURLs[evidence.URL] {
+					leadURLs[evidence.URL] = true
+					leads = append(leads, evidence)
+				}
+				continue
+			}
+			mergeMarketCompany(companies, candidate)
+		}
+	}
+	resolved, verificationQueries, _, rejected, _, _, _, _, err := a.verifyMarketLeads(ctx, leads, categoryQuery, eventCh)
+	if err != nil {
+		warnings = append(warnings, "Category lead extraction could not complete: "+err.Error())
+	}
+	for _, company := range resolved {
+		mergeMarketCompany(companies, company)
+	}
+	classifyMarketCompanies(companies, categoryQuery)
+	results := make([]models.MarketLandscapeCompany, 0, len(companies))
+	for _, company := range companies {
+		company.Status = marketStatus(company)
+		if company.Status == "verified" || company.Status == "corroborated" {
+			results = append(results, *company)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Confidence == results[j].Confidence {
+			return results[i].Name < results[j].Name
+		}
+		return results[i].Confidence > results[j].Confidence
+	})
+	if len(results) > query.MaxCompanies {
+		results = results[:query.MaxCompanies]
+	}
+	if rejected > 0 {
+		warnings = append(warnings, fmt.Sprintf("Category research rejected %d extracted lead(s).", rejected))
+	}
+	return results, queriesUsed, hitsUsed, verificationQueries, warnings
+}
+
 func marketLanes(query models.MarketLandscapeQuery) []string {
 	activity := strings.ToLower(strings.TrimSpace(query.Activity))
 	lanes := []string{"company operator manufacturer", "facility operator", "official company"}
@@ -361,6 +412,9 @@ func marketLanes(query models.MarketLandscapeQuery) []string {
 	} else {
 		lanes = append(lanes, "manufacturer facility", "operator site", "industry directory trade association")
 	}
+	// Seller-side trade data: an exporter or shipment record is direct evidence
+	// that a company supplies the product, not merely that it operates a plant.
+	lanes = append(lanes, marketTradeDataLanes()...)
 	for _, country := range query.Countries {
 		lanes = append(lanes, strings.TrimSpace(country)+" company operator manufacturer")
 	}
@@ -731,6 +785,9 @@ func marketStatus(company *models.MarketLandscapeCompany) string {
 
 func marketSourceTier(domain string) string {
 	domain = strings.ToLower(domain)
+	if isTradeDataDomain(domain) {
+		return "trade"
+	}
 	if isResearchPublisherDomain(domain) {
 		return "research"
 	}

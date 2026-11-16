@@ -538,10 +538,9 @@ func TestMarketLandscapeHarvestsCompaniesFromAReportPage(t *testing.T) {
 	}
 }
 
-// TestMarketCategoryFallbackBroadensWeakDiscovery: when the exact producer lanes are weak, the
-// validated first-pass category supplies bounded fallback searches, and the extra budget is used
-// for companies rather than key-person discovery.
-func TestMarketCategoryFallbackBroadensWeakDiscovery(t *testing.T) {
+// TestMarketCategoryLaneIsSeparate: the validated downstream category runs as an independent
+// objective and its companies do not become exact-product seller results.
+func TestMarketCategoryLaneIsSeparate(t *testing.T) {
 	hits := make([]models.SearchResult, 0, 6)
 	for index := 0; index < 6; index++ {
 		hits = append(hits, models.SearchResult{
@@ -562,11 +561,19 @@ func TestMarketCategoryFallbackBroadensWeakDiscovery(t *testing.T) {
 	if report.ProductCategory != "lubricants" || report.CategorySource != "model" {
 		t.Errorf("category = %q/%q, want lubricants/model", report.ProductCategory, report.CategorySource)
 	}
-	if report.FallbackQueries == 0 {
-		t.Fatal("weak discovery did not run the category fallback")
+	if report.CategoryQueries == 0 || len(report.CategoryResults) != len(hits) {
+		t.Fatalf("category lane = %d queries, %d results; want the independent category findings", report.CategoryQueries, len(report.CategoryResults))
 	}
-	if report.Coverage == nil || !report.Coverage.Pass || report.Coverage.Companies < marketCoverageMinimum {
-		t.Errorf("coverage = %+v, want at least %d companies", report.Coverage, marketCoverageMinimum)
+	if len(report.CategoryLanes) != 2 || !strings.Contains(strings.Join(report.CategoryLanes, " "), "lubricants manufacturers") {
+		t.Fatalf("category lanes = %v, want the lubricants discovery lanes", report.CategoryLanes)
+	}
+	if report.FallbackQueries != 0 {
+		t.Fatalf("fallback queries = %d, want category findings outside the fallback counter", report.FallbackQueries)
+	}
+	for _, company := range report.Results {
+		if strings.Contains(strings.ToLower(company.Activity), "lubricant") {
+			t.Fatalf("category company leaked into exact-product results: %+v", company)
+		}
 	}
 }
 

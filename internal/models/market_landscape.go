@@ -214,6 +214,8 @@ type MarketLandscapeReport struct {
 	ProductCategory   string                    `json:"product_category,omitempty"`
 	CategoryRationale string                    `json:"category_rationale,omitempty"`
 	CategorySource    string                    `json:"category_source,omitempty"`
+	CategoryLanes     []string                  `json:"category_lanes,omitempty"`
+	CategoryResults   []MarketLandscapeCompany  `json:"category_results,omitempty"`
 	QCPrompt          string                    `json:"qc_prompt,omitempty"`
 	QCPromptSource    string                    `json:"qc_prompt_source,omitempty"`
 	Coverage          *MarketCoverage           `json:"coverage,omitempty"`
@@ -225,6 +227,7 @@ type MarketLandscapeReport struct {
 	Lanes             []string                  `json:"lanes,omitempty"`
 	Iterations        int                       `json:"iterations"`
 	QueriesUsed       int                       `json:"queries_used"`
+	CategoryQueries   int                       `json:"category_queries,omitempty"`
 	CandidatesFound   int                       `json:"candidates_found"`
 	LeadsReviewed     int                       `json:"leads_reviewed"`
 	LeadsResolved     int                       `json:"leads_resolved"`

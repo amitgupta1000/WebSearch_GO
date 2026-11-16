@@ -749,12 +749,48 @@ func TestDemandChainBudgetOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Research: %v", err)
 	}
-	if report.QueriesUsed != 4 {
-		t.Errorf("discovery queries = %d, want exactly the 4-query budget", report.QueriesUsed)
+	if report.QueriesUsed != 4+report.CategoryQueries {
+		t.Errorf("discovery queries = %d, want exactly the 4-query budget plus %d separate category queries", report.QueriesUsed, report.CategoryQueries)
 	}
 	if report.VerificationQueries != 2 {
 		t.Errorf("verification queries = %d, want exactly the 2-query budget", report.VerificationQueries)
 	}
+}
+
+func TestDemandCategoryLaneIsSeparateFromBuyerResults(t *testing.T) {
+	llm := &demandLLM{
+		category: "polyurethanes",
+		stages:   []models.ValueChainStage{{Name: "foam production", Operators: []string{"foam plant"}}},
+	}
+	searcher := &demandSearcher{hits: map[string][]models.SearchResult{
+		"polyurethanes manufacturers": {{
+			Title: "Acme Polyurethanes", Link: "https://acme.example/polyurethanes",
+			Snippet: "Acme manufactures polyurethanes for industrial customers.",
+		}},
+	}}
+	report, err := NewDemandChainAgent(demandChainTestEngine(llm, searcher)).Research(
+		context.Background(), "category-lane", models.DemandChainQuery{Activity: "toluene diisocyanate", MaxCompanies: 10}, nil)
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	if report.CategoryQueries == 0 {
+		t.Fatal("category lane did not execute a search")
+	}
+	if len(report.CategoryLanes) != 2 || !strings.Contains(strings.Join(report.CategoryLanes, " "), "polyurethanes manufacturers") {
+		t.Fatalf("category lanes = %v, want the polyurethanes discovery lanes", report.CategoryLanes)
+	}
+	if len(report.CategoryResults) != 1 || report.CategoryResults[0].Name != "Acme Polyurethanes" {
+		t.Fatalf("category results = %+v, want the category company", report.CategoryResults)
+	}
+	if len(report.Results) != 0 {
+		t.Fatalf("product-level results = %+v, category company must stay separate", report.Results)
+	}
+	for _, query := range searcher.queries {
+		if strings.Contains(query, "polyurethanes") {
+			return
+		}
+	}
+	t.Fatalf("category query was not recorded: %v", searcher.queries)
 }
 
 // TestDemandChainDefaultsAreKept: zero budget fields fall back to the mode

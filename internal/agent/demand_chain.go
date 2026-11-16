@@ -108,6 +108,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	report.ProductCategory = category
 	report.CategoryRationale = categoryRationale
 	report.CategorySource = categorySource
+	report.CategoryLanes = marketCategoryLanes(category)
 	report.ChainInferred = inferred
 	report.Warnings = append(report.Warnings, warnings...)
 	report.Warnings = append(report.Warnings,
@@ -117,6 +118,13 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	if !query.IncludeIntermediaries {
 		report.Warnings = append(report.Warnings, "Traders, brokers and trading houses are excluded; rerun with intermediaries to include them.")
 	}
+	categoryResults, categoryQueries, categoryHits, categoryVerificationQueries, categoryWarnings := a.researchCategoryLane(ctx, query, category, eventCh)
+	report.CategoryResults = categoryResults
+	report.CategoryQueries = categoryQueries
+	report.QueriesUsed += categoryQueries
+	report.SearchHits += categoryHits
+	report.VerificationQueries += categoryVerificationQueries
+	report.Warnings = append(report.Warnings, categoryWarnings...)
 
 	// Phase 2 — discovery. Stage-operator lanes (the chain's own vocabulary)
 	// run first, then product-shaped demand lanes: tenders, importers, input
@@ -162,7 +170,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	report.QueriesUsed = len(lanesToRun)
+	report.QueriesUsed += len(lanesToRun)
 	for index, lane := range lanesToRun {
 		hits, err := laneResults[index].hits, laneResults[index].err
 		report.SearchHits += len(hits)
@@ -193,7 +201,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	// against consumption-shaped purposes; the confidence ladder weights claim
 	// types by how directly they evidence an actual purchase.
 	verified, verificationQueries, extracted, rejected, pagesEnriched, verifyErr := a.verifyDemandLeads(ctx, leads, query, laneStages, eventCh)
-	report.VerificationQueries = verificationQueries
+	report.VerificationQueries += verificationQueries
 	report.LeadsExtracted = extracted
 	report.LeadsRejected = rejected
 	report.PagesEnriched = pagesEnriched
@@ -403,6 +411,13 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	}
 	emitAgentEvent(eventCh, models.EventComplete, fmt.Sprintf("Demand chain complete: %d verified result(s), %d stage(s)", len(report.Results), len(report.Chain)), "", "")
 	return report, nil
+}
+
+func (a *DemandChainAgent) researchCategoryLane(ctx context.Context, query models.DemandChainQuery, category string, eventCh chan<- models.AgentEvent) ([]models.MarketLandscapeCompany, int, int, int, []string) {
+	return (&MarketLandscapeAgent{engine: a.engine}).researchCategoryLane(ctx, models.MarketLandscapeQuery{
+		Activity: category, Countries: query.Countries, Regions: query.Regions, Exclusions: query.Exclusions,
+		MaxCompanies: query.MaxCompanies,
+	}, category, eventCh)
 }
 
 // demandUndercovered returns the stage-coverage rows that did not reach the QC floor.
@@ -1018,13 +1033,16 @@ func demandIsProducerWithoutDemand(company *models.MarketLandscapeCompany) bool 
 	return demandHasProducerSignal(company) && !demandHasDirectDemandClaim(company)
 }
 
-// demandSourceOverride reclassifies aggregator, publisher, consultancy and
-// institution domains for the buyer side. It is the shared discovery-source
-// classifier (entity_source.go) under the name the buyer code reads; the labels
-// are the same, so a vendor added for one landscape mode is known to both.
-// The returned tier never qualifies, so such pages stay in the run as demand
-// signals and leads while being unable to present as companies themselves.
+// demandSourceOverride reclassifies aggregator, publisher, consultancy,
+// institution and trade-data domains for the buyer side. It is the shared
+// discovery-source classifier (entity_source.go) under the name the buyer code
+// reads; the labels are the same, so a vendor added for one landscape mode is
+// known to both. Trade-data pages get their own "trade" label: they can supply
+// an import record, but they are never the company's identity.
 func demandSourceOverride(domain string) string {
+	if isTradeDataDomain(domain) {
+		return "trade"
+	}
 	return sharedSourceOverride(domain)
 }
 
@@ -1209,8 +1227,17 @@ func demandStatus(company *models.MarketLandscapeCompany) string {
 		if !isQualifyingMarketTier(evidence.SourceTier) {
 			continue
 		}
-		// Directory and trade pages host many companies; they never own one identity.
-		if evidence.SourceTier == "directory" || evidence.SourceTier == "trade" {
+		// Directory pages host many companies and never own one identity.
+		if evidence.SourceTier == "directory" {
+			continue
+		}
+		// A trade-data record can establish an import transaction, but it can
+		// never own the buyer's identity. It therefore contributes to the
+		// transaction flag only; without an owned page it remains a lead.
+		if evidence.SourceTier == "trade" {
+			if evidence.ClaimType == models.DemandClaimImport {
+				transaction = true
+			}
 			continue
 		}
 		domain := hostname(evidence.URL)
@@ -2238,6 +2265,9 @@ func demandChainLanes(query models.DemandChainQuery, chain []models.ValueChainSt
 		demandLane{term: "distributor wholesaler of", stage: demandDistributionStageName},
 		demandLane{term: "authorised distributor wholesale supplier of", stage: demandDistributionStageName},
 	)
+	// Customs, shipment and bill-of-lading lanes ask for the transaction
+	// record itself, rather than a page that merely describes a buyer.
+	lanes = append(lanes, demandTradeDataLanes()...)
 	for _, country := range query.Countries {
 		lanes = append(lanes, demandLane{term: strings.TrimSpace(country) + " importer tender procurement"})
 	}
@@ -2298,9 +2328,10 @@ func knownStageProducts(activity, stage string) []string {
 	return nil
 }
 
-// selectDemandLanes keeps the two highest-value direct-demand lanes in every
-// run: procurement/direct-enquiry and tender/RFP. The remaining budget follows
-// the stage-first order produced by demandChainLanes.
+// selectDemandLanes keeps the highest-value direct-demand lanes in every run:
+// procurement/direct-enquiry, tender/RFP, the import-data lane and the
+// distributor channel. The remaining budget follows the stage-first order
+// produced by demandChainLanes.
 func selectDemandLanes(lanes []demandLane, budget int) []demandLane {
 	if budget <= 0 {
 		return nil
@@ -2500,8 +2531,8 @@ func hasDemandSignalEvidence(hit models.SearchResult) bool {
 	text := strings.ToLower(hit.Title + " " + hit.Snippet)
 	for _, marker := range []string{
 		"buyer", "procure", "procurement", "purchasing", "tender", "rfp", "rfq",
-		"import", "importer", "consum", "feedstock", "raw material", "ingredient",
-		"inputs", "we use",
+		"import", "importer", "customs", "shipment", "bill of lading", "consum",
+		"feedstock", "raw material", "ingredient", "inputs", "we use",
 	} {
 		if strings.Contains(text, marker) {
 			return true
@@ -2874,7 +2905,7 @@ type demandVerificationPurpose struct {
 // everything else through the buyer's own words first.
 func demandVerificationPurposes(discoveryClaim string) []demandVerificationPurpose {
 	tender := demandVerificationPurpose{phrase: "tender OR RFP OR procurement", kind: "tender or procurement record"}
-	importer := demandVerificationPurpose{phrase: "import data OR importer of", kind: "import record"}
+	importer := demandVerificationPurpose{phrase: "import data OR importer of OR customs shipment", kind: "import record"}
 	ownSite := demandVerificationPurpose{phrase: "official site", kind: "own site"}
 	switch discoveryClaim {
 	case models.DemandClaimTender:
@@ -2910,9 +2941,11 @@ func demandClaimForLead(leads []models.MarketLandscapeEvidence, lead models.Mark
 // demandVerificationEvidence accepts one verification hit as consumption
 // evidence when the tier qualifies, the company is named, and the hit carries
 // buyer language or the activity itself. The claim type is read off the text.
-// demandVerificationTier is the buyer-side verification tier rule: only an operator-owned or
-// regulatory source can verify a buyer. Directory, trade, news, research, publisher and social
-// pages are corroboration only.
+// demandVerificationTier is the buyer-side verification tier rule: only an
+// operator-owned or regulatory source can verify a buyer. Directory, trade,
+// news, research, publisher and social pages are corroboration only. Trade-data
+// pages are handled separately: they may supply an import record, never an
+// identity or a non-transaction claim.
 func demandVerificationTier(tier string) bool {
 	return tier == "official" || tier == "regulatory"
 }
@@ -2925,14 +2958,25 @@ func demandVerificationEvidence(hit models.SearchResult, company, activity, purp
 	tier := marketSourceTier(domain)
 	override := demandSourceOverride(domain)
 	if override != "" && override != "aggregator" {
-		// Publishers, consultancies and institutions are commentary — never
-		// consumption evidence. Tender-portal domains are NOT overridden
+		// Publishers, consultancies, institutions and trade-data platforms are
+		// not company-owned evidence. Tender-portal domains are NOT overridden
 		// here: a tender listing hosted on a portal that names the buyer is
 		// real claim evidence about that buyer (the aggregators themselves
 		// are stopped from masquerading as companies at extraction).
 		tier = override
 	}
-	if !demandVerificationTier(tier) || !mentionsMarketCompany(hit, company) {
+	if !mentionsMarketCompany(hit, company) {
+		return models.MarketLandscapeEvidence{}, false
+	}
+	claim := demandClaimFromText(hit)
+	if tier == "trade" {
+		// A trade page can corroborate an actual import, but a product
+		// description, a tender or a generic company profile on that page is
+		// not a shipment record.
+		if claim != models.DemandClaimImport {
+			return models.MarketLandscapeEvidence{}, false
+		}
+	} else if !demandVerificationTier(tier) {
 		return models.MarketLandscapeEvidence{}, false
 	}
 	// The shared tier helper calls any unrecognised domain "official". For an ordinary
@@ -2944,7 +2988,6 @@ func demandVerificationEvidence(hit models.SearchResult, company, activity, purp
 	if !hasDemandSignalEvidence(hit) && !hasMarketActivityEvidence(hit, activity) {
 		return models.MarketLandscapeEvidence{}, false
 	}
-	claim := demandClaimFromText(hit)
 	if override == "aggregator" && claim != models.DemandClaimTender && claim != models.DemandClaimImport {
 		// A directory/portal listing is a company page only when it carries a transaction record;
 		// its generic "company profile" text is corroboration, not verification.
@@ -2968,7 +3011,7 @@ func demandClaimFromText(hit models.SearchResult) string {
 			return models.DemandClaimTender
 		}
 	}
-	for _, marker := range []string{"import data", "importer of", "customs", "bill of lading"} {
+	for _, marker := range []string{"import data", "importer of", "import record", "customs", "customs data", "bill of lading", "shipment data", "shipment details", "shipment record", "shipment records"} {
 		if strings.Contains(text, marker) {
 			return models.DemandClaimImport
 		}

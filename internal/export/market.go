@@ -59,6 +59,26 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 		}
 		b.WriteString(".\n")
 	}
+	if category := strings.TrimSpace(report.ProductCategory); category != "" || len(report.CategoryResults) > 0 || report.CategoryQueries > 0 {
+		b.WriteString("## category level results\n\n")
+		if category != "" {
+			fmt.Fprintf(&b, "Category: **%s**", category)
+			if len(report.CategoryLanes) > 0 {
+				fmt.Fprintf(&b, "; discovery lanes: %s", strings.Join(report.CategoryLanes, ", "))
+			}
+			b.WriteString(".\n\n")
+		}
+		if len(report.CategoryResults) == 0 {
+			b.WriteString("No category-level company met the verification threshold. Category findings never enter exact-product seller results.\n\n")
+		} else {
+			b.WriteString("Independent downstream-category findings; these are separate from exact-product seller results.\n\n")
+			b.WriteString("| Company | Category | Role | Country | Employees | Turnover | Description | Status | Confidence |\n|---|---|---|---|---|---|---|---|---|\n")
+			for _, result := range report.CategoryResults {
+				fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %.0f%% |\n", marketMarkdownCell(result.Name), marketMarkdownCell(result.Activity), marketMarkdownCell(result.Role), marketMarkdownCell(result.Country), marketMarkdownCell(result.Employees), marketMarkdownCell(result.Turnover), marketMarkdownCell(result.Description), marketMarkdownCell(result.Status), result.Confidence*100)
+			}
+			b.WriteString("\n")
+		}
+	}
 	b.WriteString("\n## QC results\n\n")
 	if strings.TrimSpace(report.QCPromptSource) != "" {
 		fmt.Fprintf(&b, "QC prompt source: **%s**.\n\n", report.QCPromptSource)
@@ -94,7 +114,7 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 			fmt.Fprintf(&b, "- Missing: %s\n", strings.Join(review.Missing, ", "))
 		}
 	}
-	fmt.Fprintf(&b, "\n## Method summary\n\n%d raw hits; %d leads reviewed; %d entities extracted; %d resolved; %d pages enriched; %d category fallback queries.\n\n## Appendix - sources and validation evidence\n\n", report.SearchHits, report.LeadsReviewed, report.LeadsExtracted, report.LeadsResolved, report.PagesEnriched, report.FallbackQueries)
+	fmt.Fprintf(&b, "\n## Method summary\n\n%d raw hits; %d category queries; %d leads reviewed; %d entities extracted; %d resolved; %d pages enriched; %d fallback queries.\n\n## Appendix - sources and validation evidence\n\n", report.SearchHits, report.CategoryQueries, report.LeadsReviewed, report.LeadsExtracted, report.LeadsResolved, report.PagesEnriched, report.FallbackQueries)
 	for _, evidence := range report.Appendix {
 		fmt.Fprintf(&b, "- [%s](%s) - %s; %s; %s\n", evidence.Title, evidence.URL, evidence.SourceTier, evidence.ClaimType, evidence.Status)
 	}
