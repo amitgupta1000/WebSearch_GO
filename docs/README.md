@@ -519,12 +519,12 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
   under `person/`.
 - **PDF** is the same report as a Crystal AI branded document: a cover page carrying the
   wordmark, a kicker naming the report kind ("Company research - Org chart", "Professional
-  dossier", "Legal and regulatory check", "Producer/Seller Landscape research", "Demand chain research"),
+  dossier", "Legal and regulatory check", "Seller Landscape research", "Demand chain research"),
   the serif title, the run's own summary, the checked stamp and an illustrative photograph —
   followed by the report body in the brand's sage-teal palette. Chromium prints a running
   footer on every page: the brand line with the report title and checked stamp on the left,
   page numbers on the right.
-- **Demand chain** (`mode=demand_chain`) is the buyer-side counterpart of producer/seller landscape:
+- **Demand chain** (`mode=demand_chain`) is the buyer-side counterpart of Seller Landscape:
   it infers the product's value chain scoped to the buyer definition — manufacturers whose process
   consumes the product directly as an input (step 1) plus one derived step (step 2) — and an
   adversarial reviewer rejects unsupported/end-use stages or corrects their distance before any
@@ -536,7 +536,7 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
   never `fuel`) broadens only weak stage searches. Bounded gap searches and list-page extraction fill
   what they can, and a post-assembly QC review records coverage, rejections and follow-ups. Its
   artifacts land under `demand-chain/` with the value chain leading both documents.
-- **Producer/Seller Landscape** uses the same validated category fallback and a post-assembly QC
+- **Seller Landscape** uses the same validated category fallback and a post-assembly QC
   review: the judge challenges company identity/relevance, rejected names remain auditable, and
   the report records coverage (minimum six companies). Key-person discovery is not run; the budget
   stays on company search.

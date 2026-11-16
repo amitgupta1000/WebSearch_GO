@@ -215,7 +215,7 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	if exports := a.engine.ExportMarketLandscape(ctx, report); len(exports) > 0 {
 		report.Exports = exports
 	}
-	emitAgentEvent(eventCh, models.EventComplete, fmt.Sprintf("Producer/Seller Landscape complete: %d verified result(s), %d candidate(s)", len(report.Results), report.CandidatesFound), "", "")
+	emitAgentEvent(eventCh, models.EventComplete, fmt.Sprintf("Seller Landscape complete: %d verified result(s), %d candidate(s)", len(report.Results), report.CandidatesFound), "", "")
 	return report, nil
 }
 
@@ -248,7 +248,7 @@ func (a *MarketLandscapeAgent) reviewMarketReport(ctx context.Context, query mod
 			fmt.Fprintf(&rows, "  source: %s | %s | tier=%s | %s\n", evidence.Title, evidence.URL, evidence.SourceTier, truncateMarketText(evidence.Snippet, 220))
 		}
 	}
-	prompt := fmt.Sprintf(`Adversarially review this producer/seller landscape for %q.
+	prompt := fmt.Sprintf(`Adversarially review this Seller Landscape for %q.
 
 QC POLICY SUPPLIED BY THE OPERATOR:
 %s
@@ -259,7 +259,7 @@ reason. Never add a company that is not in the supplied list.
 Companies:
 %s`, query.Activity, qcPolicy, marketCoverageMinimum, rows.String())
 	if err := a.engine.GenerateStructured(ctx,
-		"You are a strict producer/seller landscape reviewer. Reject publishers, directories, people, categories, articles, product pages and unrelated companies. For a process activity, a manufacturer that operates the process for its own products is a valid producer/seller; do not require it to sell the process as a service. Never invent a company or a replacement.",
+		"You are a strict Seller Landscape reviewer. Reject publishers, directories, people, categories, articles, product pages and unrelated companies. For a process activity, a manufacturer that operates the process for its own products is a valid producer/seller; do not require it to sell the process as a service. Never invent a company or a replacement.",
 		prompt, &review); err != nil {
 		review.Verdict = "unavailable"
 		review.Reason = err.Error()
@@ -316,7 +316,7 @@ Companies:
 // is used only to broaden weak discovery, never as a company or a result.
 func (a *MarketLandscapeAgent) inferMarketCategory(ctx context.Context, query models.MarketLandscapeQuery, eventCh chan<- models.AgentEvent) (string, string, string, []string) {
 	var inference models.MarketLandscapeInference
-	prompt := fmt.Sprintf(`Identify the immediate downstream product family or industry category that consumes %q for a producer/seller landscape. It must be specific enough to search, one to four words, and not an end-use sector or generic superclass. Examples: toluene diisocyanate -> polyurethanes; acetic acid -> solvents or acetates; toluene -> aromatics; n-butanol -> solvents; linear alkyl benzene -> surfactants; coal -> coal products, never fuel or energy. Return JSON with category and category_rationale.`, query.Activity)
+	prompt := fmt.Sprintf(`Identify the immediate downstream product family or industry category that consumes %q for a Seller Landscape. It must be specific enough to search, one to four words, and not an end-use sector or generic superclass. Examples: toluene diisocyanate -> polyurethanes; acetic acid -> solvents or acetates; toluene -> aromatics; n-butanol -> solvents; linear alkyl benzene -> surfactants; coal -> coal products, never fuel or energy. Return JSON with category and category_rationale.`, query.Activity)
 	if err := a.engine.GenerateStructured(ctx,
 		"You identify buyer-side product categories for industrial market research. Never return fuel, energy, chemicals, industrial, automotive or another end-use sector.",
 		prompt, &inference); err != nil {

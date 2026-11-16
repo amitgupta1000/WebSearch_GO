@@ -4,7 +4,7 @@ import (
 	"strings"
 )
 
-// market_names.go owns the producer/seller landscape's name hygiene.
+// market_names.go owns the Seller Landscape's name hygiene.
 //
 // A search-result title is written for a search engine, not for a roster. It
 // carries the site name, a tagline, navigation labels, and — on the pages that

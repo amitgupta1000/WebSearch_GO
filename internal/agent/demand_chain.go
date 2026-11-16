@@ -2389,7 +2389,7 @@ func demandGeographyClause(query models.DemandChainQuery) string {
 }
 
 // demandCandidate turns one search hit into a candidate company. It reuses the
-// producer/seller landscape's identity and tier hygiene, adds buyer-specific bait and
+// Seller Landscape's identity and tier hygiene, adds buyer-specific bait and
 // intermediary filtering, and tags the consuming stage the lane serves.
 func demandCandidate(hit models.SearchResult, lane demandLane, query models.DemandChainQuery) *models.MarketLandscapeCompany {
 	parsed, err := url.Parse(hit.Link)

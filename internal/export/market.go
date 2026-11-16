@@ -11,7 +11,7 @@ import (
 // first-pass category and the deterministic coverage check.
 func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# %s - Producer/Seller Landscape\n\n%s\n\n", report.Activity, report.Objective)
+	fmt.Fprintf(&b, "# %s - Seller Landscape\n\n%s\n\n", report.Activity, report.Objective)
 	if category := strings.TrimSpace(report.ProductCategory); category != "" {
 		fmt.Fprintf(&b, "Category: %s", category)
 		if rationale := strings.TrimSpace(report.CategoryRationale); rationale != "" {

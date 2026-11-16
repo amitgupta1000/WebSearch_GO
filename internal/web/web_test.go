@@ -82,7 +82,7 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 	}
 	rendered := out.String()
 	for _, expected := range []string{
-		`<h3 class="text-2xl font-bold text-white">Producer/Seller Landscape</h3>`,
+		`<h3 class="text-2xl font-bold text-white">Seller Landscape</h3>`,
 		"Storage and blending",
 		"Peninsula operates a fuel-oil blending and storage terminal.",
 		"Manufacturers / producers",

@@ -46,7 +46,7 @@ const (
 	kickerCompany = "Company research - Org chart"
 	kickerPerson  = "Professional dossier"
 	kickerLegal   = "Legal and regulatory check"
-	kickerMarket  = "Producer/Seller Landscape research"
+	kickerMarket  = "Seller Landscape research"
 	kickerDemand  = "Demand chain research"
 )
 
