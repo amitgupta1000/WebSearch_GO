@@ -132,6 +132,10 @@ type MarketLandscapeCompany struct {
 	// Description is a short, evidence-backed summary for the result card. It
 	// is empty when the collected snippets do not contain descriptive prose.
 	Description      string                    `json:"description,omitempty"`
+	Employees        string                    `json:"employees,omitempty"`
+	Turnover         string                    `json:"turnover,omitempty"`
+	FinancialYear    string                    `json:"financial_year,omitempty"`
+	MetricsSource    string                    `json:"metrics_source,omitempty"`
 	BusinessContact  []string                  `json:"business_contact,omitempty"`
 	KeyPeople        []string                  `json:"key_people,omitempty"`
 	KeyPeopleSources map[string]string         `json:"key_people_sources,omitempty"`

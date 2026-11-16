@@ -98,11 +98,12 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 	if len(report.Results) == 0 {
 		b.WriteString("No company met the consumption-verification threshold.\n")
 	} else {
-		b.WriteString("| Company | Consuming stage | Presence | Description | Country | Status | Confidence |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
+		b.WriteString("| Company | Consuming stage | Presence | Employees | Turnover | Description | Country | Status | Confidence |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
 		for _, result := range report.Results {
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %.0f%% |\n",
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %.0f%% |\n",
 				markdownCell(result.Name), markdownCell(result.Stage), markdownCell(result.Presence),
-				markdownCell(result.Description), markdownCell(result.Country), markdownCell(result.Status), result.Confidence*100)
+				markdownCell(result.Employees), markdownCell(result.Turnover), markdownCell(result.Description),
+				markdownCell(result.Country), markdownCell(result.Status), result.Confidence*100)
 		}
 	}
 	b.WriteString("\n## Potential buyers by stage\n\n")
@@ -125,20 +126,21 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 			b.WriteString("_No stage-active companies surfaced._\n\n")
 			continue
 		}
-		b.WriteString("| Company | Presence | Country | Description | Status | Confidence |\n| :--- | :--- | :--- | :--- | :--- | :--- |\n")
+		b.WriteString("| Company | Presence | Country | Employees | Turnover | Description | Status | Confidence |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
 		for _, company := range section.Companies {
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %.0f%% |\n",
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %.0f%% |\n",
 				markdownCell(company.Name), markdownCell(company.Presence), markdownCell(company.Country),
-				markdownCell(company.Description), markdownCell(company.Status), company.Confidence*100)
+				markdownCell(company.Employees), markdownCell(company.Turnover), markdownCell(company.Description),
+				markdownCell(company.Status), company.Confidence*100)
 		}
 		b.WriteString("\n")
 		if len(section.GlobalCompanies) > 0 {
 			b.WriteString("#### Global / cross-border (visible for audit; excluded from stage coverage)\n\n")
-			b.WriteString("| Company | Country | Description | Status | Confidence |\n| :--- | :--- | :--- | :--- | :--- |\n")
+			b.WriteString("| Company | Country | Employees | Turnover | Description | Status | Confidence |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
 			for _, company := range section.GlobalCompanies {
-				fmt.Fprintf(&b, "| %s | %s | %s | %s | %.0f%% |\n",
-					markdownCell(company.Name), markdownCell(company.Country), markdownCell(company.Description),
-					markdownCell(company.Status), company.Confidence*100)
+				fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %.0f%% |\n",
+					markdownCell(company.Name), markdownCell(company.Country), markdownCell(company.Employees),
+					markdownCell(company.Turnover), markdownCell(company.Description), markdownCell(company.Status), company.Confidence*100)
 			}
 			b.WriteString("\n")
 		}
@@ -243,15 +245,15 @@ var demandChainHTMLTemplate = documentTemplate("demand-chain", `
 {{if .Chain.ChainReview.MissingStages}}<p class="dim">Suggested missing stages (not added automatically): {{range .Chain.ChainReview.MissingStages}}{{.}}; {{end}}</p>{{end}}
 </section>{{end}}
 <section><h2>Results — verified consumers</h2>
-{{if .Chain.Results}}<table><thead><tr><th>Company</th><th>Consuming stage</th><th>Presence</th><th>Description</th><th>Country</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Chain.Results}}<tr><td>{{.Name}}</td><td>{{.Stage}}</td><td>{{.Presence}}</td><td>{{.Description}}</td><td>{{.Country}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{else}}<p>No company met the consumption-verification threshold.</p>{{end}}
+{{if .Chain.Results}}<table><thead><tr><th>Company</th><th>Consuming stage</th><th>Presence</th><th>Employees</th><th>Turnover</th><th>Description</th><th>Country</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Chain.Results}}<tr><td>{{.Name}}</td><td>{{.Stage}}</td><td>{{.Presence}}</td><td>{{.Employees}}</td><td>{{.Turnover}}</td><td>{{.Description}}</td><td>{{.Country}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{else}}<p>No company met the consumption-verification threshold.</p>{{end}}
 </section>
 <section><h2>Potential buyers by stage</h2>
 <p class="dim">Every company the consuming stage's lanes surfaced, verified or not — a company operating a stage that consumes the product is a potential buyer by construction, within the two-step buyer scope (direct consumers and one derived step). Status "lead" means the evidence did not reach the verification threshold; cross-check the verified list above.</p>
 {{range .Chain.StageCandidates}}<div class="dept">
 	<h3>{{.Stage.Name}}{{if eq .Stage.Source "category"}} — channel category (resale){{else if eq .Stage.Distance 2}} — step 2 (derived){{end}}</h3>
 	{{if .Stage.Rationale}}<p class="dim">{{.Stage.Rationale}}</p>{{end}}
-	{{if .Companies}}<table><thead><tr><th>Company</th><th>Presence</th><th>Country</th><th>Description</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Companies}}<tr><td>{{.Name}}</td><td>{{.Presence}}</td><td>{{.Country}}</td><td>{{.Description}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>
-	{{else}}<p class="dim">No stage-active companies surfaced.</p>{{end}}{{if .GlobalCompanies}}<h4>Global / cross-border (excluded from stage coverage)</h4><table><thead><tr><th>Company</th><th>Country</th><th>Description</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .GlobalCompanies}}<tr><td>{{.Name}}</td><td>{{.Country}}</td><td>{{.Description}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{end}}
+	{{if .Companies}}<table><thead><tr><th>Company</th><th>Presence</th><th>Country</th><th>Employees</th><th>Turnover</th><th>Description</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Companies}}<tr><td>{{.Name}}</td><td>{{.Presence}}</td><td>{{.Country}}</td><td>{{.Employees}}</td><td>{{.Turnover}}</td><td>{{.Description}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>
+	{{else}}<p class="dim">No stage-active companies surfaced.</p>{{end}}{{if .GlobalCompanies}}<h4>Global / cross-border (excluded from stage coverage)</h4><table><thead><tr><th>Company</th><th>Country</th><th>Employees</th><th>Turnover</th><th>Description</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .GlobalCompanies}}<tr><td>{{.Name}}</td><td>{{.Country}}</td><td>{{.Employees}}</td><td>{{.Turnover}}</td><td>{{.Description}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{end}}
 </div>{{end}}
 </section>
 {{if .Chain.StageCoverage}}<section><h2>Stage coverage — QC minimum</h2>

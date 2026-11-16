@@ -54,6 +54,10 @@ type CompanyProfile struct {
 	Address             string     `json:"address,omitempty"`
 	PublicEmail         string     `json:"public_email,omitempty"`
 	Telephone           string     `json:"telephone,omitempty"`
+	Employees           string     `json:"employees,omitempty"`
+	Turnover            string     `json:"turnover,omitempty"`
+	FinancialYear       string     `json:"financial_year,omitempty"`
+	MetricsSource       string     `json:"metrics_source,omitempty"`
 }
 
 // CompanyResearchRow is the flat, exportable person record shown by the full

@@ -36,6 +36,7 @@ func classifyMarketCompany(company *models.MarketLandscapeCompany, query models.
 	company.HQCountry = hq
 	company.InScope = marketCoverageEligible(company, query)
 	company.Description = marketDescriptionFor(company)
+	applyMarketMetrics(company)
 }
 
 // marketDescriptionFor uses only collected evidence. The fallback is an empty

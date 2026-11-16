@@ -64,6 +64,18 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 		if telephone := trimmed(chart.Brief.Telephone); telephone != "" {
 			fmt.Fprintf(&builder, "**Telephone:** %s\n\n", telephone)
 		}
+		if employees := trimmed(chart.Brief.Employees); employees != "" {
+			fmt.Fprintf(&builder, "**Employees:** %s\n\n", employees)
+		}
+		if turnover := trimmed(chart.Brief.Turnover); turnover != "" {
+			fmt.Fprintf(&builder, "**Turnover:** %s\n\n", turnover)
+		}
+		if financialYear := trimmed(chart.Brief.FinancialYear); financialYear != "" {
+			fmt.Fprintf(&builder, "**Financial year:** %s\n\n", financialYear)
+		}
+		if metricsSource := trimmed(chart.Brief.MetricsSource); metricsSource != "" {
+			fmt.Fprintf(&builder, "**Metrics source:** %s\n\n", metricsSource)
+		}
 	}
 
 	if len(chart.Leadership) > 0 {

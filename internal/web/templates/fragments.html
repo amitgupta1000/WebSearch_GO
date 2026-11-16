@@ -182,6 +182,12 @@
 	{{if .PresenceReason}}<div class="text-[11px] text-slate-500">{{.PresenceReason}}</div>{{end}}
 	{{if .EvidenceType}}<div class="text-[11px] text-slate-500">Verification: {{.EvidenceType}}</div>{{end}}
 	{{if .Description}}<p class="text-xs text-slate-300 leading-relaxed">{{.Description}}</p>{{else}}<p class="text-xs text-slate-500">No descriptive summary was available in the collected snippets.</p>{{end}}
+	{{if or .Employees .Turnover .FinancialYear}}<div class="grid grid-cols-3 gap-2 text-[11px] text-slate-400">
+		{{if .Employees}}<div><span class="text-slate-600">Employees</span><br>{{.Employees}}</div>{{end}}
+		{{if .Turnover}}<div><span class="text-slate-600">Turnover</span><br>{{.Turnover}}</div>{{end}}
+		{{if .FinancialYear}}<div><span class="text-slate-600">Financial year</span><br>{{.FinancialYear}}</div>{{end}}
+	</div>{{end}}
+	{{if .MetricsSource}}<a href="{{.MetricsSource}}" target="_blank" rel="noreferrer" class="text-[10px] text-indigo-400 hover:underline">Metrics source</a>{{end}}
 </div>
 {{end}}
 
@@ -357,6 +363,12 @@
 			{{if and .HQCountry .PresenceCountry}}<div class="text-[11px] text-slate-500">HQ: {{.HQCountry}}</div>{{end}}
 			{{if .PresenceReason}}<div class="text-[11px] text-slate-500">{{.PresenceReason}}</div>{{end}}
 			{{if .Description}}<p class="text-xs text-slate-300 leading-relaxed">{{.Description}}</p>{{else}}<p class="text-xs text-slate-500">No descriptive summary was available in the collected snippets.</p>{{end}}
+			{{if or .Employees .Turnover .FinancialYear}}<div class="grid grid-cols-3 gap-2 text-[11px] text-slate-400">
+				{{if .Employees}}<div><span class="text-slate-600">Employees</span><br>{{.Employees}}</div>{{end}}
+				{{if .Turnover}}<div><span class="text-slate-600">Turnover</span><br>{{.Turnover}}</div>{{end}}
+				{{if .FinancialYear}}<div><span class="text-slate-600">Financial year</span><br>{{.FinancialYear}}</div>{{end}}
+			</div>{{end}}
+			{{if .MetricsSource}}<a href="{{.MetricsSource}}" target="_blank" rel="noreferrer" class="text-[10px] text-indigo-400 hover:underline">Metrics source</a>{{end}}
 		</div>
 	{{end}}</div>{{else}}<p class="text-sm text-slate-500">No company met the consumption-verification threshold.</p>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">
@@ -373,7 +385,7 @@
 	{{range .StageCandidates}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
 		<div class="flex justify-between gap-2"><span class="font-semibold text-white">{{.Stage.Name}}</span><span class="text-[10px] text-slate-500">{{if eq .Stage.Source "category"}}channel category · resale{{else if eq .Stage.Distance 2}}step 2 · derived{{else}}step 1 · direct{{end}} · {{.Stage.Source}}</span></div>
 		{{if .Stage.Rationale}}<p class="text-xs text-slate-400 mt-1">{{.Stage.Rationale}}</p>{{end}}
-		{{if .Companies}}<div class="mt-2 flex flex-wrap gap-1.5">{{range .Companies}}<span class="inline-block text-[11px] {{if eq .Status "lead"}}text-slate-300{{else}}text-emerald-300{{end}} bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5" title="{{.Description}}">{{.Name}} · {{.Status}}{{if .Presence}} · {{.Presence}}{{end}}</span>{{end}}</div>
+		{{if .Companies}}<div class="mt-2 flex flex-wrap gap-1.5">{{range .Companies}}<span class="inline-block text-[11px] {{if eq .Status "lead"}}text-slate-300{{else}}text-emerald-300{{end}} bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5" title="{{.Description}}{{if .Employees}} · Employees: {{.Employees}}{{end}}{{if .Turnover}} · Turnover: {{.Turnover}}{{end}}">{{.Name}} · {{.Status}}{{if .Presence}} · {{.Presence}}{{end}}</span>{{end}}</div>
 		{{else}}<p class="text-xs text-slate-500 mt-1">No stage-active companies surfaced.</p>{{end}}
 		{{if .GlobalCompanies}}<div class="mt-2 border-t border-slate-800 pt-2"><div class="text-[10px] uppercase tracking-wide text-amber-300">Global / cross-border · {{len .GlobalCompanies}}</div><div class="mt-1 flex flex-wrap gap-1.5">{{range .GlobalCompanies}}<span class="inline-block text-[11px] text-slate-300 bg-slate-900 border border-amber-900/60 rounded px-1.5 py-0.5" title="{{.Description}}">{{.Name}} · {{.Status}} · global</span>{{end}}</div></div>{{end}}
 	</div>{{end}}
@@ -580,6 +592,12 @@
 		{{if .Brief.Address}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Address:</span> {{.Brief.Address}}</p>{{end}}
 		{{if .Brief.PublicEmail}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Email:</span> {{.Brief.PublicEmail}}</p>{{end}}
 		{{if .Brief.Telephone}}<p class="text-xs text-slate-400"><span class="text-slate-300 font-medium">Telephone:</span> {{.Brief.Telephone}}</p>{{end}}
+		{{if or .Brief.Employees .Brief.Turnover .Brief.FinancialYear}}<div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-slate-400">
+			{{if .Brief.Employees}}<div><span class="text-slate-500">Employees</span><br>{{.Brief.Employees}}</div>{{end}}
+			{{if .Brief.Turnover}}<div><span class="text-slate-500">Turnover</span><br>{{.Brief.Turnover}}</div>{{end}}
+			{{if .Brief.FinancialYear}}<div><span class="text-slate-500">Financial year</span><br>{{.Brief.FinancialYear}}</div>{{end}}
+		</div>{{end}}
+		{{if .Brief.MetricsSource}}<a href="{{.Brief.MetricsSource}}" target="_blank" rel="noreferrer" class="text-[11px] text-indigo-400 hover:underline">Metrics source</a>{{end}}
 	</div>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Results</div>
