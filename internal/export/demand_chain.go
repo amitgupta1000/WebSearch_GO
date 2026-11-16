@@ -118,6 +118,7 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 			b.WriteString("\n")
 		}
 	}
+	writeTradeSections(&b, report.Activity, report.TradeImporters, nil, markdownCell)
 	b.WriteString("## Results — verified consumers\n\n")
 	if len(report.Results) == 0 {
 		b.WriteString("No company met the consumption-verification threshold.\n")
@@ -272,6 +273,7 @@ var demandChainHTMLTemplate = documentTemplate("demand-chain", `
 {{if .Chain.ProductCategory}}<p class="dim">Category: {{.Chain.ProductCategory}}{{if .Chain.CategoryLanes}} · discovery lanes: {{range .Chain.CategoryLanes}}{{.}}; {{end}}{{if .Chain.CategoryQueries}}({{.Chain.CategoryQueries}} queries){{end}}{{end}}</p>{{end}}
 {{if .Chain.CategoryResults}}<p class="dim">Independent downstream-category findings; these are separate from exact-product buyer results.</p><table><thead><tr><th>Company</th><th>Category</th><th>Role</th><th>Country</th><th>Employees</th><th>Turnover</th><th>Description</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Chain.CategoryResults}}<tr><td>{{.Name}}</td><td>{{.Activity}}</td><td>{{.Role}}</td><td>{{.Country}}</td><td>{{.Employees}}</td><td>{{.Turnover}}</td><td>{{.Description}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{else}}<p>No category-level company met the verification threshold. Category findings never enter product-level buyer results.</p>{{end}}
 </section>{{end}}
+{{if .Chain.TradeImporters}}<section><h2>trade record importers ({{len .Chain.TradeImporters}})</h2><p class="dim">Indian importers of the product named by the Crystal trade DB. An importer may equally be a reseller (distributor, wholesaler or trader) — the operator decides; separate from verified buyer results and stage coverage.</p><table><thead><tr><th>Company</th><th>Country</th><th>Role tags</th><th>Shipments</th><th>Value (USD)</th><th>Quantity (MT)</th><th>Rank</th><th>Status</th></tr></thead><tbody>{{range .Chain.TradeImporters}}<tr><td>{{.Name}}</td><td>{{.Country}}</td><td>{{range .RoleTags}}{{.}} {{end}}</td><td>{{with .Trade}}{{.TransactionCount}}{{end}}</td><td>{{with .Trade}}{{printf "%.0f" .TotalValueUSD}}{{end}}</td><td>{{with .Trade}}{{printf "%.0f" .TotalQuantityMT}}{{end}}</td><td>{{with .Trade}}{{.Rank}}{{end}}</td><td>{{.Status}}</td></tr>{{end}}</tbody></table></section>{{end}}
 <section><h2>Results — verified consumers</h2>
 {{if .Chain.Results}}<table><thead><tr><th>Company</th><th>Consuming stage</th><th>Presence</th><th>Employees</th><th>Turnover</th><th>Description</th><th>Country</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .Chain.Results}}<tr><td>{{.Name}}</td><td>{{.Stage}}</td><td>{{.Presence}}</td><td>{{.Employees}}</td><td>{{.Turnover}}</td><td>{{.Description}}</td><td>{{.Country}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{else}}<p>No company met the consumption-verification threshold.</p>{{end}}
 </section>

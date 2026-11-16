@@ -38,6 +38,24 @@ type MarketLandscapeAgent struct {
 	engine *Engine
 }
 
+func marketLandscapeGeography(query models.MarketLandscapeQuery) string {
+	locations := append(append([]string{}, query.Countries...), query.Regions...)
+	cleaned := make([]string, 0, len(locations))
+	seen := make(map[string]bool)
+	for _, location := range locations {
+		location = strings.TrimSpace(location)
+		key := strings.ToLower(location)
+		if location != "" && !seen[key] {
+			seen[key] = true
+			cleaned = append(cleaned, location)
+		}
+	}
+	if len(cleaned) == 0 {
+		return "Global"
+	}
+	return strings.Join(cleaned, ", ")
+}
+
 func NewMarketLandscapeAgent(engine *Engine) *MarketLandscapeAgent {
 	return &MarketLandscapeAgent{engine: engine}
 }
@@ -58,7 +76,8 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 
 	report := &models.MarketLandscapeReport{
 		ResearchID: researchID, Objective: query.Objective, Activity: query.Activity,
-		Lanes: marketLanes(query), Iterations: 2, StartedAt: time.Now(),
+		Geography: marketLandscapeGeography(query),
+		Lanes:     marketLanes(query), Iterations: 2, StartedAt: time.Now(),
 	}
 	qcPolicy, qcPromptSource := marketQCPolicy(query)
 	report.QCPrompt = qcPolicy
@@ -185,6 +204,7 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	if report.Coverage.Global > 0 {
 		report.Warnings = append(report.Warnings, fmt.Sprintf("%d global/cross-border company(ies) have no evidence of a plant, office or operation in the requested geography; they remain visible in the Global / cross-border section and are excluded from local coverage.", report.Coverage.Global))
 	}
+	a.attachTradePartners(ctx, query, report, eventCh)
 	report.CompletedAt = time.Now()
 	if exports := a.engine.ExportMarketLandscape(ctx, report); len(exports) > 0 {
 		report.Exports = exports
@@ -785,6 +805,9 @@ func marketStatus(company *models.MarketLandscapeCompany) string {
 
 func marketSourceTier(domain string) string {
 	domain = strings.ToLower(domain)
+	if isCustodyDomain(domain) {
+		return TradeSourceCustody
+	}
 	if isTradeDataDomain(domain) {
 		return "trade"
 	}
@@ -828,7 +851,7 @@ func marketDiscoveryTier(domain string) string {
 }
 
 func isQualifyingMarketTier(tier string) bool {
-	return tier == "official" || tier == "regulatory" || tier == "directory" || tier == "trade"
+	return tier == "official" || tier == "regulatory" || tier == "directory" || tier == "trade" || tier == TradeSourceCustody
 }
 
 // marketOperatorOwnedTier reports whether the page belongs to the company

@@ -195,6 +195,70 @@ type personCandidatesView struct {
 	NoCompanyMatch bool
 }
 
+// logStartupSummary keeps normal startup output useful at a glance. Detailed
+// configuration belongs in diagnostics; this is the platform's advertised
+// capability surface.
+func logStartupSummary(cfg *config.Config, address, cacheStatus string, outputEnabled, browserAvailable, cookieSession bool) {
+	outputStatus := "off"
+	if outputEnabled {
+		outputStatus = strings.Join(cfg.OutputFormats, "+")
+	}
+	browserStatus := "off"
+	if browserAvailable {
+		browserStatus = "chromium"
+	} else if cfg.AllowBrowserToggle || cfg.EnableBrowserFallback || cfg.HardURLHandler {
+		browserStatus = "unavailable"
+	}
+	searchStatus := "not configured"
+	if cfg.SerperAPIKey != "" {
+		searchStatus = "ready"
+	}
+	profileStatus := "snippet-only"
+	if cfg.AllowProfileScraping {
+		profileStatus = "direct + snippet"
+	}
+	sessionStatus := "none"
+	if cookieSession {
+		sessionStatus = "loaded"
+	}
+	tradeDBStatus := "off"
+	if cfg.TradeDBAPIURL != "" {
+		tradeDBStatus = fmt.Sprintf("ready (concurrency %d)", cfg.TradeDBConcurrency)
+	}
+	rocketReachStatus := "off"
+	if strings.TrimSpace(cfg.RocketReachAPIKey) != "" {
+		rocketReachStatus = "configured"
+	}
+
+	log.Printf("[READY] WebSearch_GO listening on http://localhost%s", address)
+	log.Printf("[READY] Platform: ai=%s | search=%s | cache=%s | browser=%s | profiles=%s | session=%s | artifacts=%s | evidence=%s | entity-gate=%s | trade-db=%s | rocketreach=%s",
+		cfg.GeminiModel, searchStatus, cacheStatus, browserStatus, profileStatus, sessionStatus, outputStatus,
+		onOff(cfg.ValidateEvidence), cfg.EntityGateMode, tradeDBStatus, rocketReachStatus)
+	for _, mode := range searchModeSummaries() {
+		log.Printf("[MODE] %s", mode)
+	}
+}
+
+func onOff(enabled bool) string {
+	if enabled {
+		return "on"
+	}
+	return "off"
+}
+
+func searchModeSummaries() []string {
+	return []string{
+		"company: organization chart, leadership, departments and evidence-backed sources",
+		"person: identity-resolved profile, career history, contacts and public context",
+		"related entities: leadership/directorship links and connected companies",
+		"legal: case-law and regulatory findings with party matching",
+		"seller landscape: market map of manufacturers, distributors and traders",
+		"demand chain: buyer discovery across inferred value-chain stages",
+		"news: fresh, date-filtered articles with source citations",
+		"deep search: multi-round question answering with planned queries and cited sources",
+	}
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -214,21 +278,13 @@ func main() {
 	}
 	switch {
 	case strings.TrimSpace(cfg.CookieFile) == "":
-		// The message says what to do, not just what is missing: this is the difference
-		// between a person profile being readable and the run quietly coming back with a
-		// snippet. Cookies also ride the plain HTTP fetch, so a session often makes the
-		// profile readable without a render at all.
-		log.Printf("Cookie jar: no COOKIE_FILE_PATH set, so logged-in-only pages (LinkedIn person profiles) cannot be opened. Export a logged-in session as JSON — a browser extension (Cookie-Editor / EditThisCookie) or `npx playwright open --save-storage=linkedin.json` — and set COOKIE_FILE_PATH to it")
+		// The startup summary reports this as a capability; setup instructions belong
+		// in the operator documentation rather than the normal server log.
 	case cookieReport.Cookies == 0:
 		log.Printf("[WARN] Cookie jar: %s produced no usable cookies (%d skipped); cookie-render will be skipped. Check that the file is a JSON export (an array, or Playwright's {\"cookies\": [...]}) whose cookies have not expired", cfg.CookieFile, cookieReport.Skipped)
 	default:
-		log.Printf("Cookie jar: %d cookies from %s (%d skipped, %d also registered for the parent domain): %s",
-			cookieReport.Cookies, cfg.CookieFile, cookieReport.Skipped, cookieReport.WidenedToParent,
-			strings.Join(cookieReport.Domains, ", "))
-		// A captured session is a per-run asset, not a durable credential: measured on a live
-		// LinkedIn export, one profile read worked and the next request was answered with a
-		// redirect loop. Say so, so nobody configures one and expects it to keep working.
-		log.Printf("Cookie session: treat this as short-lived — a handful of profile fetches, then re-capture; a fetch that reports the session was rejected means exactly that")
+		// The count and domains are implementation detail; the summary only needs to
+		// say whether a session is available.
 	}
 
 	// 2. Initialize the Gemini LLM client. Fail fast: research cannot run without it,
@@ -242,7 +298,7 @@ func main() {
 	// Gemini — registry filings and officer lists are often published only as PDFs —
 	// falling back to a local parser when the model call fails. Its per-host limits
 	// are what keep the parallel fetches below from concentrating on one site.
-	store := buildCacheStore(ctx, cfg)
+	store, cacheStatus := buildCacheStore(ctx, cfg)
 	defer store.Close()
 	scraper := tools.NewScraperWithBrowser(cookieJar, 15*time.Second, cfg.EnableBrowserFallback,
 		tools.WithDocumentTextExtractor(documentTextExtractor(gemini)),
@@ -262,6 +318,13 @@ func main() {
 		agent.WithEntityGate(cfg.EntityGateMode),
 		agent.WithWeeDooSearch(os.Getenv("WEEDOO_ENRICHMENT") != "0"),
 	}
+	// The Crystal trade DB is attached only when configured. Its sections stay
+	// opt-in per run (IncludeTradeRecords) and geography-gated (importer
+	// records are Indian importers), so an unconfigured URL degrades to the
+	// same warnings the agents already handle.
+	if cfg.TradeDBAPIURL != "" {
+		options = append(options, agent.WithTradeDB(tools.NewTradeDBClient(cfg.TradeDBAPIURL, cfg.TradeDBTimeout, cfg.TradeDBConcurrency)))
+	}
 	// Finished runs are written to the configured destination as Markdown and PDF.
 	// A nil exporter simply means the runs are not saved.
 	exporter, outputClient := buildExporter(ctx, cfg, scraper)
@@ -273,9 +336,6 @@ func main() {
 	// The bounded hard-URL ladder is on by default; HARD_URL_HANDLER=0 disables it,
 	// and a missing Chromium makes it report itself unavailable instead.
 	eng.SetHardURLHandler(cfg.HardURLHandler)
-	log.Printf("Evidence validation: %t (up to %d reverse lookups, stale after %d months, recent within %d months)",
-		cfg.ValidateEvidence, cfg.ValidationLookups, cfg.ValidationStaleMonths, cfg.ValidationRecentMonths)
-	log.Printf("Entity gate: %s (sources must name the company, its domain, an alias or its registration id)", cfg.EntityGateMode)
 	rocketReachClient := tools.NewRocketReachClient(cfg.RocketReachAPIKey)
 	compAgent := agent.NewCompanyAgent(eng, rocketReachClient)
 	persAgent := agent.NewPersonAgent(eng, rocketReachClient)
@@ -297,12 +357,6 @@ func main() {
 	// the queries, reflects on the evidence between rounds, and decides when
 	// the sources collected are enough to synthesize the cited report.
 	deepAgent := agent.NewDeepSearchAgent(eng)
-	juristwayNote := " (anonymous)"
-	if cfg.JuristwayEmail != "" {
-		juristwayNote = " (authenticated)"
-	}
-	log.Printf("Legal mode: IndianKanoon + Casemine (native, render fallback) + Juristway%s, up to %d queries (+%d page(s) each), %d document fetches, %d concurrent searches, %s budget",
-		juristwayNote, cfg.LegalQueriesPerRun, cfg.LegalPagesPerQuery, cfg.LegalDocsPerRun, cfg.LegalConcurrency, cfg.LegalTimeoutFor())
 	sessionHub := agent.NewSessionHub()
 
 	// 5. Parse templates embedded into the binary (independent of working directory)
@@ -317,9 +371,7 @@ func main() {
 	browserAvailable := false
 	if cfg.AllowBrowserToggle || cfg.EnableBrowserFallback || cfg.HardURLHandler {
 		browserAvailable = scraper.BrowserAvailable()
-		if browserAvailable {
-			log.Printf("Browser rendering available (per-run toggle: %t, hard-URL handler: %t)", cfg.AllowBrowserToggle, cfg.HardURLHandler)
-		} else {
+		if !browserAvailable {
 			log.Printf("[WARN] Browser rendering requested but Chromium could not be started; the console will not offer it, the hard-URL handler will report itself unavailable, and any fallback will report a failure")
 		}
 	}
@@ -383,7 +435,7 @@ func main() {
 	defer stop()
 
 	go func() {
-		log.Printf("🚀 WebSearch_GO server starting on http://localhost%s", httpServer.Addr)
+		logStartupSummary(cfg, httpServer.Addr, cacheStatus, exporter != nil, browserAvailable, cookieReport.Cookies > 0)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			if isAddrInUse(err) {
 				log.Fatalf("Server failed: %v\n[FATAL] %s is already in use: another process (often a previous instance) is listening there. Stop it, or start this one with a free PORT.", err, httpServer.Addr)
@@ -656,7 +708,10 @@ func marketLandscapeQueryFromForm(r *http.Request, activity string) models.Marke
 		Exclusions:      splitFormList(r.FormValue("market_exclusions")),
 		MaxCompanies:    parseBoundedInt(r.FormValue("market_max_companies"), 48, 1, 80),
 		IncludeContacts: r.FormValue("market_contacts") == "1",
-		QCPrompt:        strings.TrimSpace(r.FormValue("market_qc_prompt")),
+		// The trade-records opt-in is shared with the buyer mode: the same
+		// Crystal DB feeds both, scoped by each mode's own geography rules.
+		IncludeTradeRecords: r.FormValue("market_trade_records") == "1",
+		QCPrompt:            strings.TrimSpace(r.FormValue("market_qc_prompt")),
 	}
 }
 
@@ -858,6 +913,7 @@ func demandChainQueryFromForm(r *http.Request, activity string) models.DemandCha
 		MaxCompanies:          parseBoundedInt(r.FormValue("demand_max_companies"), 48, 1, 80),
 		StagesOverride:        splitFormList(r.FormValue("demand_stages")),
 		IncludeIntermediaries: r.FormValue("demand_intermediaries") == "1",
+		IncludeTradeRecords:   r.FormValue("demand_trade_records") == "1",
 		QCPrompt:              strings.TrimSpace(r.FormValue("demand_qc_prompt")),
 	}
 }

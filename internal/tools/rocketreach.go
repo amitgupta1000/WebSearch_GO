@@ -28,6 +28,23 @@ type RocketReachClient struct {
 	searchURL string
 }
 
+// RocketReachHTTPError preserves provider status metadata so callers can
+// distinguish authentication failures from rate limiting and report a useful
+// retry hint without exposing credentials or response bodies.
+type RocketReachHTTPError struct {
+	Operation  string
+	StatusCode int
+	RetryAfter string
+}
+
+func (e *RocketReachHTTPError) Error() string {
+	message := fmt.Sprintf("RocketReach %s returned HTTP %d", e.Operation, e.StatusCode)
+	if e.RetryAfter != "" {
+		message += " (retry after " + e.RetryAfter + ")"
+	}
+	return message
+}
+
 type RocketReachContact struct {
 	Email string `json:"email"`
 	Type  string `json:"type,omitempty"`
@@ -142,7 +159,11 @@ func (c *RocketReachClient) searchPage(ctx context.Context, query map[string][]s
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("RocketReach search returned HTTP %d", resp.StatusCode)
+		return nil, &RocketReachHTTPError{
+			Operation:  "search",
+			StatusCode: resp.StatusCode,
+			RetryAfter: strings.TrimSpace(resp.Header.Get("Retry-After")),
+		}
 	}
 	var result rocketReachSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -214,7 +235,11 @@ func (c *RocketReachClient) lookupWithParams(ctx context.Context, params url.Val
 		return nil, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("RocketReach lookup returned HTTP %d", resp.StatusCode)
+		return nil, &RocketReachHTTPError{
+			Operation:  "lookup",
+			StatusCode: resp.StatusCode,
+			RetryAfter: strings.TrimSpace(resp.Header.Get("Retry-After")),
+		}
 	}
 	var profile RocketReachProfile
 	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {

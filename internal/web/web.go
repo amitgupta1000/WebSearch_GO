@@ -4,6 +4,7 @@ package web
 
 import (
 	"embed"
+	"fmt"
 	"html/template"
 	"net/url"
 	"strings"
@@ -36,6 +37,28 @@ var funcs = template.FuncMap{
 	},
 	"lower": func(value string) string {
 		return strings.ToLower(strings.TrimSpace(value))
+	},
+	"rrLocation": func(values ...string) string {
+		for _, value := range values {
+			if value = strings.TrimSpace(value); value != "" {
+				return value
+			}
+		}
+		return ""
+	},
+	"dict": func(values ...any) (map[string]any, error) {
+		if len(values)%2 != 0 {
+			return nil, fmt.Errorf("dict requires an even number of arguments")
+		}
+		result := make(map[string]any, len(values)/2)
+		for index := 0; index < len(values); index += 2 {
+			key, ok := values[index].(string)
+			if !ok {
+				return nil, fmt.Errorf("dict key %d is not a string", index/2)
+			}
+			result[key] = values[index+1]
+		}
+		return result, nil
 	},
 }
 

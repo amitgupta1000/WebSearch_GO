@@ -24,7 +24,6 @@ type documentPrinter interface {
 // is still useful without a saved copy of it.
 func buildExporter(ctx context.Context, cfg *config.Config, printer documentPrinter) (*export.Exporter, *gcs.Client) {
 	if len(cfg.OutputFormats) == 0 {
-		log.Printf("Output artifacts: disabled (OUTPUT_FORMATS is empty)")
 		return nil, nil
 	}
 
@@ -43,7 +42,6 @@ func buildExporter(ctx context.Context, cfg *config.Config, printer documentPrin
 		outputClient = client
 		destination = export.NewGCSDestinationWithDownloadURL(client, cfg.OutputBucket, "/api/exports")
 	default:
-		log.Printf("Output artifacts: disabled (set OUTPUT_BUCKET or OUTPUT_LOCAL_DIR)")
 		return nil, nil
 	}
 
@@ -53,9 +51,7 @@ func buildExporter(ctx context.Context, cfg *config.Config, printer documentPrin
 	}
 	exporter := export.New(destination, pdfRenderer, cfg.OutputPrefix, cfg.OutputFormats)
 	if !exporter.Enabled() {
-		log.Printf("Output artifacts: disabled (no usable format)")
 		return nil, nil
 	}
-	log.Printf("Output artifacts: %s, formats %s", exporter.Describe(), strings.Join(cfg.OutputFormats, "+"))
 	return exporter, outputClient
 }

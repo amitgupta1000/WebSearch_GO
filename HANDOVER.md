@@ -95,6 +95,45 @@ exposed. Details in `docs/BUYER_LANDSCAPE_REVIEW.md` (2026-11-16 pass section) a
 - Caution: env vars set in a terminal session persist across commands in that session â€” clear
   `DEMAND_INTEGRATION` before package-wide test runs or the live test will run and spend budget.
 
+## Trade records (Crystal import-export DB) — built this session
+
+The Crystal trade DB (`crystalimportanalytics-1` Cloud Run, same project) is now a first-class,
+opt-in data source:
+
+- **Client** (`internal/tools/tradedb.go`): `TopImporters` / `TopSuppliers` (ranked by shipment
+  value), `QueryRecords`, `EntityNames`, `FilterOptions`, `Health`. Bounded concurrency (semaphore,
+  `TRADE_DB_CONCURRENCY`, default 3), one retry for transient blips, and a dedicated
+  `TradeUnavailableError` for the stable disconnected-database answer (never retried). The ranking
+  endpoints duplicate every row — the client dedupes. Live latencies: rankings ~20-45s, records ~8s.
+- **Opt-in** (`IncludeTradeRecords` on both landscape queries; console checkboxes
+  `demand_trade_records` / `market_trade_records`): default OFF, zero DB calls.
+- **Geography gates** (`internal/agent/trade_records.go`): importer records are Indian importers —
+  only India-scoped runs query them ("West Indies" is token-safe). Supplier records are foreign
+  exporters into India: single-region runs resolve the region's foreign ports from the DB's own
+  vocabulary (`tools.ResolveForeignPorts`) and drop every record whose `origin_country` does not
+  match (`tools.RegionMatches` — origin_country is authoritative; port names are messy and the
+  port→country pairs can be wrong, e.g. GENEVA→GERMANY). India seller runs skip suppliers with a
+  warning; global runs take ranked exporters labelled unscoped.
+- **Policy**: new `custody` source tier (first-party) distinct from public `trade`. `demandStatus`
+  treats a custody import record as both identity and transaction → verifies alone. Public trade
+  sites keep the lead-only rule. Rows are published as separate sections
+  (`TradeImporters` / `TradeSuppliers`) that never feed verified results or coverage; importer rows
+  carry `Role: importer` plus reseller tags (trading/distributor/wholesaler vocabulary) so the
+  operator decides buyer vs reseller.
+- **Rendering**: console (`fragments.html` trade record importers/suppliers sections), markdown +
+  HTML exports (`internal/export/trade.go`, `html.go`, `demand_chain.go`, `market.go`).
+- **Config**: `TRADE_DB_API_URL` (empty = capability off), `TRADE_DB_TIMEOUT_SECONDS` (60),
+  `TRADE_DB_CONCURRENCY` (3); startup summary reports `trade-db=`. Deploy values in
+  `deploy/cloud-run.env.yaml`.
+- **Tests**: `internal/tools/tradedb_test.go` (11 hermetic), `tradedb_integration_test.go`
+  (opt-in live smoke: `TRADE_DB_INTEGRATION=1 TRADE_DB_API_URL=<url> go test ./internal/tools/ -run
+  TestTradeDBLiveSmoke -v`), `internal/agent/trade_records_test.go` (gates, mapping, policy,
+  wiring, origin scoping). Full suite green.
+- **Follow-ups**: API is `--allow-unauthenticated` — lock down with IAM + ID-token client; harvest
+  the 5,186-entry foreign-port vocabulary into a majority-vote port→country index; ISO-2 port codes
+  (`JEBEL ALI, AE`) unmatched in v1; `/api/query`'s fuzzy product search matches non-chemical rows
+  (prefer the standardized ranking endpoints or pin HS codes).
+
 ## Future goals / improvement areas
 
 Prioritized from the live runs and the code:

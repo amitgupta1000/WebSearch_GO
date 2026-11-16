@@ -134,6 +134,19 @@ type Config struct {
 	// at once. The per-source politeness limiters keep each site quiet
 	// regardless; the pool lets different sources progress together.
 	LegalConcurrency int
+	// TradeDBAPIURL is the base URL of the Crystal import-export analytics API
+	// (the FastAPI read layer over the cleaned Indian customs data). Empty
+	// disables the trade-DB capability entirely: trade lanes run on web search
+	// only and the console offers no trade opt-in.
+	TradeDBAPIURL string
+	// TradeDBTimeout bounds one trade-DB API call. The DB's own frontend uses
+	// 60s for large queries, so the same ceiling keeps one slow query from
+	// holding a run's worker past its budget.
+	TradeDBTimeout time.Duration
+	// TradeDBConcurrency bounds simultaneous trade-DB API calls. The DB is a
+	// Postgres read surface behind Cloud Run whose workers serve requests one
+	// at a time, so a small pool is what it can actually parallelize.
+	TradeDBConcurrency int
 }
 
 const (
@@ -179,6 +192,12 @@ const (
 	defaultValidationLookups      = 10
 	defaultValidationStaleMonths  = 36
 	defaultValidationRecentMonths = 18
+	// defaultTradeDBTimeoutSeconds and defaultTradeDBConcurrency are the
+	// trade-DB client budgets: one 60-second call ceiling (the DB's own
+	// frontend ceiling) and three concurrent calls, which is what the read API
+	// can serve without queueing.
+	defaultTradeDBTimeoutSeconds = 60
+	defaultTradeDBConcurrency    = 3
 )
 
 // Load loads configuration from environment variables with sensible defaults.
@@ -270,6 +289,10 @@ func Load() *Config {
 		LegalDocsPerRun:    envInt("LEGAL_DOCS_PER_RUN", defaultLegalDocsPerRun),
 		LegalPagesPerQuery: envInt("LEGAL_PAGES_PER_QUERY", defaultLegalPagesPerQuery),
 		LegalConcurrency:   envInt("LEGAL_CONCURRENCY", defaultLegalConcurrency),
+
+		TradeDBAPIURL:      envString("TRADE_DB_API_URL", ""),
+		TradeDBTimeout:     time.Duration(envInt("TRADE_DB_TIMEOUT_SECONDS", defaultTradeDBTimeoutSeconds)) * time.Second,
+		TradeDBConcurrency: envInt("TRADE_DB_CONCURRENCY", defaultTradeDBConcurrency),
 	}
 }
 

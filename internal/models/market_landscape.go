@@ -15,6 +15,11 @@ type MarketLandscapeQuery struct {
 	Exclusions      []string `json:"exclusions,omitempty"`
 	MaxCompanies    int      `json:"max_companies,omitempty"`
 	IncludeContacts bool     `json:"include_contacts,omitempty"`
+	// IncludeTradeRecords opts the run into the Crystal import-export DB: a
+	// bounded set of first-party customs queries alongside the web lanes. It
+	// is off by default because the DB is slow (its ranking queries take tens
+	// of seconds) and the operator, not the mode, decides when to spend it.
+	IncludeTradeRecords bool `json:"include_trade_records,omitempty"`
 	// QCPrompt is the operator-editable review policy. Empty means the default policy.
 	QCPrompt string `json:"qc_prompt,omitempty"`
 }
@@ -24,7 +29,13 @@ const (
 	MarketRoleDistributor  = "distributor"
 	MarketRoleWholesaler   = "wholesaler"
 	MarketRoleTrader       = "trader"
-	MarketRoleUnknown      = "unknown"
+	// MarketRoleImporter marks a company named as the Indian importer of the
+	// product by first-party customs records. An importer may equally be a
+	// reseller (distributor, wholesaler or trader), so the role is published
+	// in its own trade-records section and the operator decides the final
+	// classification; RoleTags carry the reseller signals.
+	MarketRoleImporter = "importer"
+	MarketRoleUnknown  = "unknown"
 
 	MarketPresenceLocal    = "local"
 	MarketPresenceRegional = "regional"
@@ -139,7 +150,10 @@ type MarketLandscapeCompany struct {
 	BusinessContact  []string                  `json:"business_contact,omitempty"`
 	KeyPeople        []string                  `json:"key_people,omitempty"`
 	KeyPeopleSources map[string]string         `json:"key_people_sources,omitempty"`
-	Evidence         []MarketLandscapeEvidence `json:"evidence,omitempty"`
+	// Trade carries the first-party customs record the row was built from
+	// when the run opted into the trade DB. Nil for web-discovered rows.
+	Trade     *TradePartner             `json:"trade,omitempty"`
+	Evidence  []MarketLandscapeEvidence `json:"evidence,omitempty"`
 }
 
 type MarketLandscapePersonCandidate struct {
@@ -211,6 +225,7 @@ type MarketLandscapeReport struct {
 	ResearchID        string                    `json:"research_id"`
 	Objective         string                    `json:"objective"`
 	Activity          string                    `json:"activity"`
+	Geography         string                    `json:"geography,omitempty"`
 	ProductCategory   string                    `json:"product_category,omitempty"`
 	CategoryRationale string                    `json:"category_rationale,omitempty"`
 	CategorySource    string                    `json:"category_source,omitempty"`
@@ -220,7 +235,15 @@ type MarketLandscapeReport struct {
 	QCPromptSource    string                    `json:"qc_prompt_source,omitempty"`
 	Coverage          *MarketCoverage           `json:"coverage,omitempty"`
 	Groups            []MarketLandscapeGroup    `json:"groups,omitempty"`
-	Reviews           []MarketLandscapeReview   `json:"reviews,omitempty"`
+	// TradeImporters and TradeSuppliers are the opt-in first-party customs
+	// sections served from the Crystal trade DB. They are published separately
+	// from Results on purpose: an importer may equally be a reseller, and a
+	// supplier is an exporter into India — the operator decides how to use the
+	// names, and neither section feeds the verified results or the coverage
+	// floor.
+	TradeImporters []MarketLandscapeCompany `json:"trade_importers,omitempty"`
+	TradeSuppliers []MarketLandscapeCompany `json:"trade_suppliers,omitempty"`
+	Reviews        []MarketLandscapeReview  `json:"reviews,omitempty"`
 	FallbackQueries   int                       `json:"fallback_queries,omitempty"`
 	Results           []MarketLandscapeCompany  `json:"results,omitempty"`
 	Appendix          []MarketLandscapeEvidence `json:"appendix,omitempty"`

@@ -97,6 +97,27 @@ func TestRequestedBrowserOverrideParsing(t *testing.T) {
 	}
 }
 
+func TestSearchModeSummariesDescribeEveryMode(t *testing.T) {
+	summaries := searchModeSummaries()
+	if len(summaries) != 8 {
+		t.Fatalf("got %d mode summaries, want 8", len(summaries))
+	}
+	for _, summary := range summaries {
+		if !strings.Contains(summary, ": ") {
+			t.Errorf("mode summary %q should contain a one-line capability description", summary)
+		}
+	}
+}
+
+func TestOnOff(t *testing.T) {
+	if got := onOff(true); got != "on" {
+		t.Errorf("onOff(true) = %q, want on", got)
+	}
+	if got := onOff(false); got != "off" {
+		t.Errorf("onOff(false) = %q, want off", got)
+	}
+}
+
 func TestBrowserChoiceHonoursPolicyAndAvailability(t *testing.T) {
 	request := func(value string) *http.Request {
 		r := httptest.NewRequest(http.MethodPost, "/api/rerun", strings.NewReader("use_browser="+value))
@@ -369,6 +390,29 @@ func TestMarketRocketReachBuyerQueriesUseBuyerRoles(t *testing.T) {
 	}
 }
 
+func TestMarketRocketReachCompanyQueriesPreserveBroadAndMissingLocations(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		location string
+		present  bool
+	}{
+		{name: "broad region", location: "Asia", present: true},
+		{name: "missing location", location: "", present: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			for _, query := range marketRocketReachCompanyQueries("Acme Chemicals", testCase.location, "buyer") {
+				location, present := query.Query["location"]
+				if present != testCase.present {
+					t.Fatalf("%s location present = %t, want %t (%#v)", query.Label, present, testCase.present, query.Query)
+				}
+				if testCase.present && (len(location) != 1 || location[0] != testCase.location) {
+					t.Errorf("%s location = %v, want %q", query.Label, location, testCase.location)
+				}
+			}
+		})
+	}
+}
+
 func TestDemandQueryCarriesEditableQCPrompt(t *testing.T) {
 	query := demandChainQueryFromForm(postForm("/api/research", "demand_qc_prompt=CUSTOM+BUYER+QC"), "used cooking oil")
 	if query.QCPrompt != "CUSTOM BUYER QC" {
@@ -614,10 +658,22 @@ func TestDemandChainQueryFromFormHonoursTypedGeography(t *testing.T) {
 
 	// Stage overrides and the intermediaries toggle travel too.
 	overridden := demandChainQueryFromForm(postForm("/api/research",
-		"mode=demand_chain&query=used+cooking+oil&demand_stages=biodiesel+production,oleochemicals&demand_intermediaries=1"),
+		"mode=demand_chain&query=used+cooking+oil&demand_stages=biodiesel+production,oleochemicals&demand_intermediaries=1&demand_trade_records=1"),
 		"used cooking oil")
 	if len(overridden.StagesOverride) != 2 || !overridden.IncludeIntermediaries {
 		t.Fatalf("query = %+v, want the stage override and the intermediaries toggle", overridden)
+	}
+	if !overridden.IncludeTradeRecords {
+		t.Errorf("IncludeTradeRecords = false, want the trade-records opt-in honoured")
+	}
+
+	// The trade-records opt-in defaults to off: an unsubmitted checkbox is the
+	// same as an explicit refusal, and the DB is only queried on request.
+	quiet := demandChainQueryFromForm(postForm("/api/research",
+		"mode=demand_chain&query=used+cooking+oil"),
+		"used cooking oil")
+	if quiet.IncludeTradeRecords {
+		t.Errorf("IncludeTradeRecords = true without the opt-in field")
 	}
 }
 

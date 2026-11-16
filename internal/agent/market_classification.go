@@ -181,6 +181,8 @@ func marketRoleLabel(role string) string {
 		return "Wholesalers / stockists"
 	case models.MarketRoleTrader:
 		return "Traders / importers-exporters"
+	case models.MarketRoleImporter:
+		return "Importers (trade records)"
 	default:
 		return "Other / unclassified"
 	}

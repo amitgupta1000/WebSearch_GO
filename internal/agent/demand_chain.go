@@ -405,6 +405,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		review.Verdict = "revise"
 	}
 	report.Reviews = append(report.Reviews, review)
+	a.attachTradeImporters(ctx, query, report, eventCh)
 	report.CompletedAt = time.Now()
 	if exports := a.engine.ExportDemandChain(ctx, report); len(exports) > 0 {
 		report.Exports = exports
@@ -1040,8 +1041,13 @@ func demandIsProducerWithoutDemand(company *models.MarketLandscapeCompany) bool 
 // discovery-source classifier (entity_source.go) under the name the buyer code
 // reads; the labels are the same, so a vendor added for one landscape mode is
 // known to both. Trade-data pages get their own "trade" label: they can supply
-// an import record, but they are never the company's identity.
+// an import record, but they are never the company's identity. First-party
+// trade-DB records get "custody": they name the actual importer, so they are
+// authoritative.
 func demandSourceOverride(domain string) string {
+	if isCustodyDomain(domain) {
+		return TradeSourceCustody
+	}
 	if isTradeDataDomain(domain) {
 		return "trade"
 	}
@@ -1231,6 +1237,18 @@ func demandStatus(company *models.MarketLandscapeCompany) string {
 		}
 		// Directory pages host many companies and never own one identity.
 		if evidence.SourceTier == "directory" {
+			continue
+		}
+		// A first-party customs record is authoritative on both counts: it
+		// names the actual importer (identity) and the actual transaction.
+		// It verifies on its own. The India scoping is enforced where the
+		// records are collected — demandStatus never sees the geography,
+		// so a custody row can only exist when the run was India-scoped.
+		if evidence.SourceTier == TradeSourceCustody {
+			if evidence.ClaimType == models.DemandClaimImport {
+				transaction = true
+			}
+			ownedDomains[tradeDBHost] = true
 			continue
 		}
 		// A trade-data record can establish an import transaction, but it can

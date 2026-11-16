@@ -83,6 +83,7 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 			b.WriteString("\n")
 		}
 	}
+	writeTradeSections(&b, report.Activity, report.TradeImporters, report.TradeSuppliers, marketMarkdownCell)
 	b.WriteString("\n## QC results\n\n")
 	if strings.TrimSpace(report.QCPromptSource) != "" {
 		fmt.Fprintf(&b, "QC prompt source: **%s**.\n\n", report.QCPromptSource)

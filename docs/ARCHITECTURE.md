@@ -1173,6 +1173,7 @@ WebSearch_GO/
 │   │   ├── market_landscape.go  # Market agent: lanes → discovery → verification → deterministic report
 │   │   ├── demand_chain.go      # Buyer agent: infer value chain → stage lanes → consumption verification
 │   │   ├── trade_data.go        # Trade-data query packs, platform domains and the `trade` source tier
+│   │   ├── trade_records.go     # Opt-in first-party customs sections (Crystal DB): custody tier, India gate, supplier origin scoping
 │   │   ├── hub.go               # Session + SessionHub: thread-safe per-research event buses
 │   │   ├── timing.go            # Per-phase timer/recorder for the run's timing report
 │   │   ├── legal_test.go        # Query plan, identity classification, buckets, budget honesty

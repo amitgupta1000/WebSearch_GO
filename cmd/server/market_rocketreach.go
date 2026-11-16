@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -31,17 +32,20 @@ type marketRocketReachQuery struct {
 }
 
 // marketRocketReachCompanyQueries is deliberately strict: an exact company,
-// an explicit person location, management levels and 5+ years on every query.
-// Leadership is searched without a department; procurement/purchasing and
-// sales/marketing get their department facets.
+// management levels and 5+ years on every query. A location is included when
+// the search model provides one. Leadership is searched without a department;
+// procurement/purchasing and sales/marketing get their department facets.
 func marketRocketReachCompanyQueries(company, location, audience string) []marketRocketReachQuery {
 	base := func() map[string][]string {
-		return map[string][]string{
+		query := map[string][]string{
 			"current_employer":  {strings.TrimSpace(company)},
 			"management_levels": {"cxo", "vp", "director", "manager"},
 			"years_experience":  {marketRocketReachSeniority},
-			"location":          {strings.TrimSpace(location)},
 		}
+		if location = strings.TrimSpace(location); location != "" {
+			query["location"] = []string{location}
+		}
+		return query
 	}
 	leadership := marketRocketReachQuery{Label: "Leadership", Query: base()}
 	if strings.EqualFold(strings.TrimSpace(audience), "buyer") {
@@ -64,10 +68,10 @@ func (s *Server) handleMarketRocketReachCompany(w http.ResponseWriter, r *http.R
 	company := strings.TrimSpace(r.FormValue("company_name"))
 	location := strings.TrimSpace(r.FormValue("location"))
 	audience := strings.TrimSpace(r.FormValue("audience"))
-	if company == "" || location == "" {
+	if company == "" {
 		s.render(w, "market_rocketreach_company_result", marketRocketReachCompanyView{
 			Company: company, Location: location,
-			Error: "A company and an explicit person location are required for a strict RocketReach search.",
+			Error: "A company is required for a RocketReach search.",
 		})
 		return
 	}
@@ -84,7 +88,13 @@ func (s *Server) handleMarketRocketReachCompany(w http.ResponseWriter, r *http.R
 	}
 	view := marketRocketReachCompanyView{
 		Company: company, Location: location,
-		Query: roleScope + "; management levels; 5+ years; location " + location,
+		Query: roleScope + "; management levels; 5+ years",
+	}
+	if location != "" {
+		view.Query += "; location " + location
+	} else {
+		view.Query += "; location not specified"
+		view.Warning = "No company location was verified; RocketReach is searching the company and role filters without a location constraint."
 	}
 	seen := make(map[string]bool)
 	var searchErrors []string
@@ -93,6 +103,19 @@ func (s *Server) handleMarketRocketReachCompany(w http.ResponseWriter, r *http.R
 		if err != nil {
 			log.Printf("[ROCKETREACH] company search %q (%s) failed: %v", company, roleQuery.Label, err)
 			searchErrors = append(searchErrors, roleQuery.Label+": "+err.Error())
+			var httpErr *tools.RocketReachHTTPError
+			if errors.As(err, &httpErr) {
+				switch httpErr.StatusCode {
+				case http.StatusUnauthorized, http.StatusForbidden:
+					view.Warning += " RocketReach rejected the configured API key; verify the key has API access and is not expired."
+				case http.StatusTooManyRequests:
+					view.Warning += " RocketReach rate-limited the remaining role searches; retry after the provider window resets."
+					break
+				}
+				if httpErr.StatusCode == http.StatusTooManyRequests {
+					break
+				}
+			}
 			continue
 		}
 		group := marketRocketReachGroup{Label: roleQuery.Label}
@@ -117,7 +140,7 @@ func (s *Server) handleMarketRocketReachCompany(w http.ResponseWriter, r *http.R
 			view.Error += " " + strings.Join(searchErrors, "; ")
 		}
 	} else if len(searchErrors) > 0 {
-		view.Warning = "Some role searches failed: " + strings.Join(searchErrors, "; ")
+		view.Warning += " Some role searches failed: " + strings.Join(searchErrors, "; ")
 	}
 	s.render(w, "market_rocketreach_company_result", view)
 }

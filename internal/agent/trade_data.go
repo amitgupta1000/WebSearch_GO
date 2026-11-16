@@ -1,10 +1,37 @@
 package agent
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
+
+// TradeSourceCustody is the tier of first-party customs records served by the
+// Crystal import-export DB. Unlike the public trade sites (tier "trade"), a
+// custody record names the actual importer or exporter of the shipment, so it
+// is authoritative about identity — within the geography the record type is
+// valid for: importers are Indian by definition, suppliers are foreign
+// exporters into India.
+const TradeSourceCustody = "custody"
+
+// tradeDBHost is the synthetic host every trade-record evidence URL carries,
+// so the tier helpers and the operator-facing exports recognize first-party
+// records without string-matching their payload.
+const tradeDBHost = "trade-db.crystal.internal"
+
+// isCustodyDomain reports whether a host is the trade DB's synthetic host.
+func isCustodyDomain(domain string) bool {
+	return strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(domain), "www."), tradeDBHost)
+}
+
+// custodyEvidenceURL builds the auditable provenance URL for one trade-record
+// row. It is not fetchable — it names where inside the run's evidence corpus
+// the row came from, the same way a scraped hit names its page.
+func custodyEvidenceURL(direction, name string) string {
+	slug := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(name)), "-"))
+	return "crystal://" + tradeDBHost + "/" + url.PathEscape(direction) + "/" + url.PathEscape(slug)
+}
 
 // tradeDataSourceMarkers are public trade-data and customs-record platforms.
 // They publish shipment listings; they are never the operating company itself.

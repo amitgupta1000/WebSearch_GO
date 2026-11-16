@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -151,6 +152,25 @@ func TestRocketReachCompanySearchUsesLargeSummaryPage(t *testing.T) {
 	}
 	if len(profiles) != 1 || len(profiles[0].JobHistory) != 1 {
 		t.Fatalf("profiles = %+v, want one profile with career history", profiles)
+	}
+}
+
+func TestRocketReachSearchReportsRateLimitAndRetryHint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "rate limited", http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client := NewRocketReachClient("test-key")
+	client.searchURL = server.URL
+	_, err := client.SearchCompany(context.Background(), map[string][]string{"current_employer": {"Acme"}})
+	var httpErr *RocketReachHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error = %v, want RocketReachHTTPError", err)
+	}
+	if httpErr.StatusCode != http.StatusTooManyRequests || httpErr.RetryAfter != "60" {
+		t.Fatalf("error = %+v, want 429 with Retry-After 60", httpErr)
 	}
 }
 

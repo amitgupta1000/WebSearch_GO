@@ -21,7 +21,7 @@ import (
 // reached falls back to memory rather than failing startup — but it says so
 // loudly, because silently running without the configured backend is exactly the
 // kind of misconfiguration that is hard to notice.
-func buildCacheStore(ctx context.Context, cfg *config.Config) cache.Store {
+func buildCacheStore(ctx context.Context, cfg *config.Config) (cache.Store, string) {
 	switch cfg.CacheBackendName() {
 	case "redis":
 		connectionURL := cfg.RedisConnectionURL()
@@ -34,9 +34,7 @@ func buildCacheStore(ctx context.Context, cfg *config.Config) cache.Store {
 			log.Printf("[WARN] Redis cache unavailable (%v); falling back to the in-memory cache", err)
 			break
 		}
-		// Only the host is logged: the connection URL may carry a password.
-		log.Printf("Cache backend: redis (%s, prefix %q)", redactedTarget(connectionURL), cfg.RedisKeyPrefix)
-		return store
+		return store, "redis"
 	case "gcs":
 		if strings.TrimSpace(cfg.GCSCacheBucket) == "" {
 			log.Printf("[WARN] CACHE_BACKEND=gcs but GCS_CACHE_BUCKET is not set; falling back to the in-memory cache")
@@ -47,16 +45,13 @@ func buildCacheStore(ctx context.Context, cfg *config.Config) cache.Store {
 			log.Printf("[WARN] GCS cache unavailable (%v); falling back to the in-memory cache", err)
 			break
 		}
-		log.Printf("Cache backend: gcs (bucket %s, prefix %q, credentials: %s)",
-			cfg.GCSCacheBucket, cfg.GCSCachePrefix, credentialSource(cfg))
-		return store
+		return store, "gcs"
 	default:
 		if backend := cfg.CacheBackendName(); backend != "memory" {
 			log.Printf("[WARN] Unknown CACHE_BACKEND %q; using the in-memory cache", backend)
 		}
 	}
-	log.Printf("Cache backend: memory (max %d entries)", cfg.CacheMaxEntries)
-	return cache.NewMemoryCache(cfg.CacheMaxEntries)
+	return cache.NewMemoryCache(cfg.CacheMaxEntries), "memory"
 }
 
 // credentialSource describes where the Google client libraries will take their

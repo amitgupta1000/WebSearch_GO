@@ -143,23 +143,53 @@
 </div>
 {{end}}
 
+{{define "market_sources"}}
+{{if .}}
+<details class="border-t border-slate-800/60 pt-3">
+	<summary class="cursor-pointer text-[11px] uppercase tracking-wide text-slate-500 font-semibold">Sources ({{len .}})</summary>
+	<div class="mt-2 space-y-1">
+		{{range .}}<div class="text-[11px] text-slate-500"><a href="{{.URL}}" target="_blank" rel="noreferrer" class="text-indigo-400 hover:underline break-all">{{.Title}}</a>{{if .Snippet}}<div class="text-slate-600 mt-0.5">{{.Snippet}}</div>{{end}}</div>{{end}}
+	</div>
+</details>
+{{end}}
+{{end}}
+
+{{define "market_rr_discovery"}}
+<form hx-post="/api/market-landscape/rocketreach/company" hx-target="next .rr-company-results" hx-swap="innerHTML" class="inline">
+	<input type="hidden" name="audience" value="{{.Audience}}">
+	<input type="hidden" name="company_name" value="{{.Company.Name}}">
+	<input type="hidden" name="location" value="{{.Location}}">
+	<button type="submit" title="RocketReach discovery: company, location, role and 5+ years seniority filters"
+	        class="text-[10px] rounded-full border border-indigo-800 bg-indigo-950/40 px-2 py-1 text-indigo-200 hover:bg-indigo-900/50">RR discovery</button>
+</form>
+<div class="rr-company-results w-full"></div>
+{{end}}
+
+{{define "category_result_card"}}
+{{$company := .Company}}
+<div class="bg-slate-950 border border-emerald-900/50 rounded-xl p-4 space-y-2">
+	<div class="flex flex-wrap items-center justify-between gap-2">
+		<span class="font-semibold text-white">{{$company.Name}}</span>
+		<div class="flex flex-wrap items-center gap-2">
+			<span class="text-[10px] text-emerald-300">{{$company.Status}}</span>
+			{{template "market_rr_discovery" (dict "Company" $company "Audience" .Audience "Location" (rrLocation $company.PresenceCountry $company.HQCountry $company.Country .Geography))}}
+		</div>
+	</div>
+	<div class="text-xs text-emerald-300">{{$company.Activity}}{{if $company.Role}} · {{$company.Role}}{{end}}</div>
+	<div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400"><div><span class="text-slate-600">Domain</span><br>{{if $company.Domain}}{{$company.Domain}}{{else}}Not established{{end}}</div><div><span class="text-slate-600">Geography</span><br>{{if $company.PresenceCountry}}{{$company.PresenceCountry}}{{else if $company.Country}}{{$company.Country}}{{else}}Not established{{end}}</div><div><span class="text-slate-600">Employees</span><br>{{if $company.Employees}}{{$company.Employees}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Turnover</span><br>{{if $company.Turnover}}{{$company.Turnover}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Financial year</span><br>{{if $company.FinancialYear}}{{$company.FinancialYear}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Evidence</span><br>{{len $company.Evidence}} qualifying record(s)</div><div><span class="text-slate-600">Confidence</span><br>{{printf "%.0f" (mul $company.Confidence 100)}}%</div></div>
+	{{if $company.Description}}<p class="text-xs text-slate-300 leading-relaxed">{{$company.Description}}</p>{{else}}<p class="text-xs text-slate-500">No descriptive summary was available in the collected snippets.</p>{{end}}
+	{{if $company.MetricsSource}}<a href="{{$company.MetricsSource}}" target="_blank" rel="noreferrer" class="block text-[11px] text-emerald-400 hover:underline break-all">Metrics source</a>{{end}}
+	{{template "market_sources" $company.Evidence}}
+</div>
+{{end}}
+
 {{define "market_result_card"}}
 <div class="rr-company-card bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
 	<div class="flex flex-wrap justify-between gap-2">
 		<span class="font-semibold text-white">{{.Name}}</span>
 		<div class="flex flex-wrap items-center gap-2">
 			<span class="text-[10px] text-emerald-300">{{.Status}}</span>
-			{{if or .PresenceCountry .HQCountry .Country}}
-			<form hx-post="/api/market-landscape/rocketreach/company" hx-target="next .rr-company-results" hx-swap="innerHTML" class="inline">
-				<input type="hidden" name="company_name" value="{{.Name}}">
-				<input type="hidden" name="location" value="{{if .PresenceCountry}}{{.PresenceCountry}}{{else if .HQCountry}}{{.HQCountry}}{{else}}{{.Country}}{{end}}">
-				<button type="submit" title="Strict RocketReach search: leadership, procurement/purchasing, sales/marketing; 5+ years; exact location"
-				        class="text-[10px] rounded-full border border-indigo-800 bg-indigo-950/40 px-2 py-1 text-indigo-200 hover:bg-indigo-900/50">RR contacts</button>
-			</form>
-			{{else}}
-			<span class="text-[10px] text-slate-600" title="No verified company location is available for a strict search">RR needs location</span>
-			{{end}}
-			<div class="rr-company-results w-full"></div>
+			{{template "market_rr_discovery" (dict "Company" . "Audience" "producer" "Location" (rrLocation .PresenceCountry .HQCountry .Country))}}
 		</div>
 	</div>
 	<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
@@ -188,17 +218,7 @@
 		{{if .FinancialYear}}<div><span class="text-slate-600">Financial year</span><br>{{.FinancialYear}}</div>{{end}}
 	</div>{{end}}
 	{{if .MetricsSource}}<a href="{{.MetricsSource}}" target="_blank" rel="noreferrer" class="text-[10px] text-indigo-400 hover:underline">Metrics source</a>{{end}}
-</div>
-{{end}}
-
-{{define "category_result_card"}}
-<div class="bg-slate-950 border border-emerald-900/50 rounded-xl p-4 space-y-2">
-	<div class="flex flex-wrap items-center justify-between gap-2"><span class="font-semibold text-white">{{.Name}}</span><span class="text-[10px] text-emerald-300">{{.Status}}</span></div>
-	<div class="text-xs text-emerald-300">{{.Activity}}{{if .Role}} · {{.Role}}{{end}}</div>
-	<div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400"><div><span class="text-slate-600">Domain</span><br>{{if .Domain}}{{.Domain}}{{else}}Not established{{end}}</div><div><span class="text-slate-600">Geography</span><br>{{if .PresenceCountry}}{{.PresenceCountry}}{{else if .Country}}{{.Country}}{{else}}Not established{{end}}</div><div><span class="text-slate-600">Employees</span><br>{{if .Employees}}{{.Employees}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Turnover</span><br>{{if .Turnover}}{{.Turnover}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Financial year</span><br>{{if .FinancialYear}}{{.FinancialYear}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Evidence</span><br>{{len .Evidence}} qualifying record(s)</div><div><span class="text-slate-600">Confidence</span><br>{{printf "%.0f" (mul .Confidence 100)}}%</div></div>
-	{{if .Description}}<p class="text-xs text-slate-300 leading-relaxed">{{.Description}}</p>{{else}}<p class="text-xs text-slate-500">No descriptive summary was available in the collected snippets.</p>{{end}}
-	{{if .MetricsSource}}<a href="{{.MetricsSource}}" target="_blank" rel="noreferrer" class="block text-[11px] text-emerald-400 hover:underline break-all">Metrics source</a>{{end}}
-	{{range .Evidence}}<a href="{{.URL}}" target="_blank" rel="noreferrer" class="block text-[11px] text-emerald-400 hover:underline break-all">{{.Title}}</a>{{end}}
+	{{template "market_sources" .Evidence}}
 </div>
 {{end}}
 
@@ -208,7 +228,7 @@
 		<div>
 			<h3 class="text-2xl font-bold text-white">Seller Landscape</h3>
 			<p class="text-sm text-slate-400 mt-1">{{.Objective}}</p>
-			<p class="text-xs text-slate-500 mt-1">Activity: {{.Activity}}{{if .ProductCategory}} · Category: {{.ProductCategory}}{{end}}</p>
+			<p class="text-xs text-slate-500 mt-1">Activity: {{.Activity}}{{if .ProductCategory}} · Category: {{.ProductCategory}}{{end}}{{if .Geography}} · Geography: {{.Geography}}{{end}}</p>
 		</div>
 		<div class="text-right text-xs text-slate-500">{{.QueriesUsed}} queries · {{.SearchHits}} hits · {{.LeadsReviewed}} leads · {{.LeadsExtracted}} entities · {{.LeadsResolved}} verified · {{.PagesEnriched}} pages · {{.Iterations}} iterations</div>
 	</div>
@@ -236,7 +256,17 @@
 		<div class="text-[11px] uppercase tracking-[.2em] text-emerald-400 font-semibold">category level results <span class="text-slate-600">({{len .CategoryResults}})</span></div>
 		<p class="text-xs text-slate-500">Independent research for the resolved downstream category {{.ProductCategory}}. These findings are not exact-product seller results.</p>
 		{{if .CategoryLanes}}<p class="text-[11px] text-slate-600">Discovery lanes: {{range .CategoryLanes}}{{.}}; {{end}}</p>{{end}}
-		{{if .CategoryResults}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .CategoryResults}}{{template "category_result_card" .}}{{end}}</div>{{else}}<p class="text-sm text-slate-500">No category-level companies met the verification threshold.</p>{{end}}
+		{{if .CategoryResults}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .CategoryResults}}{{template "category_result_card" (dict "Company" . "Audience" "producer" "Geography" $.Geography)}}{{end}}</div>{{else}}<p class="text-sm text-slate-500">No category-level companies met the verification threshold.</p>{{end}}
+	</div>{{end}}
+	{{if .TradeImporters}}<div class="space-y-3 border-l-2 border-amber-500 pl-3">
+		<div class="text-[11px] uppercase tracking-[.2em] text-amber-400 font-semibold">trade record importers <span class="text-slate-600">({{len .TradeImporters}})</span></div>
+		<p class="text-xs text-slate-500">Indian importers of {{.Activity}} named by the Crystal trade DB. An importer may equally be a reseller (distributor, wholesaler or trader) — the operator decides; these rows are separate from the verified seller results and the coverage floor.</p>
+		<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .TradeImporters}}{{template "category_result_card" (dict "Company" . "Audience" "producer" "Geography" $.Geography)}}{{end}}</div>
+	</div>{{end}}
+	{{if .TradeSuppliers}}<div class="space-y-3 border-l-2 border-amber-500 pl-3">
+		<div class="text-[11px] uppercase tracking-[.2em] text-amber-400 font-semibold">trade record suppliers <span class="text-slate-600">({{len .TradeSuppliers}})</span></div>
+		<p class="text-xs text-slate-500">Exporters of {{.Activity}} into India named by the Crystal trade DB, origin-scoped where the records carry a country. Separate from the verified seller results and the coverage floor.</p>
+		<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .TradeSuppliers}}{{template "category_result_card" (dict "Company" . "Audience" "producer" "Geography" $.Geography)}}{{end}}</div>
 	</div>{{end}}
 	{{if .Results}}
 	{{if .Groups}}
@@ -356,20 +386,19 @@
 		<div class="text-[11px] uppercase tracking-[.2em] text-emerald-400 font-semibold">category level results <span class="text-slate-600">({{len .CategoryResults}})</span></div>
 		<p class="text-xs text-slate-500">Independent research for the resolved downstream category {{.ProductCategory}}. These findings are not product-level buyer results or stage candidates.</p>
 		{{if .CategoryLanes}}<p class="text-[11px] text-slate-600">Discovery lanes: {{range .CategoryLanes}}{{.}}; {{end}}</p>{{end}}
-		{{if .CategoryResults}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .CategoryResults}}{{template "category_result_card" .}}{{end}}</div>{{else}}<p class="text-sm text-slate-500">No category-level companies met the verification threshold.</p>{{end}}
+		{{if .CategoryResults}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .CategoryResults}}{{template "category_result_card" (dict "Company" . "Audience" "buyer" "Geography" $.Geography)}}{{end}}</div>{{else}}<p class="text-sm text-slate-500">No category-level companies met the verification threshold.</p>{{end}}
+	</div>{{end}}
+	{{if .TradeImporters}}<div class="space-y-3 border-l-2 border-amber-500 pl-3">
+		<div class="text-[11px] uppercase tracking-[.2em] text-amber-400 font-semibold">trade record importers <span class="text-slate-600">({{len .TradeImporters}})</span></div>
+		<p class="text-xs text-slate-500">Indian importers of the product named by the Crystal trade DB. An importer may equally be a reseller (distributor, wholesaler or trader) — the operator decides; these rows are separate from the verified buyer results and stage coverage.</p>
+		<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .TradeImporters}}{{template "category_result_card" (dict "Company" . "Audience" "buyer" "Geography" $.Geography)}}{{end}}</div>
 	</div>{{end}}
 	{{if .Results}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Results}}
 		<div class="rr-company-card bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
 			<div class="flex flex-wrap justify-between gap-3"><span class="font-semibold text-white">{{.Name}}</span>
 				<div class="flex flex-wrap items-center gap-2">
 					<span class="text-[10px] text-emerald-300">{{.Status}}</span>
-					{{if or .PresenceCountry .HQCountry .Country}}<form hx-post="/api/market-landscape/rocketreach/company" hx-target="next .rr-company-results" hx-swap="innerHTML" class="inline">
-						<input type="hidden" name="audience" value="buyer">
-						<input type="hidden" name="company_name" value="{{.Name}}">
-						<input type="hidden" name="location" value="{{if .PresenceCountry}}{{.PresenceCountry}}{{else if .HQCountry}}{{.HQCountry}}{{else}}{{.Country}}{{end}}">
-						<button type="submit" title="Strict RocketReach buyer contacts: leadership, procurement/purchasing, supply chain/logistics, operations/plant; 5+ years" class="text-[10px] rounded-full border border-cyan-800 bg-cyan-950/40 px-2 py-1 text-cyan-200 hover:bg-cyan-900/50">RR contacts</button>
-					</form>{{else}}<span class="text-[10px] text-slate-600" title="No verified buyer location is available for a strict search">RR needs location</span>{{end}}
-					<div class="rr-company-results w-full"></div>
+					{{template "market_rr_discovery" (dict "Company" . "Audience" "buyer" "Location" (rrLocation .PresenceCountry .HQCountry .Country $.Geography))}}
 				</div>
 			</div>
 			{{if .Stage}}<div class="text-xs text-indigo-300">Consuming stage: {{.Stage}}</div>{{end}}
@@ -392,6 +421,7 @@
 				{{if .FinancialYear}}<div><span class="text-slate-600">Financial year</span><br>{{.FinancialYear}}</div>{{end}}
 			</div>{{end}}
 			{{if .MetricsSource}}<a href="{{.MetricsSource}}" target="_blank" rel="noreferrer" class="text-[10px] text-indigo-400 hover:underline">Metrics source</a>{{end}}
+			{{template "market_sources" .Evidence}}
 		</div>
 	{{end}}</div>{{else}}<p class="text-sm text-slate-500">No company met the consumption-verification threshold.</p>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">
@@ -408,9 +438,9 @@
 	{{range .StageCandidates}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
 		<div class="flex justify-between gap-2"><span class="font-semibold text-white">{{.Stage.Name}}</span><span class="text-[10px] text-slate-500">{{if eq .Stage.Source "category"}}channel category · resale{{else if eq .Stage.Distance 2}}step 2 · derived{{else}}step 1 · direct{{end}} · {{.Stage.Source}}</span></div>
 		{{if .Stage.Rationale}}<p class="text-xs text-slate-400 mt-1">{{.Stage.Rationale}}</p>{{end}}
-		{{if .Companies}}<div class="mt-2 flex flex-wrap gap-1.5">{{range .Companies}}<span class="inline-block text-[11px] {{if eq .Status "lead"}}text-slate-300{{else}}text-emerald-300{{end}} bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5" title="{{.Description}}{{if .Employees}} · Employees: {{.Employees}}{{end}}{{if .Turnover}} · Turnover: {{.Turnover}}{{end}}">{{.Name}} · {{.Status}}{{if .Presence}} · {{.Presence}}{{end}}</span>{{end}}</div>
+		{{if .Companies}}<div class="mt-2 flex flex-wrap gap-1.5">{{range .Companies}}<div class="inline-flex flex-wrap items-center gap-1 text-[11px] {{if eq .Status "lead"}}text-slate-300{{else}}text-emerald-300{{end}} bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5" title="{{.Description}}{{if .Employees}} · Employees: {{.Employees}}{{end}}{{if .Turnover}} · Turnover: {{.Turnover}}{{end}}"><span>{{.Name}} · {{.Status}}{{if .Presence}} · {{.Presence}}{{end}}</span>{{template "market_rr_discovery" (dict "Company" . "Audience" "buyer" "Location" (rrLocation .PresenceCountry .HQCountry .Country $.Geography))}}{{template "market_sources" .Evidence}}</div>{{end}}</div>
 		{{else}}<p class="text-xs text-slate-500 mt-1">No stage-active companies surfaced.</p>{{end}}
-		{{if .GlobalCompanies}}<div class="mt-2 border-t border-slate-800 pt-2"><div class="text-[10px] uppercase tracking-wide text-amber-300">Global / cross-border · {{len .GlobalCompanies}}</div><div class="mt-1 flex flex-wrap gap-1.5">{{range .GlobalCompanies}}<span class="inline-block text-[11px] text-slate-300 bg-slate-900 border border-amber-900/60 rounded px-1.5 py-0.5" title="{{.Description}}">{{.Name}} · {{.Status}} · global</span>{{end}}</div></div>{{end}}
+		{{if .GlobalCompanies}}<div class="mt-2 border-t border-slate-800 pt-2"><div class="text-[10px] uppercase tracking-wide text-amber-300">Global / cross-border · {{len .GlobalCompanies}}</div><div class="mt-1 flex flex-wrap gap-1.5">{{range .GlobalCompanies}}<div class="inline-flex flex-wrap items-center gap-1 text-[11px] text-slate-300 bg-slate-900 border border-amber-900/60 rounded px-1.5 py-0.5" title="{{.Description}}"><span>{{.Name}} · {{.Status}} · global</span>{{template "market_rr_discovery" (dict "Company" . "Audience" "buyer" "Location" (rrLocation .PresenceCountry .HQCountry .Country $.Geography))}}{{template "market_sources" .Evidence}}</div>{{end}}</div></div>{{end}}
 	</div>{{end}}
 	<details class="border-t border-slate-800 pt-5">
 		<summary class="cursor-pointer text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Research links and demand signals</summary>

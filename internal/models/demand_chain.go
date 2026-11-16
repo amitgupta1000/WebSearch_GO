@@ -136,6 +136,11 @@ type DemandChainQuery struct {
 	// default because a buyer list dominated by middlemen is rarely what the
 	// operator asked for.
 	IncludeIntermediaries bool `json:"include_intermediaries,omitempty"`
+	// IncludeTradeRecords opts the run into the Crystal import-export DB: a
+	// bounded first-party customs query for the product's ranked Indian
+	// importers, published in its own section. Off by default — the DB answers
+	// in tens of seconds and the operator decides when to spend it.
+	IncludeTradeRecords bool `json:"include_trade_records,omitempty"`
 	// Budget overrides. Zero keeps the mode defaults; a run spends at most
 	// DiscoveryQueries discovery searches and VerificationQueries verification
 	// searches, and enriches at most MaxLeadsEnriched discovery leads before
@@ -270,6 +275,13 @@ type DemandChainReport struct {
 	// is the cross-cutting verified list; this is the value chain's own roster.
 	StageCandidates     []StageCandidates         `json:"stage_candidates,omitempty"`
 	StageCoverage       []DemandStageCoverage     `json:"stage_coverage,omitempty"`
+	// TradeImporters is the opt-in first-party customs section: the product's
+	// ranked Indian importers named by the Crystal trade DB. It is published
+	// separately from Results on purpose — an importer may equally be a
+	// reseller (distributor, wholesaler or trader), so the operator decides
+	// the classification, and the section never feeds verified results or
+	// stage coverage.
+	TradeImporters      []MarketLandscapeCompany  `json:"trade_importers,omitempty"`
 	Reviews             []DemandChainReview       `json:"reviews,omitempty"`
 	Appendix            []MarketLandscapeEvidence `json:"appendix,omitempty"`
 	Lanes               []string                  `json:"lanes,omitempty"`

@@ -130,6 +130,45 @@ type Engine struct {
 	// entityGateMode is how strictly the run holds sources to the confirmed
 	// company: enforce (reject and remove), report (label and keep) or off.
 	entityGateMode string
+	// tradeDB serves ranked first-party customs partners from the Crystal
+	// import-export DB. Nil (the default) keeps the capability off so unit
+	// tests stay hermetic; the server wires it only when the API URL is set,
+	// and the trade-records sections are additionally gated on the run's
+	// opt-in and geography.
+	tradeDB TradeDBSource
+}
+
+// TradeDBSource serves ranked first-party customs partners and raw records
+// from the Crystal import-export DB. *tools.TradeDBClient satisfies it; the
+// interface keeps the agents testable without a live API.
+type TradeDBSource interface {
+	TopImporters(ctx context.Context, product string, hsCodes []string, rankLimit int) ([]models.TradePartner, error)
+	TopSuppliers(ctx context.Context, product string, hsCodes []string, rankLimit int) ([]models.TradePartner, error)
+	// FilterOptions exposes the DB's foreign-port vocabulary the supplier
+	// origin scoping resolves against.
+	FilterOptions(ctx context.Context) (*models.TradeFilterOptions, error)
+	// QueryRecords returns raw customs records, whose origin_country field is
+	// the authoritative geography for supplier scoping.
+	QueryRecords(ctx context.Context, query models.TradeQuery) ([]models.TradeRecord, error)
+}
+
+// WithTradeDB attaches the trade-DB client. A nil client keeps the capability
+// off: the trade-records sections are only populated when the run opts in and
+// the geography is valid for the record type.
+func WithTradeDB(client TradeDBSource) EngineOption {
+	return func(e *Engine) {
+		if e != nil {
+			e.tradeDB = client
+		}
+	}
+}
+
+// TradeDB returns the attached trade-DB source, or nil when absent.
+func (e *Engine) TradeDB() TradeDBSource {
+	if e == nil {
+		return nil
+	}
+	return e.tradeDB
 }
 
 // Entity gate modes.
