@@ -1563,7 +1563,10 @@ func TestDemandStageBroadenTermsUsesProductCategory(t *testing.T) {
 }
 
 // TestDemandInferenceCategoryIsValidated: the first-pass category travels with the chain but only
-// when it clears the same deterministic gate used by the fallback search.
+// when it clears the same deterministic gate used by the fallback search. The
+// category also drives the intermediate downstep: polyurethanes is what the
+// foam stage produces, so the families that consume polyurethane systems enter
+// the chain as derived stages.
 func TestDemandInferenceCategoryIsValidated(t *testing.T) {
 	llm := &demandLLM{
 		category: "polyurethanes",
@@ -1571,11 +1574,28 @@ func TestDemandInferenceCategoryIsValidated(t *testing.T) {
 	}
 	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
 	chain, category, rationale, source, inferred, warnings := agent.inferDemandChainWithCategory(context.Background(), models.DemandChainQuery{Activity: "Toluene Diisocyanate"}, nil)
-	if !inferred || len(chain) != 1 {
+	if !inferred || len(chain) == 0 {
 		t.Fatalf("chain=%+v inferred=%v", chain, inferred)
 	}
 	if category != "polyurethanes" || source != "model" || rationale == "" {
 		t.Errorf("category=%q source=%q rationale=%q warnings=%v", category, source, rationale, warnings)
+	}
+	if chain[0].Name != "Polyurethane Foam Manufacturing" || chain[0].Distance != models.StageDistanceDirect {
+		t.Fatalf("first stage = %+v, want the inferred foam stage at distance 1", chain[0])
+	}
+	// The downstep: polyurethanes is an intermediate the foam stage produces,
+	// so its consuming families enter as distance-2 stages sourced to the
+	// category — the buyers one step past the esters/prepolymers.
+	joined := strings.ToLower(stageNames(chain))
+	for _, want := range []string{"coatings production", "adhesive and sealant manufacturing", "elastomer manufacturing"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("chain %q is missing the downstep consumer %q", joined, want)
+		}
+	}
+	for _, stage := range chain {
+		if stage.Source == "category" && stage.Distance != models.StageDistanceDerived {
+			t.Errorf("downstep stage %q distance = %d, want 2", stage.Name, stage.Distance)
+		}
 	}
 }
 

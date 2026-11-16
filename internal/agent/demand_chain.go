@@ -1939,6 +1939,27 @@ Each stage has name (the consuming manufacturing process), rationale (one line n
 	if categoryRationale == "" && category != "" {
 		categoryRationale = "Derived from the inferred consuming stages."
 	}
+	// An intermediate category ("acrylates and acetates" for n-butanol) is
+	// itself a salable product family: category-shaped search dead-ends on the
+	// intermediate's producers, and the buyers one step further (polymers,
+	// copolymers, plasticizers made from those esters) never enter the chain
+	// unless the model happened to infer them. The downstep resolves the
+	// category's consumers once and adds them as derived stages, so the two
+	// steps the buyer definition allows are both actually populated. It fires
+	// only when the category names what the distance-1 stages produce — a
+	// fallback category that merely describes the product's own family ("used
+	// cooking oil -> oleochemicals" when step 1 is biodiesel) must not pull in
+	// the family's sibling consumers.
+	if category != "" && demandCategoryIsIntermediate(category) && demandCategoryMatchesStageOutput(category, stages) {
+		downstep, downstepWarnings := a.inferCategoryDownstep(ctx, query.Activity, category, stages, eventCh)
+		for _, stage := range downstep {
+			if len(stages) >= demandMaxStages {
+				break
+			}
+			stages = append(stages, stage)
+		}
+		warnings = append(warnings, downstepWarnings...)
+	}
 	emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Inferred %d consuming stage(s): %s; category: %s", len(stages), stageNames(stages), category), "", "")
 	return stages, category, categoryRationale, categorySource, true, warnings
 }
@@ -2156,6 +2177,259 @@ func demandKnownDirectConsumption(activity string, stage models.ValueChainStage)
 		}
 	}
 	return false
+}
+
+// demandCategoryConsumerFamilies are the consuming product families and
+// industries for the intermediate categories the category lane resolves to. An
+// intermediate category ("acrylates and acetates" for n-butanol) is itself a
+// salable product family, so category-shaped search dead-ends on the
+// intermediate's producers; these families are the downstep: who consumes the
+// intermediate. They anchor the model's proposal and are the deterministic
+// fallback when that proposal fails.
+var demandCategoryConsumerFamilies = map[string][]string{
+	"acrylates":     {"acrylic polymer and copolymer production", "superabsorbent polymer production", "adhesive and sealant manufacturing", "water treatment polymer production"},
+	"acetates":      {"solvent blending and formulation", "adhesive and sealant manufacturing", "cellulose acetate processing"},
+	"esters":        {"plasticizer production", "lubricant and metalworking fluid production", "solvent blending and formulation"},
+	"glycol ethers": {"cleaning product manufacturing", "paint and coatings production", "printing ink manufacturing"},
+	"plasticizers":  {"pvc compounding", "polymer compounding and masterbatch production", "cable and wire coating production"},
+	"polyurethanes": {"foam manufacturing", "coatings production", "adhesive and sealant manufacturing", "elastomer manufacturing"},
+	"solvents":      {"paint and coatings production", "adhesive and sealant manufacturing", "cleaning product manufacturing", "ink manufacturing"},
+	"aromatics":     {"polymer and resin production", "surfactant production", "dye and pigment manufacturing"},
+	"oleochemicals": {"surfactant and detergent production", "soap manufacturing", "fatty acid derivative production"},
+	"surfactants":   {"detergent manufacturing", "cleaning product manufacturing", "emulsifier production"},
+	"lubricants":    {"grease manufacturing", "metalworking fluid production"},
+	"biodiesel":     {"soap and glycerin production"},
+	"coal products": {"carbon and graphite product manufacturing"},
+}
+
+// demandCategoryIsIntermediate reports whether a validated category is an
+// intermediate product family — a salable chemical family rather than an
+// end-use industry. A family the consumer map knows is intermediate by
+// construction; chemical-family morphology ("acrylates", "acetates", "esters",
+// "glycol ethers", "polyurethane resins") is the light fallback.
+func demandCategoryIsIntermediate(category string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(category))
+	if lowered == "" {
+		return false
+	}
+	for family := range demandCategoryConsumerFamilies {
+		if strings.Contains(lowered, family) {
+			return true
+		}
+	}
+	for _, token := range demandCategoryFields(lowered) {
+		switch {
+		case strings.HasSuffix(token, "ate"), strings.HasSuffix(token, "ates"),
+			strings.HasSuffix(token, "ester"), strings.HasSuffix(token, "esters"),
+			strings.HasSuffix(token, "ether"), strings.HasSuffix(token, "ethers"),
+			strings.HasSuffix(token, "polymer"), strings.HasSuffix(token, "polymers"),
+			strings.HasSuffix(token, "resin"), strings.HasSuffix(token, "resins"):
+			return true
+		}
+	}
+	return false
+}
+
+// demandKnownConsumerFamilies unions the deterministic consuming families of
+// every known family the category names ("acrylate esters" carries both the
+// acrylate and ester families), capped so the downstep stays a single hop.
+func demandKnownConsumerFamilies(category string) []string {
+	lowered := strings.ToLower(strings.TrimSpace(category))
+	var families []string
+	for family, consumers := range demandCategoryConsumerFamilies {
+		matched := true
+		for _, token := range demandCategoryFields(family) {
+			if !demandTokenRelates(lowered, token) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			families = append(families, consumers...)
+		}
+	}
+	if len(families) > 6 {
+		families = families[:6]
+	}
+	return families
+}
+
+// demandCategoryMatchesStageOutput reports whether the category names the
+// product family the distance-1 stages produce — the condition that makes the
+// downstep sound. A category that merely describes the product's own family
+// while the step-1 output is something else ("used cooking oil -> oleochemicals"
+// when the step-1 stage is biodiesel production) must not pull the family's
+// sibling consumers into the chain: their buyers do not buy this product.
+func demandCategoryMatchesStageOutput(category string, stages []models.ValueChainStage) bool {
+	fields := demandCategoryFields(category)
+	if len(fields) == 0 {
+		return false
+	}
+	for _, stage := range stages {
+		text := strings.ToLower(stage.Name) + " " + strings.Join(stage.Products, " ")
+		for _, token := range fields {
+			if demandTokenRelates(text, token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// inferCategoryDownstep resolves the consumers of an intermediate category one
+// step down: the model proposes the consuming manufacturing stages, validated
+// against the category link and the known families, deduped against the
+// already-inferred stages, and capped. When the proposal fails or is unusable
+// the deterministic families stand in; when nothing usable exists the downstep
+// is silently skipped — the run continues on the inferred stages alone.
+func (a *DemandChainAgent) inferCategoryDownstep(ctx context.Context, activity, category string, stages []models.ValueChainStage, eventCh chan<- models.AgentEvent) ([]models.ValueChainStage, []string) {
+	known := demandKnownConsumerFamilies(category)
+	prompt := fmt.Sprintf(`The product family %q is an intermediate: it is itself consumed as an input by further manufacturing. Name the manufacturing stages that consume %q as an input. Each stage: name (a manufacturing process, two to five words, e.g. "acrylic polymer and copolymer production"), rationale (one line naming the %q input), operators (2-3 search phrases for the plants or companies operating the stage), products (up to 4 concrete products the stage makes). These consumers are already known - do not repeat them verbatim: %s. Return a JSON array of stage objects. Do not return retail, trading, logistics or consumer markets.`, category, category, category, strings.Join(known, "; "))
+	var proposed []models.ValueChainStage
+	if err := a.engine.GenerateStructured(ctx,
+		"You resolve exactly one downstream step of an industrial value chain: which manufacturing processes consume the named intermediate product family. Keep stages concrete and manufacturing-shaped; never return retail, trading, logistics or consumer markets.",
+		prompt, &proposed); err != nil {
+		accepted := demandDeterministicDownstep(category, known, stages)
+		if len(accepted) == 0 {
+			return nil, nil
+		}
+		return accepted, demandDownstepWarning(category, accepted)
+	}
+	accepted := demandValidateDownstepConsumers(proposed, activity, category, known, stages)
+	if len(accepted) == 0 {
+		accepted = demandDeterministicDownstep(category, known, stages)
+	}
+	if len(accepted) == 0 {
+		return nil, nil
+	}
+	emitAgentEvent(eventCh, models.EventToolResult, fmt.Sprintf("Category %q is an intermediate; %d consuming stage(s) resolved one step down.", category, len(accepted)), "", "")
+	return accepted, demandDownstepWarning(category, accepted)
+}
+
+// demandValidateDownstepConsumers gates the model's proposal: bounded, deduped
+// against the already-inferred stages (a word overlap means the model already
+// covers that ground), and each consumer must relate to the category or sit in
+// the known family list. A consumer that is a known DIRECT consumer of the
+// product is upgraded to distance 1 — chemistry outranks the chain position.
+func demandValidateDownstepConsumers(proposed []models.ValueChainStage, activity, category string, known []string, existing []models.ValueChainStage) []models.ValueChainStage {
+	accepted := make([]models.ValueChainStage, 0, 4)
+	seen := make(map[string]bool)
+	for _, stage := range proposed {
+		name := strings.TrimSpace(stage.Name)
+		if name == "" || len(accepted) >= 4 {
+			continue
+		}
+		lowered := strings.ToLower(name)
+		if seen[lowered] || demandStageOverlapsExisting(lowered, existing) {
+			continue
+		}
+		if !demandConsumerRelatesToCategory(lowered, category, known) {
+			continue
+		}
+		seen[lowered] = true
+		distance := models.StageDistanceDerived
+		products := normalizeStageProducts(stage.Products)
+		if demandKnownDirectConsumption(activity, models.ValueChainStage{Name: name, Products: products}) {
+			distance = models.StageDistanceDirect
+		}
+		operators := make([]string, 0, len(stage.Operators))
+		for _, phrase := range stage.Operators {
+			if phrase = strings.TrimSpace(phrase); phrase != "" {
+				operators = append(operators, phrase)
+			}
+		}
+		if len(operators) == 0 {
+			operators = []string{name + " manufacturers"}
+		}
+		rationale := strings.TrimSpace(stage.Rationale)
+		if rationale == "" {
+			rationale = fmt.Sprintf("Consumes the %s intermediate.", category)
+		}
+		accepted = append(accepted, models.ValueChainStage{
+			Name: name, Rationale: rationale, Operators: operators,
+			Products: products, Distance: distance, Source: "category",
+		})
+	}
+	return accepted
+}
+
+// demandDeterministicDownstage builds the fallback stages from the known
+// families, skipping anything the run's stages already cover.
+func demandDeterministicDownstep(category string, known []string, existing []models.ValueChainStage) []models.ValueChainStage {
+	stages := make([]models.ValueChainStage, 0, len(known))
+	for _, family := range known {
+		lowered := strings.ToLower(family)
+		if demandStageOverlapsExisting(lowered, existing) {
+			continue
+		}
+		stages = append(stages, models.ValueChainStage{
+			Name:      family,
+			Rationale: fmt.Sprintf("Consumes the %s intermediate (known downstream family).", category),
+			Operators: []string{family + " manufacturers"},
+			Distance:  models.StageDistanceDerived,
+			Source:    "category",
+		})
+	}
+	if len(stages) > 4 {
+		stages = stages[:4]
+	}
+	return stages
+}
+
+// demandStageOverlapStopwords are the words two different manufacturing stages
+// legitimately share ("production", "manufacturing", "plant"...) and the
+// connectives every stage name carries. Overlap on these is not evidence the
+// model proposed the same stage twice; overlap on a real product or process
+// word is.
+var demandStageOverlapStopwords = map[string]bool{
+	"and": true, "or": true, "the": true, "for": true, "with": true,
+	"production": true, "manufacturing": true, "processing": true,
+	"producer": true, "producers": true, "manufacturer": true, "manufacturers": true,
+	"plant": true, "plants": true, "facility": true, "facilities": true,
+	"unit": true, "units": true, "industry": true, "industries": true,
+}
+
+// demandStageOverlapsExisting reports whether a candidate stage name shares a
+// real word with an already-inferred stage: the model covering the same ground
+// under another label must not duplicate a stage. Shared role words
+// ("production", "manufacturing") do not count — see the stopwords above.
+func demandStageOverlapsExisting(loweredName string, existing []models.ValueChainStage) bool {
+	for _, stage := range existing {
+		stageText := strings.ToLower(stage.Name)
+		for _, word := range demandCategoryFields(loweredName) {
+			if len(word) > 2 && !demandStageOverlapStopwords[word] && demandTokenRelates(stageText, word) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// demandConsumerRelatesToCategory validates one consumer: it must share a real
+// token with the intermediate category, or be one of the known consuming
+// families for it (a family like "superabsorbent polymer production" shares no
+// token with "acrylates" but is chemically the acrylate consumer).
+func demandConsumerRelatesToCategory(loweredName, category string, known []string) bool {
+	for _, word := range demandCategoryFields(loweredName) {
+		if len(word) > 2 && demandTokenRelates(strings.ToLower(category), word) {
+			return true
+		}
+	}
+	for _, family := range known {
+		familyText := strings.ToLower(family)
+		for _, word := range demandCategoryFields(loweredName) {
+			if len(word) > 2 && demandTokenRelates(familyText, word) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// demandDownstepWarning is the audit line for the chain: the intermediate was
+// stepped through, and the run says which stages the hop added.
+func demandDownstepWarning(category string, accepted []models.ValueChainStage) []string {
+	return []string{fmt.Sprintf("Category %q is an intermediate product family; %d consuming stage(s) resolved one step down and added as derived stages: %s.", category, len(accepted), stageNames(accepted))}
 }
 
 // reviewDemandChain is the adversarial first-pass chain review. It asks whether each proposed

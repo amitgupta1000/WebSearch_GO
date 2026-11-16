@@ -155,6 +155,30 @@ searches × up to 3 pages = up to 12 metered calls per click, uncached) is **rep
 - Tests: `internal/tools/rocketreach_retry_test.go` (transport-cut retry, no-retry on long windows,
   provider detail, direct egress) + web/launch mapping tests. Full suite green.
 
+## Intermediate-category downstep (this session)
+
+The buyer chain's category ("acrylates and acetates" for n-butanol) is an **intermediate product
+family** — category-shaped search dead-ends on the intermediate's producers, while the real buyers
+one step further (polymers/copolymers/plasticizers made from those esters) only entered the chain
+when the model happened to infer them. The **category downstep** resolves this:
+
+- After category validation, when the category is an intermediate (`demandCategoryIsIntermediate`)
+  **and names what the distance-1 stages produce** (`demandCategoryMatchesStageOutput`), one bounded
+  structured call resolves the families that consume the intermediate; they enter the chain as
+  **distance-2 stages** (`Source: "category"`), deduped against the inferred stages (shared role
+  words like "production" do not count as overlap), capped at 4 and by `demandMaxStages`.
+- Deterministic consumer families (`demandCategoryConsumerFamilies`) anchor the model's proposal and
+  are the fallback when it fails or proposes nothing usable; a consumer that is a known DIRECT
+  consumer of the product is upgraded to distance 1 (chemistry outranks chain position).
+- The chemistry guard matters: the downstep fires only when the category matches the step-1 **output**
+  ("used cooking oil -> oleochemicals" with a biodiesel step 1 must not pull in soap/surfactant
+  siblings — their buyers do not buy biodiesel).
+- Downstep stages then flow through the existing machinery unchanged: lanes, discovery,
+  verification, buyer-fit confidence, stage coverage, QC. Audit: a warning names the category and
+  the added stages.
+- Tests: `internal/agent/demand_downstep_test.go` (downstep append, deterministic fallback, dedupe,
+  non-intermediate skip, known-direct upgrade) + updated `TestDemandInferenceCategoryIsValidated`.
+
 ## Future goals / improvement areas
 
 Prioritized from the live runs and the code:
