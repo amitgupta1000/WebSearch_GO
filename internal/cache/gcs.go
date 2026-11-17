@@ -15,6 +15,19 @@ import (
 // supplies the real value; this is the fallback when it is blank.
 const gcsDefaultPrefix = "WebSearch_GO/cache/"
 
+// gcsOpTimeout bounds every cache operation. Like the Redis backend, GCS ops
+// run detached from the caller's cancellation (context.WithoutCancel) and
+// bounded by this timeout: a run finishing or a client disconnecting must not
+// lose the run's cache writes, and a slow GCS path must degrade to a miss in
+// seconds instead of riding the caller's deadline.
+const gcsOpTimeout = 5 * time.Second
+
+// opCtx derives the per-operation context: values preserved, cancellation and
+// deadlines dropped, then bounded by the operation timeout.
+func (c *GCSCache) opCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), gcsOpTimeout)
+}
+
 // GCSCache stores cache entries as objects in a Cloud Storage bucket, which makes
 // the cache survive restarts and lets several instances share it.
 //
@@ -64,7 +77,9 @@ func (c *GCSCache) objectName(key string) string { return c.prefix + key }
 // transport failure all read as a miss, which keeps the caller's behaviour
 // identical to the in-memory store.
 func (c *GCSCache) Get(ctx context.Context, key string) ([]byte, bool) {
-	raw, found, err := c.client.Download(ctx, c.bucket, c.objectName(key))
+	opCtx, cancel := c.opCtx(ctx)
+	defer cancel()
+	raw, found, err := c.client.Download(opCtx, c.bucket, c.objectName(key))
 	if err != nil {
 		log.Printf("[WARN] gcs cache get failed for %s: %v", key, err)
 		return nil, false
@@ -90,14 +105,18 @@ func (c *GCSCache) Set(ctx context.Context, key string, value []byte, ttl time.D
 	if payload == nil {
 		return
 	}
-	if err := c.client.Upload(ctx, c.bucket, c.objectName(key), "application/json", payload); err != nil {
+	opCtx, cancel := c.opCtx(ctx)
+	defer cancel()
+	if err := c.client.Upload(opCtx, c.bucket, c.objectName(key), "application/json", payload); err != nil {
 		log.Printf("[WARN] gcs cache set failed for %s: %v", key, err)
 	}
 }
 
 // Delete removes one entry.
 func (c *GCSCache) Delete(ctx context.Context, key string) {
-	if err := c.client.Delete(ctx, c.bucket, c.objectName(key)); err != nil {
+	opCtx, cancel := c.opCtx(ctx)
+	defer cancel()
+	if err := c.client.Delete(opCtx, c.bucket, c.objectName(key)); err != nil {
 		log.Printf("[WARN] gcs cache delete failed for %s: %v", key, err)
 	}
 }

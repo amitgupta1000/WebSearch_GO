@@ -136,6 +136,22 @@ opt-in data source:
   (`JEBEL ALI, AE`) unmatched in v1; `/api/query`'s fuzzy product search matches non-chemical rows
   (prefer the standardized ranking endpoints or pin HS codes).
 
+## Cache ops detached from run lifetime (this session)
+
+`[WARN] redis cache get failed for search:<hash>: context deadline exceeded` at the tail of a
+landscape run was the cache **inheriting the run's research deadline**: `RedisCache.Get/Set/Delete`
+(and the GCS backend) passed the caller's context straight to the client with no timeout of their
+own, so (a) every cache op near the run deadline failed with `context deadline exceeded`, (b) a hung
+Redis or VPC-connector blip could stall a run until the run's own deadline, and worst (c) **a
+finished or disconnected run lost its cache writes** — the exact results the next run reuses.
+
+Fix (`internal/cache/redis.go`, `internal/cache/gcs.go`): every cache op now runs on
+`context.WithoutCancel(ctx)` — values kept, cancellation and deadlines dropped — bounded per-op
+(2s Redis, 5s GCS). Cache ops can never ride the caller's deadline again, degrade to a miss within
+seconds during an outage, and writes always land. Pinned by `TestGCSCacheSurvivesCancelledCallerContext`
+(GCS stub, runs in the suite) and `TestRedisCacheDetachedFromCallerCancel` (opt-in
+`REDIS_INTEGRATION=1`). Full suite + race green.
+
 ## Landscape run concurrency raise (this session)
 
 Both landscape modes were wall-clock-bound by serialized network stages. Now:

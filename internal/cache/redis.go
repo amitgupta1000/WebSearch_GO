@@ -14,6 +14,23 @@ import (
 // redisPingTimeout bounds the startup reachability check.
 const redisPingTimeout = 5 * time.Second
 
+// redisOpTimeout bounds every cache operation. Cache reads and writes are never
+// semantically tied to the caller's lifetime: a run whose research deadline is
+// nearly exhausted must not fail every cache op with "context deadline
+// exceeded", a client that disconnected must not lose the run's cache writes
+// (the cached results are what make the next run fast), and a hung Redis or a
+// VPC-connector blip must degrade to a cache miss within seconds instead of
+// stalling the caller until the caller's own deadline. Each op therefore runs
+// on a context detached from cancellation (context.WithoutCancel) and bounded
+// by this timeout.
+const redisOpTimeout = 2 * time.Second
+
+// opCtx derives the per-operation context: values preserved, cancellation and
+// deadlines dropped, then bounded by the operation timeout.
+func (c *RedisCache) opCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), redisOpTimeout)
+}
+
 // RedisCache stores cache entries in Redis, so results survive a restart and are
 // shared by every instance of the server (several Cloud Run instances, or a
 // restarted container, can reuse each other's search results and scraped pages).
@@ -59,7 +76,9 @@ func (c *RedisCache) key(key string) string { return c.prefix + key }
 // logged and treated as a miss so a Redis outage degrades to "no cache" rather
 // than failing the run.
 func (c *RedisCache) Get(ctx context.Context, key string) ([]byte, bool) {
-	raw, err := c.client.Get(ctx, c.key(key)).Bytes()
+	opCtx, cancel := c.opCtx(ctx)
+	defer cancel()
+	raw, err := c.client.Get(opCtx, c.key(key)).Bytes()
 	if errors.Is(err, redis.Nil) {
 		return nil, false
 	}
@@ -75,14 +94,18 @@ func (c *RedisCache) Set(ctx context.Context, key string, value []byte, ttl time
 	if ttl <= 0 {
 		return
 	}
-	if err := c.client.Set(ctx, c.key(key), value, ttl).Err(); err != nil {
+	opCtx, cancel := c.opCtx(ctx)
+	defer cancel()
+	if err := c.client.Set(opCtx, c.key(key), value, ttl).Err(); err != nil {
 		log.Printf("[WARN] redis cache set failed for %s: %v", key, err)
 	}
 }
 
 // Delete removes key.
 func (c *RedisCache) Delete(ctx context.Context, key string) {
-	if err := c.client.Del(ctx, c.key(key)).Err(); err != nil {
+	opCtx, cancel := c.opCtx(ctx)
+	defer cancel()
+	if err := c.client.Del(opCtx, c.key(key)).Err(); err != nil {
 		log.Printf("[WARN] redis cache delete failed for %s: %v", key, err)
 	}
 }

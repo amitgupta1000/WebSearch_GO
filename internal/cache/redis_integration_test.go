@@ -11,6 +11,42 @@ import (
 	"time"
 )
 
+// TestRedisCacheDetachedFromCallerCancel pins the deadline-leak fix: a caller
+// whose context is already cancelled or expired (a finished run, a disconnected
+// client) must neither lose its cache writes nor fail its reads — cache ops are
+// bounded by their own per-op timeout, never by the caller's lifetime. This is
+// the regression that spammed "[WARN] redis cache get failed ... context
+// deadline exceeded" at the tail of every long landscape run and silently
+// dropped the results the next run would have reused.
+func TestRedisCacheDetachedFromCallerCancel(t *testing.T) {
+	if os.Getenv("REDIS_INTEGRATION") != "1" {
+		t.Skip("set REDIS_INTEGRATION=1 to run against a real Redis")
+	}
+
+	store, err := NewRedisCache(context.Background(), liveRedisURL(t), "websearch-go:test:")
+	if err != nil {
+		t.Fatalf("connect to Redis: %v", err)
+	}
+	defer store.Close()
+
+	// A caller whose deadline already expired: the classic end-of-run shape.
+	deadCtx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	time.Sleep(5 * time.Millisecond)
+
+	key := fmt.Sprintf("detached:%d", time.Now().UnixNano())
+	defer store.Delete(context.Background(), key)
+
+	store.Set(deadCtx, key, []byte("survives"), time.Minute)
+	got, ok := store.Get(deadCtx, key)
+	if !ok {
+		t.Fatal("a cancelled caller's context must not fail the cache write or the read")
+	}
+	if string(got) != "survives" {
+		t.Fatalf("round trip returned %q, want %q", got, "survives")
+	}
+}
+
 // TestRedisCacheRoundTripLive exercises the Redis backend against a real server.
 // It is opt-in because it needs reachable infrastructure:
 //

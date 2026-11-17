@@ -109,6 +109,30 @@ func TestGCSCacheRoundTrip(t *testing.T) {
 	}
 }
 
+// TestGCSCacheSurvivesCancelledCallerContext pins the deadline-leak fix: a
+// caller whose context is already cancelled (a finished run, a disconnected
+// client) must not lose its cache write, and the entry must still be readable —
+// cache ops are bounded by their own per-op timeout, never the caller's
+// lifetime. Cached results are what make the next run fast.
+func TestGCSCacheSurvivesCancelledCallerContext(t *testing.T) {
+	server, stub := newGCSStub(t)
+	store := newGCSCacheWithClient(gcs.NewClientWithHTTPClient(server.Client(), server.URL), "bucket", "p/")
+
+	deadCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	store.Set(deadCtx, "key", []byte("survives"), time.Minute)
+	if _, exists := stub.object("p/key"); !exists {
+		t.Fatal("a cancelled caller's context must not fail the cache write")
+	}
+	got, ok := store.Get(deadCtx, "key")
+	if !ok {
+		t.Fatal("a cancelled caller's context must not fail the cache read")
+	}
+	if string(got) != "survives" {
+		t.Fatalf("round trip returned %q, want %q", got, "survives")
+	}
+}
+
 func TestGCSCacheRejectsExpiredObjects(t *testing.T) {
 	server, stub := newGCSStub(t)
 	store := newGCSCacheWithClient(gcs.NewClientWithHTTPClient(server.Client(), server.URL), "bucket", "p/")
