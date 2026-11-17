@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -53,12 +54,20 @@ const (
 	// value chain, so they get their own roster rather than polluting a consumption stage.
 	demandDistributionStageName = "Distribution and wholesale"
 	// Bounded concurrency for the pipeline's network-bound stages: lane
-	// searches and LLM extraction batches run three at a time, and lead
+	// searches and LLM extraction batches run six at a time, and lead
 	// enrichment rides the engine's shared scrape semaphore. Order of results
 	// never depends on completion order.
-	demandLaneSearchConcurrency = 3
-	demandExtractionConcurrency = 3
+	demandLaneSearchConcurrency = 6
+	demandExtractionConcurrency = 6
 	demandExtractionBatchSize   = 4
+	// demandVerificationConcurrency bounds the per-candidate verification
+	// searches: each candidate's purposes run in order inside its goroutine,
+	// and evidence application stays sequential, so summaries and confidence
+	// accumulation never depend on completion order.
+	demandVerificationConcurrency = 4
+	// demandGapSearchConcurrency bounds the per-stage gap and broaden
+	// searches; hits are processed in term order after the wait.
+	demandGapSearchConcurrency = 3
 )
 
 // DemandChainAgent owns the buyer-side workflow: infer the value chain, discover
@@ -730,37 +739,59 @@ func (a *DemandChainAgent) fillDemandStageGaps(ctx context.Context, query models
 				}
 			}
 		}
-		runSearch := func(term string) {
-			if err := ctx.Err(); err != nil {
-				return
+		// Gap searches are bounded-concurrent: the stage's terms run at the
+		// cap and their hits are processed in term order after the wait, so
+		// the shared maps below stay sequential.
+		type gapSearch struct {
+			term string
+			hits []models.SearchResult
+			err  error
+		}
+		runGapSearches := func(terms []string) {
+			results := make([]gapSearch, len(terms))
+			gapSem := make(chan struct{}, demandGapSearchConcurrency)
+			var gapWg sync.WaitGroup
+			for attempt := 0; attempt < demandStageGapQueries && attempt < len(terms); attempt++ {
+				gapWg.Add(1)
+				go func(attempt int) {
+					defer gapWg.Done()
+					gapSem <- struct{}{}
+					defer func() { <-gapSem }()
+					if err := ctx.Err(); err != nil {
+						return
+					}
+					searchQuery := strings.TrimSpace(terms[attempt] + " " + demandGeography(query))
+					emitAgentEvent(eventCh, models.EventToolCall, "Gap search for "+stage, "search", searchQuery)
+					hits, err := a.engine.SearchFresh(ctx, searchQuery, marketMaxResults)
+					results[attempt] = gapSearch{term: searchQuery, hits: hits, err: err}
+				}(attempt)
 			}
-			// Gap terms are stage-anchored (operator phrases, stage labels,
-			// stage products) or already carry the product (the distribution
-			// lane). Prefixing the product again would trade buyer-side
-			// manufacturer pages for supply-side product pages, so the term
-			// searches with the geography clause alone.
-			searchQuery := strings.TrimSpace(term + " " + demandGeography(query))
-			emitAgentEvent(eventCh, models.EventToolCall, "Gap search for "+stage, "search", searchQuery)
-			hits, err := a.engine.SearchFresh(ctx, searchQuery, marketMaxResults)
-			report.GapQueries++
-			if err != nil {
-				report.Warnings = append(report.Warnings, fmt.Sprintf("gap search for %s failed: %v", stage, err))
-				return
+			gapWg.Wait()
+			for attempt := 0; attempt < demandStageGapQueries && attempt < len(terms); attempt++ {
+				report.GapQueries++
+				if results[attempt].err != nil {
+					report.Warnings = append(report.Warnings, fmt.Sprintf("gap search for %s failed: %v", stage, results[attempt].err))
+					continue
+				}
+				processHits(results[attempt].hits, results[attempt].term)
 			}
-			processHits(hits, searchQuery)
 		}
 		terms := demandStageGapTerms(query, stage, report.Chain)
+		gapTerms := make([]string, 0, demandStageGapQueries)
 		for attempt := 0; attempt < demandStageGapQueries && attempt < len(terms); attempt++ {
-			runSearch(terms[attempt])
+			gapTerms = append(gapTerms, terms[attempt])
 		}
+		runGapSearches(gapTerms)
 		// The exact stage/operator phrases can be too narrow. If they produced almost no
 		// companies, retry with the wider category vocabulary (solvents, aromatics,
 		// polyurethane foam, adhesives and sealants, etc.).
 		if stageAdded < demandStageBroadenThreshold || gap.Count+stageAdded < demandMinStageCompanies {
 			broadTerms := demandStageBroadenTerms(query, stage, report.Chain, report.ProductCategory)
+			broadCap := make([]string, 0, demandStageBroadenQueries)
 			for attempt := 0; attempt < demandStageBroadenQueries && attempt < len(broadTerms); attempt++ {
-				runSearch(broadTerms[attempt])
+				broadCap = append(broadCap, broadTerms[attempt])
 			}
+			runGapSearches(broadCap)
 			if len(broadTerms) > 0 {
 				emitAgentEvent(eventCh, models.EventThinking,
 					fmt.Sprintf("Gap search for %s was weak (%d new company(ies)); broadened to category terms", stage, stageAdded),
@@ -3198,28 +3229,83 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 	}
 
 	verified := make([]*models.MarketLandscapeCompany, 0, len(uniqueExtracted))
-	queriesUsed := 0
+	// Verification searches are bounded-concurrent across candidates: each
+	// candidate's purposes run in order inside its goroutine (the
+	// claim-conditioned ordering is preserved), the goroutine collects raw
+	// hit groups, and the evidence application below stays sequential in
+	// candidate order — summaries, confidence accumulation and domain
+	// attribution never depend on completion order. The budget is an atomic
+	// counter: every purpose search spends one, so the cap holds exactly and
+	// a small budget is partially spendable, like the serial loop it replaced.
+	var remainingBudget int64 = int64(query.VerificationQueries)
+	spendVerification := func() bool {
+		for {
+			current := atomic.LoadInt64(&remainingBudget)
+			if current <= 0 {
+				return false
+			}
+			if atomic.CompareAndSwapInt64(&remainingBudget, current, current-1) {
+				return true
+			}
+		}
+	}
+	type candidateVerification struct {
+		searches int
+		hits     [][]models.SearchResult
+		purposes []string
+	}
+	verificationResults := make([]candidateVerification, len(uniqueExtracted))
+	verSemaphore := make(chan struct{}, demandVerificationConcurrency)
+	var verifyGroup sync.WaitGroup
+	launched := 0
 	for index, lead := range uniqueExtracted {
-		if index >= query.MaxCompanies || queriesUsed >= query.VerificationQueries {
+		if index >= query.MaxCompanies {
 			break
 		}
-		// Claim-conditioned verification: the searches run cheapest-first for
-		// what the discovery lane already claimed, so a tender-lane lead does
-		// not burn its budget proving its own website first.
+		if atomic.LoadInt64(&remainingBudget) <= 0 {
+			break
+		}
+		launched++
 		purposes := demandVerificationPurposes(demandClaimForLead(leads, lead))
-		for _, purpose := range purposes {
-			if queriesUsed >= query.VerificationQueries {
-				break
+		verifyGroup.Add(1)
+		go func(index int, lead models.MarketLandscapeLeadCandidate, purposes []demandVerificationPurpose) {
+			defer verifyGroup.Done()
+			verSemaphore <- struct{}{}
+			defer func() { <-verSemaphore }()
+			if err := ctx.Err(); err != nil {
+				return
 			}
-			searchQuery := strings.TrimSpace(fmt.Sprintf("%q %s %s %s", strings.TrimSpace(lead.Name), query.Activity, purpose.phrase, demandGeography(query)))
-			emitAgentEvent(eventCh, models.EventToolCall, "Verifying "+lead.Name+" via "+purpose.kind, "search", searchQuery)
-			hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
-			queriesUsed++
-			if err != nil {
-				continue
+			for _, purpose := range purposes {
+				if !spendVerification() {
+					break
+				}
+				searchQuery := strings.TrimSpace(fmt.Sprintf("%q %s %s %s", strings.TrimSpace(lead.Name), query.Activity, purpose.phrase, demandGeography(query)))
+				emitAgentEvent(eventCh, models.EventToolCall, "Verifying "+lead.Name+" via "+purpose.kind, "search", searchQuery)
+				hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+				if err != nil {
+					continue
+				}
+				verificationResults[index].searches++
+				verificationResults[index].hits = append(verificationResults[index].hits, hits)
+				verificationResults[index].purposes = append(verificationResults[index].purposes, purpose.kind)
+			}
+		}(index, lead, purposes)
+	}
+	verifyGroup.Wait()
+	queriesUsed := 0
+	for index, lead := range uniqueExtracted {
+		if index >= launched {
+			break
+		}
+		result := verificationResults[index]
+		queriesUsed += result.searches
+		for groupIndex, hits := range result.hits {
+			purposeKind := ""
+			if groupIndex < len(result.purposes) {
+				purposeKind = result.purposes[groupIndex]
 			}
 			for _, hit := range hits {
-				evidence, ok := demandVerificationEvidence(hit, lead.Name, query.Activity, purpose.kind)
+				evidence, ok := demandVerificationEvidence(hit, lead.Name, query.Activity, purposeKind)
 				if !ok {
 					continue
 				}

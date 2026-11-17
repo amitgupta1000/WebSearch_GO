@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -27,6 +29,14 @@ const (
 	// Lead enrichment reads up to this many pages, densest first, through the
 	// engine's bounded batch scraper.
 	marketMaxLeadPages = 30
+	// Bounded concurrency for the seller pipeline's network-bound stages:
+	// lane searches, LLM extraction batches and per-candidate verification
+	// searches each run at their cap; results land in pre-assigned slots so
+	// ordering never depends on completion order.
+	marketLaneSearchConcurrency   = 4
+	marketExtractionConcurrency   = 3
+	marketVerificationConcurrency = 4
+	marketExtractionBatchSize     = 4
 	// A company page needs its opening lines; a report or directory page needs
 	// the competitive-landscape table, which sits further down the page.
 	marketCompanyPageExcerpt = 3000
@@ -128,22 +138,47 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 		}
 	}
 	emitAgentEvent(eventCh, models.EventThinking, "Planning market discovery lanes", "", "")
-	for _, lane := range report.Lanes {
-		if queriesUsed >= marketMaxDiscoveryQueries {
+	// Lane searches are bounded-concurrent and order-preserving: each lane's
+	// hits land in its slot, so the leads, the appendix and the company
+	// merging below never depend on completion order.
+	type laneSearch struct {
+		hits []models.SearchResult
+		err  error
+	}
+	laneResults := make([]laneSearch, len(report.Lanes))
+	searchSemaphore := make(chan struct{}, marketLaneSearchConcurrency)
+	var searchGroup sync.WaitGroup
+	for laneIndex, lane := range report.Lanes {
+		if laneIndex >= marketMaxDiscoveryQueries {
 			break
 		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
+		searchGroup.Add(1)
+		go func(lane string, slot int) {
+			defer searchGroup.Done()
+			searchSemaphore <- struct{}{}
+			defer func() { <-searchSemaphore }()
+			if err := ctx.Err(); err != nil {
+				laneResults[slot].err = err
+				return
+			}
+			searchQuery := strings.TrimSpace(query.Activity + " " + lane)
+			if len(query.Countries) > 0 {
+				searchQuery += " " + strings.Join(query.Countries, " ")
+			} else if len(query.Regions) > 0 {
+				searchQuery += " " + strings.Join(query.Regions, " ")
+			}
+			emitAgentEvent(eventCh, models.EventToolCall, "Searching "+lane, "search", searchQuery)
+			hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+			laneResults[slot].hits, laneResults[slot].err = hits, err
+		}(lane, laneIndex)
+	}
+	searchGroup.Wait()
+	for laneIndex, lane := range report.Lanes {
+		if laneIndex >= marketMaxDiscoveryQueries {
+			break
 		}
-		searchQuery := strings.TrimSpace(query.Activity + " " + lane)
-		if len(query.Countries) > 0 {
-			searchQuery += " " + strings.Join(query.Countries, " ")
-		} else if len(query.Regions) > 0 {
-			searchQuery += " " + strings.Join(query.Regions, " ")
-		}
-		emitAgentEvent(eventCh, models.EventToolCall, "Searching "+lane, "search", searchQuery)
-		hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
 		queriesUsed++
+		hits, err := laneResults[laneIndex].hits, laneResults[laneIndex].err
 		report.SearchHits += len(hits)
 		if err != nil {
 			report.Warnings = append(report.Warnings, fmt.Sprintf("%s search failed: %v", lane, err))
@@ -559,27 +594,56 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 	var extracted []models.MarketLandscapeLeadCandidate
 	rejected := 0
 	var extractionErrors []string
-	for start := 0; start < len(enrichedLeads); start += 4 {
-		end := start + 4
+	// Extraction batches are bounded-concurrent: each batch's results land in
+	// its slot and are appended in lead order after the wait, so the dedupe
+	// and rejection accounting below never depend on completion order.
+	batchCount := (len(enrichedLeads) + marketExtractionBatchSize - 1) / marketExtractionBatchSize
+	batchResults := make([][]models.MarketLandscapeLeadCandidate, batchCount)
+	batchErrors := make([]error, batchCount)
+	extractSemaphore := make(chan struct{}, marketExtractionConcurrency)
+	var extractGroup sync.WaitGroup
+	for batchIndex := 0; batchIndex < batchCount; batchIndex++ {
+		start := batchIndex * marketExtractionBatchSize
+		end := start + marketExtractionBatchSize
 		if end > len(enrichedLeads) {
 			end = len(enrichedLeads)
 		}
-		leadText := make([]string, 0, end-start)
-		for index, lead := range enrichedLeads[start:end] {
-			content := lead.Snippet
-			if lead.Content != "" {
-				content += "\nPage content: " + lead.Content
+		extractGroup.Add(1)
+		go func(batchIndex, start, end int) {
+			defer extractGroup.Done()
+			extractSemaphore <- struct{}{}
+			defer func() { <-extractSemaphore }()
+			leadText := make([]string, 0, end-start)
+			for index, lead := range enrichedLeads[start:end] {
+				content := lead.Snippet
+				if lead.Content != "" {
+					content += "\nPage content: " + lead.Content
+				}
+				leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
 			}
-			leadText = append(leadText, fmt.Sprintf("%d. %s — %s (%s)", index+1, lead.Title, content, lead.URL))
+			var batch []models.MarketLandscapeLeadCandidate
+			prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. These leads include company pages, directory pages, news articles and market-research report pages. A report or an article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a top-companies, key-players or competitive-landscape table, using the company's own trading name exactly as the page writes it and dropping any tagline. Name the operator, never the page: a report title, article headline, publisher name, site name, navigation label, region, project or generic category is not a company. Never return a headline that contains an action verb (opens, launches, announces, plans, acquires, sells) as a name. Return a JSON array where every element has a non-empty name, country, reason, evidence_url as a string, source_type (operator, news_article or research_report), mention_context and supporting_quote, and role (manufacturer, distributor, wholesaler, trader, or unknown) based on the page's description. A research_report or news_article candidate must be independently verified before promotion. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
+			if err := a.engine.GenerateStructured(ctx, "You extract company names for a market research verification queue. Return the operating company's own trading name only: never a report title, headline, publisher, site name or category. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
+				batchErrors[batchIndex] = err
+				return
+			}
+			batchResults[batchIndex] = batch
+		}(batchIndex, start, end)
+	}
+	extractGroup.Wait()
+	for batchIndex := 0; batchIndex < batchCount; batchIndex++ {
+		start := batchIndex * marketExtractionBatchSize
+		end := start + marketExtractionBatchSize
+		if end > len(enrichedLeads) {
+			end = len(enrichedLeads)
 		}
-		var batch []models.MarketLandscapeLeadCandidate
-		prompt := fmt.Sprintf("Extract every actual company or facility operator name explicitly supported by these market leads. These leads include company pages, directory pages, news articles and market-research report pages. A report or an article is a valid source for the companies it names or lists: read its page content and extract every company named there, including each row of a top-companies, key-players or competitive-landscape table, using the company's own trading name exactly as the page writes it and dropping any tagline. Name the operator, never the page: a report title, article headline, publisher name, site name, navigation label, region, project or generic category is not a company. Never return a headline that contains an action verb (opens, launches, announces, plans, acquires, sells) as a name. Return a JSON array where every element has a non-empty name, country, reason, evidence_url as a string, source_type (operator, news_article or research_report), mention_context and supporting_quote, and role (manufacturer, distributor, wholesaler, trader, or unknown) based on the page's description. A research_report or news_article candidate must be independently verified before promotion. Return a JSON array.\nActivity: %s\nLeads:\n%s", query.Activity, strings.Join(leadText, "\n"))
-		if err := a.engine.GenerateStructured(ctx, "You extract company names for a market research verification queue. Return the operating company's own trading name only: never a report title, headline, publisher, site name or category. Never invent names and do not collapse multiple companies into one.", prompt, &batch); err != nil {
+		if batchErrors[batchIndex] != nil {
 			rejected += end - start
-			extractionErrors = append(extractionErrors, err.Error())
-			emitAgentEvent(eventCh, models.EventError, "Market extraction batch failed: "+err.Error(), "market_extract", "")
+			extractionErrors = append(extractionErrors, batchErrors[batchIndex].Error())
+			emitAgentEvent(eventCh, models.EventError, "Market extraction batch failed: "+batchErrors[batchIndex].Error(), "market_extract", "")
 			continue
 		}
+		batch := batchResults[batchIndex]
 		emitAgentEvent(eventCh, models.EventToolResult,
 			fmt.Sprintf("Market extraction batch: %d candidate(s) from %d lead(s)", len(batch), end-start),
 			"market_extract", "")
@@ -617,22 +681,77 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 	}
 
 	verified := make([]*models.MarketLandscapeCompany, 0, len(uniqueExtracted))
-	queriesUsed := 0
-	verificationBudget := marketMaxVerificationQueries
+	// Verification searches are bounded-concurrent across candidates: each
+	// candidate runs its three purposes in order inside its goroutine and
+	// collects raw hit groups; the evidence application below stays sequential
+	// in candidate order, so summaries, confidence accumulation and domain
+	// attribution never depend on completion order. The budget is an atomic
+	// counter: every purpose search spends one, so the cap holds exactly and
+	// a small budget is partially spendable, like the serial loop it replaced.
+	var remainingBudget int64 = int64(marketMaxVerificationQueries)
+	spendVerification := func() bool {
+		for {
+			current := atomic.LoadInt64(&remainingBudget)
+			if current <= 0 {
+				return false
+			}
+			if atomic.CompareAndSwapInt64(&remainingBudget, current, current-1) {
+				return true
+			}
+		}
+	}
+	verificationPurposes := []string{"official site", "facility operator", "registry trade source"}
+	type candidateVerification struct {
+		searches int
+		hits     [][]models.SearchResult
+	}
+	verificationResults := make([]candidateVerification, len(uniqueExtracted))
+	verifySemaphore := make(chan struct{}, marketVerificationConcurrency)
+	var verifyGroup sync.WaitGroup
+	launched := 0
 	for index, lead := range uniqueExtracted {
-		if index >= marketMaxVerifiedCompanies || queriesUsed >= verificationBudget {
+		if index >= marketMaxVerifiedCompanies {
 			break
 		}
-		for _, purpose := range []string{"official site", "facility operator", "registry trade source"} {
-			if queriesUsed >= verificationBudget {
-				break
+		if atomic.LoadInt64(&remainingBudget) <= 0 {
+			break
+		}
+		launched++
+		verifyGroup.Add(1)
+		go func(index int, lead models.MarketLandscapeLeadCandidate) {
+			defer verifyGroup.Done()
+			verifySemaphore <- struct{}{}
+			defer func() { <-verifySemaphore }()
+			if err := ctx.Err(); err != nil {
+				return
 			}
-			searchQuery := fmt.Sprintf("\"%s\" %s %s", strings.TrimSpace(lead.Name), query.Activity, purpose)
-			emitAgentEvent(eventCh, models.EventToolCall, "Verifying "+lead.Name+" via "+purpose, "search", searchQuery)
-			hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
-			queriesUsed++
-			if err != nil {
-				continue
+			for _, purpose := range verificationPurposes {
+				if !spendVerification() {
+					break
+				}
+				searchQuery := fmt.Sprintf("%q %s %s", strings.TrimSpace(lead.Name), query.Activity, purpose)
+				emitAgentEvent(eventCh, models.EventToolCall, "Verifying "+lead.Name+" via "+purpose, "search", searchQuery)
+				hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+				if err != nil {
+					continue
+				}
+				verificationResults[index].searches++
+				verificationResults[index].hits = append(verificationResults[index].hits, hits)
+			}
+		}(index, lead)
+	}
+	verifyGroup.Wait()
+	queriesUsed := 0
+	for index, lead := range uniqueExtracted {
+		if index >= launched {
+			break
+		}
+		result := verificationResults[index]
+		queriesUsed += result.searches
+		for groupIndex, hits := range result.hits {
+			purpose := ""
+			if groupIndex < len(verificationPurposes) {
+				purpose = verificationPurposes[groupIndex]
 			}
 			for _, hit := range hits {
 				evidence, ok := marketVerificationEvidence(hit, lead.Name, query.Activity, purpose)

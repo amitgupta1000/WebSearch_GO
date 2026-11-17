@@ -136,6 +136,30 @@ opt-in data source:
   (`JEBEL ALI, AE`) unmatched in v1; `/api/query`'s fuzzy product search matches non-chemical rows
   (prefer the standardized ranking endpoints or pin HS codes).
 
+## Landscape run concurrency raise (this session)
+
+Both landscape modes were wall-clock-bound by serialized network stages. Now:
+
+- **Seller landscape** (`market_landscape.go`) had **zero** concurrency: lane discovery, LLM
+  extraction batches and per-candidate verification searches all ran one call at a time. All three
+  are now bounded-concurrent (`marketLaneSearchConcurrency=4`, `marketExtractionConcurrency=3`,
+  `marketVerificationConcurrency=4`, `marketExtractionBatchSize=4`): every stage lands results in
+  pre-assigned slots and applies them in candidate/lane order after the wait, so rosters, warnings,
+  rejection counts and evidence summaries never depend on completion order.
+- **Buyer landscape** (`demand_chain.go`): lane search + extraction concurrency raised 3→6
+  (`demandLaneSearchConcurrency`, `demandExtractionConcurrency`); the **verification searches**
+  (previously fully serial per candidate × purposes — the dominant phase) now run bounded-concurrent
+  (`demandVerificationConcurrency=4`); per-stage gap/broaden searches (previously serial) run
+  bounded-concurrent (`demandGapSearchConcurrency=3`).
+- **Budget semantics preserved exactly**: verification budget is an atomic spend counter — the cap
+  holds and a small budget is partially spendable (a candidate's purposes stop mid-list when the
+  budget runs out), matching the serial loop it replaced (`TestDemandChainBudgetOverride` pins this).
+- Scraper env raised in `deploy/cloud-run.env.yaml`: `SCRAPE_CONCURRENCY` 4→6,
+  `SCRAPE_HOST_CONCURRENCY` 2→3 (directory-heavy reads — ensun/revenuebase — benefit; per-host rate
+  limit unchanged).
+- Test-stub fix surfaced by `-race`: `failingScraper.calls` now mutex-guarded (batch scraper calls it
+  from worker goroutines). `internal/agent` + `internal/tools` pass under `-race`.
+
 ## RR discovery pivot — Company research button (this session)
 
 The per-card "RR discovery" button on Buyer/Seller Landscape results (which fired 3-4 RocketReach

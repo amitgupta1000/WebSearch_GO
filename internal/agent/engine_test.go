@@ -80,15 +80,20 @@ func TestEngineLimits(t *testing.T) {
 	}
 }
 
-// failingScraper always fails, counting attempts.
+// failingScraper always fails, counting attempts. The batch scraper calls it
+// from worker goroutines, so the counter is mutex-guarded.
 type failingScraper struct {
+	mu    sync.Mutex
 	calls int
 	err   error
 }
 
 func (s *failingScraper) ScrapeURL(context.Context, string) (*models.ScrapeResult, error) {
+	s.mu.Lock()
 	s.calls++
-	return nil, s.err
+	err := s.err
+	s.mu.Unlock()
+	return nil, err
 }
 
 // panickingScraper panics inside the fetch, the way a browser-layer fault does:
