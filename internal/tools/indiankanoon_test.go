@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -296,8 +297,50 @@ func TestIndianKanoonSearchErrorStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	if _, err := ikTestClient(server).Search(context.Background(), "acme", 1, 5); err == nil {
+	client := ikTestClient(server)
+	client.startRenderer = func() error { return errors.New("browser unavailable in unit tests") }
+	_, err := client.Search(context.Background(), "acme", 1, 5)
+	if err == nil {
 		t.Fatal("a 403 must surface as an error, not an empty hit list")
+	}
+	if !strings.Contains(err.Error(), "challenge wall") || !strings.Contains(err.Error(), "could not start") {
+		t.Fatalf("the wall error must carry the challenge and the failed fallback start, got %v", err)
+	}
+}
+
+// TestIndianKanoonWallFallsBackToRender pins the ladder: a challenge wall on
+// the plain fetch falls through to the injected render, whose HTML is parsed
+// exactly like a plain body — and a wall-shaped render is refused instead of
+// silently yielding zero results.
+func TestIndianKanoonWallFallsBackToRender(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := ikTestClient(server)
+	var renderedURL string
+	client.renderHTML = func(_ context.Context, targetURL string) (string, error) {
+		renderedURL = targetURL
+		return ikSearchFixture, nil
+	}
+	hits, err := client.Search(context.Background(), "acme", 1, 10)
+	if err != nil {
+		t.Fatalf("the render fallback must satisfy the wall: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("the rendered results page must parse into hits")
+	}
+	if renderedURL == "" {
+		t.Fatal("the render must be called with the search URL")
+	}
+
+	// A render that itself gets challenged must not silently pass.
+	client.renderHTML = func(_ context.Context, _ string) (string, error) {
+		return "<html><body>Just a moment...</body></html>", nil
+	}
+	if _, err := client.Search(context.Background(), "acme", 1, 10); err == nil {
+		t.Fatal("a challenged render must surface as an error")
 	}
 }
 

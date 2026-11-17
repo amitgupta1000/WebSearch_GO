@@ -346,7 +346,12 @@ func main() {
 	// render on a wall), and Juristway's robots-allowed case-law API, which
 	// authenticates when JURISTWAY_EMAIL/JURISTWAY_PASSWORD are configured.
 	juristwayClient := tools.NewJuristwayClient(cfg.JuristwayEmail, cfg.JuristwayPassword)
-	legalAgent := agent.NewLegalAgent(eng, tools.NewIndianKanoonClient(), tools.NewCasemineClient(scraper), juristwayClient, cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery, cfg.LegalConcurrency)
+	// The IndianKanoon client owns a lazily-started browser for its challenge
+	// wall (started only when the wall is actually met); shut it down with the
+	// server.
+	indianKanoonClient := tools.NewIndianKanoonClient()
+	defer indianKanoonClient.Close()
+	legalAgent := agent.NewLegalAgent(eng, indianKanoonClient, tools.NewCasemineClient(scraper), juristwayClient, cfg.LegalQueriesPerRun, cfg.LegalDocsPerRun, cfg.LegalPagesPerQuery, cfg.LegalConcurrency)
 	relatedAgent := agent.NewRelatedEntityAgent(eng, rocketReachClient)
 	marketAgent := agent.NewMarketLandscapeAgent(eng)
 	// The buyer-side mode is a separate agent with its own phases (value-chain

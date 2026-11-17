@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -85,6 +87,19 @@ type IndianKanoonClient struct {
 	httpClient *http.Client
 	limiter    *hostLimiter
 	robots     *robotsGuard
+
+	// The wall ladder. indiankanoon.org answers Cloudflare JS challenges even
+	// to the residential egress with browser headers (verified live), so a
+	// challenge response falls back to a real Chromium routed through the same
+	// proxy — the WeeDoo browser pattern — whose shared context keeps the
+	// clearance cookie the challenge grants for later fetches. renderHTML is
+	// populated by startRenderer on the first wall; both fields are test
+	// hooks: tests inject renderHTML directly and a failing startRenderer so
+	// unit tests never launch a browser.
+	renderMu       sync.Mutex
+	renderHTML     func(ctx context.Context, targetURL string) (string, error)
+	renderRenderer browserRenderer
+	startRenderer  func() error
 }
 
 // NewIndianKanoonClient creates the client with its politeness budget: one
@@ -92,12 +107,14 @@ type IndianKanoonClient struct {
 // first document fetch and fails open (the site's disallows are case removals;
 // an unreadable robots.txt must not silently blind the mode).
 //
-// The transport mirrors the scraper's proven edge for reputation-walled hosts:
-// indiankanoon.org answers Cloudflare challenges on sight (a live run served
-// "Just a moment..." to the plain default client), so requests route through
-// the host's configured egress proxy (INDIAN_KANOON_PROXY_URL, falling back to
-// the shared HTTPS_PROXY), carry the scraper's browser-plausible headers, and
-// keep a cookie jar — the same combination that passes weedoo.in's wall.
+// The plain edge mirrors the scraper's wall-passing shape: requests route
+// through the host's configured egress proxy (INDIAN_KANOON_PROXY_URL,
+// falling back to the shared HTTPS_PROXY), carry the scraper's
+// browser-plausible headers, and keep a cookie jar. That alone did not pass
+// the site's JavaScript challenge (verified live), so a challenge response
+// additionally falls back to a real Chromium routed through the same proxy —
+// the WeeDoo browser pattern — started lazily on the first wall so runs that
+// never touch a wall pay nothing for it.
 func NewIndianKanoonClient() *IndianKanoonClient {
 	jar, _ := cookiejar.New(nil)
 	transport := &http.Transport{
@@ -106,12 +123,83 @@ func NewIndianKanoonClient() *IndianKanoonClient {
 		IdleConnTimeout:     90 * time.Second,
 		Proxy:               scraperProxyForRequest,
 	}
-	return &IndianKanoonClient{
+	client := &IndianKanoonClient{
 		baseURL:    defaultIndianKanoonURL,
 		httpClient: &http.Client{Timeout: 15 * time.Second, Transport: transport, Jar: jar},
 		limiter:    newHostLimiter(1.0, 1, 1),
 		robots:     newRobotsGuard(defaultIndianKanoonURL + "/robots.txt"),
 	}
+	client.startRenderer = client.startProxiedRenderer
+	return client
+}
+
+// Close shuts the wall-ladder browser down, if one was ever started.
+func (c *IndianKanoonClient) Close() error {
+	c.renderMu.Lock()
+	defer c.renderMu.Unlock()
+	if c.renderRenderer == nil {
+		return nil
+	}
+	renderer := c.renderRenderer
+	c.renderRenderer, c.renderHTML = nil, nil
+	return renderer.Close()
+}
+
+// startProxiedRenderer lazily starts the challenge-render browser: a dedicated
+// Playwright Chromium whose egress routes through the host's configured proxy
+// (residential egress, real browser fingerprint, JavaScript execution — the
+// three things the plain fetch cannot offer against a JS challenge). The
+// shared context keeps the clearance cookie across pages.
+func (c *IndianKanoonClient) startProxiedRenderer() error {
+	proxyURL := proxiedHostRule("indiankanoon.org")
+	renderer, err := newPlaywrightRendererWithProxy(browserFallbackTimeout, proxyURL)
+	if err != nil {
+		return fmt.Errorf("start indiankanoon render browser: %w", err)
+	}
+	if proxyURL != "" {
+		log.Printf("[INDIAN_KANOON] challenge wall met; browser render fallback started through the configured residential proxy")
+	} else {
+		log.Printf("[INDIAN_KANOON] challenge wall met; browser render fallback started (direct egress)")
+	}
+	c.renderRenderer = renderer
+	c.renderHTML = func(ctx context.Context, targetURL string) (string, error) {
+		return renderer.Render(ctx, targetURL, renderOptions{cookies: c.jarCookies(targetURL)})
+	}
+	return nil
+}
+
+// jarCookies exposes the plain client's cookie session so the render can
+// bridge it into the shared browser context (the casemine ladder's shape).
+func (c *IndianKanoonClient) jarCookies(targetURL string) []*http.Cookie {
+	parsed, err := url.Parse(targetURL)
+	if err != nil || c.httpClient == nil || c.httpClient.Jar == nil {
+		return nil
+	}
+	return c.httpClient.Jar.Cookies(parsed)
+}
+
+// indianKanoonWallError reports a Cloudflare challenge response. It is not
+// retriable by the plain fetch — a challenge needs the render ladder.
+type indianKanoonWallError struct {
+	status int
+}
+
+func (e *indianKanoonWallError) Error() string {
+	return fmt.Sprintf("indiankanoon served a challenge wall (status %d)", e.status)
+}
+
+// indianKanoonLooksBlocked reports whether a response is the challenge wall
+// rather than content: the live wall arrives as 403 with the "Just a moment..."
+// interstitial, and a 200-shaped challenge (markers below) would parse to zero
+// results anyway, so it is caught here too.
+func indianKanoonLooksBlocked(status int, body []byte) bool {
+	if status == http.StatusForbidden {
+		return true
+	}
+	lowered := strings.ToLower(string(body))
+	return strings.Contains(lowered, "just a moment") ||
+		strings.Contains(lowered, "cf-challenge") ||
+		strings.Contains(lowered, "challenge-platform")
 }
 
 var indianKanoonDocID = regexp.MustCompile(`(?i)/doc(?:fragment)?/(\d+)/`)
@@ -175,8 +263,47 @@ func (c *IndianKanoonClient) FetchDocument(ctx context.Context, docURL string) (
 }
 
 // fetch performs one rate-limited GET with a single retry on transient
-// failures, mirroring the Serper client's error discipline.
+// failures, mirroring the Serper client's error discipline. A challenge wall
+// (a Cloudflare JS interstitial the plain fetch cannot pass) falls back to the
+// cookie-bridged browser render — started lazily on the first wall, routed
+// through the same residential proxy, so the clearance cookie the challenge
+// grants serves the rest of the run.
 func (c *IndianKanoonClient) fetch(ctx context.Context, target string) ([]byte, error) {
+	body, err := c.fetchPlain(ctx, target)
+	if err == nil {
+		return body, nil
+	}
+	var wall *indianKanoonWallError
+	if !errors.As(err, &wall) {
+		return nil, err
+	}
+	c.renderMu.Lock()
+	start := c.startRenderer
+	render := c.renderHTML
+	c.renderMu.Unlock()
+	if start != nil && render == nil {
+		if startErr := start(); startErr != nil {
+			return nil, fmt.Errorf("%w; the browser render fallback could not start: %v", wall, startErr)
+		}
+		c.renderMu.Lock()
+		render = c.renderHTML
+		c.renderMu.Unlock()
+	}
+	if render == nil {
+		return nil, wall
+	}
+	rendered, renderErr := render(ctx, target)
+	if renderErr != nil {
+		return nil, fmt.Errorf("%w; the browser render fallback failed too: %v", wall, renderErr)
+	}
+	if indianKanoonLooksBlocked(http.StatusOK, []byte(rendered)) {
+		return nil, fmt.Errorf("%w; the browser render fallback was challenged as well", wall)
+	}
+	return []byte(rendered), nil
+}
+
+// fetchPlain is the plain-HTTP retry ladder against the direct client.
+func (c *IndianKanoonClient) fetchPlain(ctx context.Context, target string) ([]byte, error) {
 	var lastErr error
 	for attempt := 1; attempt <= indianKanoonMaxAttempts; attempt++ {
 		if attempt > 1 {
@@ -191,8 +318,8 @@ func (c *IndianKanoonClient) fetch(ctx context.Context, target string) ([]byte, 
 		if err != nil {
 			return nil, err
 		}
-		defer release()
 		body, err := c.attempt(ctx, target)
+		release()
 		if err == nil {
 			return body, nil
 		}
@@ -228,6 +355,9 @@ func (c *IndianKanoonClient) attempt(ctx context.Context, target string) ([]byte
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, indianKanoonMaxErrorBody))
+		if indianKanoonLooksBlocked(resp.StatusCode, body) {
+			return nil, &indianKanoonWallError{status: resp.StatusCode}
+		}
 		err := fmt.Errorf("indiankanoon returned status code %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return nil, &retriableError{err}
