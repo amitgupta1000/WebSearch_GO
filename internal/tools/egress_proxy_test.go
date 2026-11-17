@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// restoreProxyKnobs returns a defer func restoring both proxy knobs, so tests
+// restoreProxyKnobs returns a defer func restoring all proxy knobs, so tests
 // can set them without leaking into later tests.
 
 func restoreProxyKnobs(weedoo, linkedin, shared string) func() {
@@ -13,6 +13,7 @@ func restoreProxyKnobs(weedoo, linkedin, shared string) func() {
 		weedooProxyURL = weedoo
 		linkedinProxyURL = linkedin
 		sharedProxyURL = shared
+		indianKanoonProxyURL = ""
 	}
 }
 
@@ -178,8 +179,62 @@ func TestScraperProxyUsesCompanySearchHTTPSProxyFallback(t *testing.T) {
 	if got := proxiedHostRule("weedoo.in"); got != sharedProxyURL {
 		t.Fatalf("WeeDoo browser must use the same HTTPS_PROXY fallback, got %q", got)
 	}
-	if summary := egressProxySummary(); summary != "weedoo.in, linkedin.com" {
-		t.Fatalf("shared fallback must activate both host routes, got %q", summary)
+	if summary := egressProxySummary(); summary != "weedoo.in, linkedin.com, indiankanoon.org" {
+		t.Fatalf("shared fallback must activate every host route, got %q", summary)
+	}
+}
+
+// TestIndianKanoonRoutesThroughItsOwnProxy pins the indiankanoon.org egress
+// rule: the host routes through its configured proxy (with the shared
+// HTTPS_PROXY fallback), subdomains inherit it, and unrelated hosts never
+// touch it.
+func TestIndianKanoonRoutesThroughItsOwnProxy(t *testing.T) {
+	defer restoreProxyKnobs(weedooProxyURL, linkedinProxyURL, sharedProxyURL)()
+	weedooProxyURL = ""
+	linkedinProxyURL = ""
+	sharedProxyURL = ""
+	indianKanoonProxyURL = "http://ik-user:ik-secret@resi-ipv4-9.gw.tprx.io:8080"
+	defer func() { indianKanoonProxyURL = "" }()
+
+	req, err := http.NewRequest(http.MethodGet, "https://indiankanoon.org/search/?formInput=contract", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := scraperProxyForRequest(req)
+	if err != nil || got == nil || got.Host != "resi-ipv4-9.gw.tprx.io:8080" {
+		t.Fatalf("indiankanoon.org must route through its configured proxy, got %+v (err %v)", got, err)
+	}
+	if got.User == nil || got.User.Username() != "ik-user" {
+		t.Fatalf("indiankanoon proxy credentials must survive the parse, got %v", got.User)
+	}
+
+	subReq, err := http.NewRequest(http.MethodGet, "https://api.indiankanoon.org/doc/123/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subGot, err := scraperProxyForRequest(subReq); err != nil || subGot == nil || subGot.Host != "resi-ipv4-9.gw.tprx.io:8080" {
+		t.Fatalf("indiankanoon.org subdomains must inherit the routing, got %+v (err %v)", subGot, err)
+	}
+
+	otherReq, err := http.NewRequest(http.MethodGet, "https://www.zaubacorp.com/company/L24100GJ1985PLC036203", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherGot, err := scraperProxyForRequest(otherReq); err != nil || (otherGot != nil && otherGot.Host == "resi-ipv4-9.gw.tprx.io:8080") {
+		t.Fatalf("unrelated hosts must never use the indiankanoon proxy, got %+v (err %v)", otherGot, err)
+	}
+
+	// The shared HTTPS_PROXY fallback covers indiankanoon when its dedicated
+	// knob is unset — the live deployment binds both to the same secret. With
+	// the per-host knobs empty, every host's route falls back to the shared
+	// proxy, so the summary names all three.
+	indianKanoonProxyURL = ""
+	sharedProxyURL = "http://company-user:company-secret@resi.example:8080"
+	if ruleGot := proxiedHostRule("indiankanoon.org"); ruleGot != sharedProxyURL {
+		t.Fatalf("indiankanoon.org must fall back to the shared HTTPS_PROXY, got %q", ruleGot)
+	}
+	if summary := egressProxySummary(); summary != "weedoo.in, linkedin.com, indiankanoon.org" {
+		t.Fatalf("the shared fallback must activate every host route, got %q", summary)
 	}
 }
 

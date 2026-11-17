@@ -136,6 +136,29 @@ opt-in data source:
   (`JEBEL ALI, AE`) unmatched in v1; `/api/query`'s fuzzy product search matches non-chemical rows
   (prefer the standardized ranking endpoints or pin HS codes).
 
+## IndianKanoon Cloudflare wall — residential-proxy route (this session)
+
+Live legal runs showed `indiankanoon: 0 kept of 0 hits ... 403 "Just a moment..."`. The client used
+a bare `http.Client` with a self-declaring bot UA — and since `HTTPS_PROXY` (the residential proxy)
+is already bound at runtime, its default transport was *already* routing through it and still got
+challenged: the wall is triggered by the request shape (UA + missing browser headers), not just the
+IP. Fix mirrors the scraper's proven edge (the one that passes weedoo.in's Cloudflare):
+
+- `internal/tools/indiankanoon.go`: transport with the per-host proxy hook (`scraperProxyForRequest`),
+  a cookie jar, and the scraper's browser UA + `Accept`/`Accept-Language` on every request
+  (`browserUserAgent` const now shared from `scraper.go`). Politeness limiter, robots guard and
+  retry semantics unchanged.
+- `internal/tools/egress_proxy.go`: new `INDIAN_KANOON_PROXY_URL` knob with an
+  `indiankanoon.org` rule (subdomains inherit; shared `HTTPS_PROXY` fallback) in both the routing
+  table and the startup summary.
+- `deploy-gcp.ps1`: `INDIAN_KANOON_PROXY_URL` bound to the same `residential_proxy_url` secret;
+  yaml comment updated. If the residential pool ever gets flagged for this host, the dedicated knob
+  points at a different pool without touching the other hosts.
+- Tests: `TestIndianKanoonSendsWallPassingHeaders` (header contract against a stub server) and
+  `TestIndianKanoonRoutesThroughItsOwnProxy` (routing + fallback + summary); pre-existing summary
+  assertions updated for the third host. If the JS challenge still fires through the residential
+  egress, the next escalation is casemine's cookie-bridged browser render applied to this client.
+
 ## Cache ops detached from run lifetime (this session)
 
 `[WARN] redis cache get failed for search:<hash>: context deadline exceeded` at the tail of a

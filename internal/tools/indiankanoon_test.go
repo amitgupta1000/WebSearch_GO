@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -166,6 +167,34 @@ func ikTestClient(server *httptest.Server) *IndianKanoonClient {
 		baseURL:    server.URL,
 		httpClient: server.Client(),
 		limiter:    newHostLimiter(0, 0, 0),
+	}
+}
+
+// TestIndianKanoonSendsWallPassingHeaders pins the header contract: every
+// request carries the scraper's browser User-Agent (the honest research-agent
+// UA is itself a Cloudflare trigger), an HTML Accept shape and an
+// Accept-Language — the same edge that passes weedoo.in's wall.
+func TestIndianKanoonSendsWallPassingHeaders(t *testing.T) {
+	var seen http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Clone()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, ikSearchFixture)
+	}))
+	defer server.Close()
+
+	client := ikTestClient(server)
+	if _, err := client.Search(context.Background(), "acme", 1, 10); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if got := seen.Get("User-Agent"); got != browserUserAgent {
+		t.Fatalf("User-Agent = %q, want the scraper's browser UA", got)
+	}
+	if got := seen.Get("Accept"); !strings.HasPrefix(got, "text/html") {
+		t.Fatalf("Accept = %q, want an HTML-first shape", got)
+	}
+	if got := seen.Get("Accept-Language"); got == "" {
+		t.Fatal("Accept-Language must be set")
 	}
 }
 

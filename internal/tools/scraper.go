@@ -29,7 +29,12 @@ import (
 
 const (
 	defaultScraperTimeout = 15 * time.Second
-	maxRedirects          = 5
+	// browserUserAgent is the Chrome UA the scraper sends to reputation-walled
+	// hosts: Cloudflare's bot scoring weighs the User-Agent heavily, and a
+	// self-declared research-agent UA is itself a challenge trigger. Clients
+	// that fetch walled sources directly (IndianKanoon) share it.
+	browserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+	maxRedirects     = 5
 	// documentExtractTimeout bounds one document's text extraction, and is the guardrail a
 	// stalled ingest needs: the extractor is model-backed and the local fallback walks a PDF
 	// page by page, so without this a single large filing can hold the entire run while

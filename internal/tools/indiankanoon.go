@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -90,10 +91,24 @@ type IndianKanoonClient struct {
 // request a second, burst of one, one in flight. The robots guard loads on
 // first document fetch and fails open (the site's disallows are case removals;
 // an unreadable robots.txt must not silently blind the mode).
+//
+// The transport mirrors the scraper's proven edge for reputation-walled hosts:
+// indiankanoon.org answers Cloudflare challenges on sight (a live run served
+// "Just a moment..." to the plain default client), so requests route through
+// the host's configured egress proxy (INDIAN_KANOON_PROXY_URL, falling back to
+// the shared HTTPS_PROXY), carry the scraper's browser-plausible headers, and
+// keep a cookie jar — the same combination that passes weedoo.in's wall.
 func NewIndianKanoonClient() *IndianKanoonClient {
+	jar, _ := cookiejar.New(nil)
+	transport := &http.Transport{
+		MaxIdleConns:        20,
+		MaxIdleConnsPerHost: 2,
+		IdleConnTimeout:     90 * time.Second,
+		Proxy:               scraperProxyForRequest,
+	}
 	return &IndianKanoonClient{
 		baseURL:    defaultIndianKanoonURL,
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		httpClient: &http.Client{Timeout: 15 * time.Second, Transport: transport, Jar: jar},
 		limiter:    newHostLimiter(1.0, 1, 1),
 		robots:     newRobotsGuard(defaultIndianKanoonURL + "/robots.txt"),
 	}
@@ -192,12 +207,18 @@ func (c *IndianKanoonClient) fetch(ctx context.Context, target string) ([]byte, 
 }
 
 // attempt performs a single GET, reading at most indianKanoonMaxDocBytes.
+// The headers mirror the scraper's wall-passing set: a browser User-Agent
+// (the honest research-agent UA is itself a Cloudflare trigger), an HTML
+// Accept shape and an Accept-Language, all per-request so the stub-server
+// tests observe exactly what the site sees.
 func (c *IndianKanoonClient) attempt(ctx context.Context, target string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create indiankanoon request: %w", err)
 	}
-	req.Header.Set("User-Agent", "WebSearch_GO research agent (+https://github.com/amitgupta1000/WebSearch_GO)")
+	req.Header.Set("User-Agent", browserUserAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

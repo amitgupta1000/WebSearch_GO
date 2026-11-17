@@ -24,9 +24,10 @@ import (
 // Scoping the routing per host is what keeps a residential proxy's bandwidth
 // budget — and its cost — to the traffic that actually needs it.
 var (
-	sharedProxyURL   = strings.TrimSpace(os.Getenv("HTTPS_PROXY"))
-	weedooProxyURL   = strings.TrimSpace(os.Getenv("WEEDOO_PROXY_URL"))
-	linkedinProxyURL = strings.TrimSpace(os.Getenv("LINKEDIN_PROXY_URL"))
+	sharedProxyURL       = strings.TrimSpace(os.Getenv("HTTPS_PROXY"))
+	weedooProxyURL       = strings.TrimSpace(os.Getenv("WEEDOO_PROXY_URL"))
+	linkedinProxyURL     = strings.TrimSpace(os.Getenv("LINKEDIN_PROXY_URL"))
+	indianKanoonProxyURL = strings.TrimSpace(os.Getenv("INDIAN_KANOON_PROXY_URL"))
 )
 
 func configuredProxy(explicit string) string {
@@ -43,6 +44,7 @@ func proxiedHostRule(host string) string {
 	for _, rule := range []struct{ suffix, proxyURL string }{
 		{"weedoo.in", configuredProxy(weedooProxyURL)},
 		{"linkedin.com", configuredProxy(linkedinProxyURL)},
+		{"indiankanoon.org", configuredProxy(indianKanoonProxyURL)},
 	} {
 		if rule.proxyURL == "" {
 			continue
@@ -75,6 +77,7 @@ func egressProxySummary() string {
 	for _, rule := range []struct{ suffix, proxyURL string }{
 		{"weedoo.in", configuredProxy(weedooProxyURL)},
 		{"linkedin.com", configuredProxy(linkedinProxyURL)},
+		{"indiankanoon.org", configuredProxy(indianKanoonProxyURL)},
 	} {
 		if rule.proxyURL != "" {
 			hosts = append(hosts, rule.suffix)
