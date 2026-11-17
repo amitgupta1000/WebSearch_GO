@@ -10,7 +10,8 @@ the discovery-composition failures the live n-butanol/India run exposed (see bel
 The sample query `"n-butanol" "India"` missed KLJ Plasticizers — India's largest plasticizer
 manufacturer and a significant n-butanol importer. Three defects were found and fixed
 (live-verified across three `TestDemandChainLive` runs; artifacts under
-`%TEMP%\crystal-live-nbutanol*`, logs in `eval/nbutanol-live*.log`):
+`%TEMP%\crystal-live-nbutanol*`; the run logs were removed from the repo in the
+2026-11-17 artifacts cleanup):
 
 - **D1 — stage lanes carried the product prefix.** Every discovery query was composed as
   `Activity + lane term + geography`, so the Plasticizer stage searched

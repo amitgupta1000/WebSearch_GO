@@ -29,6 +29,15 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 		}
 		b.WriteString("\n")
 	}
+	if len(report.QueryReviews) > 0 {
+		b.WriteString("## Query review\n\n")
+		b.WriteString("Adversarial aptness review of the planned queries before they ran; queries that ran unchanged are listed under Search queries.\n\n")
+		b.WriteString("| Phase | Original | Verdict | Revised | Reason |\n|---|---|---|---|---|\n")
+		for _, review := range report.QueryReviews {
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", marketMarkdownCell(review.Phase), marketMarkdownCell(review.Original), review.Verdict, marketMarkdownCell(review.RevisedQuery), marketMarkdownCell(review.Reason))
+		}
+		b.WriteString("\n")
+	}
 	b.WriteString("## Results\n\n")
 	if len(report.Results) == 0 {
 		b.WriteString("No verified companies were promoted.\n")

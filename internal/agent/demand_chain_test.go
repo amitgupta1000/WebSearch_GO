@@ -23,6 +23,9 @@ type demandLLM struct {
 	people        []models.MarketLandscapePersonCandidate
 	review        models.DemandChainReview
 	chainReview   models.ValueChainReview
+	// queryReview scripts the adversarial query review; nil means every query
+	// is kept.
+	queryReview   *marketQueryReviewTarget
 	err           error
 	systemPrompts []string
 }
@@ -36,6 +39,7 @@ func (m *demandLLM) GenerateStructured(ctx context.Context, systemPrompt, userPr
 	gapCandidates := m.gapCandidates
 	review := m.review
 	chainReview := m.chainReview
+	queryReview := m.queryReview
 	m.mu.Unlock()
 	if err != nil {
 		return err
@@ -58,6 +62,11 @@ func (m *demandLLM) GenerateStructured(ctx context.Context, systemPrompt, userPr
 		*typed = review
 	case *models.ValueChainReview:
 		*typed = chainReview
+	case *marketQueryReviewTarget:
+		if queryReview != nil {
+			typed.Queries = append(typed.Queries, queryReview.Queries...)
+			typed.Purposes = append(typed.Purposes, queryReview.Purposes...)
+		}
 	}
 	return nil
 }

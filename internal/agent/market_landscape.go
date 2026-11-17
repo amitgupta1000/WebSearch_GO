@@ -101,10 +101,19 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	report.CategorySource = categorySource
 	report.Warnings = append(report.Warnings, categoryWarnings...)
 	report.CategoryLanes = marketCategoryLanes(category)
-	categoryResults, categoryQueries, categoryHits, categoryVerificationQueries, categoryLaneWarnings := a.researchCategoryLane(ctx, query, category, eventCh, &report.SearchQueries)
+	// The per-company verification template is reviewed once, before any
+	// lane runs, and the surviving purposes are shared by both verification
+	// stages (category and main).
+	_, purposes, purposeReviews, purposeReviewWarning := a.reviewMarketQueryBatch(ctx, "verification", nil, marketVerificationPurposes(), category, query, eventCh)
+	report.QueryReviews = append(report.QueryReviews, purposeReviews...)
+	if purposeReviewWarning != "" {
+		report.Warnings = append(report.Warnings, purposeReviewWarning)
+	}
+	categoryResults, categoryQueries, categoryHits, categoryVerificationQueries, categoryQueryReviews, categoryLaneWarnings := a.researchCategoryLane(ctx, query, category, purposes, eventCh, &report.SearchQueries)
 	report.CategoryResults = categoryResults
 	report.CategoryQueries = categoryQueries
 	report.SearchHits += categoryHits
+	report.QueryReviews = append(report.QueryReviews, categoryQueryReviews...)
 	report.Warnings = append(report.Warnings, categoryLaneWarnings...)
 
 	companies := make(map[string]*models.MarketLandscapeCompany)
@@ -147,6 +156,14 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 		trace models.MarketSearchTrace
 	}
 	discoverySearches := marketDiscoverySearches(query)
+	// Adversarial query review: every composed lane is judged for aptness and
+	// economy before it spends a search — degenerate lanes are rewritten or
+	// dropped here, never after their hits pollute the candidate pool.
+	discoverySearches, _, discoveryReviews, reviewWarning := a.reviewMarketQueryBatch(ctx, "discovery", discoverySearches, nil, category, query, eventCh)
+	report.QueryReviews = append(report.QueryReviews, discoveryReviews...)
+	if reviewWarning != "" {
+		report.Warnings = append(report.Warnings, reviewWarning)
+	}
 	laneResults := make([]laneSearch, len(discoverySearches))
 	searchSemaphore := make(chan struct{}, marketLaneSearchConcurrency)
 	var searchGroup sync.WaitGroup
@@ -191,7 +208,7 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	report.LeadsReviewed = len(leads)
 	report.QueriesUsed = queriesUsed + categoryQueries
 	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Extracting companies from %d discovery lead(s)", len(leads)), "", "")
-	resolved, verificationQueries, extracted, rejected, enriched, _, _, _, err := a.verifyMarketLeads(ctx, leads, query, eventCh, &report.SearchQueries)
+	resolved, verificationQueries, extracted, rejected, enriched, _, _, _, err := a.verifyMarketLeads(ctx, leads, query, purposes, eventCh, &report.SearchQueries)
 	report.QueriesUsed += verificationQueries + categoryVerificationQueries
 	report.LeadsExtracted = extracted
 	report.LeadsRejected = rejected
@@ -368,13 +385,6 @@ func (a *MarketLandscapeAgent) inferMarketCategory(ctx context.Context, query mo
 	return category, rationale, source, warnings
 }
 
-func marketGeography(query models.MarketLandscapeQuery) string {
-	if len(query.Countries) > 0 {
-		return strings.Join(query.Countries, " ")
-	}
-	return strings.Join(query.Regions, " ")
-}
-
 func marketCategoryLanes(category string) []string {
 	category = strings.TrimSpace(category)
 	if category == "" {
@@ -416,8 +426,26 @@ func marketSearchGeographies(query models.MarketLandscapeQuery) []string {
 	return []string{""}
 }
 
+// marketActivitySearchTerms expands a process-shaped activity into the
+// natural product-family phrases operators actually index. "Oil blending" is
+// searched as itself and as "lubricant blending" — the dominant indexed
+// phrase for the trade — while "fuel oil blending" joins only when the
+// operator's activity names fuel, so a generic blending run is not biased
+// toward fuel operators. A product activity stays one term.
 func marketActivitySearchTerms(activity string) []string {
-	return []string{strings.TrimSpace(activity)}
+	trimmed := strings.TrimSpace(activity)
+	lower := strings.ToLower(trimmed)
+	terms := []string{trimmed}
+	if !strings.Contains(lower, "blend") {
+		return terms
+	}
+	if !strings.Contains(lower, "lubricant") {
+		terms = append(terms, "lubricant blending")
+	}
+	if strings.Contains(lower, "fuel") && !strings.Contains(lower, "fuel oil blending") {
+		terms = append(terms, "fuel oil blending")
+	}
+	return terms
 }
 
 func marketDiscoverySearches(query models.MarketLandscapeQuery) []marketSearchSpec {
@@ -464,10 +492,10 @@ func marketDiscoverySearches(query models.MarketLandscapeQuery) []marketSearchSp
 	return searches
 }
 
-func (a *MarketLandscapeAgent) researchCategoryLane(ctx context.Context, query models.MarketLandscapeQuery, category string, eventCh chan<- models.AgentEvent, trace *[]models.MarketSearchTrace) ([]models.MarketLandscapeCompany, int, int, int, []string) {
+func (a *MarketLandscapeAgent) researchCategoryLane(ctx context.Context, query models.MarketLandscapeQuery, category string, purposes []string, eventCh chan<- models.AgentEvent, trace *[]models.MarketSearchTrace) ([]models.MarketLandscapeCompany, int, int, int, []models.MarketQueryReview, []string) {
 	category = strings.TrimSpace(category)
 	if category == "" {
-		return nil, 0, 0, 0, nil
+		return nil, 0, 0, 0, nil, nil
 	}
 	categoryQuery := query
 	categoryQuery.Activity = category
@@ -478,28 +506,44 @@ func (a *MarketLandscapeAgent) researchCategoryLane(ctx context.Context, query m
 	warnings := []string{}
 	queriesUsed := 0
 	hitsUsed := 0
+	// The lane runs once per requested geography: two regions mean two
+	// queries per lane, never one query carrying "Middle East Africa" as a
+	// token soup the engine cannot interpret.
+	specs := make([]marketSearchSpec, 0, 8)
 	for _, lane := range marketCategoryLanes(category) {
+		for _, geography := range marketSearchGeographies(query) {
+			searchQuery := strings.TrimSpace(lane)
+			if geography != "" {
+				searchQuery = strings.TrimSpace(lane + " " + geography)
+			}
+			specs = append(specs, marketSearchSpec{Lane: lane, Query: searchQuery})
+		}
+	}
+	specs, _, queryReviews, reviewWarning := a.reviewMarketQueryBatch(ctx, "category", specs, nil, category, query, eventCh)
+	if reviewWarning != "" {
+		warnings = append(warnings, reviewWarning)
+	}
+	for _, spec := range specs {
 		if err := ctx.Err(); err != nil {
 			warnings = append(warnings, "Category research stopped: "+err.Error())
 			break
 		}
-		searchQuery := strings.TrimSpace(lane + " " + marketGeography(query))
-		emitAgentEvent(eventCh, models.EventToolCall, "Searching category "+category, "search", searchQuery)
-		hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+		emitAgentEvent(eventCh, models.EventToolCall, "Searching category "+category, "search", spec.Query)
+		hits, err := a.engine.SearchCached(ctx, spec.Query, marketMaxResults)
 		if trace != nil {
 			*trace = append(*trace, models.MarketSearchTrace{
-				Phase: "category", Lane: lane, Query: searchQuery,
+				Phase: "category", Lane: spec.Lane, Query: spec.Query,
 				Status: marketSearchStatus(err), Hits: len(hits),
 			})
 		}
 		queriesUsed++
 		hitsUsed += len(hits)
 		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("category search %q failed: %v", lane, err))
+			warnings = append(warnings, fmt.Sprintf("category search %q failed: %v", spec.Query, err))
 			continue
 		}
 		for _, hit := range hits {
-			candidate := marketCandidate(hit, lane, categoryQuery)
+			candidate := marketCandidate(hit, spec.Lane, categoryQuery)
 			if candidate == nil {
 				continue
 			}
@@ -517,7 +561,7 @@ func (a *MarketLandscapeAgent) researchCategoryLane(ctx context.Context, query m
 			mergeMarketCompany(companies, candidate)
 		}
 	}
-	resolved, verificationQueries, _, rejected, _, _, _, _, err := a.verifyMarketLeads(ctx, leads, categoryQuery, eventCh, trace)
+	resolved, verificationQueries, _, rejected, _, _, _, _, err := a.verifyMarketLeads(ctx, leads, categoryQuery, purposes, eventCh, trace)
 	if err != nil {
 		warnings = append(warnings, "Category lead extraction could not complete: "+err.Error())
 	}
@@ -544,7 +588,7 @@ func (a *MarketLandscapeAgent) researchCategoryLane(ctx context.Context, query m
 	if rejected > 0 {
 		warnings = append(warnings, fmt.Sprintf("Category research rejected %d extracted lead(s).", rejected))
 	}
-	return results, queriesUsed, hitsUsed, verificationQueries, warnings
+	return results, queriesUsed, hitsUsed, verificationQueries, queryReviews, warnings
 }
 
 func marketLanes(query models.MarketLandscapeQuery) []string {
@@ -615,9 +659,21 @@ func marketCandidate(hit models.SearchResult, lane string, query models.MarketLa
 	}
 }
 
-func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []models.MarketLandscapeEvidence, query models.MarketLandscapeQuery, eventCh chan<- models.AgentEvent, trace *[]models.MarketSearchTrace) ([]*models.MarketLandscapeCompany, int, int, int, int, int, int, int, error) {
+// marketVerificationPurposes are the per-company verification angles: each is
+// appended after the quoted company name and the quoted activity for every
+// candidate. The adversarial query review may rewrite or retire a purpose
+// before any verification search runs; this default is also the fail-open
+// floor when the review is unavailable.
+func marketVerificationPurposes() []string {
+	return []string{"official site", "facility operator", "registry trade source"}
+}
+
+func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []models.MarketLandscapeEvidence, query models.MarketLandscapeQuery, purposes []string, eventCh chan<- models.AgentEvent, trace *[]models.MarketSearchTrace) ([]*models.MarketLandscapeCompany, int, int, int, int, int, int, int, error) {
 	if len(leads) == 0 {
 		return nil, 0, 0, 0, 0, 0, 0, 0, nil
+	}
+	if len(purposes) == 0 {
+		purposes = marketVerificationPurposes()
 	}
 	// Reading a page and promoting a page are two different questions. A
 	// market-research report, a trade directory or a news article can never be
@@ -788,7 +844,7 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 			}
 		}
 	}
-	verificationPurposes := []string{"official site", "facility operator", "registry trade source"}
+	verificationPurposes := purposes
 	type candidateVerification struct {
 		searches int
 		hits     [][]models.SearchResult

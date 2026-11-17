@@ -273,31 +273,35 @@ type DemandChainReport struct {
 	// StageCandidates is the stage-oriented view: the companies each consuming
 	// stage's lanes surfaced, whatever their verification status. Results above
 	// is the cross-cutting verified list; this is the value chain's own roster.
-	StageCandidates     []StageCandidates         `json:"stage_candidates,omitempty"`
-	StageCoverage       []DemandStageCoverage     `json:"stage_coverage,omitempty"`
+	StageCandidates []StageCandidates     `json:"stage_candidates,omitempty"`
+	StageCoverage   []DemandStageCoverage `json:"stage_coverage,omitempty"`
 	// TradeImporters is the opt-in first-party customs section: the product's
 	// ranked Indian importers named by the Crystal trade DB. It is published
 	// separately from Results on purpose — an importer may equally be a
 	// reseller (distributor, wholesaler or trader), so the operator decides
 	// the classification, and the section never feeds verified results or
 	// stage coverage.
-	TradeImporters      []MarketLandscapeCompany  `json:"trade_importers,omitempty"`
-	Reviews             []DemandChainReview       `json:"reviews,omitempty"`
-	Appendix            []MarketLandscapeEvidence `json:"appendix,omitempty"`
-	Lanes               []string                  `json:"lanes,omitempty"`
-	Iterations          int                       `json:"iterations"`
-	QueriesUsed         int                       `json:"queries_used"`
-	CategoryQueries     int                       `json:"category_queries,omitempty"`
-	GapQueries          int                       `json:"gap_queries,omitempty"`
-	SearchHits          int                       `json:"search_hits"`
-	LeadsReviewed       int                       `json:"leads_reviewed"`
-	LeadsExtracted      int                       `json:"leads_extracted"`
-	LeadsRejected       int                       `json:"leads_rejected"`
-	PagesEnriched       int                       `json:"pages_enriched"`
-	VerificationQueries int                       `json:"verification_queries"`
-	CandidatesFound     int                       `json:"candidates_found"`
-	Warnings            []string                  `json:"warnings,omitempty"`
-	StartedAt           time.Time                 `json:"started_at"`
-	CompletedAt         time.Time                 `json:"completed_at"`
-	Exports             []ExportArtifact          `json:"exports,omitempty"`
+	TradeImporters []MarketLandscapeCompany  `json:"trade_importers,omitempty"`
+	Reviews        []DemandChainReview       `json:"reviews,omitempty"`
+	Appendix       []MarketLandscapeEvidence `json:"appendix,omitempty"`
+	Lanes          []string                  `json:"lanes,omitempty"`
+	// QueryReviews is the adversarial aptness review of the planned queries —
+	// discovery lane runs, category lanes and the verification template. Only
+	// rewritten and dropped entries are recorded here.
+	QueryReviews        []MarketQueryReview `json:"query_reviews,omitempty"`
+	Iterations          int                 `json:"iterations"`
+	QueriesUsed         int                 `json:"queries_used"`
+	CategoryQueries     int                 `json:"category_queries,omitempty"`
+	GapQueries          int                 `json:"gap_queries,omitempty"`
+	SearchHits          int                 `json:"search_hits"`
+	LeadsReviewed       int                 `json:"leads_reviewed"`
+	LeadsExtracted      int                 `json:"leads_extracted"`
+	LeadsRejected       int                 `json:"leads_rejected"`
+	PagesEnriched       int                 `json:"pages_enriched"`
+	VerificationQueries int                 `json:"verification_queries"`
+	CandidatesFound     int                 `json:"candidates_found"`
+	Warnings            []string            `json:"warnings,omitempty"`
+	StartedAt           time.Time           `json:"started_at"`
+	CompletedAt         time.Time           `json:"completed_at"`
+	Exports             []ExportArtifact    `json:"exports,omitempty"`
 }

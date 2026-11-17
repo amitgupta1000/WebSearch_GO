@@ -25,5 +25,9 @@ __pycache__/
 
 # Local scratch helpers (throwaway tooling, never part of the service)
 tmp_*/eval/
-artifacts/cache-test-*.html
-artifacts/wall-test-*.html
+# Runtime output dirs: exports and eval scorecards land here on every local
+# run. They are machine-local; the scorecards cited by docs stay tracked.
+/artifacts/
+/eval/
+# Dead local binary snapshots
+server.exe~

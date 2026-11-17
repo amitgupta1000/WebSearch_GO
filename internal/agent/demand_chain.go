@@ -96,7 +96,7 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 
 	report := &models.DemandChainReport{
 		ResearchID: researchID, Objective: query.Objective, Activity: query.Activity,
-		Geography:  demandGeography(query),
+		Geography:  demandGeographyDisplay(query),
 		Iterations: 2, StartedAt: time.Now(),
 	}
 	report.QCPrompt, report.QCPromptSource = demandQCPolicy(query)
@@ -127,12 +127,13 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	if !query.IncludeIntermediaries {
 		report.Warnings = append(report.Warnings, "Traders, brokers and trading houses are excluded; rerun with intermediaries to include them.")
 	}
-	categoryResults, categoryQueries, categoryHits, categoryVerificationQueries, categoryWarnings := a.researchCategoryLane(ctx, query, category, eventCh)
+	categoryResults, categoryQueries, categoryHits, categoryVerificationQueries, categoryQueryReviews, categoryWarnings := a.researchCategoryLane(ctx, query, category, eventCh)
 	report.CategoryResults = categoryResults
 	report.CategoryQueries = categoryQueries
 	report.QueriesUsed += categoryQueries
 	report.SearchHits += categoryHits
 	report.VerificationQueries += categoryVerificationQueries
+	report.QueryReviews = append(report.QueryReviews, categoryQueryReviews...)
 	report.Warnings = append(report.Warnings, categoryWarnings...)
 
 	// Phase 2 — discovery. Stage-operator lanes (the chain's own vocabulary)
@@ -147,8 +148,45 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		laneStages[strings.ToLower(lane.term)] = lane.stage
 	}
 	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Discovering demand across %d lane(s)", len(lanes)), "", "")
-	lanesToRun := selectDemandLanes(lanes, query.DiscoveryQueries)
-	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Searching %d lane(s) with bounded concurrency", len(lanesToRun)), "", "")
+	// Geography expansion before selection, lane-major like the seller's
+	// composition: every selected lane runs once per requested geography, and
+	// a region-scoped lane runs only under the region it names. The budget
+	// then selects across the expanded runs, so the operator's discovery cap
+	// still bounds the spend.
+	lanesToRun := selectDemandLaneRuns(demandLaneRuns(lanes, demandSearchGeographies(query)), query.DiscoveryQueries)
+	specs := make([]marketSearchSpec, 0, len(lanesToRun))
+	runsByQuery := make(map[string]demandLaneRun, len(lanesToRun))
+	for _, run := range lanesToRun {
+		spec := marketSearchSpec{Lane: run.lane.term, Query: demandLaneSearchQuery(query.Activity, run.lane, run.geography)}
+		specs = append(specs, spec)
+		runsByQuery[spec.Query] = run
+	}
+	// Adversarial query review, the seller landscape's discipline applied to
+	// the buyer's lanes: degenerate runs are rewritten or dropped before they
+	// spend a search, and the verdicts are recorded on the report.
+	specs, _, laneReviews, laneReviewWarning := reviewQueryBatch(ctx, a.engine, "discovery", specs, nil, report.ProductCategory, demandReviewScope(query), eventCh)
+	report.QueryReviews = append(report.QueryReviews, laneReviews...)
+	if laneReviewWarning != "" {
+		report.Warnings = append(report.Warnings, laneReviewWarning)
+	}
+	rewrittenToOriginal := make(map[string]string, len(laneReviews))
+	for _, row := range laneReviews {
+		if row.Verdict == "rewritten" && row.RevisedQuery != "" {
+			rewrittenToOriginal[row.RevisedQuery] = row.Original
+		}
+	}
+	laneRuns := make([]demandLaneRun, 0, len(specs))
+	for _, spec := range specs {
+		original := spec.Query
+		if orig, ok := rewrittenToOriginal[spec.Query]; ok {
+			original = orig
+		}
+		if run, ok := runsByQuery[original]; ok {
+			run.query = spec.Query
+			laneRuns = append(laneRuns, run)
+		}
+	}
+	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Searching %d lane(s) with bounded concurrency", len(laneRuns)), "", "")
 	// Lane searches are bounded-concurrent (three at a time) and
 	// order-preserving: results land in the lane's slot, so the leads, the
 	// appendix and the stage attribution never depend on completion order.
@@ -156,12 +194,12 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		hits []models.SearchResult
 		err  error
 	}
-	laneResults := make([]laneSearch, len(lanesToRun))
+	laneResults := make([]laneSearch, len(laneRuns))
 	searchSemaphore := make(chan struct{}, demandLaneSearchConcurrency)
 	var searchGroup sync.WaitGroup
-	for index, lane := range lanesToRun {
+	for index, run := range laneRuns {
 		searchGroup.Add(1)
-		go func(index int, lane demandLane) {
+		go func(index int, run demandLaneRun) {
 			defer searchGroup.Done()
 			searchSemaphore <- struct{}{}
 			defer func() { <-searchSemaphore }()
@@ -169,27 +207,26 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 				laneResults[index].err = err
 				return
 			}
-			searchQuery := demandLaneSearchQuery(query.Activity, lane, demandGeography(query))
-			emitAgentEvent(eventCh, models.EventToolCall, "Searching "+lane.term, "search", searchQuery)
-			hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+			emitAgentEvent(eventCh, models.EventToolCall, "Searching "+run.lane.term, "search", run.query)
+			hits, err := a.engine.SearchCached(ctx, run.query, marketMaxResults)
 			laneResults[index].hits, laneResults[index].err = hits, err
-		}(index, lane)
+		}(index, run)
 	}
 	searchGroup.Wait()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	report.QueriesUsed += len(lanesToRun)
-	for index, lane := range lanesToRun {
+	report.QueriesUsed += len(laneRuns)
+	for index, run := range laneRuns {
 		hits, err := laneResults[index].hits, laneResults[index].err
 		report.SearchHits += len(hits)
 		report.LeadsReviewed += len(hits)
 		if err != nil {
-			report.Warnings = append(report.Warnings, fmt.Sprintf("%s search failed: %v", lane.term, err))
+			report.Warnings = append(report.Warnings, fmt.Sprintf("%s search failed: %v", run.lane.term, err))
 			continue
 		}
 		for _, hit := range hits {
-			candidate := demandCandidate(hit, lane, query)
+			candidate := demandCandidate(hit, run.lane, query)
 			if candidate == nil {
 				continue
 			}
@@ -206,10 +243,21 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	}
 	report.CandidatesFound = len(companies)
 
+	// The buyer's verification template is reviewed once per run, like the
+	// seller's: a rewritten phrase replaces its template everywhere, and a
+	// dropped phrase is recorded but ignored — the claim-conditioned ordering
+	// needs all three kinds available.
+	_, _, purposeRows, purposeWarning := reviewQueryBatch(ctx, a.engine, "verification", nil, demandVerificationPhraseList(), report.ProductCategory, demandReviewScope(query), eventCh)
+	phraseRewrites := demandPurposeRewrites(purposeRows)
+	report.QueryReviews = append(report.QueryReviews, purposeRows...)
+	if purposeWarning != "" {
+		report.Warnings = append(report.Warnings, purposeWarning)
+	}
+
 	// Phase 3 — verification. The discovery leads are enriched and classified
 	// against consumption-shaped purposes; the confidence ladder weights claim
 	// types by how directly they evidence an actual purchase.
-	verified, verificationQueries, extracted, rejected, pagesEnriched, verifyErr := a.verifyDemandLeads(ctx, leads, query, laneStages, eventCh)
+	verified, verificationQueries, extracted, rejected, pagesEnriched, verifyErr := a.verifyDemandLeads(ctx, leads, query, laneStages, phraseRewrites, eventCh)
 	report.VerificationQueries += verificationQueries
 	report.LeadsExtracted = extracted
 	report.LeadsRejected = rejected
@@ -423,11 +471,14 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	return report, nil
 }
 
-func (a *DemandChainAgent) researchCategoryLane(ctx context.Context, query models.DemandChainQuery, category string, eventCh chan<- models.AgentEvent) ([]models.MarketLandscapeCompany, int, int, int, []string) {
-	return (&MarketLandscapeAgent{engine: a.engine}).researchCategoryLane(ctx, models.MarketLandscapeQuery{
+func (a *DemandChainAgent) researchCategoryLane(ctx context.Context, query models.DemandChainQuery, category string, eventCh chan<- models.AgentEvent) ([]models.MarketLandscapeCompany, int, int, int, []models.MarketQueryReview, []string) {
+	// The shared seller runner reviews the category queries adversarially;
+	// the verdicts travel back so the buyer report can audit them too.
+	results, queriesUsed, hitsUsed, verificationQueries, queryReviews, warnings := (&MarketLandscapeAgent{engine: a.engine}).researchCategoryLane(ctx, models.MarketLandscapeQuery{
 		Activity: category, Countries: query.Countries, Regions: query.Regions, Exclusions: query.Exclusions,
 		MaxCompanies: query.MaxCompanies,
-	}, category, eventCh, nil)
+	}, category, marketVerificationPurposes(), eventCh, nil)
+	return results, queriesUsed, hitsUsed, verificationQueries, queryReviews, warnings
 }
 
 // demandUndercovered returns the stage-coverage rows that did not reach the QC floor.
@@ -1881,13 +1932,38 @@ type demandLane struct {
 
 // demandLaneSearchQuery composes a lane's search string. Only productAnchored
 // lanes carry the product; a stage-anchored term prefixed with the product
-// hands the search engine a supply-side query instead of a buyer-side one.
+// hands the search engine a supply-side query instead of a buyer-side one. A
+// lane whose term already names the geography never gets it appended again —
+// "Middle East importer tender procurement" must not become "Middle East
+// importer tender procurement Middle East".
 func demandLaneSearchQuery(activity string, lane demandLane, geography string) string {
-	query := lane.term + " " + geography
+	query := lane.term
+	if geography != "" && !demandLaneCarriesGeography(lane.term, geography) {
+		query += " " + geography
+	}
 	if lane.productAnchored {
 		query = activity + " " + query
 	}
 	return strings.TrimSpace(query)
+}
+
+// demandLaneCarriesGeography reports whether every word of the geography is
+// already present in the lane term.
+func demandLaneCarriesGeography(term, geography string) bool {
+	geography = strings.TrimSpace(geography)
+	if geography == "" {
+		return false
+	}
+	termWords := make(map[string]bool)
+	for _, word := range strings.Fields(strings.ToLower(term)) {
+		termWords[word] = true
+	}
+	for _, word := range strings.Fields(strings.ToLower(geography)) {
+		if !termWords[word] {
+			return false
+		}
+	}
+	return true
 }
 
 // inferDemandChain builds the consuming stages the run is organised around.
@@ -2781,11 +2857,58 @@ func knownStageProducts(activity, stage string) []string {
 	return nil
 }
 
-// selectDemandLanes keeps the highest-value direct-demand lanes in every run:
+// demandLaneRun is one lane prepared for one geography: discovery expands the
+// lanes across the requested geographies before the budget selects among the
+// runs, so a two-region run searches its lanes in both regions.
+type demandLaneRun struct {
+	lane      demandLane
+	geography string
+	// query is the composed search string; the expansion leaves it empty and
+	// the Research flow fills it once the review has spoken.
+	query string
+}
+
+// demandLaneRuns expands the lanes across the requested geographies,
+// lane-major like the seller landscape's composition. A region-scoped lane
+// ("Middle East importer tender procurement") runs only under the geography it
+// names — copying it into every other region would search the Middle East
+// lane with an Africa tail.
+func demandLaneRuns(lanes []demandLane, geographies []string) []demandLaneRun {
+	runs := make([]demandLaneRun, 0, len(lanes)*len(geographies))
+	for _, lane := range lanes {
+		for _, geography := range geographies {
+			owned := false
+			for _, requested := range geographies {
+				if requested != "" && demandLaneCarriesGeography(lane.term, requested) {
+					owned = true
+					break
+				}
+			}
+			if owned && !demandLaneCarriesGeography(lane.term, geography) {
+				continue
+			}
+			runs = append(runs, demandLaneRun{lane: lane, geography: geography})
+		}
+	}
+	return runs
+}
+
+// selectDemandLanes is the single-geography wrapper over the run selector:
+// every lane becomes one global run.
+func selectDemandLanes(lanes []demandLane, budget int) []demandLane {
+	selected := selectDemandLaneRuns(demandLaneRuns(lanes, []string{""}), budget)
+	out := make([]demandLane, 0, len(selected))
+	for _, run := range selected {
+		out = append(out, run.lane)
+	}
+	return out
+}
+
+// selectDemandLaneRuns keeps the highest-value direct-demand runs in every run:
 // procurement/direct-enquiry, tender/RFP, the import-data lane and the
 // distributor channel. The remaining budget follows the stage-first order
-// produced by demandChainLanes.
-func selectDemandLanes(lanes []demandLane, budget int) []demandLane {
+// produced by demandChainLanes, expanded across the requested geographies.
+func selectDemandLaneRuns(runs []demandLaneRun, budget int) []demandLaneRun {
 	if budget <= 0 {
 		return nil
 	}
@@ -2795,69 +2918,115 @@ func selectDemandLanes(lanes []demandLane, budget int) []demandLane {
 		"distributor wholesaler of":  true,
 	}
 	reserved := 0
-	for _, lane := range lanes {
-		if mandatory[lane.term] {
+	for _, run := range runs {
+		if mandatory[run.lane.term] {
 			reserved++
 		}
 	}
 	if reserved == 0 {
-		if len(lanes) > budget {
-			return lanes[:budget]
+		if len(runs) > budget {
+			return runs[:budget]
 		}
-		return lanes
+		return runs
 	}
 	if budget < reserved {
 		budget = reserved
 	}
-	capacity := len(lanes)
+	capacity := len(runs)
 	if capacity > budget {
 		capacity = budget
 	}
-	selected := make([]demandLane, 0, capacity)
+	selected := make([]demandLaneRun, 0, capacity)
 	optionalBudget := budget - reserved
-	// Stage-carrying lanes run before generic product-shaped lanes: a budget-limited run must
+	// Stage-carrying runs run before generic product-shaped runs: a budget-limited run must
 	// still tie at least one lane to each consuming stage the chain inferred.
-	addOptional := func(lanes []demandLane) {
-		for _, lane := range lanes {
+	addOptional := func(runs []demandLaneRun) {
+		for _, run := range runs {
 			if optionalBudget == 0 {
 				return
 			}
-			if mandatory[lane.term] {
+			if mandatory[run.lane.term] {
 				continue
 			}
-			selected = append(selected, lane)
+			selected = append(selected, run)
 			optionalBudget--
 		}
 	}
-	var stageLanes, otherLanes []demandLane
-	for _, lane := range lanes {
-		if lane.stage != "" {
-			stageLanes = append(stageLanes, lane)
+	var stageRuns, otherRuns []demandLaneRun
+	for _, run := range runs {
+		if run.lane.stage != "" {
+			stageRuns = append(stageRuns, run)
 		} else {
-			otherLanes = append(otherLanes, lane)
+			otherRuns = append(otherRuns, run)
 		}
 	}
 	// Operator vocabulary ("biodiesel plant") is a more precise identity signal than a generic
 	// "largest manufacturers of ..." query, so within the stage reserve the shorter lane runs
 	// first when the budget cannot carry both.
-	sort.SliceStable(stageLanes, func(i, j int) bool { return len(stageLanes[i].term) < len(stageLanes[j].term) })
-	addOptional(stageLanes)
-	addOptional(otherLanes)
-	for _, lane := range lanes {
-		if mandatory[lane.term] {
-			selected = append(selected, lane)
+	sort.SliceStable(stageRuns, func(i, j int) bool { return len(stageRuns[i].lane.term) < len(stageRuns[j].lane.term) })
+	addOptional(stageRuns)
+	addOptional(otherRuns)
+	for _, run := range runs {
+		if mandatory[run.lane.term] {
+			selected = append(selected, run)
 		}
 	}
 	return selected
 }
 
-// demandGeography renders the geo suffix for search queries: countries win over
-// regions, and nothing is appended when the run is global.
+// demandGeography renders the geo suffix for company- and stage-anchored
+// search queries (gap searches, verification): countries join as-is, and
+// multiple regions alternate with OR — quoted when multi-word — so the tail
+// never becomes an ambiguous "Middle East Africa" token soup. Discovery lanes
+// do not use this tail: they compose one query per geography through
+// demandSearchGeographies instead.
 func demandGeography(query models.DemandChainQuery) string {
 	if len(query.Countries) > 0 {
 		return strings.Join(query.Countries, " ")
 	}
-	return strings.Join(query.Regions, " ")
+	parts := make([]string, 0, len(query.Regions))
+	for _, region := range query.Regions {
+		region = strings.TrimSpace(region)
+		if region == "" {
+			continue
+		}
+		if strings.Contains(region, " ") {
+			region = `"` + region + `"`
+		}
+		parts = append(parts, region)
+	}
+	return strings.Join(parts, " OR ")
+}
+
+// demandGeographyDisplay renders the scope the run was asked for — countries
+// and regions, comma-joined — for the report header. It is never a query
+// suffix.
+func demandGeographyDisplay(query models.DemandChainQuery) string {
+	parts := append(append([]string(nil), query.Countries...), query.Regions...)
+	return strings.Join(uniqueStrings(parts), ", ")
+}
+
+// demandSearchGeographies mirrors the seller landscape's
+// marketSearchGeographies: countries travel as one suffix, regions travel
+// separately — two requested regions mean one query per lane per region.
+func demandSearchGeographies(query models.DemandChainQuery) []string {
+	if len(query.Countries) > 0 {
+		return []string{strings.Join(query.Countries, " ")}
+	}
+	if len(query.Regions) > 0 {
+		return append([]string(nil), query.Regions...)
+	}
+	return []string{""}
+}
+
+// demandReviewScope mirrors a buyer query into the shape the shared query
+// review reads: the activity and the requested geography.
+func demandReviewScope(query models.DemandChainQuery) models.MarketLandscapeQuery {
+	return models.MarketLandscapeQuery{
+		Activity:  query.Activity,
+		Countries: query.Countries,
+		Regions:   query.Regions,
+	}
 }
 
 // demandGeographyClause renders the geography for LLM prompts: countries and
@@ -3024,7 +3193,7 @@ func isIntermediarySignal(name, domain string) bool {
 // dedupe, per-purpose verification searches), with consumption-shaped prompts,
 // claim-typed evidence and a directness-weighted confidence ladder. It reuses
 // the market mode's tier, identity and name-hygiene helpers unchanged.
-func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models.MarketLandscapeEvidence, query models.DemandChainQuery, laneStages map[string]string, eventCh chan<- models.AgentEvent) ([]*models.MarketLandscapeCompany, int, int, int, int, error) {
+func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models.MarketLandscapeEvidence, query models.DemandChainQuery, laneStages map[string]string, phraseRewrites map[string]string, eventCh chan<- models.AgentEvent) ([]*models.MarketLandscapeCompany, int, int, int, int, error) {
 	if len(leads) == 0 {
 		return nil, 0, 0, 0, 0, nil
 	}
@@ -3266,7 +3435,7 @@ func (a *DemandChainAgent) verifyDemandLeads(ctx context.Context, leads []models
 			break
 		}
 		launched++
-		purposes := demandVerificationPurposes(demandClaimForLead(leads, lead))
+		purposes := applyDemandPurposeRewrites(demandVerificationPurposes(demandClaimForLead(leads, lead)), phraseRewrites)
 		verifyGroup.Add(1)
 		go func(index int, lead models.MarketLandscapeLeadCandidate, purposes []demandVerificationPurpose) {
 			defer verifyGroup.Done()
@@ -3399,6 +3568,52 @@ func demandNormalizeCandidateName(name string) string {
 		name = strings.TrimSpace(name[:idx])
 	}
 	return name
+}
+
+// demandVerificationPhraseList collects the distinct verification phrases the
+// claim-conditioned template can issue, for the adversarial purpose review.
+func demandVerificationPhraseList() []string {
+	seen := make(map[string]bool)
+	var phrases []string
+	for _, claim := range []string{"", models.DemandClaimTender, models.DemandClaimImport} {
+		for _, purpose := range demandVerificationPurposes(claim) {
+			if !seen[purpose.phrase] {
+				seen[purpose.phrase] = true
+				phrases = append(phrases, purpose.phrase)
+			}
+		}
+	}
+	return phrases
+}
+
+// demandPurposeRewrites turns the purpose-review rows into a phrase
+// replacement map. The buyer's claim-conditioned verification needs all three
+// kinds available, so a dropped phrase is recorded on the report but never
+// removed from the template — only a rewrite changes what runs.
+func demandPurposeRewrites(rows []models.MarketQueryReview) map[string]string {
+	rewrites := make(map[string]string)
+	for _, row := range rows {
+		if row.Phase != "verification" || row.Verdict != "rewritten" || strings.TrimSpace(row.RevisedQuery) == "" {
+			continue
+		}
+		rewrites[row.Original] = row.RevisedQuery
+	}
+	return rewrites
+}
+
+// applyDemandPurposeRewrites replaces the reviewed phrases in one lead's
+// purpose set; the kind ordering is untouched.
+func applyDemandPurposeRewrites(purposes []demandVerificationPurpose, rewrites map[string]string) []demandVerificationPurpose {
+	if len(rewrites) == 0 {
+		return purposes
+	}
+	out := append([]demandVerificationPurpose(nil), purposes...)
+	for i := range out {
+		if rewritten, ok := rewrites[out[i].phrase]; ok {
+			out[i].phrase = rewritten
+		}
+	}
+	return out
 }
 
 // demandVerificationPurpose is one templated verification search.

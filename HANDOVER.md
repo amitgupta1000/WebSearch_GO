@@ -9,8 +9,85 @@
 - Full Go suite: **634 tests passing, 0 failing** (`go test ./... -count=1`), `go vet` and
   `go build` clean.
 - Live-verified this session: three full Buyer Landscape (`demand_chain`) runs on the sample
-  query `"n-butanol" "India"` (`TestDemandChainLive`, deep budget). Logs:
-  `eval/nbutanol-live*.log`; artifacts under `%TEMP%\crystal-live-nbutanol*`.
+  query `"n-butanol" "India"` (`TestDemandChainLive`, deep budget). The run logs were removed
+  from the repo in the 2026-11-17 artifacts cleanup; artifacts under `%TEMP%\crystal-live-nbutanol*`.
+
+## 2026-11-17 — adversarial query review (Seller Landscape)
+
+The operator reviewed the search strings a "Oil Blending" MEA run issued and the verdict was:
+half the discovery spend bought no marginal recall (self-repeating lanes, region-collision lanes,
+activity-anchored trade lanes, unnatural role clusters). Instead of hardcoding better lanes, the
+pipeline now reviews its own queries adversarially before any search runs:
+
+- **New `internal/agent/market_query_review.go`.** Layered review: deterministic guards first
+  (self-repetition, vocabulary-subset redundancy within the same `site:` class, unknown/doubled
+  `site:` hosts, word caps), then one bounded LLM call that keeps, rewrites or drops every query.
+  Rewrites are sanitized hard: requested-geography tokens only (region vocabulary expands, so a
+  Middle East run may narrow to UAE but never widen to India), one `site:` host max from the
+  trade-platform + ensun/revenuebase allowlist, no repeated content words, same-lane vocabulary
+  shared with the original. Fail-open: on model error the original queries run and a warning is
+  recorded. Verdicts land on the report as `QueryReviews` (rewrites/drops only — unchanged
+  queries stay auditable through `SearchQueries`) and render in the Markdown export.
+- **Wired into all three query sources**: discovery lanes (phase `discovery`), the shared
+  category-lane runner (phase `category`, also exercised by the buyer landscape through
+  `DemandChainAgent.researchCategoryLane`), and the per-company verification purposes (phase
+  `verification`, reviewed once before any lane runs; `verifyMarketLeads` now takes its purposes
+  as a parameter). A rewrite of "registry trade source"-style purposes replaces the template for
+  both verification stages.
+- **Category lanes run once per requested geography** (`marketSearchGeographies`), killing the
+  `oleochemicals manufacturers Middle East Africa` concatenated-region soup; the orphaned
+  `marketGeography` helper is gone.
+- **Process activities expand to natural indexed phrases** (`marketActivitySearchTerms`): an
+  activity containing "blend" also searches as `lubricant blending` — the phrase the trade
+  actually indexes — and `fuel oil blending` joins only when the activity names fuel. This
+  implements the intent of `TestMarketDiscoverySearchesUseNaturalProcessTerms`, which had been
+  failing at HEAD since the `e5136b4` composition rework.
+- Tests: `internal/agent/market_query_review_test.go` (merge rules, refused unsafe rewrites,
+  fail-open, mechanical redundancy + site-class separation, per-region category lanes).
+
+**Buyer alignment (same day).** The buyer landscape now runs the same discipline:
+
+- The engine-neutral `reviewQueryBatch` serves both agents. Buyer discovery expands its lanes
+  across the requested geographies (`demandLaneRuns`, lane-major) *before* the budget selects
+  among the runs, so `DiscoveryQueries` still bounds the spend; a region-scoped lane
+  ("Middle East importer tender procurement") runs only under the region it names and never gets
+  its own region appended again (`demandLaneSearchQuery`). The expanded runs pass through the
+  review, and surviving runs map back to their lanes by original query text — stage attribution
+  and `laneStages` are untouched by a rewrite.
+- `demandGeography` — the tail on gap and verification queries — alternates a multi-region scope
+  with OR (`"Middle East" OR Africa`) instead of concatenating it; the report header shows the
+  comma-joined scope via the new `demandGeographyDisplay`.
+- The buyer's verification template (tender / import / own-site phrases) is reviewed once per run:
+  a rewrite replaces the phrase everywhere via `applyDemandPurposeRewrites`; a drop is recorded on
+  the report but the claim-conditioned ordering keeps all three kinds. The shared sanitizers are
+  connector-aware so compound phrases ("import data OR importer of OR customs shipment") can be
+  rewritten without tripping the repeat-word guard.
+- The category-lane delegation no longer discards verdicts: `DemandChainReport` gained
+  `QueryReviews`, populated from the buyer's own lane review, the purpose review and the shared
+  category runner, and rendered in the buyer Markdown export.
+- Tests: `internal/agent/demand_query_review_test.go` (region-collision composition, geography
+  plumbing, purpose rewrite contract, and a full-Research pin: per-region execution, a reviewed-
+  away run that never executes, the rewritten importer phrase in verification, no region soup).
+
+**Verification before ship (same day).** Two layers, both green:
+
+- Deterministic: `internal/agent/query_plan_verification_test.go` composes the real plans for
+  representative samples in both modes ("Oil Blending" MEA, "lubricant blending" India, "linear
+  alkyl benzene" global/MEA, "fuel oil blending" Middle East, "used cooking oil" Malaysia,
+  "n-butanol" India) and asserts the semantic invariants at plan level: no region soup, no
+  self-repetition, no role-word stacks, bounded length, natural phrases present
+  (`"lubricant blending"` variants), one query per geography.
+- Live: `QUERY_PROBE=1 go test ./internal/agent -run TestQueryProbeLive` composes the real
+  plans, runs the actual model review, then spends ~20 real Serper searches on the survivors.
+  The 2026-11-17 run: the reviewer re-anchored all four seller trade lanes on the inferred
+  category ("lubricants"), dropped the region tail from the buyer's site-scoped directory lanes,
+  re-ordered a region lane for natural phrasing, and refused a duplicate rewrite; every probed
+  query returned 9-10 hits naming exactly the right pages (lubricant blending plant and storage-
+  terminal rosters, UCO suppliers and import-trade pages). Purposes survived unchanged.
+
+**Repo hygiene (same day).** Removed 84 one-off artifact dumps, the stale buyer live-run logs
+and the 38MB `server.exe~` snapshot; `/artifacts` and `/eval` are gitignored (the three
+scorecards cited by `docs/BUYER_LANDSCAPE_REVIEW.md` stay tracked).
 
 ## Discovery landscape â€” current stage (buyer + seller)
 

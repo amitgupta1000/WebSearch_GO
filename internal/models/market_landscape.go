@@ -69,6 +69,22 @@ type MarketSearchTrace struct {
 	Hits   int    `json:"hits"`
 }
 
+// MarketQueryReview is the adversarial aptness verdict on one planned search
+// query before it ran. Discovery and category lanes are reviewed per query;
+// the per-company verification template is reviewed as purpose phrases.
+// Verdicts: kept (only recorded when a proposed rewrite was refused),
+// rewritten, dropped. Queries that ran unchanged are auditable through
+// SearchQueries; a rewrite never widens scope — geography outside the
+// request, a site: domain outside the operator allowlist, or a query that
+// repeats its own words falls back to the original or is dropped.
+type MarketQueryReview struct {
+	Phase        string `json:"phase"`
+	Original     string `json:"original"`
+	Verdict      string `json:"verdict"`
+	RevisedQuery string `json:"revised_query,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+}
+
 // MarketLandscapeLeadCandidate is a company name extracted from a discovery
 // lead and queued for company-specific verification.
 type MarketLandscapeLeadCandidate struct {
@@ -243,10 +259,14 @@ type MarketLandscapeReport struct {
 	CategoryLanes     []string                 `json:"category_lanes,omitempty"`
 	CategoryResults   []MarketLandscapeCompany `json:"category_results,omitempty"`
 	SearchQueries     []MarketSearchTrace      `json:"search_queries,omitempty"`
-	QCPrompt          string                   `json:"qc_prompt,omitempty"`
-	QCPromptSource    string                   `json:"qc_prompt_source,omitempty"`
-	Coverage          *MarketCoverage          `json:"coverage,omitempty"`
-	Groups            []MarketLandscapeGroup   `json:"groups,omitempty"`
+	// QueryReviews is the adversarial aptness review of the planned queries:
+	// only rewritten and dropped entries are recorded here, since queries that
+	// ran unchanged are auditable through SearchQueries.
+	QueryReviews   []MarketQueryReview    `json:"query_reviews,omitempty"`
+	QCPrompt       string                 `json:"qc_prompt,omitempty"`
+	QCPromptSource string                 `json:"qc_prompt_source,omitempty"`
+	Coverage       *MarketCoverage        `json:"coverage,omitempty"`
+	Groups         []MarketLandscapeGroup `json:"groups,omitempty"`
 	// TradeImporters and TradeSuppliers are the opt-in first-party customs
 	// sections served from the Crystal trade DB. They are published separately
 	// from Results on purpose: an importer may equally be a reseller, and a

@@ -226,6 +226,15 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 		}
 		b.WriteString("\n")
 	}
+	if len(report.QueryReviews) > 0 {
+		b.WriteString("## Query review\n\n")
+		b.WriteString("Adversarial aptness review of the planned queries before they ran.\n\n")
+		b.WriteString("| Phase | Original | Verdict | Revised | Reason |\n| :--- | :--- | :--- | :--- | :--- |\n")
+		for _, review := range report.QueryReviews {
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", markdownCell(review.Phase), markdownCell(review.Original), review.Verdict, markdownCell(review.RevisedQuery), markdownCell(review.Reason))
+		}
+		b.WriteString("\n")
+	}
 	fmt.Fprintf(&b, "\n## Method summary\n\n%d discovery queries; %d category queries; %d gap/QC queries; %d raw hits; %d leads reviewed; %d entities extracted; %d rejected; %d pages enriched; %d verification queries.\n\n",
 		report.QueriesUsed, report.CategoryQueries, report.GapQueries, report.SearchHits, report.LeadsReviewed, report.LeadsExtracted,
 		report.LeadsRejected, report.PagesEnriched, report.VerificationQueries)
