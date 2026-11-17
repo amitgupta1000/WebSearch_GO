@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
@@ -32,6 +33,39 @@ func TestMarketLanesFollowActivity(t *testing.T) {
 		if lane == "blending plant facility" || lane == "industrial oil blending" || lane == "fuel oil blending plant" {
 			t.Fatalf("oil-blending lane leaked into drone research: %v", lanes)
 		}
+	}
+}
+
+func TestMarketDiscoverySearchesUseNaturalProcessTerms(t *testing.T) {
+	searches := marketDiscoverySearches(models.MarketLandscapeQuery{
+		Activity: "oil blending",
+		Regions:  []string{"Middle East", "Africa"},
+	})
+	queries := make(map[string]bool, len(searches))
+	for _, search := range searches {
+		queries[search.Query] = true
+		if strings.Contains(search.Query, "Middle East Africa") {
+			t.Fatalf("query should not concatenate regional scopes: %q", search.Query)
+		}
+		if strings.Contains(search.Query, "company operator manufacturer") {
+			t.Fatalf("query should not use the generic role pile: %q", search.Query)
+		}
+	}
+	for _, expected := range []string{
+		`"oil blending" manufacturer Middle East`,
+		`"lubricant blending" plant Africa`,
+		`site:ensun.io "oil blending"`,
+	} {
+		if !queries[expected] {
+			t.Errorf("missing query %q in %v", expected, searches)
+		}
+	}
+}
+
+func TestMarketActivitySearchTermsPreserveOperatorInput(t *testing.T) {
+	got := marketActivitySearchTerms("specialty polymer processing")
+	if len(got) != 1 || got[0] != "specialty polymer processing" {
+		t.Fatalf("activity terms = %v, want the operator activity unchanged", got)
 	}
 }
 

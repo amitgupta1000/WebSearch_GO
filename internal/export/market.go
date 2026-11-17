@@ -19,6 +19,16 @@ func renderMarketLandscapeMarkdown(report *models.MarketLandscapeReport) string 
 		}
 		b.WriteString("\n\n")
 	}
+	if len(report.SearchQueries) > 0 {
+		b.WriteString("## Search queries\n\n")
+		b.WriteString("| Phase | Lane | Query | Status | Hits |\n|---|---|---|---|---:|\n")
+		for _, search := range report.SearchQueries {
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %d |\n",
+				marketMarkdownCell(search.Phase), marketMarkdownCell(search.Lane),
+				marketMarkdownCell(search.Query), marketMarkdownCell(search.Status), search.Hits)
+		}
+		b.WriteString("\n")
+	}
 	b.WriteString("## Results\n\n")
 	if len(report.Results) == 0 {
 		b.WriteString("No verified companies were promoted.\n")

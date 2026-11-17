@@ -427,7 +427,7 @@ func (a *DemandChainAgent) researchCategoryLane(ctx context.Context, query model
 	return (&MarketLandscapeAgent{engine: a.engine}).researchCategoryLane(ctx, models.MarketLandscapeQuery{
 		Activity: category, Countries: query.Countries, Regions: query.Regions, Exclusions: query.Exclusions,
 		MaxCompanies: query.MaxCompanies,
-	}, category, eventCh)
+	}, category, eventCh, nil)
 }
 
 // demandUndercovered returns the stage-coverage rows that did not reach the QC floor.

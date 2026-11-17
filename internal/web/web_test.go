@@ -36,8 +36,12 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 		Objective:       "Find active blenders and their commercial contacts",
 		ProductCategory: "lubricants",
 		CategoryLanes:   []string{"lubricants manufacturers", "lubricants companies"},
-		QCPrompt:        "Reject publishers and unrelated companies.",
-		QCPromptSource:  "custom",
+		SearchQueries: []models.MarketSearchTrace{{
+			Phase: "discovery", Lane: "manufacturer", Query: `"lubricant blending" manufacturer India`,
+			Status: "executed", Hits: 8,
+		}},
+		QCPrompt:       "Reject publishers and unrelated companies.",
+		QCPromptSource: "custom",
 		Reviews: []models.MarketLandscapeReview{{
 			Verdict: "revise", Score: 0.8, Passed: 1, Failed: 1,
 			Verdicts: []models.MarketQCVerdict{
@@ -103,6 +107,7 @@ func TestMarketLandscapeReportRendersKeyPeople(t *testing.T) {
 		"publisher, not an operator",
 		"Reject publishers and unrelated companies.",
 		"QC Result",
+		"Search Queries", "lubricant blending", "manufacturer India", "8 hits",
 		"category level results", "Discovery lanes: lubricants manufacturers", "Acme manufactures industrial lubricants.",
 	} {
 		if !strings.Contains(rendered, expected) {

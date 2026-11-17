@@ -101,7 +101,7 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	report.CategorySource = categorySource
 	report.Warnings = append(report.Warnings, categoryWarnings...)
 	report.CategoryLanes = marketCategoryLanes(category)
-	categoryResults, categoryQueries, categoryHits, categoryVerificationQueries, categoryLaneWarnings := a.researchCategoryLane(ctx, query, category, eventCh)
+	categoryResults, categoryQueries, categoryHits, categoryVerificationQueries, categoryLaneWarnings := a.researchCategoryLane(ctx, query, category, eventCh, &report.SearchQueries)
 	report.CategoryResults = categoryResults
 	report.CategoryQueries = categoryQueries
 	report.SearchHits += categoryHits
@@ -142,18 +142,20 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	// hits land in its slot, so the leads, the appendix and the company
 	// merging below never depend on completion order.
 	type laneSearch struct {
-		hits []models.SearchResult
-		err  error
+		hits  []models.SearchResult
+		err   error
+		trace models.MarketSearchTrace
 	}
-	laneResults := make([]laneSearch, len(report.Lanes))
+	discoverySearches := marketDiscoverySearches(query)
+	laneResults := make([]laneSearch, len(discoverySearches))
 	searchSemaphore := make(chan struct{}, marketLaneSearchConcurrency)
 	var searchGroup sync.WaitGroup
-	for laneIndex, lane := range report.Lanes {
+	for laneIndex, search := range discoverySearches {
 		if laneIndex >= marketMaxDiscoveryQueries {
 			break
 		}
 		searchGroup.Add(1)
-		go func(lane string, slot int) {
+		go func(search marketSearchSpec, slot int) {
 			defer searchGroup.Done()
 			searchSemaphore <- struct{}{}
 			defer func() { <-searchSemaphore }()
@@ -161,36 +163,35 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 				laneResults[slot].err = err
 				return
 			}
-			searchQuery := strings.TrimSpace(query.Activity + " " + lane)
-			if len(query.Countries) > 0 {
-				searchQuery += " " + strings.Join(query.Countries, " ")
-			} else if len(query.Regions) > 0 {
-				searchQuery += " " + strings.Join(query.Regions, " ")
-			}
-			emitAgentEvent(eventCh, models.EventToolCall, "Searching "+lane, "search", searchQuery)
-			hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+			emitAgentEvent(eventCh, models.EventToolCall, "Searching "+search.Lane, "search", search.Query)
+			hits, err := a.engine.SearchCached(ctx, search.Query, marketMaxResults)
 			laneResults[slot].hits, laneResults[slot].err = hits, err
-		}(lane, laneIndex)
+			laneResults[slot].trace = models.MarketSearchTrace{
+				Phase: "discovery", Lane: search.Lane, Query: search.Query,
+				Status: marketSearchStatus(err), Hits: len(hits),
+			}
+		}(search, laneIndex)
 	}
 	searchGroup.Wait()
-	for laneIndex, lane := range report.Lanes {
+	for laneIndex, search := range discoverySearches {
 		if laneIndex >= marketMaxDiscoveryQueries {
 			break
 		}
 		queriesUsed++
 		hits, err := laneResults[laneIndex].hits, laneResults[laneIndex].err
+		report.SearchQueries = append(report.SearchQueries, laneResults[laneIndex].trace)
 		report.SearchHits += len(hits)
 		if err != nil {
-			report.Warnings = append(report.Warnings, fmt.Sprintf("%s search failed: %v", lane, err))
+			report.Warnings = append(report.Warnings, fmt.Sprintf("%s search failed: %v", search.Query, err))
 			continue
 		}
-		processHits(hits, lane)
+		processHits(hits, search.Lane)
 	}
 
 	report.LeadsReviewed = len(leads)
 	report.QueriesUsed = queriesUsed + categoryQueries
 	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Extracting companies from %d discovery lead(s)", len(leads)), "", "")
-	resolved, verificationQueries, extracted, rejected, enriched, _, _, _, err := a.verifyMarketLeads(ctx, leads, query, eventCh)
+	resolved, verificationQueries, extracted, rejected, enriched, _, _, _, err := a.verifyMarketLeads(ctx, leads, query, eventCh, &report.SearchQueries)
 	report.QueriesUsed += verificationQueries + categoryVerificationQueries
 	report.LeadsExtracted = extracted
 	report.LeadsRejected = rejected
@@ -345,7 +346,7 @@ Companies:
 // is used only to broaden weak discovery, never as a company or a result.
 func (a *MarketLandscapeAgent) inferMarketCategory(ctx context.Context, query models.MarketLandscapeQuery, eventCh chan<- models.AgentEvent) (string, string, string, []string) {
 	var inference models.MarketLandscapeInference
-	prompt := fmt.Sprintf(`Identify the immediate downstream product family or industry category that consumes %q for a Seller Landscape. It must be specific enough to search, one to four words, and not an end-use sector or generic superclass. Examples: toluene diisocyanate -> polyurethanes; acetic acid -> solvents or acetates; toluene -> aromatics; n-butanol -> solvents; linear alkyl benzene -> surfactants; coal -> coal products, never fuel or energy. Return JSON with category and category_rationale.`, query.Activity)
+	prompt := fmt.Sprintf(`Identify the immediate downstream product family or industry category that consumes %q for a Seller Landscape. It must be specific enough to search, one to four words, and not an end-use sector or generic superclass. If the activity is a process or service without a clearly named product, return an empty category and explain that a product must be specified. Examples: toluene diisocyanate -> polyurethanes; acetic acid -> solvents or acetates; toluene -> aromatics; n-butanol -> solvents; linear alkyl benzene -> surfactants; coal -> coal products, never fuel or energy. Return JSON with category and category_rationale.`, query.Activity)
 	if err := a.engine.GenerateStructured(ctx,
 		"You identify buyer-side product categories for industrial market research. Never return fuel, energy, chemicals, industrial, automotive or another end-use sector.",
 		prompt, &inference); err != nil {
@@ -382,7 +383,88 @@ func marketCategoryLanes(category string) []string {
 	return []string{category + " manufacturers", category + " companies"}
 }
 
-func (a *MarketLandscapeAgent) researchCategoryLane(ctx context.Context, query models.MarketLandscapeQuery, category string, eventCh chan<- models.AgentEvent) ([]models.MarketLandscapeCompany, int, int, int, []string) {
+type marketSearchSpec struct {
+	Lane  string
+	Query string
+}
+
+func marketSearchStatus(err error) string {
+	if err != nil {
+		return "failed"
+	}
+	return "executed"
+}
+
+func marketSearchPhrase(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.ContainsAny(value, `"()`) {
+		return value
+	}
+	return `"` + value + `"`
+}
+
+func marketSearchGeographies(query models.MarketLandscapeQuery) []string {
+	if len(query.Countries) > 0 {
+		return []string{strings.Join(query.Countries, " ")}
+	}
+	if len(query.Regions) > 0 {
+		return append([]string(nil), query.Regions...)
+	}
+	return []string{""}
+}
+
+func marketActivitySearchTerms(activity string) []string {
+	return []string{strings.TrimSpace(activity)}
+}
+
+func marketDiscoverySearches(query models.MarketLandscapeQuery) []marketSearchSpec {
+	terms := marketActivitySearchTerms(query.Activity)
+	geographies := marketSearchGeographies(query)
+	searches := make([]marketSearchSpec, 0, marketMaxDiscoveryQueries)
+	seen := make(map[string]bool)
+	appendSearch := func(lane, search string) {
+		search = strings.TrimSpace(search)
+		if search == "" || seen[search] || len(searches) >= marketMaxDiscoveryQueries {
+			return
+		}
+		seen[search] = true
+		searches = append(searches, marketSearchSpec{Lane: lane, Query: search})
+	}
+
+	// Use a small set of natural phrases for each product/process variant. The
+	// geography is attached once, and regional scopes remain separate.
+	for _, term := range terms {
+		for _, geography := range geographies {
+			suffix := strings.TrimSpace(geography)
+			if suffix != "" {
+				suffix = " " + suffix
+			}
+			appendSearch("manufacturer", marketSearchPhrase(term)+" manufacturer"+suffix)
+			appendSearch("plant", marketSearchPhrase(term)+" plant"+suffix)
+		}
+	}
+
+	primary := terms[0]
+	for _, site := range []string{"ensun.io", "revenuebase.ai"} {
+		appendSearch("site:"+site, "site:"+site+" "+marketSearchPhrase(primary))
+	}
+	for _, geography := range geographies {
+		suffix := strings.TrimSpace(geography)
+		if suffix != "" {
+			suffix = " " + suffix
+		}
+		appendSearch("company", marketSearchPhrase(primary)+" company"+suffix)
+		appendSearch("facility", marketSearchPhrase(primary)+" facility"+suffix)
+		appendSearch("exporter", marketSearchPhrase(primary)+" exporter"+suffix)
+		appendSearch("shipment", marketSearchPhrase(primary)+" shipment"+suffix)
+	}
+	return searches
+}
+
+func (a *MarketLandscapeAgent) researchCategoryLane(ctx context.Context, query models.MarketLandscapeQuery, category string, eventCh chan<- models.AgentEvent, trace *[]models.MarketSearchTrace) ([]models.MarketLandscapeCompany, int, int, int, []string) {
 	category = strings.TrimSpace(category)
 	if category == "" {
 		return nil, 0, 0, 0, nil
@@ -404,6 +486,12 @@ func (a *MarketLandscapeAgent) researchCategoryLane(ctx context.Context, query m
 		searchQuery := strings.TrimSpace(lane + " " + marketGeography(query))
 		emitAgentEvent(eventCh, models.EventToolCall, "Searching category "+category, "search", searchQuery)
 		hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+		if trace != nil {
+			*trace = append(*trace, models.MarketSearchTrace{
+				Phase: "category", Lane: lane, Query: searchQuery,
+				Status: marketSearchStatus(err), Hits: len(hits),
+			})
+		}
 		queriesUsed++
 		hitsUsed += len(hits)
 		if err != nil {
@@ -429,7 +517,7 @@ func (a *MarketLandscapeAgent) researchCategoryLane(ctx context.Context, query m
 			mergeMarketCompany(companies, candidate)
 		}
 	}
-	resolved, verificationQueries, _, rejected, _, _, _, _, err := a.verifyMarketLeads(ctx, leads, categoryQuery, eventCh)
+	resolved, verificationQueries, _, rejected, _, _, _, _, err := a.verifyMarketLeads(ctx, leads, categoryQuery, eventCh, trace)
 	if err != nil {
 		warnings = append(warnings, "Category lead extraction could not complete: "+err.Error())
 	}
@@ -527,7 +615,7 @@ func marketCandidate(hit models.SearchResult, lane string, query models.MarketLa
 	}
 }
 
-func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []models.MarketLandscapeEvidence, query models.MarketLandscapeQuery, eventCh chan<- models.AgentEvent) ([]*models.MarketLandscapeCompany, int, int, int, int, int, int, int, error) {
+func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []models.MarketLandscapeEvidence, query models.MarketLandscapeQuery, eventCh chan<- models.AgentEvent, trace *[]models.MarketSearchTrace) ([]*models.MarketLandscapeCompany, int, int, int, int, int, int, int, error) {
 	if len(leads) == 0 {
 		return nil, 0, 0, 0, 0, 0, 0, 0, nil
 	}
@@ -704,6 +792,7 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 	type candidateVerification struct {
 		searches int
 		hits     [][]models.SearchResult
+		traces   []models.MarketSearchTrace
 	}
 	verificationResults := make([]candidateVerification, len(uniqueExtracted))
 	verifySemaphore := make(chan struct{}, marketVerificationConcurrency)
@@ -729,9 +818,13 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 				if !spendVerification() {
 					break
 				}
-				searchQuery := fmt.Sprintf("%q %s %s", strings.TrimSpace(lead.Name), query.Activity, purpose)
+				searchQuery := fmt.Sprintf("%q %q %s", strings.TrimSpace(lead.Name), query.Activity, purpose)
 				emitAgentEvent(eventCh, models.EventToolCall, "Verifying "+lead.Name+" via "+purpose, "search", searchQuery)
 				hits, err := a.engine.SearchCached(ctx, searchQuery, marketMaxResults)
+				verificationResults[index].traces = append(verificationResults[index].traces, models.MarketSearchTrace{
+					Phase: "verification", Lane: purpose, Query: searchQuery,
+					Status: marketSearchStatus(err), Hits: len(hits),
+				})
 				if err != nil {
 					continue
 				}
@@ -748,6 +841,9 @@ func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []mo
 		}
 		result := verificationResults[index]
 		queriesUsed += result.searches
+		if trace != nil {
+			*trace = append(*trace, result.traces...)
+		}
 		for groupIndex, hits := range result.hits {
 			purpose := ""
 			if groupIndex < len(verificationPurposes) {

@@ -90,16 +90,23 @@ type IndianKanoonClient struct {
 
 	// The wall ladder. indiankanoon.org answers Cloudflare JS challenges even
 	// to the residential egress with browser headers (verified live), so a
-	// challenge response falls back to a real Chromium routed through the same
-	// proxy — the WeeDoo browser pattern — whose shared context keeps the
-	// clearance cookie the challenge grants for later fetches. renderHTML is
-	// populated by startRenderer on the first wall; both fields are test
-	// hooks: tests inject renderHTML directly and a failing startRenderer so
-	// unit tests never launch a browser.
-	renderMu       sync.Mutex
-	renderHTML     func(ctx context.Context, targetURL string) (string, error)
-	renderRenderer browserRenderer
-	startRenderer  func() error
+	// challenge response falls back to a real Chromium — first direct-egress
+	// (a genuine full-Chromium fingerprint can solve the managed challenge,
+	// and the clearance cookie it grants serves that egress IP for the rest of
+	// the run), then through the configured proxy if the provider allows this
+	// destination (live: its gateway rejected indiankanoon.org with
+	// ERR_INVALID_AUTH_CREDENTIALS). Both renderers start lazily on the first
+	// wall so wall-free runs pay nothing, and a path that errors sticks off so
+	// later walls skip straight to the other one.
+	renderMu         sync.Mutex
+	renderHTML       func(ctx context.Context, targetURL string) (string, error)
+	renderRenderer   browserRenderer
+	directRenderHTML func(ctx context.Context, targetURL string) (string, error)
+	directRenderer   browserRenderer
+	proxiedBroken    bool
+	directBroken     bool
+	startRenderer    func() error
+	startDirect      func() error
 }
 
 // NewIndianKanoonClient creates the client with its politeness budget: one
@@ -130,39 +137,64 @@ func NewIndianKanoonClient() *IndianKanoonClient {
 		robots:     newRobotsGuard(defaultIndianKanoonURL + "/robots.txt"),
 	}
 	client.startRenderer = client.startProxiedRenderer
+	client.startDirect = client.startDirectRenderer
 	return client
 }
 
-// Close shuts the wall-ladder browser down, if one was ever started.
+// Close shuts the wall-ladder browsers down, if any were started.
 func (c *IndianKanoonClient) Close() error {
 	c.renderMu.Lock()
 	defer c.renderMu.Unlock()
-	if c.renderRenderer == nil {
-		return nil
+	var closeErr error
+	if c.renderRenderer != nil {
+		closeErr = c.renderRenderer.Close()
+		c.renderRenderer, c.renderHTML = nil, nil
 	}
-	renderer := c.renderRenderer
-	c.renderRenderer, c.renderHTML = nil, nil
-	return renderer.Close()
+	if c.directRenderer != nil {
+		if err := c.directRenderer.Close(); err != nil && closeErr == nil {
+			closeErr = err
+		}
+		c.directRenderer, c.directRenderHTML = nil, nil
+	}
+	return closeErr
 }
 
-// startProxiedRenderer lazily starts the challenge-render browser: a dedicated
-// Playwright Chromium whose egress routes through the host's configured proxy
-// (residential egress, real browser fingerprint, JavaScript execution — the
-// three things the plain fetch cannot offer against a JS challenge). The
-// shared context keeps the clearance cookie across pages.
+// indianKanoonRenderTimeout bounds one challenge render: the managed challenge
+// needs a few seconds of JavaScript plus navigation, more than the scraper's
+// general 10s render budget.
+const indianKanoonRenderTimeout = 30 * time.Second
+
+// startProxiedRenderer starts the challenge-render browser through the host's
+// configured proxy (residential egress, real fingerprint, JS execution).
 func (c *IndianKanoonClient) startProxiedRenderer() error {
 	proxyURL := proxiedHostRule("indiankanoon.org")
-	renderer, err := newPlaywrightRendererWithProxy(browserFallbackTimeout, proxyURL)
+	renderer, err := newPlaywrightRendererWithProxy(indianKanoonRenderTimeout, proxyURL)
 	if err != nil {
 		return fmt.Errorf("start indiankanoon render browser: %w", err)
 	}
 	if proxyURL != "" {
-		log.Printf("[INDIAN_KANOON] challenge wall met; browser render fallback started through the configured residential proxy")
+		log.Printf("[INDIAN_KANOON] challenge wall met; proxied browser render started through the configured residential proxy")
 	} else {
-		log.Printf("[INDIAN_KANOON] challenge wall met; browser render fallback started (direct egress)")
+		log.Printf("[INDIAN_KANOON] challenge wall met; browser render started (no proxy configured, direct egress)")
 	}
 	c.renderRenderer = renderer
 	c.renderHTML = func(ctx context.Context, targetURL string) (string, error) {
+		return renderer.Render(ctx, targetURL, renderOptions{cookies: c.jarCookies(targetURL)})
+	}
+	return nil
+}
+
+// startDirectRenderer starts the direct-egress fallback browser: the same real
+// Chromium without the proxy hop, for providers whose gateway refuses this
+// destination (live: ERR_INVALID_AUTH_CREDENTIALS from the residential gateway).
+func (c *IndianKanoonClient) startDirectRenderer() error {
+	renderer, err := newPlaywrightRendererWithProxy(indianKanoonRenderTimeout, "")
+	if err != nil {
+		return fmt.Errorf("start indiankanoon direct render browser: %w", err)
+	}
+	log.Printf("[INDIAN_KANOON] proxied render unavailable; direct-egress browser render started")
+	c.directRenderer = renderer
+	c.directRenderHTML = func(ctx context.Context, targetURL string) (string, error) {
 		return renderer.Render(ctx, targetURL, renderOptions{cookies: c.jarCookies(targetURL)})
 	}
 	return nil
@@ -264,10 +296,10 @@ func (c *IndianKanoonClient) FetchDocument(ctx context.Context, docURL string) (
 
 // fetch performs one rate-limited GET with a single retry on transient
 // failures, mirroring the Serper client's error discipline. A challenge wall
-// (a Cloudflare JS interstitial the plain fetch cannot pass) falls back to the
-// cookie-bridged browser render — started lazily on the first wall, routed
-// through the same residential proxy, so the clearance cookie the challenge
-// grants serves the rest of the run.
+// (a Cloudflare JS interstitial the plain fetch cannot pass) falls back to a
+// real Chromium — direct egress first, then the configured proxy — started
+// lazily on the first wall, bridging the plain client's cookies so the
+// clearance the challenge grants serves later renders.
 func (c *IndianKanoonClient) fetch(ctx context.Context, target string) ([]byte, error) {
 	body, err := c.fetchPlain(ctx, target)
 	if err == nil {
@@ -277,29 +309,75 @@ func (c *IndianKanoonClient) fetch(ctx context.Context, target string) ([]byte, 
 	if !errors.As(err, &wall) {
 		return nil, err
 	}
+
+	// The ladders run direct first, then proxied; a path that errors sticks
+	// off so later walls skip straight to the other one.
 	c.renderMu.Lock()
-	start := c.startRenderer
-	render := c.renderHTML
+	startDirect, directRender := c.startDirect, c.directRenderHTML
+	startProxied, proxiedRender := c.startRenderer, c.renderHTML
+	directBroken, proxiedBroken := c.directBroken, c.proxiedBroken
 	c.renderMu.Unlock()
-	if start != nil && render == nil {
-		if startErr := start(); startErr != nil {
-			return nil, fmt.Errorf("%w; the browser render fallback could not start: %v", wall, startErr)
+
+	for _, path := range []struct {
+		name   string
+		broken bool
+		start  func() error
+		render func(ctx context.Context, targetURL string) (string, error)
+	}{
+		{name: "direct", broken: directBroken, start: startDirect, render: directRender},
+		{name: "proxied", broken: proxiedBroken, start: startProxied, render: proxiedRender},
+	} {
+		if path.broken {
+			continue
 		}
-		c.renderMu.Lock()
-		render = c.renderHTML
-		c.renderMu.Unlock()
+		render := path.render
+		if render == nil && path.start != nil {
+			if startErr := path.start(); startErr != nil {
+				c.stickBroken(path.name)
+				continue
+			}
+			c.renderMu.Lock()
+			render = c.renderFor(path.name)
+			c.renderMu.Unlock()
+		}
+		if render == nil {
+			continue
+		}
+		rendered, renderErr := render(ctx, target)
+		if renderErr != nil {
+			log.Printf("[INDIAN_KANOON] %s browser render failed: %v", path.name, renderErr)
+			c.stickBroken(path.name)
+			continue
+		}
+		if indianKanoonLooksBlocked(http.StatusOK, []byte(rendered)) {
+			log.Printf("[INDIAN_KANOON] %s browser render was challenged as well", path.name)
+			c.stickBroken(path.name)
+			continue
+		}
+		return []byte(rendered), nil
 	}
-	if render == nil {
-		return nil, wall
+	return nil, fmt.Errorf("%w; both the direct and the proxied browser renders are unavailable", wall)
+}
+
+// stickBroken marks a ladder path as failed for the process lifetime, so a
+// provider ACL rejection or a challenged render is not retried on every wall.
+func (c *IndianKanoonClient) stickBroken(name string) {
+	c.renderMu.Lock()
+	defer c.renderMu.Unlock()
+	switch name {
+	case "direct":
+		c.directBroken = true
+	case "proxied":
+		c.proxiedBroken = true
 	}
-	rendered, renderErr := render(ctx, target)
-	if renderErr != nil {
-		return nil, fmt.Errorf("%w; the browser render fallback failed too: %v", wall, renderErr)
+}
+
+// renderFor returns the render func of a named ladder path after its start.
+func (c *IndianKanoonClient) renderFor(name string) func(ctx context.Context, targetURL string) (string, error) {
+	if name == "direct" {
+		return c.directRenderHTML
 	}
-	if indianKanoonLooksBlocked(http.StatusOK, []byte(rendered)) {
-		return nil, fmt.Errorf("%w; the browser render fallback was challenged as well", wall)
-	}
-	return []byte(rendered), nil
+	return c.renderHTML
 }
 
 // fetchPlain is the plain-HTTP retry ladder against the direct client.

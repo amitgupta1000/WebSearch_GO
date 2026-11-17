@@ -233,6 +233,20 @@
 		</div>
 		<div class="text-right text-xs text-slate-500">{{.QueriesUsed}} queries · {{.SearchHits}} hits · {{.LeadsReviewed}} leads · {{.LeadsExtracted}} entities · {{.LeadsResolved}} verified · {{.PagesEnriched}} pages · {{.Iterations}} iterations</div>
 	</div>
+	{{if .SearchQueries}}<details class="group rounded-xl border border-slate-800 bg-slate-950">
+		<summary class="inline-flex w-full items-center gap-2 cursor-pointer select-none list-none p-3 text-xs text-slate-300 [&amp;::-webkit-details-marker]:hidden">
+			<span class="text-indigo-400 transition-transform group-open:rotate-90">&#9656;</span>
+			Search Queries <span class="text-slate-600">({{len .SearchQueries}})</span>
+		</summary>
+		<div class="border-t border-slate-800 px-3 pb-3 pt-2 space-y-1">
+			{{range .SearchQueries}}<div class="grid grid-cols-[auto_auto_1fr_auto] items-start gap-2 text-[11px]">
+				<span class="text-indigo-400 uppercase">{{.Phase}}</span>
+				<span class="text-slate-500">{{.Lane}}</span>
+				<code class="min-w-0 break-words text-slate-300">{{.Query}}</code>
+				<span class="{{if eq .Status "executed"}}text-emerald-400{{else}}text-rose-400{{end}}">{{.Status}} · {{.Hits}} hits</span>
+			</div>{{end}}
+		</div>
+	</details>{{end}}
 	<div class="flex items-center gap-2 border-b border-slate-800" role="tablist" aria-label="Producer landscape sections">
 		<button type="button" data-market-tab="results" aria-selected="true" onclick="showMarketTab('results')"
 		        class="bg-indigo-500/15 text-indigo-200 text-xs font-medium rounded-t-lg px-3 py-2 border-b-2 border-indigo-500">

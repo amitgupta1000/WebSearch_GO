@@ -298,20 +298,22 @@ func TestIndianKanoonSearchErrorStatus(t *testing.T) {
 	defer server.Close()
 
 	client := ikTestClient(server)
+	client.startDirect = func() error { return errors.New("browser unavailable in unit tests") }
 	client.startRenderer = func() error { return errors.New("browser unavailable in unit tests") }
 	_, err := client.Search(context.Background(), "acme", 1, 5)
 	if err == nil {
 		t.Fatal("a 403 must surface as an error, not an empty hit list")
 	}
-	if !strings.Contains(err.Error(), "challenge wall") || !strings.Contains(err.Error(), "could not start") {
-		t.Fatalf("the wall error must carry the challenge and the failed fallback start, got %v", err)
+	if !strings.Contains(err.Error(), "challenge wall") || !strings.Contains(err.Error(), "both the direct and the proxied") {
+		t.Fatalf("the wall error must carry the challenge and the failed ladders, got %v", err)
 	}
 }
 
 // TestIndianKanoonWallFallsBackToRender pins the ladder: a challenge wall on
 // the plain fetch falls through to the injected render, whose HTML is parsed
-// exactly like a plain body — and a wall-shaped render is refused instead of
-// silently yielding zero results.
+// exactly like a plain body. The direct path runs first; a direct failure
+// (a broken path sticks off) falls through to the proxied one; and a
+// wall-shaped render is refused instead of silently yielding zero results.
 func TestIndianKanoonWallFallsBackToRender(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
@@ -320,7 +322,7 @@ func TestIndianKanoonWallFallsBackToRender(t *testing.T) {
 
 	client := ikTestClient(server)
 	var renderedURL string
-	client.renderHTML = func(_ context.Context, targetURL string) (string, error) {
+	client.directRenderHTML = func(_ context.Context, targetURL string) (string, error) {
 		renderedURL = targetURL
 		return ikSearchFixture, nil
 	}
@@ -335,10 +337,29 @@ func TestIndianKanoonWallFallsBackToRender(t *testing.T) {
 		t.Fatal("the render must be called with the search URL")
 	}
 
-	// A render that itself gets challenged must not silently pass.
+	// A direct render that errors sticks off and the proxied path takes over.
+	directCalls := 0
+	client.directRenderHTML = func(_ context.Context, _ string) (string, error) {
+		directCalls++
+		return "", errors.New("ERR_INVALID_AUTH_CREDENTIALS")
+	}
+	proxiedCalls := 0
 	client.renderHTML = func(_ context.Context, _ string) (string, error) {
+		proxiedCalls++
+		return ikSearchFixture, nil
+	}
+	if _, err := client.Search(context.Background(), "acme", 1, 10); err != nil {
+		t.Fatalf("the proxied render must take over after the direct render fails: %v", err)
+	}
+	if directCalls != 1 || proxiedCalls != 1 {
+		t.Fatalf("each ladder path must be tried once (direct %d, proxied %d)", directCalls, proxiedCalls)
+	}
+
+	// A wall-shaped render is refused, never parsed into zero results.
+	client.directRenderHTML = func(_ context.Context, _ string) (string, error) {
 		return "<html><body>Just a moment...</body></html>", nil
 	}
+	client.renderHTML = nil
 	if _, err := client.Search(context.Background(), "acme", 1, 10); err == nil {
 		t.Fatal("a challenged render must surface as an error")
 	}

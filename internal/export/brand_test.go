@@ -251,19 +251,23 @@ func TestMarketQCTableRenders(t *testing.T) {
 		}},
 		ProductCategory: "lubricants",
 		CategoryLanes:   []string{"lubricants manufacturers", "lubricants companies"},
+		SearchQueries: []models.MarketSearchTrace{{
+			Phase: "discovery", Lane: "plant", Query: `"lubricant blending" plant India`,
+			Status: "executed", Hits: 4,
+		}},
 		CategoryResults: []models.MarketLandscapeCompany{{
 			Name: "Acme Lubricants", Activity: "lubricants", Role: models.MarketRoleManufacturer,
 			Status: "verified", Country: "India", Description: "Acme manufactures industrial lubricants.", Confidence: 0.9,
 		}},
 	}
 	markdown := renderMarketLandscapeMarkdown(report)
-	for _, expected := range []string{"## category level results", "discovery lanes: lubricants manufacturers", "Acme manufactures industrial lubricants.", "## QC results", "qc passed", "qc failed", "manufacturer with a blending plant", "publisher", "custom"} {
+	for _, expected := range []string{"## Search queries", `"lubricant blending" plant India`, "executed", "4", "## category level results", "discovery lanes: lubricants manufacturers", "Acme manufactures industrial lubricants.", "## QC results", "qc passed", "qc failed", "manufacturer with a blending plant", "publisher", "custom"} {
 		if !strings.Contains(markdown, expected) {
 			t.Errorf("market Markdown is missing %q", expected)
 		}
 	}
 	html := renderMarketLandscapeHTML(report)
-	for _, expected := range []string{"category level results", "discovery lanes: lubricants manufacturers", "Acme manufactures industrial lubricants.", "QC results", "qc passed", "qc failed", "manufacturer with a blending plant", "publisher"} {
+	for _, expected := range []string{"Search queries", "lubricant blending", "plant India", "category level results", "discovery lanes: lubricants manufacturers", "Acme manufactures industrial lubricants.", "QC results", "qc passed", "qc failed", "manufacturer with a blending plant", "publisher"} {
 		if !strings.Contains(html, expected) {
 			t.Errorf("market HTML is missing %q", expected)
 		}

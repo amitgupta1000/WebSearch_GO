@@ -58,6 +58,17 @@ type MarketLandscapeEvidence struct {
 	Status      string    `json:"status"`
 }
 
+// MarketSearchTrace records one search issued by a seller-landscape run.
+// It is retained on the report so the exact query remains auditable after the
+// live event stream has closed.
+type MarketSearchTrace struct {
+	Phase  string `json:"phase"`
+	Lane   string `json:"lane,omitempty"`
+	Query  string `json:"query"`
+	Status string `json:"status"`
+	Hits   int    `json:"hits"`
+}
+
 // MarketLandscapeLeadCandidate is a company name extracted from a discovery
 // lead and queued for company-specific verification.
 type MarketLandscapeLeadCandidate struct {
@@ -142,18 +153,18 @@ type MarketLandscapeCompany struct {
 	EvidenceSummary string `json:"evidence_summary,omitempty"`
 	// Description is a short, evidence-backed summary for the result card. It
 	// is empty when the collected snippets do not contain descriptive prose.
-	Description      string                    `json:"description,omitempty"`
-	Employees        string                    `json:"employees,omitempty"`
-	Turnover         string                    `json:"turnover,omitempty"`
-	FinancialYear    string                    `json:"financial_year,omitempty"`
-	MetricsSource    string                    `json:"metrics_source,omitempty"`
-	BusinessContact  []string                  `json:"business_contact,omitempty"`
-	KeyPeople        []string                  `json:"key_people,omitempty"`
-	KeyPeopleSources map[string]string         `json:"key_people_sources,omitempty"`
+	Description      string            `json:"description,omitempty"`
+	Employees        string            `json:"employees,omitempty"`
+	Turnover         string            `json:"turnover,omitempty"`
+	FinancialYear    string            `json:"financial_year,omitempty"`
+	MetricsSource    string            `json:"metrics_source,omitempty"`
+	BusinessContact  []string          `json:"business_contact,omitempty"`
+	KeyPeople        []string          `json:"key_people,omitempty"`
+	KeyPeopleSources map[string]string `json:"key_people_sources,omitempty"`
 	// Trade carries the first-party customs record the row was built from
 	// when the run opted into the trade DB. Nil for web-discovered rows.
-	Trade     *TradePartner             `json:"trade,omitempty"`
-	Evidence  []MarketLandscapeEvidence `json:"evidence,omitempty"`
+	Trade    *TradePartner             `json:"trade,omitempty"`
+	Evidence []MarketLandscapeEvidence `json:"evidence,omitempty"`
 }
 
 type MarketLandscapePersonCandidate struct {
@@ -222,44 +233,45 @@ type MarketLandscapeReview struct {
 
 // MarketLandscapeReport separates verified results from the auditable corpus.
 type MarketLandscapeReport struct {
-	ResearchID        string                    `json:"research_id"`
-	Objective         string                    `json:"objective"`
-	Activity          string                    `json:"activity"`
-	Geography         string                    `json:"geography,omitempty"`
-	ProductCategory   string                    `json:"product_category,omitempty"`
-	CategoryRationale string                    `json:"category_rationale,omitempty"`
-	CategorySource    string                    `json:"category_source,omitempty"`
-	CategoryLanes     []string                  `json:"category_lanes,omitempty"`
-	CategoryResults   []MarketLandscapeCompany  `json:"category_results,omitempty"`
-	QCPrompt          string                    `json:"qc_prompt,omitempty"`
-	QCPromptSource    string                    `json:"qc_prompt_source,omitempty"`
-	Coverage          *MarketCoverage           `json:"coverage,omitempty"`
-	Groups            []MarketLandscapeGroup    `json:"groups,omitempty"`
+	ResearchID        string                   `json:"research_id"`
+	Objective         string                   `json:"objective"`
+	Activity          string                   `json:"activity"`
+	Geography         string                   `json:"geography,omitempty"`
+	ProductCategory   string                   `json:"product_category,omitempty"`
+	CategoryRationale string                   `json:"category_rationale,omitempty"`
+	CategorySource    string                   `json:"category_source,omitempty"`
+	CategoryLanes     []string                 `json:"category_lanes,omitempty"`
+	CategoryResults   []MarketLandscapeCompany `json:"category_results,omitempty"`
+	SearchQueries     []MarketSearchTrace      `json:"search_queries,omitempty"`
+	QCPrompt          string                   `json:"qc_prompt,omitempty"`
+	QCPromptSource    string                   `json:"qc_prompt_source,omitempty"`
+	Coverage          *MarketCoverage          `json:"coverage,omitempty"`
+	Groups            []MarketLandscapeGroup   `json:"groups,omitempty"`
 	// TradeImporters and TradeSuppliers are the opt-in first-party customs
 	// sections served from the Crystal trade DB. They are published separately
 	// from Results on purpose: an importer may equally be a reseller, and a
 	// supplier is an exporter into India — the operator decides how to use the
 	// names, and neither section feeds the verified results or the coverage
 	// floor.
-	TradeImporters []MarketLandscapeCompany `json:"trade_importers,omitempty"`
-	TradeSuppliers []MarketLandscapeCompany `json:"trade_suppliers,omitempty"`
-	Reviews        []MarketLandscapeReview  `json:"reviews,omitempty"`
-	FallbackQueries   int                       `json:"fallback_queries,omitempty"`
-	Results           []MarketLandscapeCompany  `json:"results,omitempty"`
-	Appendix          []MarketLandscapeEvidence `json:"appendix,omitempty"`
-	Lanes             []string                  `json:"lanes,omitempty"`
-	Iterations        int                       `json:"iterations"`
-	QueriesUsed       int                       `json:"queries_used"`
-	CategoryQueries   int                       `json:"category_queries,omitempty"`
-	CandidatesFound   int                       `json:"candidates_found"`
-	LeadsReviewed     int                       `json:"leads_reviewed"`
-	LeadsResolved     int                       `json:"leads_resolved"`
-	SearchHits        int                       `json:"search_hits"`
-	LeadsExtracted    int                       `json:"leads_extracted"`
-	LeadsRejected     int                       `json:"leads_rejected"`
-	PagesEnriched     int                       `json:"pages_enriched"`
-	Warnings          []string                  `json:"warnings,omitempty"`
-	StartedAt         time.Time                 `json:"started_at"`
-	CompletedAt       time.Time                 `json:"completed_at"`
-	Exports           []ExportArtifact          `json:"exports,omitempty"`
+	TradeImporters  []MarketLandscapeCompany  `json:"trade_importers,omitempty"`
+	TradeSuppliers  []MarketLandscapeCompany  `json:"trade_suppliers,omitempty"`
+	Reviews         []MarketLandscapeReview   `json:"reviews,omitempty"`
+	FallbackQueries int                       `json:"fallback_queries,omitempty"`
+	Results         []MarketLandscapeCompany  `json:"results,omitempty"`
+	Appendix        []MarketLandscapeEvidence `json:"appendix,omitempty"`
+	Lanes           []string                  `json:"lanes,omitempty"`
+	Iterations      int                       `json:"iterations"`
+	QueriesUsed     int                       `json:"queries_used"`
+	CategoryQueries int                       `json:"category_queries,omitempty"`
+	CandidatesFound int                       `json:"candidates_found"`
+	LeadsReviewed   int                       `json:"leads_reviewed"`
+	LeadsResolved   int                       `json:"leads_resolved"`
+	SearchHits      int                       `json:"search_hits"`
+	LeadsExtracted  int                       `json:"leads_extracted"`
+	LeadsRejected   int                       `json:"leads_rejected"`
+	PagesEnriched   int                       `json:"pages_enriched"`
+	Warnings        []string                  `json:"warnings,omitempty"`
+	StartedAt       time.Time                 `json:"started_at"`
+	CompletedAt     time.Time                 `json:"completed_at"`
+	Exports         []ExportArtifact          `json:"exports,omitempty"`
 }
