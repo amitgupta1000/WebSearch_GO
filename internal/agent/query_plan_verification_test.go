@@ -65,14 +65,16 @@ func TestSellerPlanSamplesStaySound(t *testing.T) {
 			query: models.MarketLandscapeQuery{Activity: "Oil Blending", Regions: []string{"Middle East", "Africa"}},
 			// The process activity is searched under the natural indexed
 			// phrase too, every phrase carries exactly one region, and the
-			// category lanes travel per region.
+			// category lanes travel per region. Oil blending's family is
+			// lubricants, never oleochemicals: the two chemistries only
+			// share the word "oil".
 			expected: []string{
 				`"lubricant blending" manufacturer Middle East`,
 				`"lubricant blending" plant Africa`,
 				`site:ensun.io "Oil Blending"`,
 				`"Oil Blending" exporter Africa`,
-				`oleochemicals manufacturers Middle East`,
-				`oleochemicals companies Africa`,
+				`lubricants manufacturers Middle East`,
+				`lubricants companies Africa`,
 			},
 		},
 		{
@@ -95,10 +97,20 @@ func TestSellerPlanSamplesStaySound(t *testing.T) {
 			label: "fuel oil blending Middle East",
 			query: models.MarketLandscapeQuery{Activity: "fuel oil blending", Regions: []string{"Middle East"}},
 			// The activity names fuel, so the fuel variant is its own phrase
-			// and no generic duplicate is composed.
+			// and neither a generic duplicate nor the lubricant wording is
+			// composed; the category lane names the fuel-oil family.
 			expected: []string{
 				`"fuel oil blending" manufacturer Middle East`,
-				`"lubricant blending" manufacturer Middle East`,
+				`fuel oils manufacturers Middle East`,
+			},
+		},
+		{
+			label: "crude oil blending Middle East",
+			query: models.MarketLandscapeQuery{Activity: "crude oil blending", Regions: []string{"Middle East"}},
+			// Crude blending is neither lubricant nor fuel blending.
+			expected: []string{
+				`"crude oil blending" manufacturer Middle East`,
+				`crude oil manufacturers Middle East`,
 			},
 		},
 	}
@@ -121,8 +133,38 @@ func TestSellerPlanSamplesStaySound(t *testing.T) {
 	}
 }
 
-// sellerPlanQueries composes exactly what Research searches: the discovery
-// lanes plus the category lanes, one query per requested geography.
+// TestSellerPlanNeverCrossesOilFamilies pins the operator's report: a lubricant,
+// fuel or crude oil blending run must never buy oleochemical search (palm fatty
+// acid / glycerin / soap producers), and a fuel or crude run must not be biased
+// toward lubricant operators either. The families share the word "oil", not the
+// chemistry.
+func TestSellerPlanNeverCrossesOilFamilies(t *testing.T) {
+	cases := []struct {
+		activity string
+		forbid   []string
+	}{
+		{activity: "Oil Blending", forbid: []string{"oleochemical"}},
+		{activity: "lubricant oil blending", forbid: []string{"oleochemical"}},
+		{activity: "base oil blending", forbid: []string{"oleochemical", "fuel oil"}},
+		{activity: "fuel oil blending", forbid: []string{"oleochemical", "lubricant blending"}},
+		{activity: "crude oil blending", forbid: []string{"oleochemical", "lubricant blending"}},
+		{activity: "used cooking oil", forbid: []string{"lubricant"}},
+	}
+	for _, testCase := range cases {
+		plan := sellerPlanQueries(models.MarketLandscapeQuery{
+			Activity: testCase.activity, Regions: []string{"Middle East"},
+		})
+		for _, query := range plan {
+			for _, forbidden := range testCase.forbid {
+				if strings.Contains(strings.ToLower(query), forbidden) {
+					t.Errorf("%s plan contains %q, which belongs to another oil family: %q", testCase.activity, forbidden, query)
+				}
+			}
+		}
+	}
+}
+
+
 func sellerPlanQueries(query models.MarketLandscapeQuery) []string {
 	var queries []string
 	for _, search := range marketDiscoverySearches(query) {

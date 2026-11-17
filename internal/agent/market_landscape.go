@@ -363,9 +363,9 @@ Companies:
 // is used only to broaden weak discovery, never as a company or a result.
 func (a *MarketLandscapeAgent) inferMarketCategory(ctx context.Context, query models.MarketLandscapeQuery, eventCh chan<- models.AgentEvent) (string, string, string, []string) {
 	var inference models.MarketLandscapeInference
-	prompt := fmt.Sprintf(`Identify the immediate downstream product family or industry category that consumes %q for a Seller Landscape. It must be specific enough to search, one to four words, and not an end-use sector or generic superclass. If the activity is a process or service without a clearly named product, return an empty category and explain that a product must be specified. Examples: toluene diisocyanate -> polyurethanes; acetic acid -> solvents or acetates; toluene -> aromatics; n-butanol -> solvents; linear alkyl benzene -> surfactants; coal -> coal products, never fuel or energy. Return JSON with category and category_rationale.`, query.Activity)
+	prompt := fmt.Sprintf(`Identify the immediate downstream product family or industry category that consumes %q for a Seller Landscape. It must be specific enough to search, one to four words, and not an end-use sector or generic superclass. If the activity is a process or service without a clearly named product, return an empty category and explain that a product must be specified. When the activity is a process that handles a named oil family (blending, refining, storage), name the product family the process handles: oil blending -> lubricants; lubricant oil blending -> lubricants; base oil blending -> lubricants; fuel oil blending -> fuel oils; crude oil blending -> crude oil. A family that merely shares a word is wrong: oleochemicals (fatty acids, glycerin and soap from palm or waste cooking oil) is a different chemistry from lubricant, fuel and crude oil blending. Examples: toluene diisocyanate -> polyurethanes; acetic acid -> solvents or acetates; toluene -> aromatics; n-butanol -> solvents; linear alkyl benzene -> surfactants; coal -> coal products, never fuel or energy. Return JSON with category and category_rationale.`, query.Activity)
 	if err := a.engine.GenerateStructured(ctx,
-		"You identify buyer-side product categories for industrial market research. Never return fuel, energy, chemicals, industrial, automotive or another end-use sector.",
+		"You identify buyer-side product categories for industrial market research. Return a specific product family the activity handles or feeds — never a bare end-use sector such as fuel, energy, chemicals, industrial or automotive.",
 		prompt, &inference); err != nil {
 		category := demandFallbackCategory(query.Activity, nil)
 		return category, "Derived from the product family after category inference failed.", "fallback", []string{"Market category inference failed: " + err.Error()}
@@ -431,7 +431,9 @@ func marketSearchGeographies(query models.MarketLandscapeQuery) []string {
 // searched as itself and as "lubricant blending" — the dominant indexed
 // phrase for the trade — while "fuel oil blending" joins only when the
 // operator's activity names fuel, so a generic blending run is not biased
-// toward fuel operators. A product activity stays one term.
+// toward fuel operators. An activity that names a different oil family (fuel,
+// crude, vegetable) keeps its own phrase and is never expanded to the lubricant
+// wording. A product activity stays one term.
 func marketActivitySearchTerms(activity string) []string {
 	trimmed := strings.TrimSpace(activity)
 	lower := strings.ToLower(trimmed)
@@ -439,13 +441,29 @@ func marketActivitySearchTerms(activity string) []string {
 	if !strings.Contains(lower, "blend") {
 		return terms
 	}
-	if !strings.Contains(lower, "lubricant") {
+	if !strings.Contains(lower, "lubricant") && !marketNamesOtherOilFamily(lower) {
 		terms = append(terms, "lubricant blending")
 	}
 	if strings.Contains(lower, "fuel") && !strings.Contains(lower, "fuel oil blending") {
 		terms = append(terms, "fuel oil blending")
 	}
 	return terms
+}
+
+// marketNamesOtherOilFamily reports whether the activity already names an oil
+// family other than lubricants. Those runs search their own phrase instead of
+// being expanded to "lubricant blending".
+func marketNamesOtherOilFamily(activity string) bool {
+	for _, term := range []string{
+		"fuel", "crude", "bunker", "diesel", "petrol", "gasoline", "kerosene",
+		"vegetable", "edible", "cooking", "palm", "coconut", "soybean",
+		"rapeseed", "canola", "sunflower",
+	} {
+		if strings.Contains(activity, term) {
+			return true
+		}
+	}
+	return false
 }
 
 func marketDiscoverySearches(query models.MarketLandscapeQuery) []marketSearchSpec {
@@ -463,7 +481,11 @@ func marketDiscoverySearches(query models.MarketLandscapeQuery) []marketSearchSp
 	}
 
 	// Use a small set of natural phrases for each product/process variant. The
-	// geography is attached once, and regional scopes remain separate.
+	// geography is attached once, and regional scopes remain separate. The role
+	// words are the seller roles the report groups — manufacturer, plant (the
+	// production/blending site), distributor, wholesaler — plus the trade-record
+	// vocabulary; "company"/"facility" were dropped because they qualify almost
+	// any page and bought no marginal recall.
 	for _, term := range terms {
 		for _, geography := range geographies {
 			suffix := strings.TrimSpace(geography)
@@ -484,8 +506,8 @@ func marketDiscoverySearches(query models.MarketLandscapeQuery) []marketSearchSp
 		if suffix != "" {
 			suffix = " " + suffix
 		}
-		appendSearch("company", marketSearchPhrase(primary)+" company"+suffix)
-		appendSearch("facility", marketSearchPhrase(primary)+" facility"+suffix)
+		appendSearch("distributor", marketSearchPhrase(primary)+" distributor"+suffix)
+		appendSearch("wholesaler", marketSearchPhrase(primary)+" wholesaler"+suffix)
 		appendSearch("exporter", marketSearchPhrase(primary)+" exporter"+suffix)
 		appendSearch("shipment", marketSearchPhrase(primary)+" shipment"+suffix)
 	}
@@ -591,13 +613,16 @@ func (a *MarketLandscapeAgent) researchCategoryLane(ctx context.Context, query m
 	return results, queriesUsed, hitsUsed, verificationQueries, queryReviews, warnings
 }
 
+// marketLanes names the search lanes the run intends to cover, in the same
+// vocabulary the discovery queries actually use. It is report provenance, not a
+// query builder: every entry here must be a phrase the planner issues, so the
+// operator can audit coverage without decoding invented role stacks such as
+// "company operator manufacturer" or "facility operator".
 func marketLanes(query models.MarketLandscapeQuery) []string {
 	activity := strings.ToLower(strings.TrimSpace(query.Activity))
-	lanes := []string{"company operator manufacturer", "facility operator", "official company"}
+	lanes := []string{"manufacturer", "plant", "distributor", "wholesaler"}
 	if strings.Contains(activity, "blend") {
-		lanes = append(lanes, "blending plant facility", "industrial oil blending", "fuel oil blending plant")
-	} else {
-		lanes = append(lanes, "manufacturer facility", "operator site", "industry directory trade association")
+		lanes = append(lanes, "blending plant")
 	}
 	// Seller-side trade data: an exporter or shipment record is direct evidence
 	// that a company supplies the product, not merely that it operates a plant.
@@ -607,10 +632,10 @@ func marketLanes(query models.MarketLandscapeQuery) []string {
 	// homepages, so a site-scoped query surfaces the densest rosters in the run.
 	lanes = append(lanes, sellerMarketIntelLanes(strings.TrimSpace(query.Activity))...)
 	for _, country := range query.Countries {
-		lanes = append(lanes, strings.TrimSpace(country)+" company operator manufacturer")
+		lanes = append(lanes, strings.TrimSpace(country)+" manufacturer")
 	}
 	for _, region := range query.Regions {
-		lanes = append(lanes, strings.TrimSpace(region)+" company operator manufacturer")
+		lanes = append(lanes, strings.TrimSpace(region)+" manufacturer")
 	}
 	return uniqueStrings(lanes)
 }
@@ -664,8 +689,13 @@ func marketCandidate(hit models.SearchResult, lane string, query models.MarketLa
 // candidate. The adversarial query review may rewrite or retire a purpose
 // before any verification search runs; this default is also the fail-open
 // floor when the review is unavailable.
+//
+// The purposes are indexed role vocabulary, one per seller role the report
+// groups: the company's own pages, its production/blending site, and its
+// distribution channel. "Facility operator" was retired — no page contains that
+// phrase, so it spent a search per candidate and returned only directory noise.
 func marketVerificationPurposes() []string {
-	return []string{"official site", "facility operator", "registry trade source"}
+	return []string{"official website", "plant", "distributor"}
 }
 
 func (a *MarketLandscapeAgent) verifyMarketLeads(ctx context.Context, leads []models.MarketLandscapeEvidence, query models.MarketLandscapeQuery, purposes []string, eventCh chan<- models.AgentEvent, trace *[]models.MarketSearchTrace) ([]*models.MarketLandscapeCompany, int, int, int, int, int, int, int, error) {

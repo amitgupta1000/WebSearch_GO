@@ -43,6 +43,16 @@ const (
 	marketQueryReviewMaxEvents = 12
 )
 
+// marketQueryFamilyAnchor resolves the oil family the activity itself names,
+// independently of the model's category inference. It is the reviewer's
+// independent anchor: the inferred category is a hypothesis, so a category lane
+// that names a different chemistry (oleochemicals for oil/lubricant blending)
+// must be challenged rather than trusted. A nil result means the resolver can
+// prove no family, so the reviewer falls back to its own judgement.
+func marketQueryFamilyAnchor(activity string) []string {
+	return demandOilFamilies(activity)
+}
+
 // marketQueryReviewSystem is the reviewer's standing instruction: what makes a
 // query worth its search, and the hard constraints a rewrite may not cross.
 const marketQueryReviewSystem = `You are the adversarial query reviewer for an industrial seller-landscape research pipeline. The queries below were composed mechanically and will be issued verbatim to a web search engine; a query is only worth its search if the engine can plausibly return pages that name operating companies (plants, facilities, blenders, manufacturers, exporters) for the activity in the requested geography.
@@ -51,8 +61,9 @@ Judge every query on:
 1. Natural phrasing - real indexed industry phrasing ("lubricant blending plant", "blending and storage terminal") beats role-word stacks ("company operator manufacturer") that no page contains.
 2. Aptness - the vocabulary must match what the target pages say. Trade and customs vocabulary (exporter, shipment, customs, bill of lading) only pays off on a tradable product noun; a process or service activity alone is not a commodity, so re-anchor such lanes on the product category when one is given.
 3. Economy - no duplicated words, no redundant geography, one geography per query, and no query that only restates another query's words without adding a hard constraint such as a site: operator.
+4. Semantic correctness (product family) - a query must stay inside the product family the activity belongs to. The inferred product category is a hypothesis supplied by an earlier step, not ground truth: if a category lane names a different chemistry or industry (oleochemicals - fatty acids, glycerin, soap - for lubricant, fuel or crude oil blending), that lane is wrong even though its phrasing is good, and it must be dropped or rewritten to the activity's real family. A stated deterministic family is authoritative over the inferred category.
 
-Verdicts: "keep", "rewrite" (provide revised_query), or "drop" (with a short reason). Rewrite rules: preserve the lane's intent; you may re-anchor on the product category; use at most one geography and only inside the requested scope; a site: operator only from the allowlist, at most one, and then omit geography; at most 16 words per query; never repeat a content word; plain keyword queries, at most one quoted phrase for the exact activity or product term; never invent company names, places or domains outside the allowlist. When in doubt between a rewrite and a drop, prefer a drop: a noisy lane wastes a search and pollutes the candidate pool.`
+Verdicts: "keep", "rewrite" (provide revised_query), or "drop" (with a short reason). Rewrite rules: preserve the lane's intent; you may re-anchor on the product category when it belongs to the activity's family, and you may replace a cross-family product term with the activity's family; use at most one geography and only inside the requested scope; a site: operator only from the allowlist, at most one, and then omit geography; at most 16 words per query; never repeat a content word; plain keyword queries, at most one quoted phrase for the exact activity or product term; never invent company names, places or domains outside the allowlist. When in doubt between a rewrite and a drop, prefer a drop: a noisy lane wastes a search and pollutes the candidate pool.`
 
 // marketQueryVerdict is one reviewer verdict as returned by the model.
 type marketQueryVerdict struct {
@@ -562,9 +573,12 @@ func marketQueryReviewPrompt(specs []marketSearchSpec, purposes []string, mechan
 	fmt.Fprintf(&b, "Review the planned searches for one Seller Landscape run.\n")
 	fmt.Fprintf(&b, "Activity: %q\n", query.Activity)
 	if strings.TrimSpace(category) != "" {
-		fmt.Fprintf(&b, "Inferred product category: %q (trade and customs lanes may be re-anchored on it, since they need a tradable product noun)\n", strings.TrimSpace(category))
+		fmt.Fprintf(&b, "Inferred product category (hypothesis, challenge it): %q (trade and customs lanes may be re-anchored on it, since they need a tradable product noun)\n", strings.TrimSpace(category))
 	} else {
-		b.WriteString("Inferred product category: none\n")
+		b.WriteString("Inferred product category (hypothesis, challenge it): none\n")
+	}
+	if families := marketQueryFamilyAnchor(query.Activity); len(families) > 0 {
+		fmt.Fprintf(&b, "Activity product family (deterministic): %s — a category lane naming a different family is semantically wrong and must be dropped or rewritten to this family.\n", strings.Join(families, ", "))
 	}
 	fmt.Fprintf(&b, "Requested geography: %s\n", marketLandscapeGeography(query))
 	fmt.Fprintf(&b, "Allowlisted site: domains: %s\n\n", strings.Join(marketQueryReviewSiteAllowlist(), ", "))

@@ -32,14 +32,80 @@ const (
 	tradeRecordPageLimit = 200
 )
 
+// tradeRegionCountries expands a requested region into the places the trade DB
+// can actually be scoped to. The DB has no region/location field — it carries
+// foreign ports and origin countries — so "Middle East" or "Asia" must resolve to
+// member countries before either the port filter or the origin filter can match
+// anything. Region labels that are themselves regions ("mea", "gcc", "asia
+// pacific") are skipped, and every place is alias-expanded, so "uae" also matches
+// "united arab emirates" and its ports. A country-shaped or unknown scope is
+// returned as itself, which keeps token matching working exactly as before.
+func tradeRegionCountries(region string) []string {
+	region = strings.TrimSpace(region)
+	if region == "" || marketGlobalScopeTerm(region) {
+		return nil
+	}
+	terms, known := marketRegionTerms[strings.ToLower(region)]
+	if !known {
+		return []string{region}
+	}
+	places := make([]string, 0, len(terms))
+	for _, term := range terms {
+		term = strings.ToLower(strings.TrimSpace(term))
+		if term == "" {
+			continue
+		}
+		// Another region's label ("middle east", "africa", "emea") names no
+		// country the DB can filter on; its own expansion covers the members.
+		if _, isRegion := marketRegionTerms[term]; isRegion {
+			continue
+		}
+		places = append(places, term)
+		places = append(places, marketCountryTerms(term)...)
+	}
+	places = uniqueMarketValues(places)
+	if len(places) == 0 {
+		return []string{region}
+	}
+	return places
+}
+
+// tradeNameHasIndia reports whether a scope names India itself, with the same
+// token test the importer gate uses (so "West Indies" never matches).
+func tradeNameHasIndia(scope string) bool {
+	for _, token := range strings.Fields(strings.ToLower(strings.TrimSpace(scope))) {
+		if token == "india" {
+			return true
+		}
+	}
+	return false
+}
+
+// tradeScopeIsIndia reports whether the run's only scope is India itself — the
+// one geography where supplier records are meaningless (they are foreign
+// exporters into India).
+func tradeScopeIsIndia(countries, regions []string) bool {
+	scopes := make([]string, 0, len(countries)+len(regions))
+	for _, scope := range append(append([]string{}, countries...), regions...) {
+		if strings.TrimSpace(scope) != "" {
+			scopes = append(scopes, strings.TrimSpace(scope))
+		}
+	}
+	return len(scopes) == 1 && tradeNameHasIndia(scopes[0])
+}
+
 // tradeDBImporterScope enforces the geography rule the DB's data carries:
 // importer records are Indian importers by definition, so they are only valid
-// for India-scoped research. The token test is deliberate — "West Indies"
-// shares no "india" token, while "India", "india" and "INDIA" all match.
+// for a scope that contains India. A named region is expanded first, so "Asia"
+// and "South Asia" qualify while "Middle East" does not. The token test is
+// deliberate — "West Indies" shares no "india" token.
 func tradeDBImporterScope(countries, regions []string) bool {
 	for _, scope := range append(append([]string{}, countries...), regions...) {
-		for _, token := range strings.Fields(strings.ToLower(strings.TrimSpace(scope))) {
-			if token == "india" {
+		if tradeNameHasIndia(scope) {
+			return true
+		}
+		for _, place := range tradeRegionCountries(scope) {
+			if tradeNameHasIndia(place) {
 				return true
 			}
 		}
@@ -50,9 +116,11 @@ func tradeDBImporterScope(countries, regions []string) bool {
 // tradeSellerRegion returns the single geography a supplier query can be
 // origin-scoped to, or "" when the run is global, multi-region or India (the
 // DB's suppliers are foreign exporters into India, so an Indian seller cannot
-// come from supplier records at all).
+// come from supplier records at all). A global scope is deliberately unscoped:
+// "global" is not a location in the DB, and treating it as one filtered out
+// every record.
 func tradeSellerRegion(countries, regions []string) string {
-	var scopes []string
+	scopes := make([]string, 0, len(countries)+len(regions))
 	for _, scope := range append(append([]string{}, countries...), regions...) {
 		if strings.TrimSpace(scope) != "" {
 			scopes = append(scopes, strings.TrimSpace(scope))
@@ -62,7 +130,7 @@ func tradeSellerRegion(countries, regions []string) string {
 		return ""
 	}
 	scope := scopes[0]
-	if tradeDBImporterScope([]string{scope}, nil) {
+	if marketGlobalScopeTerm(scope) || tradeNameHasIndia(scope) {
 		return ""
 	}
 	return scope
@@ -174,11 +242,16 @@ func tradePartnerClaimType(partner models.TradePartner) string {
 // collectTradeImporters queries the DB for the product's ranked Indian
 // importers, capped at the report-wide partner budget. The opt-in is the
 // caller's; this layer enforces the capability and the geography: importer
-// records are Indian importers, so a non-India run is skipped with the reason
-// in a warning rather than silently queried.
+// records are Indian importers, so a scope that does not contain India (directly
+// or through a named region such as Asia) is skipped with the reason in a
+// warning rather than silently queried.
 func collectTradeImporters(ctx context.Context, client TradeDBSource, activity string, limit int, countries, regions []string, eventCh chan<- models.AgentEvent) ([]*models.MarketLandscapeCompany, []string) {
 	if !tradeDBImporterScope(countries, regions) {
-		return nil, []string{"Trade-record importers come from India's import data, so they are only queried for India-scoped runs; this run's geography skipped them."}
+		scope := strings.TrimSpace(strings.Join(append(append([]string{}, countries...), regions...), " / "))
+		if scope == "" {
+			scope = "global"
+		}
+		return nil, []string{fmt.Sprintf("Trade-record importers come from India's import data, so they are only queried for India-scoped runs (India, or a scope containing India such as Asia); this run's scope (%s) skipped them.", scope)}
 	}
 	if limit <= 0 {
 		limit = defaultTradeDBPartnerLimit
@@ -222,7 +295,7 @@ func collectTradeSuppliers(ctx context.Context, client TradeDBSource, activity s
 	tctx, cancel := context.WithTimeout(ctx, tradeCollectionTimeout)
 	defer cancel()
 	if region == "" {
-		if tradeDBImporterScope(countries, regions) {
+		if tradeScopeIsIndia(countries, regions) {
 			return nil, []string{"Trade-record suppliers are foreign exporters into India; Indian sellers are out of their scope, so the section was skipped for this India run."}
 		}
 		emitAgentEvent(eventCh, models.EventThinking, "Querying the Crystal trade DB for the product's ranked exporters", "", "")
@@ -232,24 +305,34 @@ func collectTradeSuppliers(ctx context.Context, client TradeDBSource, activity s
 		}
 		return tradePartnerCompanies(partners, activity), []string{"Trade-record suppliers are unscoped: no single origin region was requested, so the section carries the product's top exporters into India across all origins."}
 	}
-	emitAgentEvent(eventCh, models.EventThinking, "Querying the Crystal trade DB for supplier records scoped to "+region, "", "")
+	// The DB has no region field: a region-scoped supplier query sends the ports
+	// of the region's member countries and filters the records' origin countries
+	// against the same expansion. Without the expansion "Middle East" matches no
+	// port and no origin, and every record is dropped.
+	regionCountries := tradeRegionCountries(region)
+	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Querying the Crystal trade DB for supplier records scoped to %s (%d origin countries)", region, len(regionCountries)), "", "")
 	ports := []string{}
 	if options, err := client.FilterOptions(tctx); err == nil && options != nil {
-		ports = tools.ResolveForeignPorts(options.ForeignPorts, region)
+		ports = tools.ResolveForeignPortsForCountries(options.ForeignPorts, region, regionCountries)
 	}
 	records, err := client.QueryRecords(tctx, models.TradeQuery{Product: activity, ForeignPorts: ports, Limit: tradeRecordPageLimit})
 	if err != nil {
 		return nil, []string{fmt.Sprintf("Trade-record suppliers unavailable; the run continues on web lanes: %v", err)}
 	}
-	return aggregateTradeSuppliers(records, activity, region, limit)
+	companies, warnings := aggregateTradeSuppliers(records, activity, region, regionCountries, limit)
+	if len(ports) == 0 {
+		warnings = append(warnings, fmt.Sprintf("Trade-record supplier query was not port-filtered: the DB's port vocabulary does not name %s's ports, so origin countries were matched client-side (%s).", region, strings.Join(regionCountries, ", ")))
+	}
+	return companies, warnings
 }
 
 // aggregateTradeSuppliers folds one page of records into ranked supplier rows,
-// capped at the report-wide partner budget. When a region was requested,
-// records whose origin country does not share the region's tokens are dropped
-// — origin_country is the authoritative geography, the port vocabulary only
-// narrowed the query.
-func aggregateTradeSuppliers(records []models.TradeRecord, activity, region string, limit int) ([]*models.MarketLandscapeCompany, []string) {
+// capped at the report-wide partner budget. When a region was requested, records
+// whose origin country does not belong to the region are dropped — origin_country
+// is the authoritative geography, the port vocabulary only narrowed the query.
+// The region is expanded into its member countries before matching, because the
+// DB carries origin countries, not region labels.
+func aggregateTradeSuppliers(records []models.TradeRecord, activity, region string, regionCountries []string, limit int) ([]*models.MarketLandscapeCompany, []string) {
 	if limit <= 0 {
 		limit = defaultTradeDBPartnerLimit
 	}
@@ -267,7 +350,7 @@ func aggregateTradeSuppliers(records []models.TradeRecord, activity, region stri
 			continue
 		}
 		origin := strings.TrimSpace(record.OriginCountry)
-		if region != "" && !tools.RegionMatches(region, origin) {
+		if region != "" && !tools.RegionMatchesCountries(region, origin, regionCountries) {
 			dropped++
 			continue
 		}
@@ -315,6 +398,9 @@ func aggregateTradeSuppliers(records []models.TradeRecord, activity, region stri
 	if dropped > 0 {
 		warnings = append(warnings, fmt.Sprintf("Trade-record suppliers: %d record(s) outside the requested origin region were dropped.", dropped))
 	}
+	if len(companies) == 0 && region != "" {
+		warnings = append(warnings, fmt.Sprintf("Trade-record suppliers: no shipment record's origin country belonged to %s (%s). The DB stores foreign ports and origin countries, not region labels, so the region was expanded before matching; a wider scope or a country-scoped run returns rows.", region, strings.Join(regionCountries, ", ")))
+	}
 	return companies, warnings
 }
 
@@ -346,9 +432,10 @@ func (a *DemandChainAgent) attachTradeImporters(ctx context.Context, query model
 // attachTradePartners populates the seller report's first-party sections when
 // the run opted in. The two collections run concurrently — the DB's ranking
 // queries are slow, and each is bounded by the client's own semaphore and the
-// collection timeout. The sections are mutually exclusive by geography (India
-// runs query importers; single-region and global runs query suppliers), and
-// each is capped at the report-wide partner budget.
+// collection timeout. The importer section needs a scope that contains India;
+// the supplier section needs a single origin scope (a named region is expanded to
+// its member countries) and falls back to the unscoped ranking for global or
+// multi-region runs. Each section is capped at the report-wide partner budget.
 func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query models.MarketLandscapeQuery, report *models.MarketLandscapeReport, eventCh chan<- models.AgentEvent) {
 	if !query.IncludeTradeRecords {
 		return

@@ -68,7 +68,7 @@ func TestMarketQueryReviewRewritesDropsAndRefuses(t *testing.T) {
 			{Query: `"Oil Blending" manufacturer Middle East`, Verdict: "drop", Reason: "the category lane covers manufacturers"},
 		},
 		Purposes: []marketQueryVerdict{
-			{Query: "registry trade source", Verdict: "rewrite", RevisedQuery: "company registry record", Reason: "no indexed page contains the phrase"},
+			{Query: "plant", Verdict: "rewrite", RevisedQuery: "production plant", Reason: "the activity's own production site"},
 		},
 	}}
 	agent := NewMarketLandscapeAgent(demandChainTestEngine(llm, queryReviewSearcher()))
@@ -86,7 +86,7 @@ func TestMarketQueryReviewRewritesDropsAndRefuses(t *testing.T) {
 	if surviving[1].Query != `oleochemicals exporter Middle East` {
 		t.Errorf("exporter lane must run re-anchored on the category, got %q", surviving[1].Query)
 	}
-	wantPurposes := []string{"official site", "facility operator", "company registry record"}
+	wantPurposes := []string{"official website", "production plant", "distributor"}
 	if strings.Join(purposes, "|") != strings.Join(wantPurposes, "|") {
 		t.Errorf("purposes = %v, want %v", purposes, wantPurposes)
 	}
@@ -96,7 +96,7 @@ func TestMarketQueryReviewRewritesDropsAndRefuses(t *testing.T) {
 	if review := marketQueryReviewVerdicts(reviews, specs[2].Query); review == nil || review.Verdict != "dropped" || review.Reason != "repeats its own words" {
 		t.Errorf("region lane must drop on echo without a reviewer rewrite, got %+v", review)
 	}
-	if review := marketQueryReviewVerdicts(reviews, "registry trade source"); review == nil || review.Verdict != "rewritten" || review.Phase != "verification" {
+	if review := marketQueryReviewVerdicts(reviews, "plant"); review == nil || review.Verdict != "rewritten" || review.Phase != "verification" {
 		t.Errorf("purpose rewrite must be recorded on the verification phase, got %+v", review)
 	}
 	for _, fragment := range []string{"Oil Blending", "oleochemicals", "volza.com", "Middle East"} {
@@ -106,7 +106,72 @@ func TestMarketQueryReviewRewritesDropsAndRefuses(t *testing.T) {
 	}
 }
 
-// TestMarketQueryReviewRefusesUnsafeRewrites pins the rewrite guardrails: a
+// TestMarketQueryReviewChallengesCrossFamilyCategoryLanes pins the reviewer's
+// semantic mandate: the inferred category is a hypothesis, the activity's
+// deterministic family is the authority, so a cross-family category lane can be
+// dropped and a rewrite that swaps the family is accepted (it keeps the lane
+// role word, so it stays the same lane).
+func TestMarketQueryReviewChallengesCrossFamilyCategoryLanes(t *testing.T) {
+	specs := []marketSearchSpec{
+		{Lane: "oleochemicals manufacturers", Query: "oleochemicals manufacturers Middle East"},
+		{Lane: "oleochemicals companies", Query: "oleochemicals companies Middle East"},
+	}
+	llm := &queryReviewLLM{response: marketQueryReviewTarget{
+		Queries: []marketQueryVerdict{
+			{Query: "oleochemicals manufacturers Middle East", Verdict: "drop", Reason: "oleochemicals is a different chemistry than oil blending"},
+			{Query: "oleochemicals companies Middle East", Verdict: "rewrite", RevisedQuery: "lubricants companies Middle East", Reason: "re-anchored on the activity's family"},
+		},
+	}}
+	agent := NewMarketLandscapeAgent(demandChainTestEngine(llm, queryReviewSearcher()))
+	query := models.MarketLandscapeQuery{Activity: "Oil Blending", Regions: []string{"Middle East"}}
+	surviving, _, reviews, warning := agent.reviewMarketQueryBatch(context.Background(), "category", specs, nil, "oleochemicals", query, nil)
+	if warning != "" {
+		t.Fatalf("unexpected review warning: %v", warning)
+	}
+	if len(surviving) != 1 || surviving[0].Query != "lubricants companies Middle East" {
+		t.Fatalf("surviving category lanes = %+v, want only the family-corrected lane", surviving)
+	}
+	if review := marketQueryReviewVerdicts(reviews, "oleochemicals manufacturers Middle East"); review == nil || review.Verdict != "dropped" {
+		t.Errorf("cross-family lane must be recorded as dropped, got %+v", review)
+	}
+	if review := marketQueryReviewVerdicts(reviews, "oleochemicals companies Middle East"); review == nil || review.Verdict != "rewritten" || review.RevisedQuery != "lubricants companies Middle East" {
+		t.Errorf("family rewrite must be recorded, got %+v", review)
+	}
+	if !strings.Contains(llm.users[0], "hypothesis") {
+		t.Errorf("review prompt must present the category as a hypothesis: %q", llm.users[0])
+	}
+	if !strings.Contains(llm.users[0], "Activity product family (deterministic): lubricants") {
+		t.Errorf("review prompt must carry the deterministic family anchor: %q", llm.users[0])
+	}
+	if !strings.Contains(llm.systems[0], "Semantic correctness") || !strings.Contains(llm.systems[0], "oleochemicals") {
+		t.Errorf("review system prompt must state the product-family criterion: %q", llm.systems[0])
+	}
+}
+
+// TestMarketQueryReviewFamilyAnchor covers the independent anchor the reviewer
+// receives: it resolves the activity's oil family without trusting the inferred
+// category, and stays silent when no family can be proven.
+func TestMarketQueryReviewFamilyAnchor(t *testing.T) {
+	cases := []struct {
+		activity string
+		want     []string
+	}{
+		{activity: "Oil Blending", want: []string{"lubricants"}},
+		{activity: "fuel oil blending", want: []string{"fuel oils"}},
+		{activity: "crude oil blending", want: []string{"crude oil"}},
+		{activity: "used cooking oil", want: []string{"oleochemicals", "biodiesel"}},
+		{activity: "linear alkyl benzene", want: nil},
+		{activity: "n-butanol", want: nil},
+	}
+	for _, testCase := range cases {
+		got := marketQueryFamilyAnchor(testCase.activity)
+		if strings.Join(got, "|") != strings.Join(testCase.want, "|") {
+			t.Errorf("marketQueryFamilyAnchor(%q) = %v, want %v", testCase.activity, got, testCase.want)
+		}
+	}
+}
+
+
 // rewrite may not widen geography outside the requested scope, may not lean
 // on a site: domain outside the operator allowlist, and may not smuggle
 // geography into a verification purpose. Every refusal falls back to the
@@ -124,7 +189,7 @@ func TestMarketQueryReviewRefusesUnsafeRewrites(t *testing.T) {
 			{Query: specs[2].Query, Verdict: "rewrite", RevisedQuery: `site:volza.com "oil blending" exporter`},
 		},
 		Purposes: []marketQueryVerdict{
-			{Query: "facility operator", Verdict: "rewrite", RevisedQuery: "blending facility operator UAE"},
+			{Query: "distributor", Verdict: "rewrite", RevisedQuery: "distributor wholesaler UAE"},
 		},
 	}}
 	agent := NewMarketLandscapeAgent(demandChainTestEngine(llm, queryReviewSearcher()))
@@ -142,7 +207,7 @@ func TestMarketQueryReviewRefusesUnsafeRewrites(t *testing.T) {
 	if review := marketQueryReviewVerdicts(reviews, specs[0].Query); review == nil || review.Verdict != "kept" || !strings.Contains(review.Reason, `"india"`) {
 		t.Errorf("the refused geography rewrite must be recorded as kept with its reason, got %+v", review)
 	}
-	wantPurposes := []string{"official site", "facility operator", "registry trade source"}
+	wantPurposes := []string{"official website", "plant", "distributor"}
 	if strings.Join(purposes, "|") != strings.Join(wantPurposes, "|") {
 		t.Errorf("a purpose rewrite naming geography must be refused, got %v", purposes)
 	}

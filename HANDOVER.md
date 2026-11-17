@@ -12,6 +12,122 @@
   query `"n-butanol" "India"` (`TestDemandChainLive`, deep budget). The run logs were removed
   from the repo in the 2026-11-17 artifacts cleanup; artifacts under `%TEMP%\crystal-live-nbutanol*`.
 
+## 2026-11-17 — trade-DB geography and seller role vocabulary
+
+Two operator reports from the same review:
+
+1. **Regions worked on the web but not in the trade DB.** The web lanes append
+   `Middle East` / `Asia` / `Global` to a query, which search engines understand. The Crystal
+   import-export DB has no region field at all: it carries `foreign_port` and `origin_country`.
+   `collectTradeSuppliers` passed the region label straight to `tools.ResolveForeignPorts` and then
+   filtered records with `tools.RegionMatches(region, origin)` — token matching "middle"/"east"
+   against "SAUDI ARABIA", which matches nothing. Result: **every** record of a region-scoped run was
+   dropped (ports empty, origins unmatched), and `Global` behaved the same way because "global" is
+   not a location. The supplier section was silently empty for every regional run.
+   - New `tradeRegionCountries` expands a requested region through the existing
+     `marketRegionTerms` vocabulary into member countries, skips other region labels (`gcc`, `mea`,
+     `emea`), and alias-expands each place (`uae` → `united arab emirates` → `jebel ali`/`dubai`…),
+     which is also what makes ISO-2 port entries resolvable.
+   - `tools.ResolveForeignPortsForCountries` and `tools.RegionMatchesCountries` take that expansion;
+     `ResolveForeignPorts`/`RegionMatches` stay as the label-only primitives. `ksa`/`turkiye` aliases
+     added to the port vocabulary.
+   - `tradeSellerRegion` now treats an explicit global scope as *unscoped* (ranked exporters,
+     labelled), instead of an unmatched "origin region" that dropped everything.
+   - `tradeDBImporterScope` uses the same expansion, so `Asia`/`South Asia` (which contain India) may
+     query Indian importers while `Middle East` may not; the skip warning names the requested scope.
+   - Warnings are honest now: an empty port filter says so, and an empty result explains that the DB
+     stores ports/origin countries rather than region labels.
+   - Tests: `TestTradeRegionCountriesExpandsTheDatabaseGeography`,
+     `TestTradeRegionMatchingUsesTheExpandedCountries` (pins the old token mismatch as a
+     precondition), `TestAttachTradePartnersScopesMiddleEastSuppliers` (UAE + Saudi kept, German
+     origin dropped, port filter resolved to JEBEL ALI only).
+
+2. **"Facility operator" was being searched.** It came from `marketVerificationPurposes()`: every
+   candidate ran `"<Company>" "<Activity>" facility operator`, a phrase no page contains (it also
+   appeared in `report.Lanes`, which is why the JSON showed it). The report's own plan guard already
+   bans that kind of role stack, so the vocabulary was inconsistent with the search it launched.
+   - Purposes are now indexed role nouns, one per seller role the report groups:
+     `official website`, `plant`, `distributor`.
+   - Discovery composes the seller roles per geography (`distributor`, `wholesaler`, `exporter`,
+     `shipment`) alongside per-term `manufacturer`/`plant`; the vague `company`/`facility` lanes are
+     gone. The 24-query discovery cap still binds.
+   - `marketLanes` now reports the same vocabulary it searches (`manufacturer`, `plant`,
+     `distributor`, `wholesaler`, `blending plant`, trade + market-intel lanes, per-geography
+     manufacturer lanes) instead of `company operator manufacturer` / `facility operator` /
+     `official company`.
+   - Tests: `TestMarketVerificationPurposesUseIndexedRoles`, updated
+     `TestMarketLanesIncludeRequestedGeography`/`TestMarketLanesFollowActivity`,
+     `TestMarketDiscoverySearchesUseNaturalProcessTerms` (asserts distributor/wholesaler and bans
+     `facility`/`company` lanes), and the query-review fixtures now use the new purpose list.
+
+Full suite, `go vet` and `go build` clean.
+
+## 2026-11-17 — oil-family category resolution (Seller Landscape)
+
+The operator reported that a sample `Oil Blending` Seller Landscape broadened to **oleochemicals**
+(category lanes `oleochemicals manufacturers` / `oleochemicals companies`). The fallback was not
+picking a "close enough" family — it was picking a different chemistry — and `fuel oil blending`
+and `crude oil blending` landed there too. Root cause and fix:
+
+- **Root cause: a bare `"oil"` token in the related-token table.** `demandFallbackCategory` scans a
+  fixed family order and `demandCategoryRelatedTokens["oleochemicals"]` listed plain `"oil"`, so
+  `strings.Contains("oil blending", "oil")` matched oleochemicals *before* lubricants. The same
+  token let `validateDemandCategory` accept a model-proposed `oleochemicals` for any oil activity.
+  `"oil"` was equally present in the lubricants and biodiesel token lists.
+- **New resolver `demandOilFamilies`** (with `demandOilFamilyAliases` / `demandCategoryMatchesOilFamily`)
+  decides an oil-bearing activity by its qualifier *before* any token match: lubricant/base/motor/
+  process oil → `lubricants`; fuel/bunker/diesel/kerosene → `fuel oils`; crude → `crude oil`;
+  palm/coconut/cooking/vegetable/soybean/tallow feedstocks → `oleochemicals` **and** `biodiesel`
+  (UCO keeps its biodiesel relation); a generic oil blend → `lubricants` (the dominant indexed
+  phrase). It is wired into `demandFallbackCategory`, `demandCategoryLooksRelated` and the
+  forbidden-first-field check, so `fuel oils` can validate while a bare `fuel` still cannot.
+- **Bare `"oil"` removed** from the oleochemicals, lubricants and biodiesel token lists and replaced
+  with the qualified phrases (`base oil`, `used cooking oil`, `cooking oil`, `vegetable oil`, …), so
+  no future oil activity inherits a family from the shared word.
+- **`marketActivitySearchTerms`** no longer expands a fuel/crude/vegetable blending run to
+  `lubricant blending` (`marketNamesOtherOilFamily`); the generic-oil expansion is unchanged.
+- **`inferMarketCategory` prompt** now states the process rule with the oil examples and names
+  oleochemicals as the wrong answer for lubricant/fuel/crude blending.
+- Tests: `TestMarketBlendingCategoryResolvesTheBlendedFamily`,
+  `TestMarketActivitySearchTermsStayInsideTheOilFamily`, `TestSellerPlanNeverCrossesOilFamilies`
+  (the seller plan for each blending variant must not contain another family's vocabulary), plus
+  the extended `TestDemandCategoryValidation` (oleochemicals rejected for oil/fuel/crude blending,
+  accepted for UCO; `fuel oils` accepted for fuel oil blending).
+
+**Why the adversarial query review did not catch it.** It did run — `researchCategoryLane` reviews
+the category lanes (`phase=category`) before any search — but it was structurally unable to object:
+
+- It received the *wrong category as an authority*, not as a claim to test: the prompt printed
+  `Inferred product category: "oleochemicals" (trade and customs lanes may be re-anchored on it)`
+  and the system prompt said `you may re-anchor on the product category`. Nothing gave it an
+  independent product-family anchor.
+- Its criteria were natural phrasing, aptness (page vocabulary / tradable product noun) and economy.
+  `oleochemicals manufacturers` is a perfectly phrased, naturally indexed category lane, so nothing
+  failed. Product-family correctness was simply not a criterion.
+- The mechanical layer saw no defect either: the two lanes do not repeat words, are not vocabulary
+  subsets of each other, are under the word cap and carry no `site:` operator.
+- Audit visibility: "keep" verdicts are deliberately not recorded in `QueryReviews` (only rewrites
+  and drops are), so the report's `query_reviews` is empty for a kept batch. The only trace is the
+  console event `Query review (category): N kept, 0 rewritten, 0 dropped`; a review *failure* would
+  instead record the warning `Query review unavailable (...); the original queries run unchanged.`
+- Scope: the category is resolved before the lanes are composed, so by review time a wrong category
+  is an upstream input, not a query defect. Only the category resolver could correct it.
+
+Hardened on top of the category fix:
+
+- `marketQueryReviewSystem` gained criterion **4. Semantic correctness (product family)** — the
+  inferred category is declared a hypothesis, and a lane naming another chemistry (oleochemicals for
+  lubricant/fuel/crude blending) must be dropped or rewritten; a stated deterministic family
+  outranks the inferred category. The rewrite rules now allow replacing a cross-family product term.
+- `marketQueryReviewPrompt` labels the category `(hypothesis, challenge it)` and adds
+  `Activity product family (deterministic): <families>` from the new `marketQueryFamilyAnchor`
+  (the oil-family resolver), so the reviewer has ground truth the category inference cannot poison.
+  `marketSanitizeRevisedQuery` already permits the family swap, because the rewrite keeps the lane
+  role word/geography, so a reviewer can correct rather than only drop.
+- Tests: `TestMarketQueryReviewChallengesCrossFamilyCategoryLanes` (a cross-family lane is dropped,
+  a family rewrite is applied and recorded, and the prompt carries the hypothesis framing plus the
+  deterministic anchor) and `TestMarketQueryReviewFamilyAnchor`.
+
 ## 2026-11-17 — adversarial query review (Seller Landscape)
 
 The operator reviewed the search strings a "Oil Blending" MEA run issued and the verdict was:

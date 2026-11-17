@@ -2089,10 +2089,86 @@ var demandForbiddenCategoryTerms = map[string]bool{
 	"retail": true, "logistics": true, "transport": true, "pharmaceuticals": true,
 }
 
+// demandOilFamilyAliases are the category labels that name each resolved oil family. They are
+// matched one way only — the alias must appear inside the category — so a bare "fuel" never
+// passes as "fuel oil".
+var demandOilFamilyAliases = map[string][]string{
+	"oleochemicals": {"oleochemical", "fatty acid", "fatty alcohol", "glycerin", "glycerine", "soap", "palm", "coconut", "tallow"},
+	"biodiesel":     {"biodiesel", "fatty acid methyl ester"},
+	"lubricants":    {"lubricant", "lubricants", "lubricating", "base oil", "base oils", "grease", "greases", "metalworking fluid", "metalworking fluids"},
+	"fuel oils":     {"fuel oil", "fuel oils", "bunker", "bunker fuel", "marine fuel", "diesel", "gasoline", "petrol", "kerosene"},
+	"crude oil":     {"crude oil", "crude oils", "crude"},
+}
+
+// demandOilFamilies resolves an oil-bearing activity to the salable product families it can
+// belong to. A bare "oil" spans unrelated chemistries — petroleum lubricants, fuel oils, crude
+// oil and the fatty-acid/glycerin oleochemicals — so the qualifier decides. Feedstock oils
+// (palm, coconut, cooking, vegetable) feed both oleochemicals and biodiesel. A generic oil
+// blending run resolves to lubricant blending, the dominant indexed phrase for the trade, and
+// must never inherit oleochemicals, which shares only the word "oil". A nil result means the
+// activity names no oil family at all, so the generic token rules decide.
+func demandOilFamilies(activity string) []string {
+	text := strings.ToLower(strings.TrimSpace(activity))
+	if !strings.Contains(text, "oil") && !strings.Contains(text, "fuel") && !strings.Contains(text, "bunker") {
+		return nil
+	}
+	for _, term := range []string{
+		"oleochemical", "fatty acid", "fatty alcohol", "glycerin", "glycerine", "soap",
+		"palm", "coconut", "tallow", "cooking", "vegetable", "edible", "soybean",
+		"soyabean", "rapeseed", "canola", "sunflower", "castor", "corn oil",
+		"cottonseed", "groundnut", "peanut", "sesame", "olive oil", "rice bran",
+		"mustard oil", "waste oil",
+	} {
+		if strings.Contains(text, term) {
+			return []string{"oleochemicals", "biodiesel"}
+		}
+	}
+	switch {
+	case strings.Contains(text, "crude"):
+		return []string{"crude oil"}
+	case strings.Contains(text, "fuel") && (strings.Contains(text, "oil") || strings.Contains(text, "blend") ||
+		strings.Contains(text, "bunker") || strings.Contains(text, "marine") || strings.Contains(text, "diesel") ||
+		strings.Contains(text, "petrol") || strings.Contains(text, "gasoline") || strings.Contains(text, "kerosene")),
+		strings.Contains(text, "bunker"),
+		strings.Contains(text, "diesel"), strings.Contains(text, "petrol"),
+		strings.Contains(text, "gasoline"), strings.Contains(text, "kerosene"):
+		return []string{"fuel oils"}
+	case strings.Contains(text, "lubricant"), strings.Contains(text, "grease"),
+		strings.Contains(text, "base oil"), strings.Contains(text, "motor oil"),
+		strings.Contains(text, "engine oil"), strings.Contains(text, "gear oil"),
+		strings.Contains(text, "hydraulic oil"), strings.Contains(text, "industrial oil"),
+		strings.Contains(text, "process oil"), strings.Contains(text, "white oil"),
+		strings.Contains(text, "metalworking"):
+		return []string{"lubricants"}
+	case strings.Contains(text, "blend"):
+		return []string{"lubricants"}
+	}
+	return nil
+}
+
+// demandCategoryMatchesOilFamily reports whether the category names one of the oil families the
+// activity can belong to. The alias must be contained in the category (never the reverse), so
+// "fuel oils" matches "fuel oil" while a bare "fuel" matches nothing.
+func demandCategoryMatchesOilFamily(category, activity string) bool {
+	lowered := strings.ToLower(strings.Join(demandCategoryFields(category), " "))
+	if lowered == "" {
+		return false
+	}
+	for _, family := range demandOilFamilies(activity) {
+		for _, alias := range demandOilFamilyAliases[family] {
+			if demandTokenRelates(lowered, alias) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // demandCategoryRelatedTokens is the specificity guard: a category must share a real token with
 // the product or one of its inferred stages, or be a known product-family relation. "polyurethanes"
 // relates to TDI/foam; "fuel" relates to nothing in a coal value chain except the forbidden
-// end-use sector we are rejecting.
+// end-use sector we are rejecting. A bare "oil" is deliberately absent: it is a word shared by
+// unrelated chemistries, not a product-family relation.
 var demandCategoryRelatedTokens = map[string][]string{
 	"polyurethanes":           {"polyurethane", "isocyanate", "tdi", "mdi", "foam", "elastomer", "resin", "adhesive", "sealant", "coating"},
 	"adhesives and sealants":  {"adhesive", "sealant", "polyurethane"},
@@ -2102,15 +2178,15 @@ var demandCategoryRelatedTokens = map[string][]string{
 	"polyurethane elastomers": {"elastomer", "polyurethane", "isocyanate", "tdi"},
 	"polyurethane foam":       {"foam", "polyurethane", "isocyanate", "tdi"},
 	"polyurethane resins":     {"resin", "polyurethane", "isocyanate", "tdi"},
-	"oleochemicals":           {"oleochemical", "fatty", "palm", "glycerin", "oil", "soap"},
+	"oleochemicals":           {"oleochemical", "fatty", "palm", "glycerin", "soap", "vegetable oil", "used cooking oil", "cooking oil", "waste oil", "coconut oil", "tallow"},
 	"surfactants":             {"surfactant", "detergent", "fatty", "soap", "linear alkyl benzene"},
 	"plasticizers":            {"plasticizer", "phthalate", "ester"},
 	"acrylates":               {"acrylate", "acrylic", "ester", "butanol", "butyl"},
 	"acetates":                {"acetate", "acetic", "ester", "butanol", "butyl"},
 	"esters":                  {"ester", "acetate", "acrylate", "oleochemical"},
 	"glycol ethers":           {"glycol", "ether", "butanol"},
-	"lubricants":              {"lubricant", "oil", "ester"},
-	"biodiesel":               {"biodiesel", "fatty", "oil", "glycerin"},
+	"lubricants":              {"lubricant", "lubricating", "base oil", "motor oil", "engine oil", "gear oil", "hydraulic oil", "industrial oil", "process oil", "grease", "metalworking", "ester"},
+	"biodiesel":               {"biodiesel", "fatty", "glycerin", "vegetable oil", "used cooking oil", "cooking oil", "waste oil", "tallow"},
 	"coal products":           {"coal", "coke", "carbon"},
 }
 
@@ -2122,6 +2198,14 @@ func demandCategoryLooksRelated(category, activity string, stages []models.Value
 	fields := demandCategoryFields(category)
 	if len(fields) == 0 {
 		return false
+	}
+	// An oil-bearing activity has a determinate family set: "oil blending" is
+	// lubricant blending, "fuel oil blending" is fuel oils, "crude oil blending"
+	// is crude oil, and a feedstock oil is oleochemicals/biodiesel. A family that
+	// merely shares the word "oil" (oleochemicals for lubricant/oil blending) is
+	// a different chemistry, not a relation.
+	if families := demandOilFamilies(activity); len(families) > 0 {
+		return demandCategoryMatchesOilFamily(category, activity)
 	}
 	text := " " + strings.ToLower(strings.TrimSpace(activity)) + " "
 	for _, stage := range stages {
@@ -2190,7 +2274,7 @@ func validateDemandCategory(raw, rationale, activity string, stages []models.Val
 	if len(fields) == 1 && demandForbiddenCategoryTerms[fields[0]] {
 		return reject("end-use or generic superclass")
 	}
-	if demandForbiddenCategoryTerms[fields[0]] {
+	if demandForbiddenCategoryTerms[fields[0]] && !demandCategoryMatchesOilFamily(category, activity) {
 		return reject("starts with an end-use or generic superclass")
 	}
 	for _, field := range fields {
@@ -2218,6 +2302,12 @@ func validateDemandCategory(raw, rationale, activity string, stages []models.Val
 // absent or rejected. It is still only a search fallback, never a stage or a buyer.
 func demandFallbackCategory(activity string, stages []models.ValueChainStage) string {
 	activityText := strings.ToLower(strings.TrimSpace(activity))
+	// An oil-bearing activity resolves by its qualifier before the generic token
+	// scan: a bare "oil" is not a family, and oleochemicals shares only the word
+	// with lubricant, fuel and crude oil blending.
+	if families := demandOilFamilies(activity); len(families) > 0 {
+		return families[0]
+	}
 	// Prefer a known product-family relation over the stage label. This is where a rejected
 	// "coal -> fuel" category lands on "coal products", not "coal combustion".
 	for _, category := range []string{"coal products", "polyurethanes", "solvents", "aromatics", "oleochemicals", "surfactants", "plasticizers", "lubricants", "biodiesel"} {

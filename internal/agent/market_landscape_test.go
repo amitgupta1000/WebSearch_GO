@@ -13,7 +13,7 @@ func TestMarketLanesIncludeRequestedGeography(t *testing.T) {
 		Regions:   []string{"Southeast Asia", "Middle East"},
 		Countries: []string{"Singapore"},
 	})
-	for _, expected := range []string{"company operator manufacturer", "Singapore company operator manufacturer", "Southeast Asia company operator manufacturer", "Middle East company operator manufacturer", "blending plant facility"} {
+	for _, expected := range []string{"manufacturer", "plant", "distributor", "wholesaler", "blending plant", "Singapore manufacturer", "Southeast Asia manufacturer", "Middle East manufacturer"} {
 		found := false
 		for _, lane := range lanes {
 			if lane == expected {
@@ -25,12 +25,19 @@ func TestMarketLanesIncludeRequestedGeography(t *testing.T) {
 			t.Errorf("expected lane %q in %v", expected, lanes)
 		}
 	}
+	for _, retired := range []string{"company operator manufacturer", "facility operator", "official company"} {
+		for _, lane := range lanes {
+			if lane == retired {
+				t.Errorf("report lanes must use the vocabulary the planner actually searches, got %q in %v", retired, lanes)
+			}
+		}
+	}
 }
 
 func TestMarketLanesFollowActivity(t *testing.T) {
 	lanes := marketLanes(models.MarketLandscapeQuery{Activity: "drone manufacturing"})
 	for _, lane := range lanes {
-		if lane == "blending plant facility" || lane == "industrial oil blending" || lane == "fuel oil blending plant" {
+		if lane == "blending plant" {
 			t.Fatalf("oil-blending lane leaked into drone research: %v", lanes)
 		}
 	}
@@ -54,10 +61,19 @@ func TestMarketDiscoverySearchesUseNaturalProcessTerms(t *testing.T) {
 	for _, expected := range []string{
 		`"oil blending" manufacturer Middle East`,
 		`"lubricant blending" plant Africa`,
+		`"oil blending" distributor Middle East`,
+		`"oil blending" wholesaler Africa`,
 		`site:ensun.io "oil blending"`,
 	} {
 		if !queries[expected] {
 			t.Errorf("missing query %q in %v", expected, searches)
+		}
+	}
+	for _, retired := range []string{" facility", " company"} {
+		for _, search := range searches {
+			if strings.Contains(search.Query, retired) && !strings.Contains(search.Query, "site:") {
+				t.Errorf("a %q lane qualifies almost any page and must not be composed: %q", strings.TrimSpace(retired), search.Query)
+			}
 		}
 	}
 }
@@ -66,6 +82,97 @@ func TestMarketActivitySearchTermsPreserveOperatorInput(t *testing.T) {
 	got := marketActivitySearchTerms("specialty polymer processing")
 	if len(got) != 1 || got[0] != "specialty polymer processing" {
 		t.Fatalf("activity terms = %v, want the operator activity unchanged", got)
+	}
+}
+
+// TestMarketBlendingCategoryResolvesTheBlendedFamily pins the operator's report:
+// "Oil Blending" must broaden to lubricants, not oleochemicals. The qualifier
+// decides the family, because "oil" alone spans unrelated chemistries.
+func TestMarketBlendingCategoryResolvesTheBlendedFamily(t *testing.T) {
+	cases := []struct{ activity, want string }{
+		{"Oil Blending", "lubricants"},
+		{"oil blending", "lubricants"},
+		{"lubricant oil blending", "lubricants"},
+		{"base oil blending", "lubricants"},
+		{"fuel oil blending", "fuel oils"},
+		{"bunker fuel blending", "fuel oils"},
+		{"crude oil blending", "crude oil"},
+		{"used cooking oil", "oleochemicals"},
+		{"palm oil", "oleochemicals"},
+		{"palm kernel oil", "oleochemicals"},
+		{"crude oil", "crude oil"},
+		{"fuel oil", "fuel oils"},
+		{"process oil", "lubricants"},
+	}
+	for _, testCase := range cases {
+		if got := demandFallbackCategory(testCase.activity, nil); got != testCase.want {
+			t.Errorf("demandFallbackCategory(%q) = %q, want %q", testCase.activity, got, testCase.want)
+		}
+		lanes := marketCategoryLanes(demandFallbackCategory(testCase.activity, nil))
+		if len(lanes) == 0 {
+			t.Errorf("%q produced no category lanes", testCase.activity)
+		}
+	}
+	// A fuel cell is not a fuel-oil activity: the shared word must not decide.
+	if got := demandFallbackCategory("fuel cell manufacturing", nil); got == "fuel oils" {
+		t.Errorf("demandFallbackCategory(%q) = %q, must not resolve a fuel-oil family", "fuel cell manufacturing", got)
+	}
+}
+
+// TestMarketActivitySearchTermsStayInsideTheOilFamily pins the expansion: a
+// generic oil blend also searches the indexed lubricant wording, while a fuel or
+// crude blend searches only its own phrase.
+func TestMarketActivitySearchTermsStayInsideTheOilFamily(t *testing.T) {
+	contains := func(terms []string, want string) bool {
+		for _, term := range terms {
+			if term == want {
+				return true
+			}
+		}
+		return false
+	}
+	if terms := marketActivitySearchTerms("Oil Blending"); !contains(terms, "lubricant blending") {
+		t.Errorf("oil blending terms = %v, want the indexed lubricant phrase", terms)
+	}
+	for _, activity := range []string{"fuel oil blending", "crude oil blending", "bunker fuel blending", "palm oil blending"} {
+		terms := marketActivitySearchTerms(activity)
+		if contains(terms, "lubricant blending") && !strings.Contains(strings.ToLower(activity), "lubricant") {
+			t.Errorf("%s terms = %v, must not be expanded to lubricant blending", activity, terms)
+		}
+	}
+	if terms := marketActivitySearchTerms("fuel oil blending"); !contains(terms, "fuel oil blending") {
+		t.Errorf("fuel terms = %v, want the activity phrase kept", terms)
+	}
+}
+
+// TestMarketVerificationPurposesUseIndexedRoles pins the role vocabulary the
+// operator reviewed: a purpose is appended after the quoted company and activity,
+// so it must be a noun real pages carry. "Facility operator" and
+// "registry trade source" spent one search per candidate and matched only
+// directories; the replacement names the three seller roles the report groups.
+func TestMarketVerificationPurposesUseIndexedRoles(t *testing.T) {
+	purposes := marketVerificationPurposes()
+	joined := strings.ToLower(strings.Join(purposes, " | "))
+	for _, banned := range []string{"facility operator", "company operator", "official company", "registry trade source"} {
+		if strings.Contains(joined, banned) {
+			t.Errorf("verification purposes = %v, must not carry the unindexed phrase %q", purposes, banned)
+		}
+	}
+	for _, want := range []string{"official website", "plant", "distributor"} {
+		found := false
+		for _, purpose := range purposes {
+			if purpose == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("purposes = %v, want %q", purposes, want)
+		}
+	}
+	for _, purpose := range purposes {
+		if words := len(strings.Fields(purpose)); words == 0 || words > marketQueryReviewMaxPurposeWords {
+			t.Errorf("purpose %q is outside the bounded phrase length", purpose)
+		}
 	}
 }
 

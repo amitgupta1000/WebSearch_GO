@@ -1463,6 +1463,7 @@ func TestDemandCategoryValidation(t *testing.T) {
 	}}
 	solventStages := []models.ValueChainStage{{Name: "Solvent Production", Products: []string{"ethyl acetate"}}}
 	coalStages := []models.ValueChainStage{{Name: "Coal Combustion", Operators: []string{"coal plant"}}}
+	oleoStages := []models.ValueChainStage{{Name: "Oleochemical Plant", Products: []string{"fatty acid", "glycerin"}}}
 	valid := []struct {
 		activity, category string
 		stages             []models.ValueChainStage
@@ -1470,6 +1471,13 @@ func TestDemandCategoryValidation(t *testing.T) {
 		{"Toluene Diisocyanate", "polyurethanes", polyStages},
 		{"acetic acid", "solvents", solventStages},
 		{"coal", "coal products", coalStages},
+		// The oil family is decided by the activity's qualifier, not the shared word "oil".
+		{"Oil Blending", "lubricants", nil},
+		{"lubricant oil blending", "base oils", nil},
+		{"fuel oil blending", "fuel oils", nil},
+		{"crude oil blending", "crude oil", nil},
+		{"used cooking oil", "oleochemicals", oleoStages},
+		{"used cooking oil", "biodiesel", nil},
 	}
 	for _, item := range valid {
 		category, source, warnings := validateDemandCategory(item.category, "", item.activity, item.stages)
@@ -1487,6 +1495,13 @@ func TestDemandCategoryValidation(t *testing.T) {
 		{"Toluene Diisocyanate", "automotive", polyStages},
 		{"Toluene Diisocyanate", "polyurethanes manufacturing", polyStages},
 		{"Toluene Diisocyanate", "unknown unrelated category", polyStages},
+		// A family that shares only the word "oil" is not a relation.
+		{"Oil Blending", "oleochemicals", nil},
+		{"lubricant oil blending", "oleochemicals", nil},
+		{"fuel oil blending", "oleochemicals", nil},
+		{"fuel oil blending", "lubricants", nil},
+		{"crude oil blending", "oleochemicals", nil},
+		{"Oil Blending", "fuel", nil},
 	}
 	for _, item := range invalid {
 		category, source, warnings := validateDemandCategory(item.category, "", item.activity, item.stages)

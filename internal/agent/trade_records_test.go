@@ -10,6 +10,7 @@ import (
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/cache"
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
 )
 
 // tradeDBMock is the scripted stand-in for the Crystal client: calls are
@@ -89,7 +90,110 @@ func TestTradeDBImporterScope(t *testing.T) {
 	}
 }
 
-// TestTradeSellerRegionScoping pins the supplier-side geography: exactly one
+// TestTradeRegionCountriesExpandsTheDatabaseGeography pins the fix for the
+// region/trade-DB disconnect: the DB has no "Middle East"/"Asia"/"Global"
+// location, so a region must resolve to the member countries its ports and
+// origin_country rows actually carry. Region labels are not places and are
+// dropped from the expansion.
+func TestTradeRegionCountriesExpandsTheDatabaseGeography(t *testing.T) {
+	has := func(values []string, want string) bool {
+		for _, value := range values {
+			if strings.EqualFold(value, want) {
+				return true
+			}
+		}
+		return false
+	}
+	middleEast := tradeRegionCountries("Middle East")
+	for _, want := range []string{"saudi arabia", "uae", "united arab emirates", "qatar", "oman", "kuwait", "bahrain", "turkey"} {
+		if !has(middleEast, want) {
+			t.Errorf("Middle East expansion = %v, missing %q", middleEast, want)
+		}
+	}
+	for _, label := range []string{"middle east", "gcc"} {
+		if has(middleEast, label) {
+			t.Errorf("Middle East expansion = %v, the region label %q is not a place", middleEast, label)
+		}
+	}
+	asia := tradeRegionCountries("Asia")
+	for _, want := range []string{"india", "china", "japan", "singapore", "malaysia", "indonesia"} {
+		if !has(asia, want) {
+			t.Errorf("Asia expansion = %v, missing %q", asia, want)
+		}
+	}
+	if got := tradeRegionCountries("Global"); got != nil {
+		t.Errorf("global scope expansion = %v, want nil (every origin is valid)", got)
+	}
+	if got := tradeRegionCountries("Germany"); len(got) != 1 || got[0] != "Germany" {
+		t.Errorf("country scope expansion = %v, want the country itself", got)
+	}
+}
+
+// TestTradeRegionMatchingUsesTheExpandedCountries pins the root cause of the
+// disconnect: the region label shares no token with the origin country, so the
+// old token match dropped every record of a region-scoped run. The expansion
+// matches the same records.
+func TestTradeRegionMatchingUsesTheExpandedCountries(t *testing.T) {
+	if tools.RegionMatches("Middle East", "SAUDI ARABIA") {
+		t.Fatal("precondition: the region label alone must not match an origin country")
+	}
+	countries := tradeRegionCountries("Middle East")
+	if tools.RegionMatches("Middle East", "SAUDI ARABIA") {
+		t.Fatal("precondition changed: RegionMatches must stay the label-only check")
+	}
+	if !tools.RegionMatchesCountries("Middle East", "SAUDI ARABIA", countries) {
+		t.Errorf("expanded matching must accept a Middle East origin, countries = %v", countries)
+	}
+	if tools.RegionMatchesCountries("Middle East", "GERMANY", countries) {
+		t.Errorf("expanded matching must reject a non-Middle-East origin, countries = %v", countries)
+	}
+	if !tools.RegionMatchesCountries("Asia", "INDIA", tradeRegionCountries("Asia")) {
+		t.Error("Asia-scoped runs must match Indian origins")
+	}
+}
+
+// TestAttachTradePartnersScopesMiddleEastSuppliers is the end-to-end pin: a
+// Middle East seller run resolves the region's ports from the DB vocabulary,
+// keeps the region's origin countries and drops the rest — instead of dropping
+// every row because the DB has no "Middle East" location.
+func TestAttachTradePartnersScopesMiddleEastSuppliers(t *testing.T) {
+	mock := &tradeDBMock{
+		options: &models.TradeFilterOptions{ForeignPorts: []string{"JEBEL ALI, AE", "HAMBURG GERMANY", "SHANGHAI CHINA"}},
+		records: []models.TradeRecord{
+			{Supplier: "Gulf Blending LLC", OriginCountry: "UNITED ARAB EMIRATES", TotalValueUSD: 900, Quantity: 90},
+			{Supplier: "Jeddah Lubes Co", OriginCountry: "SAUDI ARABIA", TotalValueUSD: 800, Quantity: 80},
+			{Supplier: "BASF SE", OriginCountry: "GERMANY", TotalValueUSD: 1000, Quantity: 100},
+		},
+	}
+	engine := NewEngine(nil, nil, nil, cache.NewMemoryCache(16), 1, 1, 1, WithTradeDB(mock))
+	agent := NewMarketLandscapeAgent(engine)
+	report := &models.MarketLandscapeReport{}
+	agent.attachTradePartners(context.Background(), models.MarketLandscapeQuery{
+		Activity: "lubricant blending", Regions: []string{"Middle East"}, IncludeTradeRecords: true,
+	}, report, make(chan models.AgentEvent, 32))
+	names := make(map[string]bool, len(report.TradeSuppliers))
+	for _, supplier := range report.TradeSuppliers {
+		names[supplier.Name] = true
+	}
+	if !names["Gulf Blending LLC"] || !names["Jeddah Lubes Co"] {
+		t.Errorf("trade suppliers = %v, want both Middle East origins", report.TradeSuppliers)
+	}
+	if names["BASF SE"] {
+		t.Errorf("trade suppliers = %v, a German origin leaked into a Middle East run", report.TradeSuppliers)
+	}
+	mock.mu.Lock()
+	query := mock.lastQuery
+	mock.mu.Unlock()
+	ports := strings.Join(query.ForeignPorts, "|")
+	if !strings.Contains(ports, "JEBEL ALI") {
+		t.Errorf("port filter = %q, want the region's port resolved from its member countries", ports)
+	}
+	if strings.Contains(ports, "GERMANY") || strings.Contains(ports, "CHINA") {
+		t.Errorf("port filter = %q, want only Middle East ports", ports)
+	}
+}
+
+
 // non-India region scopes the origin filter; India runs and multi-region runs
 // do not get a supplier scope.
 func TestTradeSellerRegionScoping(t *testing.T) {

@@ -377,16 +377,20 @@ func tradeStatusError(status int, bodyText string) error {
 // are deliberately not matched in v1: until the live port vocabulary is
 // harvested, an ISO map would be guessing.
 var tradeRegionAliases = map[string][]string{
-	"uae": {"united", "arab", "emirates"},
-	"uk":  {"united", "kingdom"},
-	"usa": {"united", "states"},
-	"us":  {"united", "states"},
+	"uae":     {"united", "arab", "emirates"},
+	"uk":      {"united", "kingdom"},
+	"usa":     {"united", "states"},
+	"us":      {"united", "states"},
+	"ksa":     {"saudi", "arabia"},
+	"turkiye": {"turkey"},
 }
 
 var tradeRegionShorthands = map[string][]string{
 	"united arab emirates": {"uae"},
 	"united kingdom":       {"uk"},
 	"united states":        {"usa", "us"},
+	"saudi arabia":         {"ksa"},
+	"turkey":               {"turkiye"},
 }
 
 // ResolveForeignPorts maps one origin region onto the DB's foreign-port
@@ -396,14 +400,31 @@ var tradeRegionShorthands = map[string][]string{
 // region's ports (or no vocabulary was loaded), and the caller should query
 // without a port filter and scope records client-side by origin_country.
 func ResolveForeignPorts(foreignPorts []string, region string) []string {
-	regionTokens := tradeRegionTokens(region)
-	if len(regionTokens) == 0 {
+	return resolveForeignPortsByTokens(foreignPorts, tradeRegionTokens(region))
+}
+
+// ResolveForeignPortsForCountries maps a region plus its member countries onto
+// the DB's foreign-port vocabulary. A region name is not a location in this DB:
+// "Middle East" matches no port, while its member countries do ("JEBEL ALI, AE",
+// "SAUDI ARABIA"). The caller expands the region from the operating geography
+// vocabulary, so a region-scoped query sends the ports of the region's
+// countries rather than the region's own label.
+func ResolveForeignPortsForCountries(foreignPorts []string, region string, countries []string) []string {
+	tokens := tradeRegionTokens(region)
+	for _, country := range countries {
+		tokens = append(tokens, tradeRegionTokens(country)...)
+	}
+	return resolveForeignPortsByTokens(foreignPorts, tokens)
+}
+
+func resolveForeignPortsByTokens(foreignPorts []string, tokens []string) []string {
+	if len(tokens) == 0 {
 		return nil
 	}
 	matched := make([]string, 0, len(foreignPorts))
 	for _, port := range foreignPorts {
 		portTokens := tradeNameTokens(port)
-		if len(tradeSharedTokens(portTokens, regionTokens)) > 0 {
+		if len(tradeSharedTokens(portTokens, tokens)) > 0 {
 			matched = append(matched, port)
 		}
 	}
@@ -464,6 +485,23 @@ func RegionMatches(region, country string) bool {
 		return false
 	}
 	return len(tradeSharedTokens(tradeNameTokens(country), tradeRegionTokens(region))) > 0
+}
+
+// RegionMatchesCountries reports whether an origin country belongs to the
+// requested region: by the region's own tokens, or by membership in the region's
+// expanded country list. The expansion is what makes "Middle East" work at all —
+// the region name shares no token with "SAUDI ARABIA", but the member country
+// does. Without it every record of a region-scoped run is filtered out.
+func RegionMatchesCountries(region, country string, countries []string) bool {
+	if RegionMatches(region, country) {
+		return true
+	}
+	for _, member := range countries {
+		if RegionMatches(member, country) {
+			return true
+		}
+	}
+	return false
 }
 
 // tradeSharedTokens returns the tokens two token sets share.
