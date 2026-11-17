@@ -26,3 +26,4 @@ __pycache__/
 # Local scratch helpers (throwaway tooling, never part of the service)
 tmp_*/eval/
 artifacts/cache-test-*.html
+artifacts/wall-test-*.html
