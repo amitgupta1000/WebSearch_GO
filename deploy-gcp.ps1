@@ -7,7 +7,12 @@ param(
     [string]$Tag = "latest"
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
+
+# Failure semantics come from the explicit LASTEXITCODE checks below, not from
+# the preference: under a captured-output host, PowerShell 5.1 turns every
+# gcloud stderr progress line into a NativeCommandError record, and a Stop
+# preference would kill the script on the first progress line.
 
 if ([string]::IsNullOrWhiteSpace($Tag)) {
     $Tag = Get-Date -Format "yyyyMMdd-HHmmss"
