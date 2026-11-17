@@ -130,6 +130,18 @@ func newPlaywrightRenderer(timeout time.Duration) (browserRenderer, error) {
 // pass a proxy — the general scraper's browser serves every host and stays
 // direct.
 func newPlaywrightRendererWithProxy(timeout time.Duration, proxyServer string) (browserRenderer, error) {
+	return newPlaywrightRendererWithOptions(timeout, proxyServer, false)
+}
+
+// newPlaywrightRendererDirect launches the browser with egress forced direct:
+// Chromium on Linux inherits HTTPS_PROXY from the environment when no explicit
+// proxy is configured, which would silently route a "direct" renderer through
+// the deployment's shared residential proxy — --no-proxy-server pins it off.
+func newPlaywrightRendererDirect(timeout time.Duration) (browserRenderer, error) {
+	return newPlaywrightRendererWithOptions(timeout, "", true)
+}
+
+func newPlaywrightRendererWithOptions(timeout time.Duration, proxyServer string, forceDirect bool) (browserRenderer, error) {
 	pw, err := playwright.Run()
 	if err != nil {
 		return nil, fmt.Errorf("start Playwright: %w", err)
@@ -145,8 +157,23 @@ func newPlaywrightRendererWithProxy(timeout time.Duration, proxyServer string) (
 		Channel: playwright.String("chromium"),
 		Args:    []string{"--disable-dev-shm-usage"},
 	}
+	if forceDirect {
+		launchOptions.Args = append(launchOptions.Args, "--no-proxy-server")
+	}
 	if proxyServer != "" {
-		launchOptions.Proxy = &playwright.Proxy{Server: proxyServer}
+		// Chromium's --proxy-server ignores URL userinfo: inline credentials
+		// reach the flag verbatim, every CONNECT answers 407 with no auth, and
+		// navigation fails with ERR_INVALID_AUTH_CREDENTIALS. Lift the
+		// credentials into Playwright's dedicated fields, whose auth handler
+		// answers the 407 properly (live-verified against the residential
+		// gateway: same credentials curl and Go accept).
+		proxy := &playwright.Proxy{Server: proxyServer}
+		if server, user, pass, ok := splitProxyCredentials(proxyServer); ok {
+			proxy.Server = server
+			proxy.Username = playwright.String(user)
+			proxy.Password = playwright.String(pass)
+		}
+		launchOptions.Proxy = proxy
 	}
 	browser, err := pw.Chromium.Launch(launchOptions)
 	if err != nil {
@@ -154,6 +181,21 @@ func newPlaywrightRendererWithProxy(timeout time.Duration, proxyServer string) (
 		return nil, fmt.Errorf("launch Chromium: %w", err)
 	}
 	return &playwrightRenderer{playwright: pw, browser: browser, timeout: timeout}, nil
+}
+
+// splitProxyCredentials splits "http://user:pass@host:port" into the bare
+// server URL and its credentials, so Chromium's --proxy-server flag (which
+// ignores userinfo) and Playwright's auth fields each get what they need.
+func splitProxyCredentials(proxyServer string) (server, user, pass string, ok bool) {
+	parsed, err := url.Parse(proxyServer)
+	if err != nil || parsed.User == nil {
+		return proxyServer, "", "", false
+	}
+	password, hasPassword := parsed.User.Password()
+	if !hasPassword {
+		return proxyServer, "", "", false
+	}
+	return parsed.Scheme + "://" + parsed.Host, parsed.User.Username(), password, true
 }
 
 // sharedContext returns the reused browser context, creating it on first use.

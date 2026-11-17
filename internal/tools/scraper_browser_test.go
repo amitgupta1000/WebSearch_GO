@@ -63,3 +63,28 @@ func TestRemainingMillisHandlesDeadlines(t *testing.T) {
 		t.Errorf("capped wait %vms exceeds the available budget %vms", got, max)
 	}
 }
+
+// TestSplitProxyCredentials pins the credential lift: the deployment's
+// residential proxy URL carries user:pass inline (WEEDOO_PROXY_URL's format),
+// and Chromium's --proxy-server ignores userinfo, so the split is what lets
+// Playwright's auth handler answer the gateway's 407.
+func TestSplitProxyCredentials(t *testing.T) {
+	server, user, pass, ok := splitProxyCredentials("http://resi-user:p4ssw0rd@resi-ipv4-6.gw.tprx.io:8080")
+	if !ok {
+		t.Fatal("a proxy URL with inline credentials must split")
+	}
+	if server != "http://resi-ipv4-6.gw.tprx.io:8080" {
+		t.Fatalf("server = %q, want the bare gateway URL", server)
+	}
+	if user != "resi-user" || pass != "p4ssw0rd" {
+		t.Fatalf("credentials = %q/%q, want the URL's userinfo", user, pass)
+	}
+
+	if _, _, _, ok := splitProxyCredentials("http://gateway.example:8080"); ok {
+		t.Fatal("a proxy URL without credentials must not split")
+	}
+	bare, _, _, _ := splitProxyCredentials("http://gateway.example:8080")
+	if bare != "http://gateway.example:8080" {
+		t.Fatalf("a credential-free URL must pass through unchanged, got %q", bare)
+	}
+}

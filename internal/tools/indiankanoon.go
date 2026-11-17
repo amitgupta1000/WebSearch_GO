@@ -185,10 +185,11 @@ func (c *IndianKanoonClient) startProxiedRenderer() error {
 }
 
 // startDirectRenderer starts the direct-egress fallback browser: the same real
-// Chromium without the proxy hop, for providers whose gateway refuses this
-// destination (live: ERR_INVALID_AUTH_CREDENTIALS from the residential gateway).
+// Chromium with proxy support pinned OFF (Chromium on Linux would otherwise
+// inherit the deployment's HTTPS_PROXY), for use when the proxied render is
+// unavailable.
 func (c *IndianKanoonClient) startDirectRenderer() error {
-	renderer, err := newPlaywrightRendererWithProxy(indianKanoonRenderTimeout, "")
+	renderer, err := newPlaywrightRendererDirect(indianKanoonRenderTimeout)
 	if err != nil {
 		return fmt.Errorf("start indiankanoon direct render browser: %w", err)
 	}
