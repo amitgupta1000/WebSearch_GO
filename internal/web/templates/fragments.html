@@ -2,13 +2,13 @@
 {{define "trade_product_matches"}}
 {{if .Note}}<p class="text-[11px] text-amber-300">{{.Note}}</p>{{end}}
 {{if .Matches}}
-<p class="text-[11px] text-slate-400">Canonical trade DB names for <span class="text-slate-200">{{.Query}}</span> — pick the closest, or leave on auto-resolve:</p>
+<p class="text-[11px] text-slate-400">Suggested canonical names for <span class="text-slate-200">{{.Query}}</span> - click one to fill the field:</p>
 <div class="flex flex-wrap gap-1.5 mt-1">
-	{{range .Matches}}<label class="cursor-pointer"><input type="radio" name="trade_product" value="{{.Name}}" class="sr-only peer"><span class="inline-block rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-300 peer-checked:border-emerald-500 peer-checked:text-emerald-300">{{.Name}}{{if .Exact}} <span class="text-emerald-400 font-semibold">exact</span>{{end}} <span class="text-slate-500">{{.Score}}</span></span></label>{{end}}
-	<label class="cursor-pointer"><input type="radio" name="trade_product" value="" checked class="sr-only peer"><span class="inline-block rounded-full border border-slate-800 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-500 peer-checked:border-slate-500 peer-checked:text-slate-300">auto-resolve</span></label>
+  {{range .Matches}}<button type="button" title="{{.Rationale}}" class="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-300 hover:border-emerald-600 hover:text-emerald-300" onclick="var b=this.closest('div[id$=result]');if(b&&b.parentElement){var i=b.parentElement.querySelector('[name=trade_product]');if(i){i.value='{{.Name}}';}}">{{.Name}}{{if .Grade}} <span class="text-slate-500 italic">{{.Grade}}</span>{{end}}</button>{{end}}
 </div>
 {{end}}
 {{end}}
+{{define "trade_product_vocabulary"}}<datalist id="trade-product-vocabulary">{{range .Names}}<option value="{{.}}">{{end}}</datalist>{{end}}
 
 
 {{define "log_entry"}}

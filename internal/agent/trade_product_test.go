@@ -56,8 +56,8 @@ func TestTradeProductMatchesRanksTheButanolFamily(t *testing.T) {
 		t.Error("n-butanol must not claim an exact match against N BUTANOL (NBA)")
 	}
 	for _, match := range matches {
-		if match.Name == "ISOBUTANOL" {
-			t.Error("ISOBUTANOL must not match n-butanol: its compound token does not split")
+		if match.Name == "ISOBUTANOL" && (match.Exact || match.Grade != TradeProductGradeLoose || match.Score >= 80) {
+			t.Errorf("ISOBUTANOL may appear only as a loose near-spelling suggestion, got %+v", match)
 		}
 	}
 	for i := 1; i < len(matches); i++ {

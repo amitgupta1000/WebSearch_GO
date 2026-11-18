@@ -421,6 +421,9 @@ func main() {
 	// operator before a run spends anything, so a typed "n-butanol" can
 	// become the DB's "N BUTANOL (NBA)" by human choice, not by guessing.
 	mux.HandleFunc("POST /api/trade/product-match", srv.handleTradeProductMatch)
+	// The full canonical vocabulary as a datalist: the picker's by-hand
+	// fallback when the semantic suggestions miss.
+	mux.HandleFunc("GET /api/trade/product-vocabulary", srv.handleTradeProductVocabulary)
 	// The on-demand customs profile: the button next to a company name
 	// renders its aggregated trade-DB profile in place — no run, no search
 	// spend, served from the shared per-name cache.

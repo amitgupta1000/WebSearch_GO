@@ -56,7 +56,33 @@ type TradeProductMatch struct {
 	// Exact reports a normalized exact match — the run would pick this name
 	// on its own.
 	Exact bool `json:"exact,omitempty"`
+	// Grade labels the suggestion for the picker: exact (the normalized name
+	// is the canonical one), strong (a joined-word or substring match),
+	// related (shared words) or loose (character similarity). A loose entry
+	// exists for the operator to judge — it is never picked automatically.
+	Grade string `json:"grade,omitempty"`
+	// Rationale is the model's one-line reason for a semantic suggestion.
+	Rationale string `json:"rationale,omitempty"`
 }
+
+const (
+	// TradeProductGradeExact marks a normalized exact match.
+	TradeProductGradeExact = "exact"
+	// TradeProductGradeStrong marks a joined-word or substring match.
+	TradeProductGradeStrong = "strong"
+	// TradeProductGradeRelated marks a shared-word match.
+	TradeProductGradeRelated = "related"
+	// TradeProductGradeLoose marks a character-similarity suggestion.
+	TradeProductGradeLoose = "loose"
+	// TradeProductGradeSemantic marks a suggestion the model ranked as the
+	// semantically closest candidate.
+	TradeProductGradeSemantic = "semantic"
+
+	// tradeProductLooseThreshold is the character-trigram similarity at which
+	// a name is still worth offering as a loose suggestion. It exists so the
+	// picker is never empty for a near spelling; the operator decides.
+	tradeProductLooseThreshold = 0.30
+)
 
 // normalizeTradeProductName folds the punctuation differences that the trade
 // DB's token match is blind to: hyphens and underscores become spaces, case
@@ -72,10 +98,50 @@ func tradeProductTokens(value string) []string {
 	return strings.Fields(normalizeTradeProductName(value))
 }
 
+// tradeProductSimilarity is the Jaccard overlap of character trigrams over
+// two compact forms — a deterministic near-spelling signal that fills the
+// picker with loose suggestions when no word-level signal exists. It never
+// auto-picks; it only offers names for the operator to judge.
+func tradeProductSimilarity(a, b string) float64 {
+	if len(a) < 3 || len(b) < 3 {
+		return 0
+	}
+	grams := func(value string) map[string]bool {
+		set := make(map[string]bool, len(value))
+		for i := 0; i+3 <= len(value); i++ {
+			set[value[i:i+3]] = true
+		}
+		return set
+	}
+	left, right := grams(a), grams(b)
+	if len(left) == 0 || len(right) == 0 {
+		return 0
+	}
+	shared := 0
+	for gram := range left {
+		if right[gram] {
+			shared++
+		}
+	}
+	union := len(left) + len(right) - shared
+	if union == 0 {
+		return 0
+	}
+	return float64(shared) / float64(union)
+}
+
 // TradeProductMatches ranks the canonical vocabulary against the operator's
 // activity. Deterministic: same inputs, same ranking — the console picker and
 // the run's own resolution see the same list.
 func TradeProductMatches(activity string, vocabulary []string) []TradeProductMatch {
+	return rankTradeProductNames(activity, vocabulary, tradeProductMatchLimit)
+}
+
+// rankTradeProductNames is the shared deterministic string ranking. The
+// picker's semantic prefilter (a wide limit) and the run's own resolution (the
+// display limit) read the same order, so the suggestions the operator sees
+// are seeded from the ranking the run would use.
+func rankTradeProductNames(activity string, vocabulary []string, limit int) []TradeProductMatch {
 	activityNorm := normalizeTradeProductName(activity)
 	if activityNorm == "" {
 		return nil
@@ -96,17 +162,17 @@ func TradeProductMatches(activity string, vocabulary []string) []TradeProductMat
 		compactActivity := strings.ReplaceAll(activityNorm, " ", "")
 		switch {
 		case nameNorm == activityNorm, compactName == compactActivity:
-			match.Score, match.Exact = 100, true
+			match.Score, match.Exact, match.Grade = 100, true, TradeProductGradeExact
 		case strings.Contains(compactName, compactActivity) && len(compactActivity) >= 4:
 			// A joined-word fragment of the canonical name ("nbutanol"
 			// inside "nbutanolnba"): a real candidate the operator should
 			// confirm.
-			match.Score = 80
+			match.Score, match.Grade = 80, TradeProductGradeStrong
 		case strings.Contains(nameNorm, activityNorm) && len(activityNorm) >= 3:
 			// The activity is a prefix/substring of the canonical name
 			// ("caustic" inside "CAUSTIC SODA (PEARL)"): a real candidate,
 			// but the operator should confirm which variant they mean.
-			match.Score = 80
+			match.Score, match.Grade = 80, TradeProductGradeStrong
 		default:
 			nameTokens := tradeProductTokens(name)
 			shared := 0
@@ -119,7 +185,17 @@ func TradeProductMatches(activity string, vocabulary []string) []TradeProductMat
 				}
 			}
 			if shared == 0 {
-				continue
+				// No word signals at all: fall back to character-trigram
+				// similarity, so the picker still offers near spellings
+				// ("styren" -> STYRENE MONOMER, "polysteren" -> POLYSTYRENE)
+				// as loose suggestions instead of an empty list. Loose
+				// entries are never auto-picked.
+				ratio := tradeProductSimilarity(compactActivity, compactName)
+				if ratio < tradeProductLooseThreshold {
+					continue
+				}
+				match.Score, match.Grade = 20+int(19*ratio), TradeProductGradeLoose
+				break
 			}
 			// Shared tokens over the smaller token count: "n butanol" shares
 			// both tokens with "N BUTANOL (NBA)" (2/2) but only one with
@@ -133,6 +209,7 @@ func TradeProductMatches(activity string, vocabulary []string) []TradeProductMat
 			if match.Score > 59 {
 				match.Score = 59
 			}
+			match.Grade = TradeProductGradeRelated
 		}
 		matches = append(matches, match)
 	}
@@ -142,8 +219,8 @@ func TradeProductMatches(activity string, vocabulary []string) []TradeProductMat
 		}
 		return matches[i].Name < matches[j].Name
 	})
-	if len(matches) > tradeProductMatchLimit {
-		matches = matches[:tradeProductMatchLimit]
+	if limit > 0 && len(matches) > limit {
+		matches = matches[:limit]
 	}
 	return matches
 }
