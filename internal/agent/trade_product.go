@@ -89,9 +89,19 @@ func TradeProductMatches(activity string, vocabulary []string) []TradeProductMat
 			continue
 		}
 		match := TradeProductMatch{Name: name}
+		// The compact form joins words back together: operators type
+		// "styrenemonomer" and "nbutanol" as readily as they type spaces,
+		// and the vocabulary stores "STYRENE MONOMER" / "N BUTANOL (NBA)".
+		compactName := strings.ReplaceAll(nameNorm, " ", "")
+		compactActivity := strings.ReplaceAll(activityNorm, " ", "")
 		switch {
-		case nameNorm == activityNorm:
+		case nameNorm == activityNorm, compactName == compactActivity:
 			match.Score, match.Exact = 100, true
+		case strings.Contains(compactName, compactActivity) && len(compactActivity) >= 4:
+			// A joined-word fragment of the canonical name ("nbutanol"
+			// inside "nbutanolnba"): a real candidate the operator should
+			// confirm.
+			match.Score = 80
 		case strings.Contains(nameNorm, activityNorm) && len(activityNorm) >= 3:
 			// The activity is a prefix/substring of the canonical name
 			// ("caustic" inside "CAUSTIC SODA (PEARL)"): a real candidate,

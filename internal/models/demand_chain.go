@@ -92,6 +92,76 @@ type ValueChainReview struct {
 	Reason              string                     `json:"reason,omitempty"`
 }
 
+// UnmarshalJSON accepts the shapes the model actually returns for the chain
+// review: missing_stages arrives as an array, a bare string, or an empty
+// string (a live run lost its whole adversarial review to `missing_stages:
+// ""`), and rejected_stages as objects or bare names. The tolerance mirrors
+// DemandChainReview.UnmarshalJSON: one ill-shaped field is repaired or
+// skipped, never fatal to the review.
+func (review *ValueChainReview) UnmarshalJSON(data []byte) error {
+	type reviewAlias ValueChainReview
+	aux := struct {
+		RejectedStages []json.RawMessage `json:"rejected_stages"`
+		MissingStages  json.RawMessage   `json:"missing_stages"`
+		*reviewAlias
+	}{reviewAlias: (*reviewAlias)(review)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	review.RejectedStages = nil
+	for _, raw := range aux.RejectedStages {
+		var rejection DemandStageRejection
+		if err := json.Unmarshal(raw, &rejection); err == nil && strings.TrimSpace(rejection.Name) != "" {
+			review.RejectedStages = append(review.RejectedStages, rejection)
+			continue
+		}
+		var name string
+		if err := json.Unmarshal(raw, &name); err == nil && strings.TrimSpace(name) != "" {
+			review.RejectedStages = append(review.RejectedStages, DemandStageRejection{Name: name})
+		}
+	}
+	review.MissingStages = decodeStageNames(aux.MissingStages)
+	return nil
+}
+
+// decodeStageNames accepts the shapes a "missing stages" answer takes: an
+// array of strings or {"name": ...} objects (mixed included), a bare string
+// (including "" which means none), or null.
+func decodeStageNames(raw json.RawMessage) []string {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(trimmed, &entries); err == nil {
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			var name string
+			if err := json.Unmarshal(entry, &name); err == nil {
+				if strings.TrimSpace(name) != "" {
+					names = append(names, name)
+				}
+				continue
+			}
+			var object struct {
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(entry, &object); err == nil && strings.TrimSpace(object.Name) != "" {
+				names = append(names, object.Name)
+			}
+		}
+		return names
+	}
+	var single string
+	if err := json.Unmarshal(trimmed, &single); err == nil {
+		if strings.TrimSpace(single) == "" {
+			return nil
+		}
+		return []string{single}
+	}
+	return nil
+}
+
 // DemandChainInference is the first-pass value-chain result. Category is deliberately separate
 // from the stages because it is a research dimension, not a buyer and not a stage.
 type DemandChainInference struct {
