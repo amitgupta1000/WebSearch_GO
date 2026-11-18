@@ -93,7 +93,6 @@ type TradeBackground struct {
 	// TopProducts is the entity's own product ranking — what it actually
 	// trades, by shipment count and value, canonical names throughout.
 	TopProducts []TradeEntityProduct `json:"top_products,omitempty"`
-
 }
 
 // CompanyProfile is the concise business brief synthesized alongside the org chart.
@@ -109,6 +108,102 @@ type CompanyProfile struct {
 	Turnover            string     `json:"turnover,omitempty"`
 	FinancialYear       string     `json:"financial_year,omitempty"`
 	MetricsSource       string     `json:"metrics_source,omitempty"`
+}
+
+// UnmarshalJSON accepts the shapes the model actually returns for the brief:
+// employees, turnover and the financial year arrive as strings or numbers (a
+// live Sasol run lost its whole synthesis to `"employees": 46000`),
+// key_products as strings or numbers (a lone string too), and key_locations
+// mixes objects, bare strings and junk entries. Every field is coerced or
+// skipped; one ill-typed value never discards the brief.
+func (profile *CompanyProfile) UnmarshalJSON(data []byte) error {
+	type profileAlias CompanyProfile
+	aux := struct {
+		BusinessDescription json.RawMessage   `json:"business_description"`
+		KeyProducts         json.RawMessage   `json:"key_products"`
+		KeyLocations        []json.RawMessage `json:"key_locations"`
+		Address             json.RawMessage   `json:"address"`
+		PublicEmail         json.RawMessage   `json:"public_email"`
+		Telephone           json.RawMessage   `json:"telephone"`
+		Employees           json.RawMessage   `json:"employees"`
+		Turnover            json.RawMessage   `json:"turnover"`
+		FinancialYear       json.RawMessage   `json:"financial_year"`
+		MetricsSource       json.RawMessage   `json:"metrics_source"`
+		*profileAlias
+	}{profileAlias: (*profileAlias)(profile)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	fields := []struct {
+		raw    json.RawMessage
+		target *string
+	}{
+		{aux.BusinessDescription, &profile.BusinessDescription},
+		{aux.Address, &profile.Address},
+		{aux.PublicEmail, &profile.PublicEmail},
+		{aux.Telephone, &profile.Telephone},
+		{aux.Employees, &profile.Employees},
+		{aux.Turnover, &profile.Turnover},
+		{aux.FinancialYear, &profile.FinancialYear},
+		{aux.MetricsSource, &profile.MetricsSource},
+	}
+	for _, field := range fields {
+		if value := flexibleRawString(field.raw); value != "" || isJSONStringValue(field.raw) {
+			*field.target = value
+		}
+	}
+	profile.KeyProducts = flexibleStringArray(aux.KeyProducts)
+	profile.KeyLocations = nil
+	for _, raw := range aux.KeyLocations {
+		var location Location
+		if err := json.Unmarshal(raw, &location); err == nil && strings.TrimSpace(location.City) != "" {
+			profile.KeyLocations = append(profile.KeyLocations, location)
+		}
+	}
+	return nil
+}
+
+// isJSONStringValue reports whether raw is a JSON string (including ""), so
+// an explicitly empty answer clears the field instead of being skipped.
+func isJSONStringValue(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && trimmed[0] == '"'
+}
+
+// flexibleRawString coerces a raw JSON value to a string; null and absent
+// values yield "".
+func flexibleRawString(raw json.RawMessage) string {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ""
+	}
+	if value, err := flexibleString(trimmed); err == nil {
+		return value
+	}
+	return ""
+}
+
+// flexibleStringArray accepts an array of strings/numbers, or one lone string,
+// and drops entries that cannot be coerced.
+func flexibleStringArray(raw json.RawMessage) []string {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(trimmed, &entries); err == nil {
+		values := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			if value, err := flexibleString(entry); err == nil && strings.TrimSpace(value) != "" {
+				values = append(values, value)
+			}
+		}
+		return values
+	}
+	if value, err := flexibleString(trimmed); err == nil && strings.TrimSpace(value) != "" {
+		return []string{value}
+	}
+	return nil
 }
 
 // CompanyResearchRow is the flat, exportable person record shown by the full
