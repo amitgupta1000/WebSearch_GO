@@ -17,6 +17,19 @@ import (
 // memo the dossier and the landscape rows use), so a click on a name the run
 // already enriched pays nothing.
 func (s *Server) handleMarketTradeProfile(w http.ResponseWriter, r *http.Request) {
+	s.respondTradeProfile(w, r, false)
+}
+
+// handleTradeEntityProfile answers an operator's explicit entity pick (the
+// suggestion chips on the dossier card or in an unmatched Fetch Trade Profile
+// result): the chosen stored name is remembered for the researched company and
+// the profile is built for it directly.
+func (s *Server) handleTradeEntityProfile(w http.ResponseWriter, r *http.Request) {
+	s.respondTradeProfile(w, r, true)
+}
+
+// respondTradeProfile is the shared body of the profile endpoints.
+func (s *Server) respondTradeProfile(w http.ResponseWriter, r *http.Request, requireEntity bool) {
 	company := strings.TrimSpace(r.FormValue("company_name"))
 	if company == "" {
 		s.render(w, "market_trade_profile_result", marketTradeProfileView{
@@ -32,9 +45,30 @@ func (s *Server) handleMarketTradeProfile(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
+	entity := strings.TrimSpace(r.FormValue("trade_entity"))
+	if requireEntity && entity == "" {
+		s.render(w, "market_trade_profile_result", marketTradeProfileView{
+			Company: company,
+			Error:   "Choose one of the stored entity names to build its customs profile.",
+		})
+		return
+	}
+	if entity != "" {
+		direction := strings.ToLower(strings.TrimSpace(r.FormValue("trade_direction")))
+		if direction != models.TradeDirectionImporter && direction != models.TradeDirectionSupplier {
+			direction = models.TradeDirectionImporter
+		}
+		// Remember the pick so later lookups (and exports in this process)
+		// resolve the same entity.
+		agent.SetTradeEntityOverride(company, entity, direction)
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), agent.TradeProfileTimeout)
 	defer cancel()
-	background, summary := agent.BuildTradeProfile(ctx, client, company)
+	var llm agent.LLMClient
+	if s.engine != nil {
+		llm = s.engine
+	}
+	background, summary := agent.BuildTradeProfile(ctx, client, llm, company)
 	if background == nil {
 		s.render(w, "market_trade_profile_result", marketTradeProfileView{
 			Company: company,

@@ -428,6 +428,7 @@ func main() {
 	// renders its aggregated trade-DB profile in place — no run, no search
 	// spend, served from the shared per-name cache.
 	mux.HandleFunc("POST /api/market-landscape/trade-profile", srv.handleMarketTradeProfile)
+	mux.HandleFunc("POST /api/trade/entity-profile", srv.handleTradeEntityProfile)
 	// The knowledge graph, on demand: a page to look at and JSON to build on.
 	mux.HandleFunc("GET /ontology", srv.handleOntologyGraphPage)
 	mux.HandleFunc("GET /api/ontology/graph", srv.handleOntologyGraphJSON)

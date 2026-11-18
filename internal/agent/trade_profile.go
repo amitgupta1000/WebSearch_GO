@@ -98,42 +98,86 @@ func (c *tradeProfileCache) put(key string, entry tradeProfileEntry) {
 	c.entries[key] = entry
 }
 
-// tradeLegalSuffixes are dropped when reducing a company name to its
-// comparable core, so the dossier's confirmed spelling ("KLJ Resources
-// Limited") and the customs spelling ("KLJ RESOURCES LTD") resolve to the
-// same entity.
+// tradeLegalSuffixes are the trailing legal forms dropped when reducing a
+// company name to its comparable core. The set spans the forms the customs
+// data actually carries -- Indian and Anglophone (limited, pvt, pte, bhd,
+// pty), continental European (gmbh, ag, se, sa, srl, spa, bv, nv, kgaa) and
+// the common abbreviations -- because the supplier side of the DB is foreign
+// exporters, where "GmbH" and "B.V." are exactly as common as "Ltd".
 var tradeLegalSuffixes = map[string]bool{
 	"limited": true, "ltd": true, "ltd.": true, "private": true, "pvt": true,
-	"inc": true, "llc": true, "plc": true, "incorporated": true,
-	"corp": true, "corporation": true, "co": true, "company": true,
+	"inc": true, "llc": true, "llp": true, "lp": true, "plc": true,
+	"incorporated": true, "corp": true, "corporation": true, "co": true,
+	"company": true, "pty": true, "pte": true, "bhd": true, "sdn": true,
+	"gmbh": true, "ag": true, "se": true, "sa": true, "sas": true, "sarl": true,
+	"srl": true, "spa": true, "bv": true, "nv": true, "kg": true, "kgaa": true,
+	"kk": true, "oy": true, "ab": true, "as": true, "asa": true, "ltda": true,
+	"kft": true, "sp": true, "zoo": true, "doo": true, "jsc": true,
+	"pjsc": true, "ojsc": true, "sro": true,
 }
 
-// tradeNameCore lowercases a name and drops its trailing legal suffixes.
+// normalizeTradeEntityName folds the punctuation and symbol differences the
+// customs spellings carry: case, "&" versus "and", dots, commas, dashes,
+// slashes and brackets all become space, and runs of space collapse. The
+// comparison tiers build on this form.
+func normalizeTradeEntityName(value string) string {
+	replacer := strings.NewReplacer(
+		"&", " and ", ".", " ", ",", " ", "-", " ", "/", " ",
+		"(", " ", ")", " ", "[", " ", "]", " ", "{", " ", "}", " ",
+		"'", "", "\"", "", "#", " ",
+	)
+	fields := strings.Fields(replacer.Replace(strings.ToLower(strings.TrimSpace(value))))
+	return strings.Join(fields, " ")
+}
+
+// tradeNameCore normalizes a name and drops its trailing legal-form tokens
+// (parenthetical forms included: "... (PTY) LTD." normalizes to
+// "... pty ltd" and both tokens go). Dotted abbreviations split by
+// normalization ("N.V." becomes "n v", "A/S" becomes "a s") are dropped as a
+// single-letter pair. At least one token always survives.
 func tradeNameCore(value string) string {
-	tokens := strings.Fields(strings.ToLower(strings.TrimSpace(value)))
-	for len(tokens) > 1 && tradeLegalSuffixes[tokens[len(tokens)-1]] {
+	tokens := strings.Fields(normalizeTradeEntityName(value))
+	for len(tokens) > 2 {
+		last, previous := tokens[len(tokens)-1], tokens[len(tokens)-2]
+		if len(last) == 1 && len(previous) == 1 {
+			tokens = tokens[:len(tokens)-2]
+			continue
+		}
+		if !tradeLegalSuffixes[last] && last != "and" {
+			break
+		}
+		tokens = tokens[:len(tokens)-1]
+	}
+	for len(tokens) > 1 {
+		last := tokens[len(tokens)-1]
+		if !tradeLegalSuffixes[last] && last != "and" {
+			break
+		}
 		tokens = tokens[:len(tokens)-1]
 	}
 	return strings.Join(tokens, " ")
 }
 
 // tradeNameMatches reports whether two company spellings name the same
-// customs entity: case-insensitive equality, or equality after the legal
-// suffixes are dropped.
+// customs entity: equal after normalization, or equal after the legal forms
+// are dropped.
 func tradeNameMatches(a, b string) bool {
-	if strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b)) {
+	if normalizeTradeEntityName(a) == normalizeTradeEntityName(b) {
 		return true
 	}
-	return tradeNameCore(a) == tradeNameCore(b) && tradeNameCore(a) != ""
+	coreA, coreB := tradeNameCore(a), tradeNameCore(b)
+	return coreA != "" && coreA == coreB
 }
 
 // BuildTradeProfile resolves companyName onto the DB's entity vocabulary and
-// aggregates what customs knows: presence on each side of the transaction,
-// the profiled rank and shipment/value totals, and the entity's own product
-// mix. It never fails the caller — every miss or transport error becomes a
-// Note on the returned background, and a nil client or empty name returns nil.
-// The summary is the operator-facing log line.
-func BuildTradeProfile(ctx context.Context, client TradeDBSource, companyName string) (*models.TradeBackground, string) {
+// aggregates what customs knows: presence on the matched side of the
+// transaction, the profiled rank and shipment/value totals, and the entity's
+// own product mix. The operator's saved pick wins; otherwise the shared
+// resolver (trade_entity_resolve.go) auto-resolves only a confident match and
+// returns ranked, semantically re-ranked suggestions on a miss. It never fails
+// the caller — every miss or transport error becomes a Note, and a nil client
+// or empty name returns nil. The summary is the operator-facing log line.
+func BuildTradeProfile(ctx context.Context, client TradeDBSource, llm LLMClient, companyName string) (*models.TradeBackground, string) {
 	name := strings.TrimSpace(companyName)
 	if name == "" || client == nil {
 		return nil, ""
@@ -143,95 +187,88 @@ func BuildTradeProfile(ctx context.Context, client TradeDBSource, companyName st
 		return entry.background, entry.summary
 	}
 
-	background := &models.TradeBackground{CheckedAt: time.Now()}
-	// Step 1 — resolve the DB spelling on both sides of the transaction.
-	matched := map[string]string{}
-	var variants []string
-	seen := map[string]bool{}
-	for _, direction := range []string{models.TradeDirectionImporter, models.TradeDirectionSupplier} {
-		// The typeahead matches substrings of the stored name, so the
-		// dossier's own legal suffix ("KLJ Resources Limited" vs the stored
-		// "KLJ RESOURCES LTD") can zero the search; the suffix-stripped core
-		// is the fallback query.
-		queries := []string{name}
-		if core := tradeNameCore(name); core != "" && !strings.EqualFold(core, strings.ToLower(name)) {
-			queries = append(queries, core)
+	// The operator's pick wins outright.
+	if override, ok := lookupTradeEntityOverride(name); ok {
+		background, summary := buildTradeProfileForEntity(ctx, client, name, override.name, override.direction)
+		if background != nil {
+			tradeProfileMemo.put(key, tradeProfileEntry{background: background, summary: summary})
 		}
-		for _, search := range queries {
-			names, err := client.EntityNames(ctx, direction, search, tradeProfileNamesLimit)
-			if err != nil {
-				background.Note = fmt.Sprintf("the trade DB vocabulary check failed: %v", err)
-				continue
+		return background, summary
+	}
+
+	match, candidates, seen := resolveTradeEntity(ctx, client, name)
+	if match.name == "" {
+		// No confident match: the ranked suggestions are the answer, with a
+		// semantic re-rank when a model is available, for the operator to
+		// pick from on the dossier card or the Fetch Trade Profile result.
+		// When nothing scored, the raw typeahead hits still travel as context.
+		ranked := semanticTradeEntityCandidates(ctx, llm, name, candidates)
+		background := &models.TradeBackground{CheckedAt: time.Now(), Candidates: ranked}
+		if len(ranked) > 0 {
+			for _, candidate := range ranked {
+				background.NameVariants = append(background.NameVariants, candidate.Name)
 			}
-			for _, candidate := range names {
-				candidate = strings.TrimSpace(candidate)
-				if candidate == "" || seen[strings.ToLower(candidate)] {
-					continue
-				}
-				seen[strings.ToLower(candidate)] = true
-				variants = append(variants, candidate)
-				if tradeNameMatches(candidate, name) {
-					matched[direction] = candidate
-				}
-			}
-			if _, ok := matched[direction]; ok {
+		} else if len(seen) > tradeEntityCandidateLimit {
+			background.NameVariants = append(background.NameVariants, seen[:tradeEntityCandidateLimit]...)
+		} else {
+			background.NameVariants = append(background.NameVariants, seen...)
+		}
+		summary := tradeProfileSummary(name, "", background)
+		tradeProfileMemo.put(key, tradeProfileEntry{background: background, summary: summary})
+		return background, summary
+	}
+
+	background, summary := buildTradeProfileForEntity(ctx, client, name, match.name, match.direction)
+	if background != nil {
+		tradeProfileMemo.put(key, tradeProfileEntry{background: background, summary: summary})
+	}
+	return background, summary
+}
+
+// buildTradeProfileForEntity aggregates the profile and the product mix for a
+// KNOWN stored entity name and side — the auto-resolved match or the
+// operator's pick. Presence is reported on that side; the other side is not
+// consulted, because the resolver already searched both.
+func buildTradeProfileForEntity(ctx context.Context, client TradeDBSource, requested, entityName, direction string) (*models.TradeBackground, string) {
+	background := &models.TradeBackground{
+		CheckedAt:   time.Now(),
+		Present:     true,
+		MatchedName: entityName,
+		Directions:  []string{direction},
+	}
+	// The aggregate profile row (profiled top set only).
+	if profiles, err := client.EntityProfiles(ctx, direction, entityName, true, tradeProfileNamesLimit); err == nil {
+		for _, profile := range profiles {
+			if tradeNameMatches(profile.Name, entityName) {
+				background.GlobalRank = profile.GlobalRank
+				background.TransactionCount = profile.TransactionCount
+				background.ProductCount = profile.ProductCount
+				background.TotalValueUSD = profile.TotalValueUSD
+				background.TotalQuantityMT = profile.TotalQuantityMT
 				break
 			}
 		}
+	} else {
+		background.Note = fmt.Sprintf("the aggregate profile lookup failed: %v", err)
 	}
-	background.NameVariants = variants
-	background.Present = len(matched) > 0
-	primary := ""
-	for _, direction := range []string{models.TradeDirectionImporter, models.TradeDirectionSupplier} {
-		if _, ok := matched[direction]; ok {
-			background.Directions = append(background.Directions, direction)
-			if primary == "" {
-				primary = direction
+	// The product mix answers for any name the data carries.
+	if breakdown, err := client.EntityProducts(ctx, direction, entityName, tradeProfileProductsLimit); err == nil && breakdown.TotalCount > 0 {
+		background.TopProducts = breakdown.Products
+		if background.TransactionCount == 0 {
+			// Outside the profiled set: the breakdown's own totals stand in
+			// for the aggregate profile, and the product count is the
+			// breakdown's row count.
+			for _, product := range breakdown.Products {
+				background.TransactionCount += product.TransactionCount
+				background.TotalValueUSD += product.TotalValueUSD
+				background.TotalQuantityMT += product.TotalQuantityMT
 			}
+			background.ProductCount = breakdown.TotalCount
 		}
+	} else if err != nil && background.Note == "" {
+		background.Note = fmt.Sprintf("the product breakdown lookup failed: %v", err)
 	}
-	if background.Present {
-		background.MatchedName = matched[primary]
-	}
-
-	// Step 2 — the aggregate profile of the primary matched side.
-	if primary != "" {
-		if profiles, err := client.EntityProfiles(ctx, primary, matched[primary], true, tradeProfileNamesLimit); err == nil {
-			for _, profile := range profiles {
-				if tradeNameMatches(profile.Name, matched[primary]) {
-					background.GlobalRank = profile.GlobalRank
-					background.TransactionCount = profile.TransactionCount
-					background.ProductCount = profile.ProductCount
-					background.TotalValueUSD = profile.TotalValueUSD
-					background.TotalQuantityMT = profile.TotalQuantityMT
-					break
-				}
-			}
-		} else if background.Note == "" {
-			background.Note = fmt.Sprintf("the aggregate profile lookup failed: %v", err)
-		}
-		// Step 3 — the entity's own product mix; this answers for any name
-		// the data carries, profiled or not.
-		if breakdown, err := client.EntityProducts(ctx, primary, matched[primary], tradeProfileProductsLimit); err == nil && breakdown.TotalCount > 0 {
-			background.TopProducts = breakdown.Products
-			if background.TransactionCount == 0 {
-				// Outside the profiled set: the breakdown's own totals stand
-				// in for the aggregate profile, and the product count is the
-				// breakdown's row count.
-				for _, product := range breakdown.Products {
-					background.TransactionCount += product.TransactionCount
-					background.TotalValueUSD += product.TotalValueUSD
-					background.TotalQuantityMT += product.TotalQuantityMT
-				}
-				background.ProductCount = breakdown.TotalCount
-			}
-		} else if err != nil && background.Note == "" {
-			background.Note = fmt.Sprintf("the product breakdown lookup failed: %v", err)
-		}
-	}
-
-	summary := tradeProfileSummary(name, primary, background)
-	tradeProfileMemo.put(key, tradeProfileEntry{background: background, summary: summary})
+	summary := tradeProfileSummary(requested, direction, background)
 	return background, summary
 }
 

@@ -32,8 +32,37 @@ The tools live in `internal/tools` (a Go package). The package splits into **cor
 | File | Purpose |
 |---|---|
 | **rocketreach.go** | Client for the RocketReach API — paid, explicitly-requested contact lookups (email/phone by name+company or LinkedIn URL). Own transport pinned to direct egress (proxying caused mid-response cuts), bounded retries, and rich HTTP-error preservation (quota/plan details) so failures are diagnosable. |
-| **tradedb.go** | Client for the Crystal import-export analytics API — cleaned Indian customs trade records behind a FastAPI/Postgres read layer. Fail-soft by design (trade research downgrades to web-only when unreachable), bounded concurrency, token-matching helpers for region/foreign-port name matching, and the entity-profile family: aggregated per-company profiles (rank within the profiled top set, shipments, value) and per-entity product mixes for any name the data carries. |
+| **tradedb.go** | Client for the Crystal import-export analytics API — cleaned Indian customs trade records behind a FastAPI/Postgres read layer. Fail-soft by design (trade research downgrades to web-only when unreachable), bounded concurrency, token-matching helpers for region/foreign-port name matching, and the entity-profile family: aggregated per-company profiles (rank within the profiled top set, shipments, value) and per-entity product mixes for any name the data carries. Its `/names` typeahead matches *substrings of the stored spelling* and is punctuation-blind, so callers must not treat a raw typeahead hit as an identity — `internal/agent/trade_entity_resolve.go` owns that judgement (see below). |
 | **weedoo.go** | Client for weedoo.in (Indian company registry) driven through a dedicated headless browser, since it's fully client-rendered. Resolves company names → CINs via the search bar's typeahead (proximity-based name/CIN attribution, cached including misses), and fetches rendered company pages for the directors/DIN tables. Routes through the residential proxy when configured. |
+
+### Company-entity resolution (one resolver, every surface)
+
+A researched company name is almost never the DB's stored spelling ("Sasol Chemicals" vs
+`SASOL CHEMICALS (PTY) LTD`, "KLJ Resources Limited" vs `KLJ RESOURCES LTD`), so resolution is a
+first-class step and it is **shared, never per-mode**. `internal/agent/trade_entity_resolve.go`
+owns it; `BuildTradeProfile` composes it with the profile and product-mix lookups, and three
+surfaces consume that one function: the company dossier's Trade DB background, the verified rows
+of both landscape models, and the on-demand Fetch Trade Profile button. Landscape trade
+*sections* (importers/suppliers per product) need no resolution at all — those names come **from**
+the DB.
+
+The contract:
+
+1. **Normalize** — case, `&`↔`and`, dots/commas/dashes/slashes/brackets, then drop trailing legal
+   forms across the forms the data actually carries (`ltd`, `pvt`, `pty`, `pte`, `bhd`, `gmbh`,
+   `ag`, `se`, `sa`, `bv`, `nv`, `srl`, `spa`, `kgaa`, ...; dotted forms split by normalization,
+   `N.V.` -> `n v`, go as a pair).
+2. **Walk a query ladder** — the typed name, its suffix-stripped core, then its first two
+   significant tokens, because the typeahead only matches substrings of the stored spelling.
+3. **Score every hit** — normalized equal (1.0) and core equal (0.98) are the *confident* tiers
+   and resolve automatically; token containment (0.85) and a character-similarity band down to
+   0.45 are suggestions only.
+4. **Suggest, don't guess** — a miss returns ranked candidates (semantic re-rank by one bounded
+   model call, validated against the candidate list, when a model is available; the deterministic
+   order stands otherwise). The operator picks from chips on the dossier card or in an unmatched
+   Fetch Trade Profile result (`POST /api/trade/entity-profile`); the pick is remembered per
+   company for the process, invalidates the cached answer, and skips the typeahead. Headless runs
+   never pick for the operator: a miss stays a miss, with the closest spellings named in the note.
 
 ## How they fit together
 

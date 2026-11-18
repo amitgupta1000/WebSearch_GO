@@ -857,7 +857,8 @@ The scraper is deliberately conservative, and several of these rules surprise pe
 | `POST` | `/api/resolve-entity` / `/api/resolve-person` | Pre-run identity confirmation for company and person modes (top match preselected; confirming anchors the entity gate). |
 | `POST` | `/api/ontology/resolve` | Deterministic research-path preview for an activity: families, category, lanes, stages -- no run, no model call. The knowledge graph is at `GET /ontology` (page) and `GET /api/ontology/graph` (JSON). |
 | `POST` | `/api/trade/product-match` | Ranks the Crystal trade DB canonical product names against a typed activity (the landscape forms match button). |
-| `POST` | `/api/market-landscape/rocketreach` / `company-research` / `trade-profile` | Per-card actions on landscape results: Fetch RR contact lookup, launch the company dossier, fetch the aggregated customs profile (rank, shipments, value, product mix). |
+| `POST` | `/api/trade/entity-profile` | Operator's company-entity pick: `company_name` plus `trade_entity` (a stored spelling offered by the resolver's suggestion chips) and `trade_direction` (`importer`/`supplier`). The pick is remembered for that company in-process and the aggregated customs profile is built for it directly. |
+| `POST` | `/api/market-landscape/rocketreach` / `company-research` / `trade-profile` | Per-card actions on landscape results: Fetch RR contact lookup, launch the company dossier, fetch the aggregated customs profile (rank, shipments, value, product mix; unmatched names return ranked suggestion chips). |
 | `GET` | `/api/company-roster.csv` / `/api/exports` | CSV of a completed company session research roster; artifact download endpoint. |
 | `GET` | `/api/events` | Server-Sent Events (SSE) stream for live step logs & final synthesis. |
 | `GET` | `/healthz` | Liveness probe (`ok`). On Cloud Run the Knative queue-proxy answers this path at the edge before the container sees it. |

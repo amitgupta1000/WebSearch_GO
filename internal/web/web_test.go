@@ -8,6 +8,55 @@ import (
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
 
+// TestTradeEntityPickRendersCandidates keeps the suggestion chips honest: the
+// hidden inputs must carry the researched name, the stored spelling and the
+// side, and the POST must go to the shared entity-profile endpoint. The chips
+// only appear on a miss with candidates -- a present profile renders none.
+func TestTradeEntityPickRendersCandidates(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatalf("Templates(): %v", err)
+	}
+	var out strings.Builder
+	view := map[string]any{
+		"Company": "Sasol Chemicals",
+		"Background": &models.TradeBackground{
+			Present: false,
+			Candidates: []models.TradeEntityCandidate{{
+				Name:      "SASOL CHEMICALS (PTY) LTD",
+				Direction: "supplier",
+				Grade:     "semantic",
+				Score:     0.9,
+				Rationale: "the chemicals arm of the group",
+			}},
+		},
+	}
+	if err := tmpl.ExecuteTemplate(&out, "market_trade_profile_result", view); err != nil {
+		t.Fatalf("execute market_trade_profile_result: %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`hx-post="/api/trade/entity-profile"`,
+		`name="trade_entity" value="SASOL CHEMICALS (PTY) LTD"`,
+		`name="company_name" value="Sasol Chemicals"`,
+		`name="trade_direction" value="supplier"`,
+		"the chemicals arm of the group",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("rendered fragment misses %q", want)
+		}
+	}
+
+	present := strings.Builder{}
+	view["Background"] = &models.TradeBackground{Present: true, MatchedName: "SASOL CHEMICALS (PTY) LTD"}
+	if err := tmpl.ExecuteTemplate(&present, "market_trade_profile_result", view); err != nil {
+		t.Fatalf("execute present profile: %v", err)
+	}
+	if strings.Contains(present.String(), "/api/trade/entity-profile") {
+		t.Error("a present profile must not offer the picker")
+	}
+}
+
 func TestTemplatesParseAndLookup(t *testing.T) {
 	tmpl, err := Templates()
 	if err != nil {

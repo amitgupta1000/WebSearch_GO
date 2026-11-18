@@ -30,11 +30,19 @@ Live investigation first (deployed API + its OpenAPI spec), then four work strea
   `EntityProfiles`/`EntityProducts`): the DB entity endpoints answer aggregated profiles
   (global rank within the profiled top 500 importers / top 100 suppliers, shipments, product
   count, value, MT) and per-entity product mixes for ANY name in the data (~55-70 ms warm).
-  `BuildTradeProfile` composes typeahead resolution (legal-suffix tolerant: "...Limited" finds
-  "...LTD") -> profile -> product mix, cached per name (1 h). Three surfaces: the company
+  `BuildTradeProfile` composes the shared resolver (`trade_entity_resolve.go`: punctuation/`&`
+  folding, legal forms incl. `(PTY) LTD`, `GmbH`, `AG`, `B.V.`, `Sdn Bhd`, a progressive
+  typeahead ladder, scored candidates) -> profile -> product mix, cached per name (1 h).
+  Confident tiers (normalized/core equal) resolve automatically; weaker candidates are ranked,
+  semantically re-ranked on a miss, and offered as operator chips ("Pick the stored customs
+  entity") on the dossier card and in an unmatched Fetch Trade Profile result
+  (`POST /api/trade/entity-profile`). The pick is remembered per company for the process,
+  invalidates the cached answer, and skips the typeahead. Three surfaces: the company
   dossier Trade DB background (console + PDF + Markdown), verified landscape rows (bounded by
   `TRADE_DB_MAX_PARTNERS`, one summary event), and the on-demand **Fetch Trade Profile** button
   next to every company name (`POST /api/market-landscape/trade-profile`, the Fetch-RR pattern).
+  Resolution is shared, never per-mode: the landscape trade sections take their names FROM the
+  DB, so only company rows are ever resolved.
 - **Export redesign** (`internal/export`): the cover leads with a full-width hero photograph,
   the query prints in large capitals, a measured "How this report was produced" step list
   follows, and page 2 opens with a findings summary; company exports carry the customs profile

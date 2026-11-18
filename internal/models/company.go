@@ -93,6 +93,11 @@ type TradeBackground struct {
 	// TopProducts is the entity's own product ranking — what it actually
 	// trades, by shipment count and value, canonical names throughout.
 	TopProducts []TradeEntityProduct `json:"top_products,omitempty"`
+	// Candidates are the customs entities the resolver considered but could
+	// not confirm automatically, ranked (see TradeEntityCandidate). The
+	// operator picks one when Present is false; the pick is then used for the
+	// profile fetch.
+	Candidates []TradeEntityCandidate `json:"candidates,omitempty"`
 }
 
 // CompanyProfile is the concise business brief synthesized alongside the org chart.

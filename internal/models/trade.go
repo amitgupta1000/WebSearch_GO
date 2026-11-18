@@ -132,7 +132,7 @@ type TradeEntityProfile struct {
 type TradeEntityProduct struct {
 	// Name is the canonical (standardized) chemical name — the same
 	// vocabulary the trade-product matcher ranks against.
-	Name string `json:"name"`
+	Name             string  `json:"name"`
 	TransactionCount int     `json:"transaction_count"`
 	TotalValueUSD    float64 `json:"total_value_usd"`
 	TotalQuantityMT  float64 `json:"total_quantity_mt"`
@@ -150,3 +150,19 @@ type TradeEntityBreakdown struct {
 	TotalCount int                  `json:"total_count"`
 }
 
+// TradeEntityCandidate is one suggestion from the company-entity resolver: a
+// customs entity whose stored name is plausibly the researched company, with
+// the strength of the match. Exact and core matches resolve automatically;
+// everything else is offered to the operator to pick.
+type TradeEntityCandidate struct {
+	// Name is the exact stored spelling.
+	Name string `json:"name"`
+	// Direction is the side the entity was found on: importer or supplier.
+	Direction string `json:"direction,omitempty"`
+	// Score ranks the candidate (0-1).
+	Score float64 `json:"score"`
+	// Grade labels the suggestion: exact, core, related, loose or semantic.
+	Grade string `json:"grade,omitempty"`
+	// Rationale is the model one-line reason for a semantic pick.
+	Rationale string `json:"rationale,omitempty"`
+}

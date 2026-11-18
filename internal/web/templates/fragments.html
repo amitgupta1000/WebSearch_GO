@@ -598,10 +598,11 @@
 
 {{define "market_trade_profile_result"}}
 {{if .Error}}<div class="rounded-lg border border-amber-900/50 bg-amber-950/20 p-2 text-[11px] text-amber-300">{{.Error}}</div>{{else if .Background}}
+<div class="space-y-2">
 <div class="rounded-lg border border-teal-900/50 bg-teal-950/20 p-3 text-[11px] text-slate-300 space-y-2">
 	{{if not .Background.Present}}<p class="text-amber-300">No exact customs-entity match for {{.Company}}{{if .Background.NameVariants}} — closest spellings: {{range $i, $v := .Background.NameVariants}}{{if $i}} · {{end}}{{$v}}{{end}}{{end}}.</p>{{end}}
 	<div class="flex flex-wrap items-center justify-between gap-2">
-		<span class="text-teal-300 font-medium">Crystal customs profile — {{.Background.MatchedName}}</span>
+		<span class="text-teal-300 font-medium">{{if .Background.MatchedName}}Crystal customs profile — {{.Background.MatchedName}}{{else}}Crystal customs profile{{end}}</span>
 		{{range .Background.Directions}}<span class="text-[10px] rounded-full border border-teal-800 px-2 py-0.5 text-teal-200">{{.}}</span>{{end}}
 	</div>
 	<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
@@ -611,13 +612,37 @@
 		{{if .Background.TotalValueUSD}}<span class="rounded-full border border-teal-900 px-2 py-0.5">USD {{printf "%.0f" .Background.TotalValueUSD}}</span>{{end}}
 		{{if .Background.TotalQuantityMT}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{printf "%.0f" .Background.TotalQuantityMT}} MT</span>{{end}}
 	</div>
+	{{if and (not .Background.GlobalRank) (not .Background.TransactionCount) (not .Background.TopProducts)}}<p class="text-[10px] text-slate-500">The DB carries no aggregate rows or product mix for this stored name — it may be outside the profiled vocabulary; pick another suggestion if one fits better.</p>{{end}}
 	{{if .Background.TopProducts}}<div>
 		<div class="text-slate-400">Product mix (by shipments):</div>
 		<table class="w-full mt-1 text-[10px] text-slate-300"><thead><tr class="text-slate-500"><th class="text-left">Product</th><th class="text-right">Shipments</th><th class="text-right">Value (USD)</th><th class="text-right">Quantity (MT)</th></tr></thead>
 		<tbody>{{range .Background.TopProducts}}<tr class="border-t border-slate-800"><td>{{.Name}}</td><td class="text-right">{{.TransactionCount}}</td><td class="text-right">{{printf "%.0f" .TotalValueUSD}}</td><td class="text-right">{{printf "%.0f" .TotalQuantityMT}}</td></tr>{{end}}</tbody></table>
 	</div>{{end}}
 	<p class="text-[10px] text-slate-500">Aggregated first-party customs records (Crystal trade DB) — an importer may equally be a reseller; the operator decides. Checked {{.Background.CheckedAt.Format "02 Jan 2006 15:04"}}.</p>
+</div>
+{{if and (not .Background.Present) .Background.Candidates}}<div class="trade-entity-pick">{{template "trade_entity_pick" (dict "Candidates" .Background.Candidates "CompanyName" .Company)}}</div>{{end}}
 </div>{{end}}
+{{end}}
+
+{{define "trade_entity_pick"}}
+<div class="rounded-lg border border-amber-900/40 bg-amber-950/10 p-2 text-[11px]">
+	<div class="text-amber-200">Pick the stored customs entity for this company — the profile is then built from it:</div>
+	<div class="flex flex-wrap gap-1.5 mt-1.5">
+		{{range .Candidates}}
+		<form hx-post="/api/trade/entity-profile" hx-target="closest .trade-entity-pick" hx-swap="innerHTML" class="inline">
+			<input type="hidden" name="company_name" value="{{$.CompanyName}}">
+			<input type="hidden" name="trade_entity" value="{{.Name}}">
+			<input type="hidden" name="trade_direction" value="{{.Direction}}">
+			<button type="submit" title="{{if .Rationale}}{{.Rationale}}{{else}}Stored spelling offered by the entity resolver{{end}}"
+			        class="rounded-full border border-amber-800/60 bg-amber-950/40 px-2 py-1 text-amber-100 hover:bg-amber-900/50">
+				<span class="font-mono">{{.Name}}</span>
+				<span class="text-[9px] text-amber-300/80">· {{.Direction}}{{if .Grade}} · {{.Grade}}{{end}}</span>
+			</button>
+		</form>
+		{{end}}
+	</div>
+	<div class="text-[9px] text-slate-500 mt-1">Suggestions only — the resolver never auto-picks a name that is not an exact or legal-suffix match. The choice is remembered for this company in this process.</div>
+</div>
 {{end}}
 
 {{define "workflow_console"}}
@@ -712,6 +737,7 @@
 		</div>{{end}}
 		{{else}}<p class="text-xs text-slate-500">No exact match in the Crystal customs entity vocabulary{{if .TradeBackground.Note}} — {{.TradeBackground.Note}}{{end}}.</p>{{end}}
 		{{if .TradeBackground.NameVariants}}<p class="text-xs text-slate-500">Closest customs names: {{range $i, $v := .TradeBackground.NameVariants}}{{if $i}} · {{end}}{{$v}}{{end}}</p>{{end}}
+		{{if and (not .TradeBackground.Present) .TradeBackground.Candidates}}<div class="trade-entity-pick">{{template "trade_entity_pick" (dict "Candidates" .TradeBackground.Candidates "CompanyName" .CompanyName)}}</div>{{end}}
 		<p class="text-[11px] text-slate-600">Checked {{.TradeBackground.CheckedAt.Format "02 Jan 2006 15:04 MST"}} — aggregated first-party customs records; an importer may equally be a reseller.</p>
 	</div>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">

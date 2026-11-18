@@ -31,7 +31,7 @@ func TestBuildTradeProfileResolvesAndAggregates(t *testing.T) {
 	// exact spelling on the importer side.
 	resetTradeProfileMemo()
 	client := &exactNamesMock{TradeDBSource: mock, importerNames: []string{"KLJ RESOURCES LTD"}}
-	background, summary := BuildTradeProfile(context.Background(), client, "KLJ Resources Limited")
+	background, summary := BuildTradeProfile(context.Background(), client, nil, "KLJ Resources Limited")
 	if background == nil || !background.Present {
 		t.Fatalf("background = %+v, want a present profile", background)
 	}
@@ -53,7 +53,7 @@ func TestBuildTradeProfileGracefulWhenNothingMatches(t *testing.T) {
 	mock := &tradeDBMock{options: &models.TradeFilterOptions{CanonicalProductNames: []string{"N BUTANOL (NBA)"}}}
 	resetTradeProfileMemo()
 	client := &exactNamesMock{TradeDBSource: mock, importerNames: []string{"UNRELATED CHEMICALS LTD"}}
-	background, summary := BuildTradeProfile(context.Background(), client, "KLJ Resources Limited")
+	background, summary := BuildTradeProfile(context.Background(), client, nil, "KLJ Resources Limited")
 	if background == nil {
 		t.Fatal("background = nil, want a graceful miss")
 	}

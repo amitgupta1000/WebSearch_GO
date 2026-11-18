@@ -36,7 +36,11 @@ func (ca *CompanyAgent) attachTradeBackground(ctx context.Context, sessionID str
 	tctx, cancel := context.WithTimeout(dctx, TradeProfileTimeout)
 	defer cancel()
 
-	background, summary := BuildTradeProfile(tctx, client, name)
+	var llm LLMClient
+	if ca.engine != nil {
+		llm = ca.engine
+	}
+	background, summary := BuildTradeProfile(tctx, client, llm, name)
 	if background == nil {
 		return
 	}
@@ -82,7 +86,11 @@ func enrichVerifiedTradeProfiles(ctx context.Context, engine *Engine, results []
 		if name == "" {
 			continue
 		}
-		background, _ := BuildTradeProfile(ctx, client, name)
+		var llm LLMClient
+		if engine != nil {
+			llm = engine
+		}
+		background, _ := BuildTradeProfile(ctx, client, llm, name)
 		if background == nil || !background.Present {
 			continue
 		}

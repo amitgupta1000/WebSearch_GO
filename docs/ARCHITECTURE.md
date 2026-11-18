@@ -1178,6 +1178,7 @@ WebSearch_GO/
 │   │   ├── trade_records.go     # Opt-in first-party customs sections (Crystal DB): custody tier, India gate, supplier origin scoping, visible lane events
 │   │   ├── trade_background.go  # Company dossier customs profile (entity vocabulary + aggregates)
 │   │   ├── trade_profile.go      # Shared entity-profile builder: typeahead, profile, product mix; cached per name
+│   │   ├── trade_entity_resolve.go # Shared entity-NAME resolver: normalization, query ladder, scored candidates, semantic re-rank, operator picks
 
 │   │   ├── hub.go               # Session + SessionHub: thread-safe per-research event buses
 │   │   ├── timing.go            # Per-phase timer/recorder for the run's timing report
