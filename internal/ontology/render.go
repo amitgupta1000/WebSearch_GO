@@ -15,10 +15,15 @@ import (
 type SVGOptions struct {
 	// Size is the square viewBox side in user units.
 	Size int
+	// PixelWidth renders the drawing at this CSS width inside a scrollable canvas;
+	// 0 fits the container. This is the zoom: the viewBox stays the same, the
+	// picture gets bigger, so a dense graph is panned by scrolling, not by squinting.
+	PixelWidth int
 	// LinkPrefix wraps every node in a link to LinkPrefix + node id, which is how
 	// the page recentres on a click. Empty draws plain nodes.
 	LinkPrefix string
-	// LabelAll labels every node; otherwise only rings 0 and 1 are labelled.
+	// LabelAll labels every node; otherwise only rings 0 and 1 are labelled, plus
+	// hubs, so a large graph stays readable.
 	LabelAll bool
 }
 
@@ -50,7 +55,12 @@ func RenderSVG(view *GraphView, options SVGOptions) string {
 	centre := float64(size) / 2
 	radius := centre * 0.92
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="kg-svg" viewBox="0 0 %d %d" role="img" aria-label="Chemical value-chain graph: %d nodes, %d edges" xmlns="http://www.w3.org/2000/svg">`, size, size, len(view.Nodes), len(view.Edges))
+	style := ""
+	if options.PixelWidth > 0 {
+		style = fmt.Sprintf(` style="width:%dpx;max-width:none"`, options.PixelWidth)
+	}
+	fmt.Fprintf(&b, `<svg class="kg-svg" viewBox="0 0 %d %d" role="img" aria-label="Chemical value-chain graph: %d nodes, %d edges" xmlns="http://www.w3.org/2000/svg"%s>`,
+		size, size, len(view.Nodes), len(view.Edges), style)
 	b.WriteString(`<g class="kg-edges">`)
 	positions := make(map[string]ViewNode, len(view.Nodes))
 	for _, node := range view.Nodes {
@@ -165,6 +175,15 @@ func KindLegend(view *GraphView) []Kind {
 	return legend
 }
 
+// PageControl is one link in the page's toolbar: a zoom level, the bare-SVG export
+// or the label toggle. The caller builds the URLs, so the toolbar works for the
+// console (filter-preserving links) and for tooling alike.
+type PageControl struct {
+	Label  string
+	Href   string
+	Active bool
+}
+
 // PageOptions controls the standalone page.
 type PageOptions struct {
 	// Title heads the page; empty uses a sensible default.
@@ -176,6 +195,13 @@ type PageOptions struct {
 	LinkPrefix string
 	// SVGSize is passed to RenderSVG.
 	SVGSize int
+	// ZoomPercent scales the drawing inside a scrollable canvas: 100 fits the
+	// container, 200 doubles it and lets the reader pan by scrolling. 0 means 100.
+	ZoomPercent int
+	// LabelAll labels every node, which a dense graph needs at high zoom.
+	LabelAll bool
+	// Controls are the toolbar links (zoom levels, full-size SVG, labels).
+	Controls []PageControl
 }
 
 // RenderPage draws the whole page: filters, legend, the SVG and the node table. It
@@ -225,8 +251,35 @@ func RenderPage(view *GraphView, options PageOptions) []byte {
 	b.WriteString("</div>")
 
 	b.WriteString("<main><section class=\"canvas\">")
-	b.WriteString(RenderSVG(view, SVGOptions{Size: options.SVGSize, LinkPrefix: options.LinkPrefix}))
-	b.WriteString("</section><aside class=\"panel\">")
+	if len(options.Controls) > 0 {
+		b.WriteString("<nav class=\"toolbar\">")
+		for _, control := range options.Controls {
+			active := ""
+			if control.Active {
+				active = ` class="active"`
+			}
+			fmt.Fprintf(&b, "<a href=\"%s\"%s>%s</a>", html.EscapeString(control.Href), active, html.EscapeString(control.Label))
+		}
+		b.WriteString("</nav>")
+	}
+	b.WriteString("<div class=\"viewport\">")
+	zoom := options.ZoomPercent
+	if zoom <= 0 {
+		zoom = 100
+	}
+	size := options.SVGSize
+	if size <= 0 {
+		size = 900
+	}
+	pixelWidth := 0
+	if zoom != 100 {
+		pixelWidth = size * zoom / 100
+	}
+	if pixelWidth > 0 {
+		fmt.Fprintf(&b, "<p class=\"hint\">Zoom %d%%: the canvas scrolls in both directions.</p>", zoom)
+	}
+	b.WriteString(RenderSVG(view, SVGOptions{Size: size, PixelWidth: pixelWidth, LinkPrefix: options.LinkPrefix, LabelAll: options.LabelAll}))
+	b.WriteString("</div></section><aside class=\"panel\">")
 	b.WriteString(renderNodeTable(view, options.LinkPrefix))
 	b.WriteString("</aside></main>")
 	b.WriteString("<footer>Deterministic layout: rings are taxonomy depth (whole graph) or hop distance (seeded). ")
@@ -335,6 +388,12 @@ code { background: rgba(148,163,184,.14); padding: .05rem .3rem; border-radius: 
 main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 420px); gap: 1rem; align-items: start; }
 @media (max-width: 980px) { main { grid-template-columns: minmax(0, 1fr); } }
 .canvas { background: rgba(2,6,23,.6); border: 1px solid #1e293b; border-radius: .9rem; padding: .5rem; }
+.toolbar { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .55rem; }
+.toolbar a { padding: .2rem .6rem; border-radius: 999px; border: 1px solid #334155; color: #cbd5e1; text-decoration: none; font-size: .76rem; background: rgba(15,23,42,.7); }
+.toolbar a:hover { border-color: #6366f1; color: #e2e8f0; }
+.toolbar a.active { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+.viewport { overflow: auto; max-height: 78vh; }
+.hint { margin: 0 0 .45rem; color: #64748b; font-size: .74rem; }
 .kg-svg { width: 100%; height: auto; display: block; }
 .kg-node text { paint-order: stroke; stroke: #020617; stroke-width: 4px; stroke-linejoin: round; font-weight: 500; }
 .kg-node a:hover circle, .kg-node a:focus-visible circle { stroke: #f8fafc; stroke-width: 3; }

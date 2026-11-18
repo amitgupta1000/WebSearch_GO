@@ -89,3 +89,61 @@ func TestRenderPageCarriesTheChrome(t *testing.T) {
 		t.Error("a standalone page still needs the drawing")
 	}
 }
+
+// TestRenderSVGLabelAllAddsLabels pins the label toggle: labelling every node
+// draws one label per node, more than the default (rings 0-1 plus hubs).
+func TestRenderSVGLabelAllAddsLabels(t *testing.T) {
+	document, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	view := document.View(ViewOptions{})
+	defaultLabels := strings.Count(RenderSVG(view, SVGOptions{}), "<text ")
+	allLabels := strings.Count(RenderSVG(view, SVGOptions{LabelAll: true}), "<text ")
+	if allLabels != len(view.Nodes) {
+		t.Errorf("LabelAll labels = %d, want one per node (%d)", allLabels, len(view.Nodes))
+	}
+	if allLabels <= defaultLabels {
+		t.Errorf("LabelAll labels = %d, default = %d, want more", allLabels, defaultLabels)
+	}
+}
+
+// TestRenderPageZoomAndToolbar pins the toolbar and zoom: controls render as
+// links with the active step marked, and a non-100 zoom widens the SVG inside
+// the scrollable viewport and says so.
+func TestRenderPageZoomAndToolbar(t *testing.T) {
+	document, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	view := document.View(ViewOptions{Seed: "oil blending", Hops: 2})
+	page := string(RenderPage(view, PageOptions{
+		Action:      "/ontology",
+		SVGSize:     900,
+		ZoomPercent: 200,
+		Controls: []PageControl{
+			{Label: "100%", Href: "/ontology"},
+			{Label: "200%", Href: "/ontology?zoom=200", Active: true},
+		},
+	}))
+	for _, want := range []string{
+		`class="toolbar"`,
+		`href="/ontology"`,
+		`href="/ontology?zoom=200"`,
+		`class="active"`,
+		`style="width:1800px;max-width:none"`,
+		"Zoom 200%",
+		`class="viewport"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	plain := string(RenderPage(view, PageOptions{Action: "/ontology"}))
+	if strings.Contains(plain, `class="toolbar"`) {
+		t.Error("a page without controls must not render a toolbar")
+	}
+	if strings.Contains(plain, `style="width:`) {
+		t.Error("a 100% page must let the SVG fit its container")
+	}
+}

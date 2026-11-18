@@ -73,3 +73,23 @@ func TestRunGraphRejectsAnUnreadableDocument(t *testing.T) {
 		t.Error("a missing document must fail the command")
 	}
 }
+
+// TestRunGraphZoomWidensThePage pins the -zoom and -labels flags on the page
+// artifact: a 200% zoom doubles the 900px drawing and says so.
+func TestRunGraphZoomWidensThePage(t *testing.T) {
+	page := filepath.Join(t.TempDir(), "graph-zoom.html")
+	if err := runGraph([]string{"-activity", "oil blending", "-hops", "2", "-zoom", "200", "-labels", "-out", page}); err != nil {
+		t.Fatalf("zoom page: %v", err)
+	}
+	raw, err := os.ReadFile(page)
+	if err != nil {
+		t.Fatalf("read zoom page: %v", err)
+	}
+	html := string(raw)
+	if !strings.Contains(html, `style="width:1800px;max-width:none"`) {
+		t.Error("the -zoom flag must widen the drawing")
+	}
+	if !strings.Contains(html, "Zoom 200%") {
+		t.Error("the page must say it is zoomed")
+	}
+}

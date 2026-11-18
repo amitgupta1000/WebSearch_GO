@@ -314,6 +314,8 @@ func runGraph(args []string) error {
 	out := set.String("out", "", "write here instead of stdout; .json and .svg choose the format")
 	asJSON := set.Bool("json", false, "print the view as JSON")
 	title := set.String("title", "", "page title")
+	zoom := set.Int("zoom", 0, "page zoom percent: 100 fits the container, larger scrolls (0 means 100)")
+	labels := set.Bool("labels", false, "label every node instead of rings 0-1 and hubs")
 	_ = set.Parse(args)
 	if strings.TrimSpace(*seed) == "" {
 		*seed = *activity
@@ -344,13 +346,13 @@ func runGraph(args []string) error {
 		}
 		fmt.Fprintf(os.Stderr, "%d node(s), %d edge(s) → %s\n", len(view.Nodes), len(view.Edges), targetOrStdout(*out))
 	case strings.HasSuffix(target, ".svg"):
-		svg := ontology.RenderSVG(view, ontology.SVGOptions{LabelAll: len(view.Nodes) <= 60})
+		svg := ontology.RenderSVG(view, ontology.SVGOptions{LabelAll: *labels || len(view.Nodes) <= 60})
 		if err := write([]byte(svg), *out); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "%d node(s), %d edge(s) → %s\n", len(view.Nodes), len(view.Edges), *out)
 	default:
-		page := ontology.RenderPage(view, ontology.PageOptions{Title: *title})
+		page := ontology.RenderPage(view, ontology.PageOptions{Title: *title, ZoomPercent: *zoom, LabelAll: *labels})
 		if err := write(page, *out); err != nil {
 			return err
 		}

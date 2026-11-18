@@ -431,6 +431,7 @@ func main() {
 	mux.HandleFunc("POST /api/trade/entity-profile", srv.handleTradeEntityProfile)
 	// The knowledge graph, on demand: a page to look at and JSON to build on.
 	mux.HandleFunc("GET /ontology", srv.handleOntologyGraphPage)
+	mux.HandleFunc("GET /ontology.svg", srv.handleOntologyGraphSVG)
 	mux.HandleFunc("GET /api/ontology/graph", srv.handleOntologyGraphJSON)
 	mux.HandleFunc("POST /api/rerun", srv.handleRerun)
 	mux.HandleFunc("POST /api/question", srv.handleQuestion)

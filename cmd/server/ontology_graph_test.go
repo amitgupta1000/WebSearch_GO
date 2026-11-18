@@ -30,7 +30,7 @@ func TestHandleOntologyGraphPageDrawsTheGraph(t *testing.T) {
 		}
 	}
 	// A click must recentre *and* keep the hop filter.
-	if !strings.Contains(page, `href="/ontology?hops=2&amp;seed=`) {
+	if !strings.Contains(page, `href="/ontology?hops=2&amp;seed=sub:`) {
 		t.Errorf("node links must carry the current filters: %s", firstLink(page))
 	}
 }
@@ -84,4 +84,49 @@ func firstLink(page string) string {
 		end = len(page)
 	}
 	return page[index:end]
+}
+
+// TestHandleOntologyGraphPageZoomAndToolbar pins the console toolbar: the zoom
+// and label links preserve the filters, and the requested zoom widens the SVG.
+func TestHandleOntologyGraphPageZoomAndToolbar(t *testing.T) {
+	server := &Server{}
+	request := httptest.NewRequest(http.MethodGet, "/ontology?seed=n-butanol&hops=2&zoom=200", nil)
+	response := httptest.NewRecorder()
+	server.handleOntologyGraphPage(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
+	page := response.Body.String()
+	for _, want := range []string{
+		`class="toolbar"`,
+		`href="/ontology?hops=2&amp;seed=n-butanol&amp;zoom=200"`,
+		`style="width:1800px;max-width:none"`,
+		"/ontology.svg?",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+}
+
+// TestHandleOntologyGraphSVGExportsTheDrawing pins the toolbar export: a bare
+// SVG file with no page chrome.
+func TestHandleOntologyGraphSVGExportsTheDrawing(t *testing.T) {
+	server := &Server{}
+	request := httptest.NewRequest(http.MethodGet, "/ontology.svg?seed=n-butanol&hops=2&labels=1", nil)
+	response := httptest.NewRecorder()
+	server.handleOntologyGraphSVG(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
+	if contentType := response.Header().Get("Content-Type"); !strings.Contains(contentType, "image/svg") {
+		t.Errorf("content type = %q", contentType)
+	}
+	if disposition := response.Header().Get("Content-Disposition"); !strings.Contains(disposition, "attachment") {
+		t.Errorf("disposition = %q, want an attachment", disposition)
+	}
+	body := response.Body.String()
+	if !strings.HasPrefix(body, "<svg") || strings.Contains(body, "<html") {
+		t.Errorf("body is not a bare svg: %.60q", body)
+	}
 }
