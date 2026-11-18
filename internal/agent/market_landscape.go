@@ -95,7 +95,15 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	if query.IncludeContacts {
 		report.Warnings = append(report.Warnings, "Public business-contact collection is reserved for a later bounded pass; use the per-person Fetch contact details action for RocketReach enrichment.")
 	}
-	category, categoryRationale, categorySource, categoryWarnings := a.inferMarketCategory(ctx, query, eventCh)
+	// Activity resolution: the curated graph decides the research path when it
+	// knows the activity (directly or through a model-confirmed alias); otherwise
+	// the model plans the path and the activity is reported as unmodelled.
+	resolution := resolveActivity(ctx, a.engine, query.Activity, eventCh)
+	if resolution.matched() {
+		resolution = chooseOntologyFamily(ctx, a.engine, resolution, marketLandscapeGeography(query), eventCh)
+	}
+	report.Warnings = append(report.Warnings, resolution.Warnings...)
+	category, categoryRationale, categorySource, categoryWarnings := a.marketCategoryFromResolution(ctx, resolution, query, eventCh)
 	report.ProductCategory = category
 	report.CategoryRationale = categoryRationale
 	report.CategorySource = categorySource
@@ -155,7 +163,7 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 		err   error
 		trace models.MarketSearchTrace
 	}
-	discoverySearches := marketDiscoverySearches(query)
+	discoverySearches := marketDiscoverySearchesWithTerms(query, resolution.searchTerms())
 	// Adversarial query review: every composed lane is judged for aptness and
 	// economy before it spends a search — degenerate lanes are rewritten or
 	// dropped here, never after their hits pollute the candidate pool.
@@ -385,6 +393,21 @@ func (a *MarketLandscapeAgent) inferMarketCategory(ctx context.Context, query mo
 	return category, rationale, source, warnings
 }
 
+// marketCategoryFromResolution turns the activity resolution into the category
+// the Seller Landscape broadens on. A graph match (direct or alias) is
+// authoritative and costs no inference call; an unmodelled activity keeps the
+// model's own inference, which is branch (2.2) of the resolution flow.
+func (a *MarketLandscapeAgent) marketCategoryFromResolution(ctx context.Context, resolution activityResolution, query models.MarketLandscapeQuery, eventCh chan<- models.AgentEvent) (string, string, string, []string) {
+	if resolution.matched() {
+		if category := resolution.primaryCategory(); category != "" {
+			source := string(resolution.Path)
+			emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Market category: %s (%s)", category, source), "market_category", "")
+			return category, resolution.categoryRationale(), source, nil
+		}
+	}
+	return a.inferMarketCategory(ctx, query, eventCh)
+}
+
 func marketCategoryLanes(category string) []string {
 	category = strings.TrimSpace(category)
 	if category == "" {
@@ -467,7 +490,31 @@ func marketNamesOtherOilFamily(activity string) bool {
 }
 
 func marketDiscoverySearches(query models.MarketLandscapeQuery) []marketSearchSpec {
+	return marketDiscoverySearchesWithTerms(query, nil)
+}
+
+// marketDiscoverySearchesWithTerms composes the discovery lanes, optionally
+// guided by the value-chain graph's indexed phrases. The extra terms are capped:
+// the operator's own wording keeps the lane budget, and the graph only adds the
+// phrasing the trade actually indexes ("lubricant blending" for "oil blending").
+func marketDiscoverySearchesWithTerms(query models.MarketLandscapeQuery, ontologyTerms []string) []marketSearchSpec {
 	terms := marketActivitySearchTerms(query.Activity)
+	for _, term := range ontologyTerms {
+		term = strings.TrimSpace(term)
+		if term == "" || len(terms) >= 3 {
+			break
+		}
+		duplicate := false
+		for _, existing := range terms {
+			if strings.EqualFold(existing, term) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			terms = append(terms, term)
+		}
+	}
 	geographies := marketSearchGeographies(query)
 	searches := make([]marketSearchSpec, 0, marketMaxDiscoveryQueries)
 	seen := make(map[string]bool)

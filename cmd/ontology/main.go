@@ -13,12 +13,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/amitgupta1000/WebSearch_GO/internal/agent"
 	"github.com/amitgupta1000/WebSearch_GO/internal/config"
 	"github.com/amitgupta1000/WebSearch_GO/internal/ontology"
 	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
@@ -35,6 +37,8 @@ const usage = `usage: ontology <command> [flags]
                                          fold a curated file/patch onto the base
   diff    -before PATH -after PATH       list added/removed/changed nodes
   harvest [-file PATH] [-out PATH]       trade DB canonical names as proposed substances
+  explain -activity TEXT [-mode seller|buyer] [-geography TEXT] [-file PATH] [-json]
+                                         resolve an activity's research path without a run
 `
 
 func main() {
@@ -58,6 +62,8 @@ func main() {
 		err = runDiff(os.Args[2:])
 	case "harvest":
 		err = runHarvest(os.Args[2:])
+	case "explain":
+		err = runExplain(os.Args[2:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -288,6 +294,73 @@ func runHarvest(args []string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "harvested %d new substance(s); %d name(s) already covered\n", len(corrections), len(skipped))
+	return nil
+}
+
+// runExplain prints the research path an activity takes: the same resolution the
+// Seller and Buyer Landscape modes run at their start, minus the run itself. It is
+// deterministic by default (no model call), which is what curation reviews.
+func runExplain(args []string) error {
+	set := flag.NewFlagSet("explain", flag.ExitOnError)
+	activity := set.String("activity", "", "the operator's activity, e.g. \"oil blending\"")
+	geography := set.String("geography", "", "geography the run targets")
+	mode := set.String("mode", "seller", "seller (who makes it) or buyer (who consumes it)")
+	file := set.String("file", "", "document to resolve against (default: embedded seed)")
+	asJSON := set.Bool("json", false, "print the resolution as JSON")
+	_ = set.Parse(args)
+	if strings.TrimSpace(*activity) == "" {
+		*activity = strings.Join(set.Args(), " ")
+	}
+	if strings.TrimSpace(*activity) == "" {
+		return fmt.Errorf("explain needs an activity, e.g. -activity \"oil blending\"")
+	}
+	document, err := load(*file)
+	if err != nil {
+		return err
+	}
+	resolution, err := agent.ResolveActivityAgainst(context.Background(), nil, document, agent.ActivityQuery{
+		Activity: *activity, Geography: *geography, Mode: agent.ActivityMode(*mode),
+	})
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		raw, err := json.MarshalIndent(resolution, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(raw))
+		return nil
+	}
+	fmt.Printf("activity: %s\nmode: %s\npath: %s\n", resolution.Activity, resolution.Mode, resolution.Path)
+	if resolution.NodeID != "" {
+		fmt.Printf("node: %s (%s)\n", resolution.NodeLabel, resolution.NodeID)
+	}
+	if resolution.Category != "" {
+		fmt.Printf("category: %s [%s]\n", resolution.Category, resolution.CategorySource)
+		if resolution.CategoryRationale != "" {
+			fmt.Printf("why: %s\n", resolution.CategoryRationale)
+		}
+	}
+	for _, family := range resolution.Families {
+		fmt.Printf("family %d: %s (%s, %s)\n", family.Rank+1, family.Label, family.ID, family.Reason)
+	}
+	if len(resolution.SearchTerms) > 0 {
+		fmt.Printf("search terms: %s\n", strings.Join(resolution.SearchTerms, " | "))
+	}
+	if len(resolution.CategoryLanes) > 0 {
+		fmt.Printf("category lanes: %s\n", strings.Join(resolution.CategoryLanes, " | "))
+	}
+	for _, stage := range resolution.Stages {
+		fmt.Printf("stage %d: %s (operators: %s; products: %s)\n",
+			stage.Distance, stage.Name, strings.Join(stage.Operators, ", "), strings.Join(stage.Products, ", "))
+	}
+	for _, warning := range resolution.Warnings {
+		fmt.Printf("warning: %s\n", warning)
+	}
+	if resolution.Path == agent.ActivityPathUnmodelled {
+		fmt.Println("note: the model will plan this path; add the activity to the ontology to make it graph-guided.")
+	}
 	return nil
 }
 

@@ -538,8 +538,10 @@ func TestMarketLandscapeHarvestsCompaniesFromAReportPage(t *testing.T) {
 	}
 }
 
-// TestMarketCategoryLaneIsSeparate: the validated downstream category runs as an independent
-// objective and its companies do not become exact-product seller results.
+// TestMarketCategoryLaneIsSeparate: the resolved downstream category runs as an
+// independent objective and its companies do not become exact-product seller
+// results. "lubricant blending" is a graph activity, so the category now comes
+// from the ontology (no inference call) and still runs its own lane.
 func TestMarketCategoryLaneIsSeparate(t *testing.T) {
 	hits := make([]models.SearchResult, 0, 6)
 	for index := 0; index < 6; index++ {
@@ -558,13 +560,13 @@ func TestMarketCategoryLaneIsSeparate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Research: %v", err)
 	}
-	if report.ProductCategory != "lubricants" || report.CategorySource != "model" {
-		t.Errorf("category = %q/%q, want lubricants/model", report.ProductCategory, report.CategorySource)
+	if report.ProductCategory != "Lubricants" || report.CategorySource != "ontology" {
+		t.Errorf("category = %q/%q, want Lubricants/ontology", report.ProductCategory, report.CategorySource)
 	}
 	if report.CategoryQueries == 0 || len(report.CategoryResults) != len(hits) {
 		t.Fatalf("category lane = %d queries, %d results; want the independent category findings", report.CategoryQueries, len(report.CategoryResults))
 	}
-	if len(report.CategoryLanes) != 2 || !strings.Contains(strings.Join(report.CategoryLanes, " "), "lubricants manufacturers") {
+	if len(report.CategoryLanes) != 2 || !strings.Contains(strings.Join(report.CategoryLanes, " "), "Lubricants manufacturers") {
 		t.Fatalf("category lanes = %v, want the lubricants discovery lanes", report.CategoryLanes)
 	}
 	if report.FallbackQueries != 0 {
@@ -574,6 +576,24 @@ func TestMarketCategoryLaneIsSeparate(t *testing.T) {
 		if strings.Contains(strings.ToLower(company.Activity), "lubricant") {
 			t.Fatalf("category company leaked into exact-product results: %+v", company)
 		}
+	}
+}
+
+// TestMarketCategoryModelPathForUnmodelledActivity pins branch (2.2): an activity
+// the graph does not know (and the model cannot alias) keeps the model's own
+// category and the report says so, so curation can add it later.
+func TestMarketCategoryModelPathForUnmodelledActivity(t *testing.T) {
+	llm := &marketPromptLLM{category: "unobtainium products"}
+	engine := NewEngine(llm, &marketRouteSearcher{}, &mockScraper{}, cache.NewMemoryCache(16), 8, 3, 10)
+	report, err := NewMarketLandscapeAgent(engine).Research(context.Background(), "unmodelled", models.MarketLandscapeQuery{Activity: "unobtainium blending"}, nil)
+	if err != nil {
+		t.Fatalf("Research: %v", err)
+	}
+	if report.ProductCategory != "unobtainium products" || report.CategorySource != "model" {
+		t.Errorf("category = %q/%q, want the model category for an unmodelled activity", report.ProductCategory, report.CategorySource)
+	}
+	if !strings.Contains(strings.Join(report.Warnings, " "), "unmodelled") {
+		t.Errorf("warnings = %v, want the unmodelled notice", report.Warnings)
 	}
 }
 

@@ -197,20 +197,47 @@ func TestDemandChainInferenceOverrideSkipsTheModel(t *testing.T) {
 	}
 }
 
-// TestDemandChainInferenceFallsBackOnFailure: a dead model degrades to a
-// product-named generic stage with a warning, never a failed run.
+// TestDemandChainInferenceFallsBackOnFailure: a dead model on an activity the
+// graph does not know degrades to a product-named generic stage with a warning,
+// never a failed run.
 func TestDemandChainInferenceFallsBackOnFailure(t *testing.T) {
 	llm := &demandLLM{err: context.DeadlineExceeded}
 	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
-	chain, inferred, warnings := agent.inferDemandChain(context.Background(), models.DemandChainQuery{Activity: "sulfur"}, nil)
+	chain, inferred, warnings := agent.inferDemandChain(context.Background(), models.DemandChainQuery{Activity: "unobtainium powder"}, nil)
 	if inferred {
 		t.Error("a failed inference must not claim the chain was inferred")
 	}
-	if len(chain) != 1 || chain[0].Source != "fallback" || chain[0].Name != "sulfur" {
+	if len(chain) != 1 || chain[0].Source != "fallback" || chain[0].Name != "unobtainium powder" {
 		t.Fatalf("chain = %+v, want a single fallback stage named after the product", chain)
 	}
-	if len(warnings) == 0 || !strings.Contains(warnings[0], "falling back") {
+	if !strings.Contains(strings.Join(warnings, " "), "falling back") {
 		t.Errorf("expected a fallback warning, got %v", warnings)
+	}
+}
+
+// TestDemandChainUsesOntologyWhenInferenceFails: when the graph knows the product,
+// a dead model still gets a reviewed chain instead of a generic stage.
+func TestDemandChainUsesOntologyWhenInferenceFails(t *testing.T) {
+	llm := &demandLLM{err: context.DeadlineExceeded}
+	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
+	chain, category, _, source, _, warnings := agent.inferDemandChainWithCategory(context.Background(), models.DemandChainQuery{Activity: "n-butanol"}, nil)
+	if len(chain) == 0 {
+		t.Fatal("a graph-backed run must still produce a chain when inference fails")
+	}
+	names := strings.ToLower(stageNames(chain))
+	if !strings.Contains(names, "butyl acrylate") {
+		t.Errorf("chain = %q, want the graph's downstream products", names)
+	}
+	for _, stage := range chain {
+		if stage.Source != "ontology" {
+			t.Errorf("stage %+v must carry the ontology source", stage)
+		}
+	}
+	if category == "" || source == "fallback" {
+		t.Errorf("category=%q source=%q, want the graph family", category, source)
+	}
+	if !strings.Contains(strings.Join(warnings, " "), "ontology") {
+		t.Errorf("warnings = %v, want the ontology notice", warnings)
 	}
 }
 
@@ -1630,8 +1657,13 @@ func TestDemandInferenceRejectsOverbroadCategory(t *testing.T) {
 	}
 	agent := NewDemandChainAgent(demandChainTestEngine(llm, &demandSearcher{}))
 	_, category, _, source, _, warnings := agent.inferDemandChainWithCategory(context.Background(), models.DemandChainQuery{Activity: "coal"}, nil)
-	if category == "fuel" || source != "fallback" {
-		t.Errorf("category=%q source=%q, want a rejected/fallback category", category, source)
+	// "fuel" is still refused; the reviewed graph family answers instead of the
+	// token-table fallback.
+	if category == "fuel" || category == "" {
+		t.Errorf("category=%q source=%q, want the graph family for coal", category, source)
+	}
+	if source != string(pathOntology) {
+		t.Errorf("category=%q source=%q, want the ontology source", category, source)
 	}
 	found := false
 	for _, warning := range warnings {

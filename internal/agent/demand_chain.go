@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/ontology"
 )
 
 const (
@@ -1936,6 +1937,94 @@ type demandLane struct {
 // lane whose term already names the geography never gets it appended again —
 // "Middle East importer tender procurement" must not become "Middle East
 // importer tender procurement Middle East".
+// demandStagesFromOntology turns the resolved graph into consuming stages: the
+// processes and industrial end products the product feeds, plus the derivative
+// products whose makers buy it (a "butyl acrylate production" stage is a butyl
+// acrylate plant, i.e. a buyer of n-butanol). The vocabulary comes from the graph:
+// operator phrases for end products, indexed search terms for processes.
+func demandStagesFromOntology(document *ontology.Ontology, resolution activityResolution) []models.ValueChainStage {
+	if document == nil || !resolution.matched() {
+		return nil
+	}
+	seeds := make([]string, 0, 4)
+	if resolution.NodeID != "" {
+		seeds = append(seeds, resolution.NodeID)
+	}
+	if len(seeds) == 0 {
+		// A process-shaped activity names no product: its outputs are the chain.
+		for _, process := range resolution.Graph.Processes {
+			seeds = append(seeds, process.ID)
+		}
+	}
+	if len(seeds) == 0 {
+		return nil
+	}
+	// The operator's own process is the supply side, not a buyer of itself.
+	selfProcesses := make(map[string]bool, len(resolution.Graph.Processes))
+	for _, process := range resolution.Graph.Processes {
+		selfProcesses[process.ID] = true
+	}
+	stages := make([]models.ValueChainStage, 0, demandMaxStages)
+	seen := map[string]bool{}
+	add := func(name string, distance int, operators, products []string) {
+		name = strings.TrimSpace(name)
+		key := strings.ToLower(name)
+		if name == "" || seen[key] || len(stages) >= demandMaxStages {
+			return
+		}
+		seen[key] = true
+		stages = append(stages, models.ValueChainStage{
+			Name: name, Distance: distance, Source: "ontology",
+			Operators: operators, Products: products,
+		})
+	}
+	for _, reached := range document.Expand(seeds, ontology.Downstream, 2) {
+		if selfProcesses[reached.ID] {
+			continue
+		}
+		target := document.Nodes[reached.ID]
+		if target == nil {
+			continue
+		}
+		distance := models.StageDistanceDerived
+		if reached.Distance <= 1 {
+			distance = models.StageDistanceDirect
+		}
+		switch target.Kind {
+		case ontology.KindProcess:
+			add(target.Label, distance, target.SearchTerms, nil)
+		case ontology.KindEndProduct:
+			add(target.Label, distance, target.OperatorPhrases, nil)
+		case ontology.KindSubstance:
+			add(target.Label+" production", distance,
+				[]string{target.Label + " manufacturer", target.Label + " plant"}, []string{target.Label})
+		case ontology.KindCategory:
+			add(target.Label+" production", distance,
+				[]string{target.Label + " manufacturers", target.Label + " producers"}, []string{target.Label})
+		}
+	}
+	return stages
+}
+
+// demandOntologyGuidance renders the graph stages for the inference prompt: the
+// model keeps them and adds only what the graph does not cover.
+func demandOntologyGuidance(stages []models.ValueChainStage, families []string) string {
+	if len(stages) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nThe curated value-chain ontology already establishes these consuming stages")
+	if len(families) > 0 {
+		b.WriteString(" (product families: " + strings.Join(families, ", ") + ")")
+	}
+	b.WriteString(". Keep them, keep their product and operator vocabulary, add only stages the ontology does not cover, and never substitute a different chemistry:\n")
+	for _, stage := range stages {
+		fmt.Fprintf(&b, "- %s (distance %d; products: %s; operators: %s)\n",
+			stage.Name, stage.Distance, strings.Join(stage.Products, ", "), strings.Join(stage.Operators, ", "))
+	}
+	return b.String()
+}
+
 func demandLaneSearchQuery(activity string, lane demandLane, geography string) string {
 	query := lane.term
 	if geography != "" && !demandLaneCarriesGeography(lane.term, geography) {
@@ -1995,21 +2084,34 @@ func (a *DemandChainAgent) inferDemandChainWithCategory(ctx context.Context, que
 	}
 
 	var inference models.DemandChainInference
+	// Activity resolution: a graph match (direct or model-confirmed alias) guides
+	// the chain; an unmodelled activity keeps the model's free planning.
+	resolution := resolveActivity(ctx, a.engine, query.Activity, eventCh)
+	warnings := append([]string(nil), resolution.Warnings...)
+	var graphStages []models.ValueChainStage
+	if resolution.matched() {
+		graphStages = demandStagesFromOntology(resolution.document, resolution)
+	}
 	// The prompt encodes the buyer definition: a buyer is a manufacturer whose
 	// process consumes the product as an input, so the chain stops at two
 	// transformation steps downstream — deeper steps are context, not buyers.
 	prompt := fmt.Sprintf(`Identify the industrial manufacturing processes that are potential buyers of %q: processes that consume the product%s. Scope: at most two transformation steps downstream.
 Also identify a broad buyer-side category for the product: the immediate downstream product family or industry that consumes it, specific enough to search, not an end-use sector and not a generic superclass. Examples: toluene diisocyanate -> polyurethanes; acetic acid -> solvents or acetates; toluene -> aromatics; coal -> coal products, never fuel or energy. Use one to four words. Return a JSON object with category, category_rationale, and stages.
-Each stage has name (the consuming manufacturing process), rationale (one line naming which input the stage consumes), products (up to 4 concrete products made within the stage that consume the product or its immediate derivative; do not return generic category labels), operators (2-3 search phrases for the plants or companies operating that stage), and distance: 1 when the stage consumes %q directly as an input or raw material, 2 when it consumes the output of a distance-1 process. For example, decompose a generic solvent stage into concrete acetate-esters or other product families actually derived from the input. Exclude stages beyond two steps, end-use sectors that manufacture nothing, retail, logistics, trading and publication stages. State direct consumption plainly: e.g. plasticizer production esterifies phthalic anhydride with n-butanol directly (dibutyl phthalate), so its distance is 1.`, query.Activity, demandGeographyClause(query), query.Activity)
+Each stage has name (the consuming manufacturing process), rationale (one line naming which input the stage consumes), products (up to 4 concrete products made within the stage that consume the product or its immediate derivative; do not return generic category labels), operators (2-3 search phrases for the plants or companies operating that stage), and distance: 1 when the stage consumes %q directly as an input or raw material, 2 when it consumes the output of a distance-1 process. For example, decompose a generic solvent stage into concrete acetate-esters or other product families actually derived from the input. Exclude stages beyond two steps, end-use sectors that manufacture nothing, retail, logistics, trading and publication stages. State direct consumption plainly: e.g. plasticizer production esterifies phthalic anhydride with n-butanol directly (dibutyl phthalate), so its distance is 1.%s`, query.Activity, demandGeographyClause(query), query.Activity, demandOntologyGuidance(graphStages, resolution.familyLabels()))
 	if err := a.engine.GenerateStructured(ctx,
 		"You infer industrial value chains for buyer research. A buyer is a manufacturer whose process consumes the product as an input; never propose stages more than two transformation steps downstream, and keep operator phrases as concrete plant vocabulary. The category must be the immediate downstream product family, not an end-use sector.",
 		prompt, &inference); err != nil {
-		stages, inferred, warnings := a.demandChainFallback(ctx, "Value-chain inference failed", err, query, eventCh)
+		// A failed inference with a graph-backed chain is not a failed run: the
+		// reviewed stages already say who buys the product.
+		if len(graphStages) > 0 {
+			warnings = append(warnings, "Value-chain inference failed ("+err.Error()+"); the chain is the ontology's reviewed stages.")
+			return graphStages, resolution.downstreamCategory(), resolution.categoryRationale(), string(resolution.Path), true, warnings
+		}
+		stages, inferred, fallbackWarnings := a.demandChainFallback(ctx, "Value-chain inference failed", err, query, eventCh)
 		category := demandFallbackCategory(query.Activity, stages)
-		return stages, category, "Derived after inference failure.", "fallback", inferred, warnings
+		return stages, category, "Derived after inference failure.", "fallback", inferred, append(warnings, fallbackWarnings...)
 	}
 
-	var warnings []string
 	sanitized := sanitizeDemandStages(inference.Stages)
 	if len(sanitized.dropped) > 0 {
 		// Audit trail for the buyer definition: what the model proposed
@@ -2017,6 +2119,15 @@ Each stage has name (the consuming manufacturing process), rationale (one line n
 		warnings = append(warnings, fmt.Sprintf("%d proposed stage(s) beyond two transformation steps were dropped as out of buyer scope: %s.", len(sanitized.dropped), strings.Join(sanitized.dropped, ", ")))
 	}
 	stages := sanitized.kept
+	graphBacked := false
+	if len(stages) == 0 {
+		// The model produced nothing usable: the ontology's reviewed stages are
+		// the chain instead of a generic fallback.
+		if len(graphStages) > 0 {
+			stages, graphBacked = graphStages, true
+			warnings = append(warnings, "The model proposed no usable stage; the chain is the ontology's reviewed stages.")
+		}
+	}
 	if len(stages) == 0 {
 		stages, inferred, fallbackWarnings := a.demandChainFallback(ctx, "Value-chain inference returned no usable stages", fmt.Errorf("the model proposed no stages"), query, eventCh)
 		category := demandFallbackCategory(query.Activity, stages)
@@ -2031,17 +2142,29 @@ Each stage has name (the consuming manufacturing process), rationale (one line n
 			stages[index].Products = knownStageProducts(query.Activity, stages[index].Name)
 		}
 	}
-	category, categorySource, categoryWarnings := validateDemandCategory(inference.Category, inference.CategoryRationale, query.Activity, stages)
+	var category, categorySource, categoryRationale string
+	var categoryWarnings []string
+	category, categorySource, categoryWarnings = validateDemandCategory(inference.Category, inference.CategoryRationale, query.Activity, stages)
 	warnings = append(warnings, categoryWarnings...)
 	if category == "" {
-		category = demandFallbackCategory(query.Activity, stages)
-		if category != "" {
-			categorySource = "fallback"
+		// The model's category did not survive the gate: the graph's consuming
+		// family is the reviewed answer before the token-table fallback is tried.
+		if resolution.matched() && resolution.downstreamCategory() != "" {
+			category = resolution.downstreamCategory()
+			categorySource = string(resolution.Path)
+			categoryRationale = resolution.categoryRationale()
+		} else {
+			category = demandFallbackCategory(query.Activity, stages)
+			if category != "" {
+				categorySource = "fallback"
+			}
+			categoryRationale = strings.TrimSpace(inference.CategoryRationale)
+			if categorySource == "fallback" {
+				categoryRationale = "Derived from the inferred consuming stages after category validation."
+			}
 		}
-	}
-	categoryRationale := strings.TrimSpace(inference.CategoryRationale)
-	if categorySource == "fallback" {
-		categoryRationale = "Derived from the inferred consuming stages after category validation."
+	} else {
+		categoryRationale = strings.TrimSpace(inference.CategoryRationale)
 	}
 	if categoryRationale == "" && category != "" {
 		categoryRationale = "Derived from the inferred consuming stages."
@@ -2056,8 +2179,11 @@ Each stage has name (the consuming manufacturing process), rationale (one line n
 	// only when the category names what the distance-1 stages produce — a
 	// fallback category that merely describes the product's own family ("used
 	// cooking oil -> oleochemicals" when step 1 is biodiesel) must not pull in
-	// the family's sibling consumers.
-	if category != "" && demandCategoryIsIntermediate(category) && demandCategoryMatchesStageOutput(category, stages) {
+	// the family's sibling consumers. A graph-backed chain already walked the
+	// downstream products, and a graph-supplied category means the graph owns the
+	// plan, so the downstep only runs for a model-planned chain.
+	graphPlanned := graphBacked || categorySource == string(pathOntology) || categorySource == string(pathAlias)
+	if !graphPlanned && category != "" && demandCategoryIsIntermediate(category) && demandCategoryMatchesStageOutput(category, stages) {
 		downstep, downstepWarnings := a.inferCategoryDownstep(ctx, query.Activity, category, stages, eventCh)
 		for _, stage := range downstep {
 			if len(stages) >= demandMaxStages {

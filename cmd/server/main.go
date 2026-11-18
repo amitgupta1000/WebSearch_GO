@@ -42,6 +42,10 @@ type Server struct {
 	demandAgent  *agent.DemandChainAgent
 	newsAgent    *agent.NewsAgent
 	deepAgent    *agent.DeepSearchAgent
+	// engine is kept for the resolution API: the landscape agents hold it privately,
+	// and the ontology endpoint answers "which path would this activity take?"
+	// without starting a run.
+	engine       *agent.Engine
 	rocketReach  *tools.RocketReachClient
 	// rocketReachCache memoises the paid on-demand lookups by RocketReach profile ID so a
 	// repeated Fetch RR click does not spend another credit. Guarded by rocketReachMu.
@@ -390,6 +394,7 @@ func main() {
 		relatedAgent:       relatedAgent,
 		marketAgent:        marketAgent,
 		demandAgent:        demandAgent,
+		engine:             eng,
 		newsAgent:          newsAgent,
 		deepAgent:          deepAgent,
 		rocketReach:        rocketReachClient,
@@ -409,6 +414,9 @@ func main() {
 	mux.HandleFunc("POST /api/market-landscape/company-research", srv.handleCompanyResearchLaunch)
 	mux.HandleFunc("POST /api/resolve-entity", srv.handleResolveEntity)
 	mux.HandleFunc("POST /api/resolve-person", srv.handleResolvePerson)
+	// Resolution API: which research path an activity takes before any run spends
+	// a search. Same code path the Seller and Buyer Landscape modes start with.
+	mux.HandleFunc("POST /api/ontology/resolve", srv.handleOntologyResolve)
 	mux.HandleFunc("POST /api/rerun", srv.handleRerun)
 	mux.HandleFunc("POST /api/question", srv.handleQuestion)
 	mux.HandleFunc("GET /api/company-roster.csv", srv.handleCompanyRosterCSV)

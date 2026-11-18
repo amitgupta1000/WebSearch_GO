@@ -18,6 +18,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // SchemaVersion is the document contract. A file declaring another version is
@@ -216,6 +217,22 @@ func LoadFile(path string) (*Ontology, error) {
 	document.Corrections = nil
 	return document, nil
 }
+
+// Shared returns the embedded document loaded and linted once per process. The
+// document is read-only at runtime (resolution never mutates it), so one copy
+// serves every run.
+func Shared() (*Ontology, error) {
+	sharedOnce.Do(func() {
+		sharedDoc, sharedErr = Load()
+	})
+	return sharedDoc, sharedErr
+}
+
+var (
+	sharedOnce sync.Once
+	sharedDoc  *Ontology
+	sharedErr  error
+)
 
 // LoadFileRaw decodes a document without applying its corrections. It is how a
 // corrections-only patch is read: a patch cannot be applied to itself, so Merge

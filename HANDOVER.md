@@ -6,11 +6,51 @@
 - Latest commits: the "trade based search made explicit" series (`a2a8a5b` and the docs commit
   that carries this file) â€” see `git log --oneline -5` for the exact chain.
 - Worktree clean after the docs commit.
-- Full Go suite: **634 tests passing, 0 failing** (`go test ./... -count=1`), `go vet` and
+- Full Go suite: **734 tests passing, 0 failing** (`go test ./... -count=1`), `go vet` and
   `go build` clean.
 - Live-verified this session: three full Buyer Landscape (`demand_chain`) runs on the sample
   query `"n-butanol" "India"` (`TestDemandChainLive`, deep budget). The run logs were removed
   from the repo in the 2026-11-17 artifacts cleanup; artifacts under `%TEMP%\crystal-live-nbutanol*`.
+
+## 2026-11-18 — ontology wired into both landscape modes + resolution API
+
+The graph now drives the research path in the Seller and Buyer Landscapes, behind one
+three-branch resolution (`internal/agent/activity_resolution.go`):
+
+1. **Graph match** — the family supplies the category and its lanes, the graph's indexed
+   phrases join the discovery terms, and the buyer mode receives the consuming stages as
+   prompt guidance. No inference call is spent on the category.
+2. **Alias match** — when the graph does not know the wording, one constrained model call may
+   map it onto an **approved** node ID (`high`/`medium` only; unknown or unapproved IDs and
+   `low` confidence are refused). The run then proceeds as branch 1, and the report records the
+   mapping and rationale so curation can add the alias.
+3. **Unmodelled** — the model plans the path as before and the report warns that the activity
+   is unmodelled.
+
+- Seller mode: `marketCategoryFromResolution` takes the graph category (with a rationale
+  explaining the ranked variants), `chooseOntologyFamily` lets the model pick among the listed
+  variants using the requested geography (out-of-list answers keep the rank order), and
+  `marketDiscoverySearchesWithTerms` adds up to two graph phrases per lane budget.
+- Buyer mode: `demandStagesFromOntology` maps the graph (derivative products → "X production"
+  stages, end products → their `operator_phrases`, processes → their `search_terms`) and
+  `demandOntologyGuidance` injects them into the inference prompt. The model's stages still
+  lead; the graph's stages replace a failed/empty inference. The buyer's category fallback is
+  the **consuming** family (`downstreamCategory`), and the downstep is skipped when the graph
+  supplied the category or the chain (the graph already walked two hops).
+- API surface: `agent.ResolveActivity` / `ResolveActivityAgainst` (typed view with path,
+  families, lanes, stages, warnings), `POST /api/ontology/resolve` (JSON in/out, no run, no
+  search), and `go run ./cmd/ontology explain -activity … [-mode buyer] [-json]`.
+- Verified end-to-end at the plan level: `explain -activity "oil blending"` → path `ontology`,
+  category `Lubricants`, lanes `Lubricants manufacturers` / `Lubricants companies`, ranked
+  variants Lubricants > Fuel oils > Crude oil > Oleochemical feedstocks. `n-butanol` buyer →
+  stages Butyl acrylate/acetate/DBP/glycol ether production, Esterification, Ethoxylation,
+  Adhesives and sealants; buyer category `Acrylates`.
+- Tests: the resolution branches (match / alias / weak-alias refusal / unmodelled), the
+  candidate-list budget, the variant choice, the graph→stage mapping, the API view, the seller
+  ontology category path, the unmodelled seller fallback, the buyer graph-backed failure path,
+  and the endpoint (200/400). Full suite green.
+- Still table-driven: the trade-DB product/HS scoping and the legacy category tables remain as
+  the unmodelled branch's fallbacks.
 
 ## 2026-11-18 — review accepted: ontology approved, runtime gate on
 
