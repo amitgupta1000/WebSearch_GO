@@ -1,0 +1,245 @@
+// Command ontology drives the chemical value-chain review roundtrip:
+//
+//	go run ./cmd/ontology lint   -file internal/ontology/data/chemicals.json
+//	go run ./cmd/ontology emit   -file internal/ontology/data/chemicals.json -out internal/ontology/data/chemicals.json
+//	go run ./cmd/ontology review -file internal/ontology/data/chemicals.json -out internal/ontology/data/REVIEW.md
+//	go run ./cmd/ontology merge  -base data/chemicals.json -patch curated.json -out data/chemicals.json
+//	go run ./cmd/ontology diff   -before data/chemicals.json -after curated.json
+//	go run ./cmd/ontology harvest -out data/harvest.json
+//
+// Nothing here invents chemistry: the commands validate, serialise and merge the
+// JSON document a domain expert curates.
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/amitgupta1000/WebSearch_GO/internal/config"
+	"github.com/amitgupta1000/WebSearch_GO/internal/ontology"
+	"github.com/amitgupta1000/WebSearch_GO/internal/tools"
+)
+
+const usage = `usage: ontology <command> [flags]
+
+  lint    -file PATH                     validate the document; exit 2 on errors
+  emit    [-file PATH] [-out PATH]       write the canonical, deterministic JSON
+  review  [-file PATH] [-out PATH]       write the domain reviewer's worksheet
+  merge   -base PATH -patch PATH [-out PATH]
+                                         fold a curated file/patch onto the base
+  diff    -before PATH -after PATH       list added/removed/changed nodes
+  harvest [-file PATH] [-out PATH]       trade DB canonical names as proposed substances
+`
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Fprint(os.Stderr, usage)
+		os.Exit(2)
+	}
+	var err error
+	switch os.Args[1] {
+	case "lint":
+		err = runLint(os.Args[2:])
+	case "emit":
+		err = runEmit(os.Args[2:])
+	case "review":
+		err = runReview(os.Args[2:])
+	case "merge":
+		err = runMerge(os.Args[2:])
+	case "diff":
+		err = runDiff(os.Args[2:])
+	case "harvest":
+		err = runHarvest(os.Args[2:])
+	case "-h", "--help", "help":
+		fmt.Print(usage)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", os.Args[1], usage)
+		os.Exit(2)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
+func load(path string) (*ontology.Ontology, error) {
+	if strings.TrimSpace(path) == "" {
+		return ontology.Seed()
+	}
+	return ontology.LoadFile(path)
+}
+
+func write(content []byte, out string) error {
+	if strings.TrimSpace(out) == "" {
+		_, err := os.Stdout.Write(content)
+		return err
+	}
+	return os.WriteFile(out, content, 0o644)
+}
+
+func runLint(args []string) error {
+	set := flag.NewFlagSet("lint", flag.ExitOnError)
+	file := set.String("file", "", "document to lint (default: embedded seed)")
+	out := set.String("out", "", "write the markdown lint report here instead of the console summary")
+	_ = set.Parse(args)
+	document, err := load(*file)
+	if err != nil {
+		return err
+	}
+	issues := ontology.SortedIssues(ontology.Lint(document))
+	errors := 0
+	for _, issue := range issues {
+		if issue.Severity == ontology.SeverityError {
+			errors++
+		}
+	}
+	if *out != "" {
+		if err := write([]byte(ontology.IssuesMarkdown(document, issues)), *out); err != nil {
+			return err
+		}
+		fmt.Printf("%d node(s), %d issue(s), %d error(s) → %s\n", len(document.Nodes), len(issues), errors, *out)
+		if errors > 0 {
+			os.Exit(2)
+		}
+		return nil
+	}
+	for _, issue := range issues {
+		fmt.Println(issue.String())
+	}
+	fmt.Printf("%d node(s), %d issue(s), %d error(s)\n", len(document.Nodes), len(issues), errors)
+	if errors > 0 {
+		os.Exit(2)
+	}
+	return nil
+}
+
+func runEmit(args []string) error {
+	set := flag.NewFlagSet("emit", flag.ExitOnError)
+	file := set.String("file", "", "document to read (default: embedded seed)")
+	out := set.String("out", "", "write to this path instead of stdout")
+	_ = set.Parse(args)
+	document, err := load(*file)
+	if err != nil {
+		return err
+	}
+	raw, err := ontology.Marshal(document)
+	if err != nil {
+		return err
+	}
+	return write(raw, *out)
+}
+
+func runReview(args []string) error {
+	set := flag.NewFlagSet("review", flag.ExitOnError)
+	file := set.String("file", "", "document to review (default: embedded seed)")
+	out := set.String("out", "", "write to this path instead of stdout")
+	_ = set.Parse(args)
+	document, err := load(*file)
+	if err != nil {
+		return err
+	}
+	return write([]byte(ontology.ReviewMarkdown(document)), *out)
+}
+
+func runMerge(args []string) error {
+	set := flag.NewFlagSet("merge", flag.ExitOnError)
+	basePath := set.String("base", "", "reviewed base document")
+	patchPath := set.String("patch", "", "curated file or corrections-only patch")
+	out := set.String("out", "", "write the merged document here (default: stdout)")
+	_ = set.Parse(args)
+	if *basePath == "" || *patchPath == "" {
+		return fmt.Errorf("merge needs -base and -patch")
+	}
+	base, err := ontology.LoadFile(*basePath)
+	if err != nil {
+		return err
+	}
+	patch, err := ontology.LoadFileRaw(*patchPath)
+	if err != nil {
+		return err
+	}
+	merged, err := ontology.Merge(base, patch)
+	if err != nil {
+		return err
+	}
+	raw, err := ontology.Marshal(merged)
+	if err != nil {
+		return err
+	}
+	if err := write(raw, *out); err != nil {
+		return err
+	}
+	for _, issue := range ontology.SortedIssues(ontology.Lint(merged)) {
+		if issue.Severity == ontology.SeverityError {
+			fmt.Fprintln(os.Stderr, "lint:", issue.String())
+		}
+	}
+	return nil
+}
+
+func runDiff(args []string) error {
+	set := flag.NewFlagSet("diff", flag.ExitOnError)
+	beforePath := set.String("before", "", "document that was submitted")
+	afterPath := set.String("after", "", "document that came back")
+	_ = set.Parse(args)
+	if *beforePath == "" || *afterPath == "" {
+		return fmt.Errorf("diff needs -before and -after")
+	}
+	before, err := ontology.LoadFile(*beforePath)
+	if err != nil {
+		return err
+	}
+	after, err := ontology.LoadFileRaw(*afterPath)
+	if err != nil {
+		return err
+	}
+	// A corrections-only return is comparable only after it is applied to the
+	// submitted document; a full-file return is already the edited document.
+	if len(after.Corrections) > 0 {
+		merged, err := ontology.Merge(before, after)
+		if err != nil {
+			return err
+		}
+		after = merged
+	}
+	fmt.Print(ontology.Diff(before, after))
+	return nil
+}
+
+func runHarvest(args []string) error {
+	set := flag.NewFlagSet("harvest", flag.ExitOnError)
+	file := set.String("file", "", "base document to reconcile against (default: embedded seed)")
+	out := set.String("out", "", "write the corrections document here (default: stdout)")
+	_ = set.Parse(args)
+	base, err := load(*file)
+	if err != nil {
+		return err
+	}
+	cfg := config.Load()
+	if strings.TrimSpace(cfg.TradeDBAPIURL) == "" {
+		return fmt.Errorf("TRADE_DB_API_URL is not set, so the canonical product vocabulary cannot be harvested")
+	}
+	client := tools.NewTradeDBClient(cfg.TradeDBAPIURL, cfg.TradeDBTimeout, cfg.TradeDBConcurrency)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	options, err := client.FilterOptions(ctx)
+	if err != nil {
+		return fmt.Errorf("trade DB filters: %w", err)
+	}
+	corrections, skipped := ontology.Harvest(base, options.CanonicalProductNames)
+	document := ontology.HarvestDocument("", corrections)
+	raw, err := ontology.Marshal(document)
+	if err != nil {
+		return err
+	}
+	if err := write(raw, *out); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "harvested %d new substance(s); %d name(s) already covered\n", len(corrections), len(skipped))
+	return nil
+}
+

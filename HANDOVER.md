@@ -12,6 +12,50 @@
   query `"n-butanol" "India"` (`TestDemandChainLive`, deep budget). The run logs were removed
   from the repo in the 2026-11-17 artifacts cleanup; artifacts under `%TEMP%\crystal-live-nbutanol*`.
 
+## 2026-11-18 — chemical value-chain ontology (build-out)
+
+The repeated failure mode — a shared word picking a product family ("oil" → oleochemicals, then
+searched) — is being replaced by a curated graph. Everything below is additive: nothing in the
+agent reads the graph yet, so runtime behaviour is unchanged until the curated document lands.
+
+- **`internal/ontology/`** — the document is the single source of truth (embedded
+  `data/chemicals.json`, strict decode, schema version, unknown fields rejected). Four node kinds:
+  `substance` (canonical names, aliases, HS codes), `category` (nested petrochemical /
+  oleochemical / inorganic families), `process` (blending, refining, esterification,
+  transesterification, chlor-alkali, …) and `end-product` (the value-chain leaves whose
+  `operator_phrases` drive company discovery). Edges: `parent`, `categories`, `derived_to`,
+  `consumed_in`, `operates_on`/`produces`, `consumes`, plus `hypernym`/`hyponyms` for ambiguity.
+  Any node can be marked `proposed`, `approved` or `rejected`, with `source` (`seed`/`hs`/`echa`/
+  `trade-db`/`operator`), `confidence` and `expert_note`.
+- **Seed document** — 134 nodes (69 substances, 39 categories, 13 processes, 13 end-products), all
+  `proposed`/`seed`. `cat:oils` is the hypernym with ranked variants
+  (lubricants > fuel oils > crude oil > oleochemical feedstocks), so "oil blending" can never
+  silently become oleochemicals again. 9 warnings remain, all real (shared HS headings, three
+  products without an HS code, a process with no declared output).
+- **Review roundtrip** — `cmd/ontology`:
+  `review` (worksheet), `lint` (errors block a load, warnings are the work queue), `emit`
+  (deterministic JSON), `merge` (curated file *or* corrections-only patch, auditable),
+  `diff` (what the reviewer changed) and `harvest` (trade-DB canonical names as proposed
+  substances; needs `TRADE_DB_API_URL`). Artifacts: `data/REVIEW.md`, `data/LINT.md`.
+- **API surface** — `Resolve` returns matches, processes, ranked families with reasons
+  (`subject`/`hypernym`/`category`/`downstream`/`process-output`), downstream end-product leaves
+  with hop distance, and indexed search terms; `Oil Blending` now yields lubricants first with the
+  variants ranked, `fuel oil blending` yields fuel oils, `crude oil blending` yields crude oil,
+  `used cooking oil` yields oleochemical feedstocks, and `ABP` yields an explicit "unmodelled"
+  warning instead of a guess. `Subgraph` produces the bounded JSON lexicon a prompt may reference;
+  `Expand(downstream|upstream)` replaces the hand-written consumer/direct-input tables;
+  `CanonicalTradeMatch` bridges the trade DB's standardized names. `Options{RequireApproved}`
+  is the post-curation gate.
+- **Docs/tests** — `docs/ONTOLOGY.md` (schema, edges, roundtrip, API). 15 new tests: seed lint,
+  corrections/merge/diff, strict decode, deterministic emit, harvest, lint faults (dangling refs,
+  kind mismatch, duplicate entry names, cycles, rejected references, ID prefixes), resolution
+  cases, subgraph bounds, both expansion directions, canonical matching. Full suite, `go vet` and
+  `go build` clean.
+
+Next: the curated document comes back → `merge`/`diff` → wire the call sites (category fallback and
+gate, oil families, stage/category rules, consumer and direct-input tables, activity search terms,
+trade-DB product/HS scoping) and turn on `RequireApproved`.
+
 ## 2026-11-17 — trade-DB geography and seller role vocabulary
 
 Two operator reports from the same review:

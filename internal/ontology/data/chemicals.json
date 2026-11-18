@@ -1,0 +1,2346 @@
+{
+  "schema_version": 1,
+  "revision": "seed-2026-11-18",
+  "notes": "Seed value chain authored from the in-repo chemistry vocabulary, the petrochemical family skeleton and customs nomenclature. Every node is status=proposed with source=seed: no relation here has been confirmed by a domain expert yet. Return the edited file or a corrections block.",
+  "nodes": {
+    "cat:acetates": {
+      "kind": "category",
+      "label": "Acetates",
+      "aliases": [
+        "acetate"
+      ],
+      "parent": "cat:esters",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:acids": {
+      "kind": "category",
+      "label": "Inorganic acids",
+      "aliases": [
+        "inorganic acid"
+      ],
+      "parent": "cat:inorganics",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:acrylates": {
+      "kind": "category",
+      "label": "Acrylates",
+      "aliases": [
+        "acrylate",
+        "acrylics"
+      ],
+      "parent": "cat:esters",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:alcohol-solvents": {
+      "kind": "category",
+      "label": "Alcohol solvents",
+      "aliases": [
+        "alcohol solvent"
+      ],
+      "parent": "cat:solvents",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:alkalis": {
+      "kind": "category",
+      "label": "Alkalis",
+      "aliases": [
+        "alkali"
+      ],
+      "parent": "cat:inorganics",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:amines": {
+      "kind": "category",
+      "label": "Amines",
+      "aliases": [
+        "amine"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:anionic-surfactants": {
+      "kind": "category",
+      "label": "Anionic surfactants",
+      "aliases": [
+        "anionic surfactant"
+      ],
+      "parent": "cat:surfactants",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:aromatic-solvents": {
+      "kind": "category",
+      "label": "Aromatic solvents",
+      "parent": "cat:solvents",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "cat:aromatics": {
+      "kind": "category",
+      "label": "Aromatics",
+      "aliases": [
+        "aromatic"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:base-oils": {
+      "kind": "category",
+      "label": "Base oils",
+      "aliases": [
+        "lubricant base oil",
+        "base stocks"
+      ],
+      "parent": "cat:lubricants",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:biodiesel": {
+      "kind": "category",
+      "label": "Biodiesel",
+      "aliases": [
+        "fame",
+        "fatty acid methyl ester"
+      ],
+      "parent": "cat:oleochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:chemicals": {
+      "kind": "category",
+      "label": "Chemicals",
+      "aliases": [
+        "chemical"
+      ],
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:coal-products": {
+      "kind": "category",
+      "label": "Coal products",
+      "aliases": [
+        "coal product",
+        "coke"
+      ],
+      "parent": "cat:chemicals",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:epoxies": {
+      "kind": "category",
+      "label": "Epoxy resins",
+      "aliases": [
+        "epoxy systems"
+      ],
+      "parent": "cat:polymers",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:ester-solvents": {
+      "kind": "category",
+      "label": "Ester solvents",
+      "aliases": [
+        "ester solvent"
+      ],
+      "parent": "cat:solvents",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:esters": {
+      "kind": "category",
+      "label": "Esters",
+      "aliases": [
+        "ester"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:fatty-acids": {
+      "kind": "category",
+      "label": "Fatty acids",
+      "aliases": [
+        "fatty acid",
+        "stearic acid",
+        "oleic acid"
+      ],
+      "hs_codes": [
+        "3823.11"
+      ],
+      "parent": "cat:oleochemicals",
+      "consumed_in": [
+        "end:soap",
+        "end:greases"
+      ],
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:finished-lubricants": {
+      "kind": "category",
+      "label": "Finished lubricants",
+      "aliases": [
+        "finished lubricant",
+        "lubricating oil"
+      ],
+      "parent": "cat:lubricants",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:fuel-oils": {
+      "kind": "category",
+      "label": "Fuel oils",
+      "aliases": [
+        "marine fuel"
+      ],
+      "parent": "cat:petrochemicals",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:glycol-ethers": {
+      "kind": "category",
+      "label": "Glycol ethers",
+      "aliases": [
+        "glycol ether"
+      ],
+      "parent": "cat:solvents",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:glycols": {
+      "kind": "category",
+      "label": "Glycols",
+      "aliases": [
+        "glycol"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:inorganics": {
+      "kind": "category",
+      "label": "Inorganics",
+      "aliases": [
+        "inorganic chemicals"
+      ],
+      "parent": "cat:chemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:isocyanates": {
+      "kind": "category",
+      "label": "Isocyanates",
+      "aliases": [
+        "isocyanate"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:ketones": {
+      "kind": "category",
+      "label": "Ketones",
+      "aliases": [
+        "ketone"
+      ],
+      "parent": "cat:solvents",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:lubricants": {
+      "kind": "category",
+      "label": "Lubricants",
+      "aliases": [
+        "lubricant"
+      ],
+      "parent": "cat:petrochemicals",
+      "consumed_in": [
+        "end:greases",
+        "end:metalworking-fluids"
+      ],
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:nonionic-surfactants": {
+      "kind": "category",
+      "label": "Nonionic surfactants",
+      "aliases": [
+        "nonionic surfactant"
+      ],
+      "parent": "cat:surfactants",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:oils": {
+      "kind": "category",
+      "label": "Oils",
+      "aliases": [
+        "oil"
+      ],
+      "parent": "cat:chemicals",
+      "hypernym": true,
+      "hyponyms": [
+        "cat:lubricants",
+        "cat:fuel-oils",
+        "sub:crude-oil",
+        "cat:oleochemical-feedstocks"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:olefins": {
+      "kind": "category",
+      "label": "Olefins",
+      "aliases": [
+        "alkenes",
+        "olefin"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:oleochemical-feedstocks": {
+      "kind": "category",
+      "label": "Oleochemical feedstocks",
+      "aliases": [
+        "vegetable oil",
+        "vegetable oils",
+        "edible oil",
+        "feedstock oil"
+      ],
+      "parent": "cat:oleochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:oleochemicals": {
+      "kind": "category",
+      "label": "Oleochemicals",
+      "aliases": [
+        "oleochemical",
+        "fatty chemicals"
+      ],
+      "parent": "cat:chemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:petrochemicals": {
+      "kind": "category",
+      "label": "Petrochemicals",
+      "aliases": [
+        "petrochemical"
+      ],
+      "parent": "cat:chemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:plasticizers": {
+      "kind": "category",
+      "label": "Plasticizers",
+      "aliases": [
+        "plasticizer",
+        "phthalates"
+      ],
+      "parent": "cat:esters",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:polymers": {
+      "kind": "category",
+      "label": "Polymers and resins",
+      "aliases": [
+        "polymer",
+        "resin",
+        "resins"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:polyolefins": {
+      "kind": "category",
+      "label": "Polyolefins",
+      "aliases": [
+        "polyolefin"
+      ],
+      "parent": "cat:polymers",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:polyurethanes": {
+      "kind": "category",
+      "label": "Polyurethanes",
+      "aliases": [
+        "polyurethane",
+        "pu"
+      ],
+      "parent": "cat:polymers",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:pvc": {
+      "kind": "category",
+      "label": "PVC",
+      "aliases": [
+        "polyvinyl chloride"
+      ],
+      "parent": "cat:polymers",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:soap": {
+      "kind": "category",
+      "label": "Soap",
+      "aliases": [
+        "soap noodles",
+        "toilet soap base"
+      ],
+      "parent": "cat:oleochemicals",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:solvents": {
+      "kind": "category",
+      "label": "Solvents",
+      "aliases": [
+        "solvent"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:surfactants": {
+      "kind": "category",
+      "label": "Surfactants",
+      "aliases": [
+        "surfactant"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:adhesives-sealants": {
+      "kind": "end-product",
+      "label": "Adhesives and sealants",
+      "aliases": [
+        "adhesive",
+        "sealant"
+      ],
+      "consumes": [
+        "cat:solvents",
+        "sub:butyl-acrylate",
+        "sub:mdi"
+      ],
+      "operator_phrases": [
+        "adhesive manufacturer",
+        "sealant manufacturer",
+        "adhesive plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:biodiesel-blend": {
+      "kind": "end-product",
+      "label": "Biodiesel blending",
+      "aliases": [
+        "biodiesel blend",
+        "fuel blending"
+      ],
+      "consumes": [
+        "cat:biodiesel"
+      ],
+      "operator_phrases": [
+        "biodiesel blender",
+        "fuel blending terminal",
+        "biodiesel supplier"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:cable-wire": {
+      "kind": "end-product",
+      "label": "Cable and wire",
+      "aliases": [
+        "cable",
+        "wire and cable"
+      ],
+      "consumes": [
+        "sub:pvc-resin",
+        "cat:plasticizers"
+      ],
+      "operator_phrases": [
+        "cable manufacturer",
+        "wire and cable plant",
+        "cable compound producer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:detergents": {
+      "kind": "end-product",
+      "label": "Detergents",
+      "aliases": [
+        "detergent",
+        "home care"
+      ],
+      "consumes": [
+        "sub:labsa",
+        "cat:surfactants"
+      ],
+      "operator_phrases": [
+        "detergent manufacturer",
+        "detergent plant",
+        "home care manufacturer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:flexible-pu-foam": {
+      "kind": "end-product",
+      "label": "Flexible PU foam",
+      "aliases": [
+        "flexible foam",
+        "pu foam"
+      ],
+      "consumes": [
+        "sub:toluene-diisocyanate",
+        "sub:polyether-polyol"
+      ],
+      "operator_phrases": [
+        "flexible foam manufacturer",
+        "pu foam plant",
+        "mattress foam producer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:greases": {
+      "kind": "end-product",
+      "label": "Greases",
+      "aliases": [
+        "grease"
+      ],
+      "consumes": [
+        "sub:base-oil",
+        "cat:fatty-acids"
+      ],
+      "operator_phrases": [
+        "grease manufacturer",
+        "grease plant",
+        "lubricating grease producer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:metalworking-fluids": {
+      "kind": "end-product",
+      "label": "Metalworking fluids",
+      "aliases": [
+        "cutting fluids",
+        "coolants"
+      ],
+      "consumes": [
+        "sub:base-oil",
+        "cat:esters"
+      ],
+      "operator_phrases": [
+        "metalworking fluid manufacturer",
+        "cutting fluid plant",
+        "coolant manufacturer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:paints-coatings": {
+      "kind": "end-product",
+      "label": "Paints and coatings",
+      "aliases": [
+        "paint",
+        "coatings"
+      ],
+      "consumes": [
+        "cat:solvents",
+        "sub:titanium-dioxide",
+        "sub:epoxy-resin",
+        "sub:butyl-acrylate"
+      ],
+      "operator_phrases": [
+        "paint manufacturer",
+        "coatings manufacturer",
+        "paint factory",
+        "industrial coatings plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:personal-care": {
+      "kind": "end-product",
+      "label": "Personal care products",
+      "aliases": [
+        "personal care",
+        "cosmetics"
+      ],
+      "consumes": [
+        "sub:glycerin",
+        "cat:surfactants"
+      ],
+      "operator_phrases": [
+        "personal care manufacturer",
+        "cosmetic ingredient supplier",
+        "toiletries plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "end:pvc-compound": {
+      "kind": "end-product",
+      "label": "PVC compounding",
+      "aliases": [
+        "pvc compound",
+        "pvc compounds"
+      ],
+      "consumes": [
+        "sub:pvc-resin",
+        "cat:plasticizers"
+      ],
+      "operator_phrases": [
+        "pvc compound manufacturer",
+        "pvc compounder",
+        "masterbatch plant",
+        "cable compound manufacturer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:rigid-pu-foam": {
+      "kind": "end-product",
+      "label": "Rigid PU foam",
+      "aliases": [
+        "rigid foam",
+        "insulation foam"
+      ],
+      "consumes": [
+        "sub:mdi",
+        "sub:polyether-polyol"
+      ],
+      "operator_phrases": [
+        "rigid foam manufacturer",
+        "insulation panel manufacturer",
+        "pu insulation plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:soap": {
+      "kind": "end-product",
+      "label": "Soap manufacturing",
+      "aliases": [
+        "soap producer",
+        "soap plant"
+      ],
+      "consumes": [
+        "cat:fatty-acids",
+        "sub:caustic-soda"
+      ],
+      "operator_phrases": [
+        "soap manufacturer",
+        "soap plant",
+        "toilet soap producer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:superabsorbent-polymer": {
+      "kind": "end-product",
+      "label": "Superabsorbent polymer",
+      "aliases": [
+        "sap"
+      ],
+      "consumes": [
+        "sub:acrylic-acid"
+      ],
+      "operator_phrases": [
+        "superabsorbent polymer manufacturer",
+        "sap plant",
+        "hygiene absorbent manufacturer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "proc:blending": {
+      "kind": "process",
+      "label": "Blending",
+      "aliases": [
+        "blend"
+      ],
+      "operates_on": [
+        "cat:oils"
+      ],
+      "produces": [
+        "cat:lubricants",
+        "cat:fuel-oils"
+      ],
+      "search_terms": [
+        "oil blending",
+        "lubricant blending",
+        "fuel oil blending",
+        "crude oil blending",
+        "blending plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "proc:chlor-alkali": {
+      "kind": "process",
+      "label": "Chlor-alkali electrolysis",
+      "aliases": [
+        "chlor alkali",
+        "membrane cell"
+      ],
+      "operates_on": [
+        "sub:salt"
+      ],
+      "produces": [
+        "sub:chlorine",
+        "sub:caustic-soda"
+      ],
+      "search_terms": [
+        "chlor alkali plant",
+        "caustic soda plant",
+        "chlorine producer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "proc:compounding": {
+      "kind": "process",
+      "label": "Compounding",
+      "aliases": [
+        "compound"
+      ],
+      "operates_on": [
+        "sub:pvc-resin",
+        "cat:plasticizers"
+      ],
+      "produces": [
+        "end:pvc-compound"
+      ],
+      "search_terms": [
+        "pvc compounding",
+        "compound plant",
+        "masterbatch producer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "proc:cracking": {
+      "kind": "process",
+      "label": "Steam cracking",
+      "aliases": [
+        "steam cracker",
+        "cracking"
+      ],
+      "operates_on": [
+        "sub:naphtha"
+      ],
+      "produces": [
+        "sub:ethylene",
+        "sub:propylene"
+      ],
+      "search_terms": [
+        "steam cracker",
+        "cracker plant",
+        "olefin plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "proc:distillation": {
+      "kind": "process",
+      "label": "Distillation",
+      "aliases": [
+        "fractionation"
+      ],
+      "operates_on": [
+        "cat:petrochemicals"
+      ],
+      "search_terms": [
+        "distillation plant",
+        "fractionation plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "proc:esterification": {
+      "kind": "process",
+      "label": "Esterification",
+      "aliases": [
+        "esterify"
+      ],
+      "operates_on": [
+        "sub:phthalic-anhydride",
+        "sub:n-butanol",
+        "sub:methanol"
+      ],
+      "produces": [
+        "cat:esters"
+      ],
+      "search_terms": [
+        "esterification plant",
+        "ester plant",
+        "esterification unit"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "proc:formulation": {
+      "kind": "process",
+      "label": "Formulation and blending",
+      "aliases": [
+        "formulate"
+      ],
+      "operates_on": [
+        "cat:solvents",
+        "cat:surfactants"
+      ],
+      "produces": [
+        "end:paints-coatings",
+        "end:detergents"
+      ],
+      "search_terms": [
+        "formulation plant",
+        "blending and filling plant",
+        "contract manufacturer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "proc:hydrodealkylation": {
+      "kind": "process",
+      "label": "Hydrodealkylation",
+      "aliases": [
+        "hda"
+      ],
+      "operates_on": [
+        "sub:toluene"
+      ],
+      "produces": [
+        "sub:benzene"
+      ],
+      "search_terms": [
+        "hda unit",
+        "benzene plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "proc:hydrogenation": {
+      "kind": "process",
+      "label": "Hydrogenation",
+      "operates_on": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "produces": [
+        "cat:fatty-acids"
+      ],
+      "search_terms": [
+        "hydrogenation plant",
+        "fatty alcohol plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "proc:polymerization": {
+      "kind": "process",
+      "label": "Polymerization",
+      "aliases": [
+        "polymerisation",
+        "polymerize"
+      ],
+      "operates_on": [
+        "sub:ethylene",
+        "sub:propylene",
+        "sub:acrylic-acid",
+        "sub:vinyl-chloride"
+      ],
+      "produces": [
+        "cat:polymers"
+      ],
+      "search_terms": [
+        "polymer plant",
+        "polymerization plant",
+        "resin plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "proc:refining": {
+      "kind": "process",
+      "label": "Refining",
+      "aliases": [
+        "refine",
+        "oil refining"
+      ],
+      "operates_on": [
+        "sub:crude-oil"
+      ],
+      "produces": [
+        "cat:fuel-oils",
+        "cat:base-oils",
+        "sub:naphtha"
+      ],
+      "search_terms": [
+        "oil refinery",
+        "crude oil refining",
+        "refinery operator"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "proc:sulphonation": {
+      "kind": "process",
+      "label": "Sulphonation",
+      "aliases": [
+        "sulfonation"
+      ],
+      "operates_on": [
+        "sub:linear-alkylbenzene"
+      ],
+      "produces": [
+        "sub:labsa"
+      ],
+      "search_terms": [
+        "sulphonation plant",
+        "labsa plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "proc:transesterification": {
+      "kind": "process",
+      "label": "Transesterification",
+      "aliases": [
+        "transesterify"
+      ],
+      "operates_on": [
+        "sub:palm-oil",
+        "sub:used-cooking-oil",
+        "sub:tallow"
+      ],
+      "produces": [
+        "cat:biodiesel",
+        "sub:glycerin"
+      ],
+      "search_terms": [
+        "biodiesel plant",
+        "transesterification plant",
+        "biodiesel refinery"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:acetone": {
+      "kind": "substance",
+      "label": "Acetone",
+      "aliases": [
+        "propanone"
+      ],
+      "hs_codes": [
+        "2914.11"
+      ],
+      "categories": [
+        "cat:ketones"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:acrylic-acid": {
+      "kind": "substance",
+      "label": "Acrylic acid",
+      "aliases": [
+        "prop-2-enoic acid"
+      ],
+      "hs_codes": [
+        "2916.11"
+      ],
+      "categories": [
+        "cat:acrylates"
+      ],
+      "derived_to": [
+        "sub:butyl-acrylate"
+      ],
+      "consumed_in": [
+        "proc:polymerization"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:ammonia": {
+      "kind": "substance",
+      "label": "Ammonia",
+      "hs_codes": [
+        "2814.10"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:aniline": {
+      "kind": "substance",
+      "label": "Aniline",
+      "aliases": [
+        "aminobenzene"
+      ],
+      "hs_codes": [
+        "2921.41"
+      ],
+      "categories": [
+        "cat:amines"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:base-oil": {
+      "kind": "substance",
+      "label": "Base oil",
+      "aliases": [
+        "base stock",
+        "group i base oil",
+        "group ii base oil"
+      ],
+      "hs_codes": [
+        "2710.19"
+      ],
+      "categories": [
+        "cat:base-oils"
+      ],
+      "consumed_in": [
+        "proc:blending",
+        "end:greases",
+        "end:metalworking-fluids"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:benzene": {
+      "kind": "substance",
+      "label": "Benzene",
+      "aliases": [
+        "benzol"
+      ],
+      "hs_codes": [
+        "2902.20"
+      ],
+      "categories": [
+        "cat:aromatics",
+        "cat:aromatic-solvents"
+      ],
+      "derived_to": [
+        "sub:ethylbenzene",
+        "sub:cumene",
+        "sub:linear-alkylbenzene"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:butadiene": {
+      "kind": "substance",
+      "label": "Butadiene",
+      "aliases": [
+        "1 3 butadiene"
+      ],
+      "hs_codes": [
+        "2901.24"
+      ],
+      "categories": [
+        "cat:olefins"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:butyl-acetate": {
+      "kind": "substance",
+      "label": "Butyl acetate",
+      "hs_codes": [
+        "2915.33"
+      ],
+      "categories": [
+        "cat:acetates",
+        "cat:ester-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:butyl-acrylate": {
+      "kind": "substance",
+      "label": "Butyl acrylate",
+      "hs_codes": [
+        "2916.12"
+      ],
+      "categories": [
+        "cat:acrylates"
+      ],
+      "consumed_in": [
+        "end:adhesives-sealants",
+        "end:paints-coatings"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:butyl-glycol-ether": {
+      "kind": "substance",
+      "label": "Butyl glycol ether",
+      "aliases": [
+        "ebutyl glycol",
+        "ethylene glycol monobutyl ether"
+      ],
+      "hs_codes": [
+        "2909.43"
+      ],
+      "categories": [
+        "cat:glycol-ethers"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "sub:carbon-black": {
+      "kind": "substance",
+      "label": "Carbon black",
+      "hs_codes": [
+        "2803.00"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:caustic-soda": {
+      "kind": "substance",
+      "label": "Caustic soda",
+      "aliases": [
+        "sodium hydroxide",
+        "lye",
+        "caustic"
+      ],
+      "hs_codes": [
+        "2815.11"
+      ],
+      "categories": [
+        "cat:alkalis"
+      ],
+      "consumed_in": [
+        "end:soap"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:chlorine": {
+      "kind": "substance",
+      "label": "Chlorine",
+      "hs_codes": [
+        "2801.10"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "derived_to": [
+        "sub:vinyl-chloride"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:coal": {
+      "kind": "substance",
+      "label": "Coal",
+      "aliases": [
+        "thermal coal",
+        "coking coal"
+      ],
+      "hs_codes": [
+        "2701.19"
+      ],
+      "categories": [
+        "cat:coal-products"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:coconut-oil": {
+      "kind": "substance",
+      "label": "Coconut oil",
+      "aliases": [
+        "copra oil"
+      ],
+      "hs_codes": [
+        "1513.11"
+      ],
+      "categories": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "derived_to": [
+        "cat:fatty-acids",
+        "sub:glycerin"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:crude-oil": {
+      "kind": "substance",
+      "label": "Crude oil",
+      "aliases": [
+        "petroleum crude",
+        "crude"
+      ],
+      "hs_codes": [
+        "2709.00"
+      ],
+      "categories": [
+        "cat:petrochemicals"
+      ],
+      "derived_to": [
+        "sub:naphtha",
+        "sub:fuel-oil",
+        "sub:base-oil"
+      ],
+      "consumed_in": [
+        "proc:refining"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:cumene": {
+      "kind": "substance",
+      "label": "Cumene",
+      "aliases": [
+        "isopropylbenzene"
+      ],
+      "hs_codes": [
+        "2902.70"
+      ],
+      "categories": [
+        "cat:aromatics"
+      ],
+      "derived_to": [
+        "sub:phenol",
+        "sub:acetone"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:dibutyl-phthalate": {
+      "kind": "substance",
+      "label": "Dibutyl phthalate",
+      "aliases": [
+        "dbp"
+      ],
+      "hs_codes": [
+        "2917.34"
+      ],
+      "categories": [
+        "cat:plasticizers"
+      ],
+      "consumed_in": [
+        "end:pvc-compound"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:diesel": {
+      "kind": "substance",
+      "label": "Diesel",
+      "aliases": [
+        "gasoil",
+        "gas oil"
+      ],
+      "hs_codes": [
+        "2710.19"
+      ],
+      "categories": [
+        "cat:fuel-oils"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "sub:dinp": {
+      "kind": "substance",
+      "label": "Diisononyl phthalate",
+      "aliases": [
+        "dinp"
+      ],
+      "hs_codes": [
+        "2917.34"
+      ],
+      "categories": [
+        "cat:plasticizers"
+      ],
+      "consumed_in": [
+        "end:pvc-compound"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "sub:dop": {
+      "kind": "substance",
+      "label": "Dioctyl phthalate",
+      "aliases": [
+        "dop",
+        "dehp",
+        "bis(2-ethylhexyl) phthalate"
+      ],
+      "hs_codes": [
+        "2917.33"
+      ],
+      "categories": [
+        "cat:plasticizers"
+      ],
+      "consumed_in": [
+        "end:pvc-compound"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:epoxy-resin": {
+      "kind": "substance",
+      "label": "Epoxy resin",
+      "aliases": [
+        "epoxy"
+      ],
+      "hs_codes": [
+        "3907.30"
+      ],
+      "categories": [
+        "cat:epoxies"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:ethanol": {
+      "kind": "substance",
+      "label": "Ethanol",
+      "aliases": [
+        "ethyl alcohol",
+        "industrial ethanol"
+      ],
+      "hs_codes": [
+        "2207.10"
+      ],
+      "categories": [
+        "cat:alcohol-solvents"
+      ],
+      "consumed_in": [
+        "proc:esterification"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "sub:ethanolamines": {
+      "kind": "substance",
+      "label": "Ethanolamines",
+      "aliases": [
+        "mea",
+        "dea",
+        "tea",
+        "monoethanolamine"
+      ],
+      "hs_codes": [
+        "2922.11"
+      ],
+      "categories": [
+        "cat:amines"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:ethyl-acetate": {
+      "kind": "substance",
+      "label": "Ethyl acetate",
+      "hs_codes": [
+        "2915.31"
+      ],
+      "categories": [
+        "cat:acetates",
+        "cat:ester-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:ethylbenzene": {
+      "kind": "substance",
+      "label": "Ethylbenzene",
+      "hs_codes": [
+        "2902.60"
+      ],
+      "categories": [
+        "cat:aromatics"
+      ],
+      "derived_to": [
+        "sub:styrene"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:ethylene": {
+      "kind": "substance",
+      "label": "Ethylene",
+      "aliases": [
+        "ethene"
+      ],
+      "hs_codes": [
+        "2901.21"
+      ],
+      "categories": [
+        "cat:olefins"
+      ],
+      "derived_to": [
+        "sub:ethylene-glycol",
+        "sub:polyethylene",
+        "sub:vinyl-chloride"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:ethylene-glycol": {
+      "kind": "substance",
+      "label": "Ethylene glycol",
+      "aliases": [
+        "monoethylene glycol",
+        "meg"
+      ],
+      "hs_codes": [
+        "2905.31"
+      ],
+      "categories": [
+        "cat:glycols"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:formaldehyde": {
+      "kind": "substance",
+      "label": "Formaldehyde",
+      "aliases": [
+        "methanal",
+        "formalin"
+      ],
+      "hs_codes": [
+        "2912.11"
+      ],
+      "categories": [
+        "cat:petrochemicals"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:fuel-oil": {
+      "kind": "substance",
+      "label": "Fuel oil",
+      "aliases": [
+        "heavy fuel oil",
+        "hfo",
+        "bunker fuel",
+        "vlsfo"
+      ],
+      "hs_codes": [
+        "2710.19"
+      ],
+      "categories": [
+        "cat:fuel-oils"
+      ],
+      "consumed_in": [
+        "proc:blending"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:glycerin": {
+      "kind": "substance",
+      "label": "Glycerin",
+      "aliases": [
+        "glycerine",
+        "glycerol",
+        "crude glycerin"
+      ],
+      "hs_codes": [
+        "2905.45"
+      ],
+      "categories": [
+        "cat:oleochemicals"
+      ],
+      "consumed_in": [
+        "end:personal-care"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:hydrochloric-acid": {
+      "kind": "substance",
+      "label": "Hydrochloric acid",
+      "aliases": [
+        "hcl",
+        "muriatic acid"
+      ],
+      "hs_codes": [
+        "2806.10"
+      ],
+      "categories": [
+        "cat:acids"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:hydrogen-peroxide": {
+      "kind": "substance",
+      "label": "Hydrogen peroxide",
+      "aliases": [
+        "h2o2"
+      ],
+      "hs_codes": [
+        "2847.00"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:isopropanol": {
+      "kind": "substance",
+      "label": "Isopropanol",
+      "aliases": [
+        "isopropyl alcohol",
+        "ipa"
+      ],
+      "hs_codes": [
+        "2905.12"
+      ],
+      "categories": [
+        "cat:alcohol-solvents"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:labsa": {
+      "kind": "substance",
+      "label": "Linear alkylbenzene sulphonic acid",
+      "aliases": [
+        "labsa",
+        "ddbsa"
+      ],
+      "hs_codes": [
+        "3402.11"
+      ],
+      "categories": [
+        "cat:anionic-surfactants"
+      ],
+      "consumed_in": [
+        "end:detergents"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:linear-alkylbenzene": {
+      "kind": "substance",
+      "label": "Linear alkylbenzene",
+      "aliases": [
+        "lab",
+        "linear alkyl benzene"
+      ],
+      "hs_codes": [
+        "3817.00"
+      ],
+      "categories": [
+        "cat:aromatics"
+      ],
+      "derived_to": [
+        "sub:labsa"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:lubricant-additives": {
+      "kind": "substance",
+      "label": "Lubricant additives",
+      "aliases": [
+        "lube additives",
+        "additive packages"
+      ],
+      "categories": [
+        "cat:lubricants"
+      ],
+      "consumed_in": [
+        "proc:blending"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "sub:mdi": {
+      "kind": "substance",
+      "label": "Methylene diphenyl diisocyanate",
+      "aliases": [
+        "mdi",
+        "methylene diphenyl diisocyanate"
+      ],
+      "hs_codes": [
+        "2929.10"
+      ],
+      "categories": [
+        "cat:isocyanates"
+      ],
+      "consumed_in": [
+        "end:rigid-pu-foam",
+        "end:flexible-pu-foam"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:mek": {
+      "kind": "substance",
+      "label": "Methyl ethyl ketone",
+      "aliases": [
+        "mek",
+        "butanone"
+      ],
+      "hs_codes": [
+        "2914.12"
+      ],
+      "categories": [
+        "cat:ketones"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:methanol": {
+      "kind": "substance",
+      "label": "Methanol",
+      "aliases": [
+        "methyl alcohol",
+        "wood alcohol"
+      ],
+      "hs_codes": [
+        "2905.11"
+      ],
+      "categories": [
+        "cat:alcohol-solvents"
+      ],
+      "derived_to": [
+        "sub:formaldehyde"
+      ],
+      "consumed_in": [
+        "proc:transesterification",
+        "proc:esterification"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:methyl-methacrylate": {
+      "kind": "substance",
+      "label": "Methyl methacrylate",
+      "aliases": [
+        "mma"
+      ],
+      "hs_codes": [
+        "2916.14"
+      ],
+      "categories": [
+        "cat:acrylates"
+      ],
+      "consumed_in": [
+        "proc:polymerization"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:n-butanol": {
+      "kind": "substance",
+      "label": "n-Butanol",
+      "aliases": [
+        "butanol",
+        "butyl alcohol",
+        "nba"
+      ],
+      "hs_codes": [
+        "2905.13"
+      ],
+      "categories": [
+        "cat:alcohol-solvents"
+      ],
+      "derived_to": [
+        "sub:butyl-acrylate",
+        "sub:butyl-acetate",
+        "sub:dibutyl-phthalate"
+      ],
+      "consumed_in": [
+        "proc:esterification"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:naphtha": {
+      "kind": "substance",
+      "label": "Naphtha",
+      "aliases": [
+        "petroleum naphtha"
+      ],
+      "hs_codes": [
+        "2710.12"
+      ],
+      "categories": [
+        "cat:petrochemicals"
+      ],
+      "derived_to": [
+        "sub:ethylene",
+        "sub:propylene"
+      ],
+      "consumed_in": [
+        "proc:cracking"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:nitric-acid": {
+      "kind": "substance",
+      "label": "Nitric acid",
+      "hs_codes": [
+        "2808.00"
+      ],
+      "categories": [
+        "cat:acids"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:nonylphenol-ethoxylate": {
+      "kind": "substance",
+      "label": "Nonylphenol ethoxylate",
+      "aliases": [
+        "npe",
+        "nonylphenol ethoxylates"
+      ],
+      "categories": [
+        "cat:nonionic-surfactants"
+      ],
+      "consumed_in": [
+        "end:detergents"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "sub:palm-kernel-oil": {
+      "kind": "substance",
+      "label": "Palm kernel oil",
+      "aliases": [
+        "pko"
+      ],
+      "hs_codes": [
+        "1513.21"
+      ],
+      "categories": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "derived_to": [
+        "cat:fatty-acids",
+        "sub:glycerin"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:palm-oil": {
+      "kind": "substance",
+      "label": "Palm oil",
+      "aliases": [
+        "crude palm oil",
+        "cpo"
+      ],
+      "hs_codes": [
+        "1511.10"
+      ],
+      "categories": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "derived_to": [
+        "sub:pfad",
+        "cat:fatty-acids",
+        "sub:glycerin",
+        "cat:biodiesel"
+      ],
+      "consumed_in": [
+        "proc:transesterification"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:pfad": {
+      "kind": "substance",
+      "label": "Palm fatty acid distillate",
+      "aliases": [
+        "pfad"
+      ],
+      "hs_codes": [
+        "3823.19"
+      ],
+      "categories": [
+        "cat:fatty-acids"
+      ],
+      "derived_to": [
+        "cat:fatty-acids",
+        "sub:glycerin"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "sub:phenol": {
+      "kind": "substance",
+      "label": "Phenol",
+      "aliases": [
+        "carbolic acid"
+      ],
+      "hs_codes": [
+        "2907.11"
+      ],
+      "categories": [
+        "cat:aromatics"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:phosphoric-acid": {
+      "kind": "substance",
+      "label": "Phosphoric acid",
+      "hs_codes": [
+        "2809.20"
+      ],
+      "categories": [
+        "cat:acids"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:phthalic-anhydride": {
+      "kind": "substance",
+      "label": "Phthalic anhydride",
+      "aliases": [
+        "pa",
+        "pan"
+      ],
+      "hs_codes": [
+        "2917.35"
+      ],
+      "categories": [
+        "cat:aromatics",
+        "cat:plasticizers"
+      ],
+      "derived_to": [
+        "sub:dibutyl-phthalate",
+        "sub:dop",
+        "sub:dinp"
+      ],
+      "consumed_in": [
+        "proc:esterification"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:polyether-polyol": {
+      "kind": "substance",
+      "label": "Polyether polyol",
+      "aliases": [
+        "polyol",
+        "polyether polyols"
+      ],
+      "categories": [
+        "cat:polyurethanes"
+      ],
+      "consumed_in": [
+        "end:flexible-pu-foam",
+        "end:rigid-pu-foam"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:polyethylene": {
+      "kind": "substance",
+      "label": "Polyethylene",
+      "aliases": [
+        "pe",
+        "hdpe",
+        "ldpe"
+      ],
+      "hs_codes": [
+        "3901.10"
+      ],
+      "categories": [
+        "cat:polyolefins"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:polypropylene": {
+      "kind": "substance",
+      "label": "Polypropylene",
+      "aliases": [
+        "pp"
+      ],
+      "hs_codes": [
+        "3902.10"
+      ],
+      "categories": [
+        "cat:polyolefins"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:propylene": {
+      "kind": "substance",
+      "label": "Propylene",
+      "aliases": [
+        "propene"
+      ],
+      "hs_codes": [
+        "2901.22"
+      ],
+      "categories": [
+        "cat:olefins"
+      ],
+      "derived_to": [
+        "sub:acrylic-acid",
+        "sub:polypropylene",
+        "sub:propylene-glycol"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:propylene-glycol": {
+      "kind": "substance",
+      "label": "Propylene glycol",
+      "aliases": [
+        "monopropylene glycol",
+        "mpg"
+      ],
+      "hs_codes": [
+        "2905.32"
+      ],
+      "categories": [
+        "cat:glycols"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:pvc-resin": {
+      "kind": "substance",
+      "label": "PVC resin",
+      "aliases": [
+        "polyvinyl chloride resin"
+      ],
+      "hs_codes": [
+        "3904.10"
+      ],
+      "categories": [
+        "cat:pvc"
+      ],
+      "consumed_in": [
+        "proc:compounding",
+        "end:cable-wire"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:salt": {
+      "kind": "substance",
+      "label": "Salt",
+      "aliases": [
+        "sodium chloride",
+        "industrial salt"
+      ],
+      "hs_codes": [
+        "2501.00"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "consumed_in": [
+        "proc:chlor-alkali"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:soda-ash": {
+      "kind": "substance",
+      "label": "Soda ash",
+      "aliases": [
+        "sodium carbonate"
+      ],
+      "hs_codes": [
+        "2836.20"
+      ],
+      "categories": [
+        "cat:alkalis"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:styrene": {
+      "kind": "substance",
+      "label": "Styrene",
+      "aliases": [
+        "styrene monomer",
+        "vinylbenzene"
+      ],
+      "hs_codes": [
+        "2902.50"
+      ],
+      "categories": [
+        "cat:aromatics"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:sulphuric-acid": {
+      "kind": "substance",
+      "label": "Sulphuric acid",
+      "aliases": [
+        "sulfuric acid"
+      ],
+      "hs_codes": [
+        "2807.00"
+      ],
+      "categories": [
+        "cat:acids"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:tallow": {
+      "kind": "substance",
+      "label": "Tallow",
+      "aliases": [
+        "animal tallow",
+        "beef tallow"
+      ],
+      "hs_codes": [
+        "1502.00"
+      ],
+      "categories": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "derived_to": [
+        "cat:biodiesel",
+        "cat:fatty-acids"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "sub:titanium-dioxide": {
+      "kind": "substance",
+      "label": "Titanium dioxide",
+      "aliases": [
+        "tio2",
+        "titanium white"
+      ],
+      "hs_codes": [
+        "2823.00"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:toluene": {
+      "kind": "substance",
+      "label": "Toluene",
+      "aliases": [
+        "toluol",
+        "methylbenzene"
+      ],
+      "hs_codes": [
+        "2902.30"
+      ],
+      "categories": [
+        "cat:aromatics",
+        "cat:aromatic-solvents"
+      ],
+      "derived_to": [
+        "sub:benzene"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium"
+    },
+    "sub:toluene-diisocyanate": {
+      "kind": "substance",
+      "label": "Toluene diisocyanate",
+      "aliases": [
+        "tdi",
+        "toluene diisocyanate"
+      ],
+      "hs_codes": [
+        "2929.10"
+      ],
+      "categories": [
+        "cat:isocyanates"
+      ],
+      "consumed_in": [
+        "end:flexible-pu-foam"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:urea": {
+      "kind": "substance",
+      "label": "Urea",
+      "hs_codes": [
+        "3102.10"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:used-cooking-oil": {
+      "kind": "substance",
+      "label": "Used cooking oil",
+      "aliases": [
+        "uco",
+        "waste cooking oil"
+      ],
+      "hs_codes": [
+        "1518.00"
+      ],
+      "categories": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "derived_to": [
+        "cat:biodiesel",
+        "cat:fatty-acids"
+      ],
+      "consumed_in": [
+        "proc:transesterification"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:vinyl-chloride": {
+      "kind": "substance",
+      "label": "Vinyl chloride monomer",
+      "aliases": [
+        "vcm",
+        "vinyl chloride"
+      ],
+      "hs_codes": [
+        "2903.21"
+      ],
+      "categories": [
+        "cat:olefins"
+      ],
+      "derived_to": [
+        "sub:pvc-resin"
+      ],
+      "consumed_in": [
+        "proc:polymerization"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:xylene": {
+      "kind": "substance",
+      "label": "Xylene",
+      "aliases": [
+        "xylenes",
+        "mixed xylene"
+      ],
+      "hs_codes": [
+        "2902.44"
+      ],
+      "categories": [
+        "cat:aromatics",
+        "cat:aromatic-solvents"
+      ],
+      "derived_to": [
+        "sub:phthalic-anhydride"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "medium",
+      "expert_note": "Phthalic anhydride is the o-xylene route; mixed xylene mostly goes to solvents and gasoline blending."
+    }
+  }
+}
