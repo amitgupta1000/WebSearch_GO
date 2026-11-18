@@ -243,35 +243,32 @@ func (chart OrgChart) TimingTotalMillis() int64 {
 }
 
 // UnmarshalJSON accepts both the documented headquarters string and the
-// location object sometimes returned by the model.
+// location object sometimes returned by the model, and every other field runs
+// through the tolerant engine (tolerant_decode.go), so one drifted value in a
+// nested row cannot discard the chart.
 func (chart *OrgChart) UnmarshalJSON(data []byte) error {
-	type orgChartAlias OrgChart
-	aux := struct {
+	if err := decodeTolerantStruct(data, chart); err != nil {
+		return err
+	}
+	var aux struct {
 		Headquarters json.RawMessage `json:"headquarters"`
 		Alternate    json.RawMessage `json:"org_chart"`
-		*orgChartAlias
-	}{orgChartAlias: (*orgChartAlias)(chart)}
-
+	}
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
-	if len(aux.Headquarters) == 0 || bytes.Equal(aux.Headquarters, []byte("null")) {
-		chart.applyAlternateOrgChart(aux.Alternate)
-		return nil
+	// The engine already coerced headquarters to text; a location object is
+	// formatted here (a scalar it cannot read keeps the coerced text).
+	trimmed := bytes.TrimSpace(aux.Headquarters)
+	if len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null")) {
+		var headquarters string
+		if err := json.Unmarshal(trimmed, &headquarters); err != nil {
+			var location Location
+			if err := json.Unmarshal(trimmed, &location); err == nil {
+				chart.Headquarters = formatLocation(location)
+			}
+		}
 	}
-
-	var headquarters string
-	if err := json.Unmarshal(aux.Headquarters, &headquarters); err == nil {
-		chart.Headquarters = headquarters
-		chart.applyAlternateOrgChart(aux.Alternate)
-		return nil
-	}
-
-	var location Location
-	if err := json.Unmarshal(aux.Headquarters, &location); err != nil {
-		return fmt.Errorf("headquarters must be a string or location object: %w", err)
-	}
-	chart.Headquarters = formatLocation(location)
 	chart.applyAlternateOrgChart(aux.Alternate)
 	return nil
 }

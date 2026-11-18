@@ -310,15 +310,14 @@ type QualityReview struct {
 // failure here would otherwise discard the entire review, silently disabling the
 // QC remediation loop.
 func (review *QualityReview) UnmarshalJSON(data []byte) error {
-	type reviewAlias QualityReview
-	aux := struct {
-		FollowUpQueries []json.RawMessage `json:"follow_up_queries"`
-		*reviewAlias
-	}{reviewAlias: (*reviewAlias)(review)}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := decodeTolerantStruct(data, review); err != nil {
 		return err
 	}
+	var rawFields struct {
+		FollowUpQueries []json.RawMessage `json:"follow_up_queries"`
+	}
+	_ = json.Unmarshal(data, &rawFields)
+	aux := rawFields
 
 	review.FollowUpQueries = nil
 	for _, raw := range aux.FollowUpQueries {

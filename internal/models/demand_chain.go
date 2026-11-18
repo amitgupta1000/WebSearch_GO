@@ -99,15 +99,15 @@ type ValueChainReview struct {
 // DemandChainReview.UnmarshalJSON: one ill-shaped field is repaired or
 // skipped, never fatal to the review.
 func (review *ValueChainReview) UnmarshalJSON(data []byte) error {
-	type reviewAlias ValueChainReview
-	aux := struct {
-		RejectedStages []json.RawMessage `json:"rejected_stages"`
-		MissingStages  json.RawMessage   `json:"missing_stages"`
-		*reviewAlias
-	}{reviewAlias: (*reviewAlias)(review)}
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := decodeTolerantStruct(data, review); err != nil {
 		return err
 	}
+	var rawFields struct {
+		RejectedStages []json.RawMessage `json:"rejected_stages"`
+		MissingStages  json.RawMessage   `json:"missing_stages"`
+	}
+	_ = json.Unmarshal(data, &rawFields)
+	aux := rawFields
 	review.RejectedStages = nil
 	for _, raw := range aux.RejectedStages {
 		var rejection DemandStageRejection
@@ -279,15 +279,16 @@ type DemandChainReview struct {
 // objects or bare names, and follow-up queries as strings or query objects. A decode failure here
 // would silently disable the judge, so the flexible decoder is deliberate.
 func (review *DemandChainReview) UnmarshalJSON(data []byte) error {
-	type reviewAlias DemandChainReview
-	aux := struct {
-		Rejected        []json.RawMessage `json:"rejected"`
-		FollowUpQueries []json.RawMessage `json:"follow_up_queries"`
-		*reviewAlias
-	}{reviewAlias: (*reviewAlias)(review)}
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := decodeTolerantStruct(data, review); err != nil {
 		return err
 	}
+	var rawFields struct {
+		Rejected        []json.RawMessage `json:"rejected"`
+		FollowUpQueries []json.RawMessage `json:"follow_up_queries"`
+		MissingStages   json.RawMessage   `json:"missing_stages"`
+	}
+	_ = json.Unmarshal(data, &rawFields)
+	aux := rawFields
 	review.Rejected = nil
 	for _, raw := range aux.Rejected {
 		var rejected DemandRejectedName
@@ -314,6 +315,9 @@ func (review *DemandChainReview) UnmarshalJSON(data []byte) error {
 			review.FollowUpQueries = append(review.FollowUpQueries, object.Query)
 		}
 	}
+	// missing_stages carries the same "" shape that once discarded the value
+	// chain review; the QC struct now decodes it the same way.
+	review.MissingStages = decodeStageNames(aux.MissingStages)
 	return nil
 }
 
