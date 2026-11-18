@@ -79,7 +79,7 @@ var kindPrefixes = map[Kind]string{
 }
 
 var allowedSources = map[string]bool{
-	SourceSeed: true, SourceHS: true, SourceECHA: true, SourceOperator: true, SourceTradeDB: true,
+	SourceSeed: true, SourceLLMReview: true, SourceHS: true, SourceECHA: true, SourceOperator: true, SourceTradeDB: true,
 }
 
 var allowedConfidence = map[string]bool{

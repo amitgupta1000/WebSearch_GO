@@ -12,6 +12,56 @@
   query `"n-butanol" "India"` (`TestDemandChainLive`, deep budget). The run logs were removed
   from the repo in the 2026-11-17 artifacts cleanup; artifacts under `%TEMP%\crystal-live-nbutanol*`.
 
+## 2026-11-18 — curated ontology merged (machine review applied)
+
+The domain review (`review notes.md`) and the edited document (`edited_ontology.json`) were merged
+into `data/chemicals.json` through the tooling, with my delta kept as
+`data/curation-2026-11-18.json`. **162 nodes** (81 substances, 43 categories, 17 processes,
+21 end-products), **0 lint errors**, 5 warnings (shared HS headings; every node still `proposed`).
+
+Accepted from the review (chemistry/HS): hydrogenation vs fat splitting (fatty acids/FAME +
+hydrogen → fatty alcohols), PFAD without glycerin, phthalic anhydride out of plasticizers, VCM as a
+chlorinated monomer, benzene out of aromatic solvents, urea as an organic carbamide, cracking →
+butadiene, chlor-alkali → hydrogen, refining → diesel, and the HS 2022 corrections (2917.32/33,
+3402.31, 1502.10, 1520.00, 3901.20, 2922.12/15, 2815.12, 3823.12/13/19, 3206.11, 2701.11/12,
+2902.41–44, 3402.42, 3811.21/29, plus the new-node codes).
+
+Applied on top (my judgement, all recorded in the curation file):
+
+- **Duplicate entry names removed** (`cat:soap` "soap noodles", `cat:fatty-alcohols` "fatty
+  alcohol") — the commodity nodes own those names.
+- **One-way edges closed**: `cat:esters.consumed_in` (restores esterification's end-product leaves),
+  `sub:crude-oil.consumed_in` (blending), `cat:petrochemicals`/`cat:fatty-acids` (distillation).
+- **`proc:formulation` completed**: produces greases and metalworking fluids too, with base oil,
+  fatty acids, esters and ethanolamines as inputs.
+- **`sub:fuel-oil → sub:carbon-black` dropped** (confidence medium): carbon-black feedstock is FCC
+  slurry/decant oil, and the edge surfaced tire manufacturers as end users of fuel-oil blending.
+- **`sub:urea` re-homed** to `cat:chemical-intermediates`.
+- **Gap fills**: `polythene` alias, aqueous ammonia HS 2814.20, sulphur and phosphate-rock
+  feedstocks, `sub:phosgene` as the chlorine → isocyanate bridge, and two value-chain leaves —
+  `end:plastics-converting` (closes the PE/PP/PS dead ends) and `end:pulp-paper` (H₂O₂ + caustic).
+- **Declined with reasons**: a bare "peroxide" alias (would match benzoyl/cumene peroxide),
+  `cat:organic-acids` (would fragment the ester/acid taxonomy), `proc:oxidation` (generic reaction,
+  no operator vocabulary). Recorded in the document's notes.
+
+Resolver changes the merge forced (all tested):
+
+- **`search_terms` are entry names for processes** — the reviewed label "Oil and lubricant
+  blending" no longer matches the activity "Oil Blending" by label, but its search terms do.
+- **Families carry hop distance** (subject/category/hypernym/process-output 0, downstream 1), so a
+  broad hub (`cat:chemical-intermediates`) no longer fans its whole membership into the end-product
+  walk. Effect: "chlorine" stops suggesting fertilizer and SAP plants; n-butanol keeps PVC, cable,
+  adhesives, paints and personal care.
+
+Resolution after the merge: `Oil Blending` → lubricants > fuel oils > crude oil > oleochemical
+feedstocks, leaves greases/metalworking fluids/biodiesel blending; `polyethylene` → polyolefins +
+plastics converting; `esterification` → esters + metalworking fluids; `saponification` → soap bases
++ soap manufacturing; `ethoxylation` → nonionic surfactants/glycol ethers/polyurethanes;
+`fuel oil blending` no longer leaks tire makers; `ABP` stays explicitly unmodelled.
+
+Governance: the review is machine-generated, so every node remains `proposed` and
+`RequireApproved` stays off until a human domain expert signs off.
+
 ## 2026-11-18 — chemical value-chain ontology (build-out)
 
 The repeated failure mode — a shared word picking a product family ("oil" → oleochemicals, then

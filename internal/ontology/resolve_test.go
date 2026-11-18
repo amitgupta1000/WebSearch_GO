@@ -134,3 +134,65 @@ func containsString(values []string, want string) bool {
 	}
 	return false
 }
+
+// TestResolveDescriptiveLabels pins the review finding that descriptive labels
+// must still answer the activity people type: "saponification" resolves through
+// the label "Saponification and fatty acid neutralization", and "soap" resolves
+// to the "Soap bases" family.
+func TestResolveDescriptiveLabels(t *testing.T) {
+	approved := StatusApproved
+	document := &Ontology{
+		SchemaVersion: SchemaVersion,
+		Revision:      "test",
+		Nodes: map[string]*Node{
+			"cat:oleochemicals": {ID: "cat:oleochemicals", Kind: KindCategory, Label: "Oleochemicals", Status: approved},
+			"cat:soap":          {ID: "cat:soap", Kind: KindCategory, Label: "Soap bases", Parent: "cat:oleochemicals", Status: approved},
+			"sub:fat":           {ID: "sub:fat", Kind: KindSubstance, Label: "Fatty acids", Categories: []string{"cat:oleochemicals"}, HSCodes: []string{"3823.11"}, Status: approved},
+			"proc:sap": {
+				ID: "proc:sap", Kind: KindProcess, Label: "Saponification and fatty acid neutralization",
+				Aliases: []string{"saponify"}, OperatesOn: []string{"sub:fat"}, Produces: []string{"cat:soap"}, Status: approved,
+			},
+			"sub:hydrogen":          {ID: "sub:hydrogen", Kind: KindSubstance, Label: "Hydrogen", Categories: []string{"cat:oleochemicals"}, HSCodes: []string{"2804.10"}, Status: approved},
+			"sub:hydrogen-peroxide": {ID: "sub:hydrogen-peroxide", Kind: KindSubstance, Label: "Hydrogen peroxide", Categories: []string{"cat:oleochemicals"}, HSCodes: []string{"2847.00"}, Status: approved},
+		},
+	}
+	options := Options{MaxFamilies: 5, MaxHops: 2}
+
+	resolution := document.Resolve("saponification", options)
+	if len(resolution.Processes) == 0 || resolution.Processes[0].ID != "proc:sap" {
+		t.Fatalf("processes = %+v, want proc:sap via the leading name", resolution.Processes)
+	}
+	if len(resolution.Families) == 0 || resolution.Families[0].ID != "cat:soap" {
+		t.Errorf("families = %+v, want cat:soap from the process output", resolution.Families)
+	}
+	if got := document.Resolve("soap", options); len(got.Families) == 0 || got.Families[0].ID != "cat:soap" {
+		t.Errorf("soap families = %+v, want cat:soap", got.Families)
+	}
+	// Precision guard: an exact substance name must never drift to a longer name
+	// that merely starts with it.
+	hydrogen := document.Resolve("hydrogen", options)
+	if len(hydrogen.Matches) != 1 || hydrogen.Matches[0].ID != "sub:hydrogen" {
+		t.Errorf("hydrogen matches = %+v, want only sub:hydrogen", hydrogen.Matches)
+	}
+}
+
+// TestLintAcceptsMachineReviewProvenance pins the review's provenance value: a
+// machine review that corrects a row records source=llm-review while the status
+// stays proposed.
+func TestLintAcceptsMachineReviewProvenance(t *testing.T) {
+	document := &Ontology{
+		SchemaVersion: SchemaVersion,
+		Revision:      "test",
+		Nodes: map[string]*Node{
+			"cat:root": {ID: "cat:root", Kind: KindCategory, Label: "Root", Status: StatusProposed, Source: SourceLLMReview},
+			"sub:one": {
+				ID: "sub:one", Kind: KindSubstance, Label: "One", Categories: []string{"cat:root"},
+				HSCodes: []string{"1234.56"}, Status: StatusProposed, Source: SourceLLMReview,
+			},
+		},
+	}
+	if err := Validate(document); err != nil {
+		t.Fatalf("llm-review provenance must validate: %v", err)
+	}
+}
+

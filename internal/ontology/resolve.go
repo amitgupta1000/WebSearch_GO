@@ -112,7 +112,40 @@ func (o *Ontology) Resolve(activity string, options Options) Resolution {
 // matchEntries finds every node whose label or alias appears in the activity as a
 // whole phrase. Matching is token-boundary based, so "oil" never matches inside
 // "oleochemical".
+//
+// When no product matched but the activity is the leading token sequence of a
+// category or process name, that node matches too: descriptive labels
+// ("Saponification and fatty acid neutralization") are what a reviewer writes, and
+// the activity people type is the head ("saponification"). The fallback is
+// deliberately narrow — it never applies to substances, so "hydrogen" cannot drift
+// to "Hydrogen peroxide", and it never runs when a product already matched.
 func (o *Ontology) matchEntries(text string, requireApproved bool) []Match {
+	matches := o.exactEntryMatches(text, requireApproved)
+	for _, match := range matches {
+		if match.Kind != KindProcess {
+			return sortedMatches(o, matches)
+		}
+	}
+	phrase := strings.TrimSpace(text)
+	for _, id := range o.NodeIDs() {
+		node := o.Nodes[id]
+		if node == nil || (node.Kind != KindCategory && node.Kind != KindProcess) {
+			continue
+		}
+		if node.Status == StatusRejected || (requireApproved && node.Status != StatusApproved) {
+			continue
+		}
+		if leadingTokens(phrase, node.Label) || anyLeadingTokens(phrase, node.Aliases) {
+			matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: "leading", Status: node.Status})
+		}
+	}
+	return sortedMatches(o, matches)
+}
+
+// exactEntryMatches is the whole-phrase pass over entry names: a node's label and
+// aliases, plus — for processes — its search terms, because those are the indexed
+// phrasing of the activity itself ("oil blending" names the blending process).
+func (o *Ontology) exactEntryMatches(text string, requireApproved bool) []Match {
 	var matches []Match
 	for _, id := range o.NodeIDs() {
 		node := o.Nodes[id]
@@ -126,17 +159,58 @@ func (o *Ontology) matchEntries(text string, requireApproved bool) []Match {
 			matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: "label", Status: node.Status})
 			continue
 		}
+		matched := false
 		for _, alias := range node.Aliases {
 			if matchedPhrase(text, alias) {
 				matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: "alias", Status: node.Status})
+				matched = true
+				break
+			}
+		}
+		if matched || node.Kind != KindProcess {
+			continue
+		}
+		for _, term := range node.SearchTerms {
+			if matchedPhrase(text, term) {
+				matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: "search-term", Status: node.Status})
 				break
 			}
 		}
 	}
+	return matches
+}
+
+func sortedMatches(o *Ontology, matches []Match) []Match {
 	sort.SliceStable(matches, func(i, j int) bool {
 		return nameLength(o.Nodes[matches[i].ID]) > nameLength(o.Nodes[matches[j].ID])
 	})
 	return matches
+}
+
+// leadingTokens reports whether the activity phrase opens the name, token by
+// token ("saponification" opens "Saponification and fatty acid neutralization";
+// "ester" does not open "Esters", because tokens are compared whole).
+func leadingTokens(phrase, name string) bool {
+	needle := strings.Fields(normalize(phrase))
+	hay := strings.Fields(normalize(name))
+	if len(needle) == 0 || len(hay) < len(needle) {
+		return false
+	}
+	for i := range needle {
+		if needle[i] != hay[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func anyLeadingTokens(phrase string, names []string) bool {
+	for _, name := range names {
+		if leadingTokens(phrase, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchedPhrase(text, phrase string) bool {
@@ -189,7 +263,7 @@ func (o *Ontology) familiesFor(subject *Node, processes []Match, options Options
 	var families []Family
 	seen := map[string]bool{}
 	ambiguous := false
-	add := func(id, reason, via string) {
+	add := func(id, reason, via string, distance int) {
 		if id == "" || seen[id] {
 			return
 		}
@@ -198,17 +272,17 @@ func (o *Ontology) familiesFor(subject *Node, processes []Match, options Options
 			return
 		}
 		seen[id] = true
-		families = append(families, Family{ID: id, Label: node.Label, Kind: node.Kind, Reason: reason, Via: via, Status: node.Status})
+		families = append(families, Family{ID: id, Label: node.Label, Kind: node.Kind, Reason: reason, Via: via, Distance: distance, Status: node.Status})
 	}
 	if subject != nil {
 		switch {
 		case subject.Hypernym && len(subject.Hyponyms) > 0:
 			ambiguous = true
 			for _, id := range subject.Hyponyms {
-				add(id, "hypernym", subject.ID)
+				add(id, "hypernym", subject.ID, 0)
 			}
 		case subject.Kind == KindCategory:
-			add(subject.ID, "subject", subject.ID)
+			add(subject.ID, "subject", subject.ID, 0)
 		default:
 			// Most specific family first. A top-level family ("Petrochemicals")
 			// is too broad to search, so the substance stands for itself.
@@ -222,12 +296,12 @@ func (o *Ontology) familiesFor(subject *Node, processes []Match, options Options
 				}
 			}
 			if primary == "" {
-				add(subject.ID, "subject", subject.ID)
+				add(subject.ID, "subject", subject.ID, 0)
 			} else {
-				add(primary, "category", subject.ID)
+				add(primary, "category", subject.ID, 0)
 				for _, id := range candidates {
 					if id != primary && o.depth(id) >= 3 {
-						add(id, "category", subject.ID)
+						add(id, "category", subject.ID, 0)
 					}
 				}
 			}
@@ -237,11 +311,14 @@ func (o *Ontology) familiesFor(subject *Node, processes []Match, options Options
 					continue
 				}
 				if target.Kind == KindCategory {
-					add(id, "downstream", subject.ID)
+					// A downstream family is one hop further out than the subject,
+					// so it gets one less hop to reach an end-product. Without this
+					// a broad hub family fans every member into the leaf walk.
+					add(id, "downstream", subject.ID, 1)
 					continue
 				}
 				if category := o.mostSpecificCategory(target); category != "" {
-					add(category, "downstream", subject.ID)
+					add(category, "downstream", subject.ID, 1)
 				}
 			}
 		}
@@ -254,11 +331,11 @@ func (o *Ontology) familiesFor(subject *Node, processes []Match, options Options
 					continue
 				}
 				if target.Kind == KindCategory {
-					add(id, "process-output", process.ID)
+					add(id, "process-output", process.ID, 0)
 					continue
 				}
 				if category := o.mostSpecificCategory(target); category != "" {
-					add(category, "process-output", process.ID)
+					add(category, "process-output", process.ID, 0)
 				}
 			}
 		}
@@ -309,12 +386,13 @@ func (o *Ontology) endProductsFor(subject *Node, families []Family, maxHops int)
 		id       string
 		distance int
 	}
+	members := o.categoryMembers()
 	queue := make([]step, 0, 8)
 	if subject != nil {
 		queue = append(queue, step{id: subject.ID})
 	}
 	for _, family := range families {
-		queue = append(queue, step{id: family.ID})
+		queue = append(queue, step{id: family.ID, distance: family.Distance})
 	}
 	visited := map[string]bool{}
 	var leaves []Family
@@ -341,11 +419,33 @@ func (o *Ontology) endProductsFor(subject *Node, families []Family, maxHops int)
 		if current.distance >= maxHops {
 			continue
 		}
+		// A family is searched through its members: the family "Soap bases" leads
+		// to soap noodles, which leads to the soap manufacturers.
+		if node.Kind == KindCategory {
+			for _, member := range members[current.id] {
+				queue = append(queue, step{id: member, distance: current.distance + 1})
+			}
+		}
 		for _, id := range append(append([]string(nil), node.DerivedTo...), node.ConsumedIn...) {
 			queue = append(queue, step{id: id, distance: current.distance + 1})
 		}
 	}
 	return leaves
+}
+
+// categoryMembers indexes every category to the nodes that declare it, so a
+// family walk can reach its members without a reverse edge on each node.
+func (o *Ontology) categoryMembers() map[string][]string {
+	members := make(map[string][]string, len(o.Nodes))
+	for id, node := range o.Nodes {
+		if node == nil || node.Status == StatusRejected {
+			continue
+		}
+		for _, category := range node.Categories {
+			members[category] = append(members[category], id)
+		}
+	}
+	return members
 }
 
 // searchTermsFor returns the indexed phrases the graph knows: the matched

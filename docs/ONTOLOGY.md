@@ -31,8 +31,8 @@ regenerated only by the tooling below.
 | `consumes` | end-product inputs | `end:pvc-compound → cat:plasticizers` |
 | `hypernym` / `hyponyms` | an ambiguous family and its **ranked** variants | `cat:oils → lubricants > fuel oils > crude oil > oleochemical feedstocks` |
 
-Every node carries `status` (`proposed` | `approved` | `rejected`), `source` (`seed`, `hs`, `echa`,
-`trade-db`, `operator`), `confidence` and an optional `expert_note`.
+Every node carries `status` (`proposed` | `approved` | `rejected`), `source` (`seed`, `llm-review`,
+`hs`, `echa`, `trade-db`, `operator`), `confidence` and an optional `expert_note`.
 
 ## Review roundtrip
 
@@ -72,6 +72,13 @@ matches, unmatched := document.CanonicalTradeMatch(dbCanonicalNames)
 
 `Options{RequireApproved: true}` is the post-curation gate: only nodes the expert approved resolve.
 The seed ships entirely `proposed`, so the gate stays off until the curated file lands.
+
+Matching is exact on labels, aliases and a process's `search_terms` (the indexed phrasing of the
+activity — "oil blending" names the blending process). When nothing matches, an activity that is the
+**leading token sequence** of a category or process label still resolves (`saponification` →
+"Saponification and fatty acid neutralization"), but never for substances, so `hydrogen` cannot drift
+to `Hydrogen peroxide`. Downstream families carry a hop distance of 1, so a broad hub family cannot
+fan its whole membership into the end-product walk.
 
 ## Where it will be wired
 

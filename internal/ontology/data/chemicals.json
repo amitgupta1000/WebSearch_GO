@@ -1,13 +1,15 @@
 {
   "schema_version": 1,
-  "revision": "seed-2026-11-18",
-  "notes": "Seed value chain authored from the in-repo chemistry vocabulary, the petrochemical family skeleton and customs nomenclature. Every node is status=proposed with source=seed: no relation here has been confirmed by a domain expert yet. Return the edited file or a corrections block.",
+  "revision": "curated-2026-11-18",
+  "reviewed_by": "Cline (applying the domain review notes to the machine-reviewed file)",
+  "notes": "Merge of edited_ontology.json (source=llm-review) with the review-application fixes: duplicate entry names removed, one-way edges closed, formulation outputs completed, urea re-homed, the fuel-oil -\u003e carbon-black edge dropped (it leaked tire makers into fuel-oil research), and the notes' unimplemented items resolved: added polythene + aqueous ammonia HS codes, sulphur/phosphate-rock feedstocks, phosgene as the chlorine -\u003e isocyanate bridge, and two value-chain leaves (plastics converting, pulp and paper). Declined with reasons: a bare 'peroxide' alias (matches benzoyl/cumene peroxide), cat:organic-acids (would fragment the ester/acid taxonomy; acrylic and acetic acid sit in chemical-intermediates), and proc:oxidation (a generic reaction with no operator vocabulary). Still pending a human domain expert: every node remains status=proposed.",
   "nodes": {
     "cat:acetates": {
       "kind": "category",
       "label": "Acetates",
       "aliases": [
-        "acetate"
+        "acetate",
+        "acetic esters"
       ],
       "parent": "cat:esters",
       "is_intermediate": true,
@@ -19,7 +21,8 @@
       "kind": "category",
       "label": "Inorganic acids",
       "aliases": [
-        "inorganic acid"
+        "inorganic acid",
+        "mineral acids"
       ],
       "parent": "cat:inorganics",
       "status": "proposed",
@@ -31,13 +34,14 @@
       "label": "Acrylates",
       "aliases": [
         "acrylate",
-        "acrylics"
+        "acrylic monomers"
       ],
       "parent": "cat:esters",
       "is_intermediate": true,
       "status": "proposed",
       "source": "seed",
-      "confidence": "high"
+      "confidence": "high",
+      "expert_note": "Removed generic alias 'acrylics' (often refers to PMMA polymer/sheet); acrylic acid is included here by commercial value-chain convention alongside acrylate/methacrylate esters."
     },
     "cat:alcohol-solvents": {
       "kind": "category",
@@ -54,7 +58,8 @@
       "kind": "category",
       "label": "Alkalis",
       "aliases": [
-        "alkali"
+        "alkali",
+        "caustics"
       ],
       "parent": "cat:inorganics",
       "status": "proposed",
@@ -87,16 +92,20 @@
     "cat:aromatic-solvents": {
       "kind": "category",
       "label": "Aromatic solvents",
+      "aliases": [
+        "aromatic solvent"
+      ],
       "parent": "cat:solvents",
       "status": "proposed",
       "source": "seed",
-      "confidence": "medium"
+      "confidence": "high"
     },
     "cat:aromatics": {
       "kind": "category",
       "label": "Aromatics",
       "aliases": [
-        "aromatic"
+        "aromatic",
+        "btx"
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
@@ -122,12 +131,37 @@
       "label": "Biodiesel",
       "aliases": [
         "fame",
-        "fatty acid methyl ester"
+        "fatty acid methyl ester",
+        "b100",
+        "pme",
+        "ucome",
+        "sme"
+      ],
+      "hs_codes": [
+        "3826.00"
       ],
       "parent": "cat:oleochemicals",
+      "consumed_in": [
+        "end:biodiesel-blend",
+        "proc:hydrogenation"
+      ],
       "is_intermediate": true,
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:chemical-intermediates": {
+      "kind": "category",
+      "label": "Organic chemical intermediates",
+      "aliases": [
+        "chemical intermediate",
+        "oxygenated intermediates",
+        "organic intermediates"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "cat:chemicals": {
@@ -141,16 +175,30 @@
       "source": "seed",
       "confidence": "high"
     },
+    "cat:chlorinated-monomers": {
+      "kind": "category",
+      "label": "Chlorinated monomers",
+      "aliases": [
+        "chlorinated monomer",
+        "haloalkenes"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
     "cat:coal-products": {
       "kind": "category",
       "label": "Coal products",
       "aliases": [
         "coal product",
-        "coke"
+        "coal chemicals"
       ],
       "parent": "cat:chemicals",
+      "is_intermediate": true,
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "cat:epoxies": {
@@ -182,6 +230,10 @@
         "ester"
       ],
       "parent": "cat:petrochemicals",
+      "consumed_in": [
+        "end:metalworking-fluids",
+        "proc:formulation"
+      ],
       "is_intermediate": true,
       "status": "proposed",
       "source": "seed",
@@ -193,27 +245,51 @@
       "aliases": [
         "fatty acid",
         "stearic acid",
-        "oleic acid"
+        "oleic acid",
+        "lauric acid",
+        "palmitic acid",
+        "distilled fatty acid"
       ],
       "hs_codes": [
-        "3823.11"
+        "3823.11",
+        "3823.12",
+        "3823.13",
+        "3823.19"
       ],
       "parent": "cat:oleochemicals",
       "consumed_in": [
         "end:soap",
-        "end:greases"
+        "end:greases",
+        "proc:hydrogenation",
+        "proc:saponification",
+        "proc:distillation"
       ],
       "is_intermediate": true,
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
+    },
+    "cat:fatty-alcohols": {
+      "kind": "category",
+      "label": "Fatty alcohols",
+      "aliases": [
+        "oleochemical alcohols"
+      ],
+      "parent": "cat:oleochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Dropped the 'fatty alcohol' alias: sub:fatty-alcohol is the commodity and owns the singular name."
     },
     "cat:finished-lubricants": {
       "kind": "category",
       "label": "Finished lubricants",
       "aliases": [
         "finished lubricant",
-        "lubricating oil"
+        "lubricating oil",
+        "engine oil",
+        "hydraulic oil"
       ],
       "parent": "cat:lubricants",
       "status": "proposed",
@@ -224,7 +300,8 @@
       "kind": "category",
       "label": "Fuel oils",
       "aliases": [
-        "marine fuel"
+        "marine fuel",
+        "middle distillates"
       ],
       "parent": "cat:petrochemicals",
       "status": "proposed",
@@ -352,15 +429,22 @@
       "kind": "category",
       "label": "Oleochemical feedstocks",
       "aliases": [
+        "oleochemical feedstock",
+        "fats and oils",
+        "triglyceride feedstock",
         "vegetable oil",
         "vegetable oils",
-        "edible oil",
         "feedstock oil"
       ],
       "parent": "cat:oleochemicals",
+      "consumed_in": [
+        "proc:fat-splitting",
+        "proc:saponification",
+        "proc:transesterification"
+      ],
       "is_intermediate": true,
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "cat:oleochemicals": {
@@ -383,6 +467,9 @@
         "petrochemical"
       ],
       "parent": "cat:chemicals",
+      "consumed_in": [
+        "proc:distillation"
+      ],
       "is_intermediate": true,
       "status": "proposed",
       "source": "seed",
@@ -396,9 +483,14 @@
         "phthalates"
       ],
       "parent": "cat:esters",
+      "consumed_in": [
+        "proc:compounding",
+        "end:pvc-compound",
+        "end:cable-wire"
+      ],
       "is_intermediate": true,
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "cat:polymers": {
@@ -431,7 +523,8 @@
       "label": "Polyurethanes",
       "aliases": [
         "polyurethane",
-        "pu"
+        "pu",
+        "polyurethane systems"
       ],
       "parent": "cat:polymers",
       "is_intermediate": true,
@@ -452,15 +545,16 @@
     },
     "cat:soap": {
       "kind": "category",
-      "label": "Soap",
+      "label": "Soap bases",
       "aliases": [
-        "soap noodles",
         "toilet soap base"
       ],
       "parent": "cat:oleochemicals",
+      "is_intermediate": true,
       "status": "proposed",
-      "source": "seed",
-      "confidence": "high"
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Dropped the 'soap noodles' alias: the commodity node sub:soap-noodles now owns that entry name, and one name must resolve to one node."
     },
     "cat:solvents": {
       "kind": "category",
@@ -469,21 +563,44 @@
         "solvent"
       ],
       "parent": "cat:petrochemicals",
+      "consumed_in": [
+        "proc:formulation",
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
       "is_intermediate": true,
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:styrenics": {
+      "kind": "category",
+      "label": "Styrenic polymers",
+      "aliases": [
+        "styrenics",
+        "styrenic resins"
+      ],
+      "parent": "cat:polymers",
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "cat:surfactants": {
       "kind": "category",
       "label": "Surfactants",
       "aliases": [
-        "surfactant"
+        "surfactant",
+        "surface active agents"
       ],
       "parent": "cat:petrochemicals",
+      "consumed_in": [
+        "proc:formulation",
+        "end:detergents",
+        "end:personal-care"
+      ],
       "is_intermediate": true,
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "end:adhesives-sealants": {
@@ -496,7 +613,11 @@
       "consumes": [
         "cat:solvents",
         "sub:butyl-acrylate",
-        "sub:mdi"
+        "sub:mdi",
+        "sub:toluene",
+        "sub:xylene",
+        "sub:acetone",
+        "sub:mek"
       ],
       "operator_phrases": [
         "adhesive manufacturer",
@@ -504,7 +625,7 @@
         "adhesive plant"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "end:biodiesel-blend": {
@@ -515,7 +636,8 @@
         "fuel blending"
       ],
       "consumes": [
-        "cat:biodiesel"
+        "cat:biodiesel",
+        "sub:diesel"
       ],
       "operator_phrases": [
         "biodiesel blender",
@@ -523,7 +645,7 @@
         "biodiesel supplier"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "end:cable-wire": {
@@ -546,6 +668,27 @@
       "source": "seed",
       "confidence": "high"
     },
+    "end:coolants-antifreeze": {
+      "kind": "end-product",
+      "label": "Coolants and antifreeze",
+      "aliases": [
+        "antifreeze",
+        "engine coolant",
+        "heat transfer fluid"
+      ],
+      "consumes": [
+        "sub:ethylene-glycol",
+        "sub:propylene-glycol"
+      ],
+      "operator_phrases": [
+        "coolant manufacturer",
+        "antifreeze blender",
+        "antifreeze plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
     "end:detergents": {
       "kind": "end-product",
       "label": "Detergents",
@@ -555,7 +698,10 @@
       ],
       "consumes": [
         "sub:labsa",
-        "cat:surfactants"
+        "sub:sles",
+        "cat:surfactants",
+        "sub:nonylphenol-ethoxylate",
+        "sub:soda-ash"
       ],
       "operator_phrases": [
         "detergent manufacturer",
@@ -563,7 +709,32 @@
         "home care manufacturer"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:fertilizers": {
+      "kind": "end-product",
+      "label": "Fertilizers",
+      "aliases": [
+        "fertilizer",
+        "npk",
+        "nitrogen fertilizer",
+        "phosphate fertilizer"
+      ],
+      "consumes": [
+        "sub:urea",
+        "sub:ammonia",
+        "sub:nitric-acid",
+        "sub:phosphoric-acid",
+        "sub:sulphuric-acid"
+      ],
+      "operator_phrases": [
+        "fertilizer manufacturer",
+        "fertilizer plant",
+        "npk blending plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "end:flexible-pu-foam": {
@@ -575,6 +746,7 @@
       ],
       "consumes": [
         "sub:toluene-diisocyanate",
+        "sub:mdi",
         "sub:polyether-polyol"
       ],
       "operator_phrases": [
@@ -584,6 +756,25 @@
       ],
       "status": "proposed",
       "source": "seed",
+      "confidence": "high"
+    },
+    "end:glass": {
+      "kind": "end-product",
+      "label": "Glass manufacturing",
+      "aliases": [
+        "float glass",
+        "container glass"
+      ],
+      "consumes": [
+        "sub:soda-ash"
+      ],
+      "operator_phrases": [
+        "glass manufacturer",
+        "float glass plant",
+        "glass factory"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "end:greases": {
@@ -610,11 +801,12 @@
       "label": "Metalworking fluids",
       "aliases": [
         "cutting fluids",
-        "coolants"
+        "metalworking coolants"
       ],
       "consumes": [
         "sub:base-oil",
-        "cat:esters"
+        "cat:esters",
+        "sub:ethanolamines"
       ],
       "operator_phrases": [
         "metalworking fluid manufacturer",
@@ -622,8 +814,9 @@
         "coolant manufacturer"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "high"
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Renamed the 'coolants' alias to 'metalworking coolants': end:coolants-antifreeze owns engine/heat-transfer coolants, and the bare word was ambiguous."
     },
     "end:paints-coatings": {
       "kind": "end-product",
@@ -636,7 +829,15 @@
         "cat:solvents",
         "sub:titanium-dioxide",
         "sub:epoxy-resin",
-        "sub:butyl-acrylate"
+        "sub:butyl-acrylate",
+        "sub:butyl-acetate",
+        "sub:ethyl-acetate",
+        "sub:butyl-glycol-ether",
+        "sub:toluene",
+        "sub:xylene",
+        "sub:acetone",
+        "sub:mek",
+        "sub:isopropanol"
       ],
       "operator_phrases": [
         "paint manufacturer",
@@ -645,7 +846,7 @@
         "industrial coatings plant"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "end:personal-care": {
@@ -657,7 +858,11 @@
       ],
       "consumes": [
         "sub:glycerin",
-        "cat:surfactants"
+        "cat:surfactants",
+        "sub:sles",
+        "sub:ethanol",
+        "sub:isopropanol",
+        "sub:ethanolamines"
       ],
       "operator_phrases": [
         "personal care manufacturer",
@@ -665,8 +870,55 @@
         "toiletries plant"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "medium"
+    },
+    "end:plastics-converting": {
+      "kind": "end-product",
+      "label": "Plastics converting",
+      "aliases": [
+        "plastics processing",
+        "film and packaging converting",
+        "injection moulding"
+      ],
+      "consumes": [
+        "sub:polyethylene",
+        "sub:polypropylene",
+        "sub:pvc-resin",
+        "sub:polystyrene"
+      ],
+      "operator_phrases": [
+        "plastic converter",
+        "packaging manufacturer",
+        "film manufacturer",
+        "injection moulder",
+        "plastic products manufacturer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "medium",
+      "expert_note": "Closes the polyethylene/polypropylene/polystyrene dead ends: without it those commodities reached no end-user leaf."
+    },
+    "end:pulp-paper": {
+      "kind": "end-product",
+      "label": "Pulp and paper",
+      "aliases": [
+        "pulp mill",
+        "paper mill"
+      ],
+      "consumes": [
+        "sub:hydrogen-peroxide",
+        "sub:caustic-soda"
+      ],
+      "operator_phrases": [
+        "pulp mill",
+        "paper manufacturer",
+        "paper mill",
+        "bleached pulp producer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
     },
     "end:pvc-compound": {
       "kind": "end-product",
@@ -677,7 +929,10 @@
       ],
       "consumes": [
         "sub:pvc-resin",
-        "cat:plasticizers"
+        "cat:plasticizers",
+        "sub:dop",
+        "sub:dinp",
+        "sub:dibutyl-phthalate"
       ],
       "operator_phrases": [
         "pvc compound manufacturer",
@@ -686,7 +941,7 @@
         "cable compound manufacturer"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "end:rigid-pu-foam": {
@@ -714,11 +969,13 @@
       "label": "Soap manufacturing",
       "aliases": [
         "soap producer",
-        "soap plant"
+        "soap plant",
+        "bar soap"
       ],
       "consumes": [
         "cat:fatty-acids",
-        "sub:caustic-soda"
+        "sub:caustic-soda",
+        "sub:soap-noodles"
       ],
       "operator_phrases": [
         "soap manufacturer",
@@ -726,7 +983,7 @@
         "toilet soap producer"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "end:superabsorbent-polymer": {
@@ -747,17 +1004,43 @@
       "source": "seed",
       "confidence": "high"
     },
+    "end:tires-rubber": {
+      "kind": "end-product",
+      "label": "Tires and synthetic rubber",
+      "aliases": [
+        "tires",
+        "rubber goods",
+        "synthetic rubber"
+      ],
+      "consumes": [
+        "sub:carbon-black",
+        "sub:butadiene",
+        "sub:styrene"
+      ],
+      "operator_phrases": [
+        "tire manufacturer",
+        "rubber compounder",
+        "synthetic rubber plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
     "proc:blending": {
       "kind": "process",
-      "label": "Blending",
+      "label": "Oil and lubricant blending",
       "aliases": [
-        "blend"
+        "blend",
+        "lube blending"
       ],
       "operates_on": [
-        "cat:oils"
+        "sub:base-oil",
+        "sub:lubricant-additives",
+        "sub:fuel-oil",
+        "sub:crude-oil"
       ],
       "produces": [
-        "cat:lubricants",
+        "cat:finished-lubricants",
         "cat:fuel-oils"
       ],
       "search_terms": [
@@ -768,7 +1051,33 @@
         "blending plant"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:catalytic-reforming": {
+      "kind": "process",
+      "label": "Catalytic reforming",
+      "aliases": [
+        "naphtha reforming",
+        "btx extraction",
+        "reformer"
+      ],
+      "operates_on": [
+        "sub:naphtha"
+      ],
+      "produces": [
+        "sub:benzene",
+        "sub:toluene",
+        "sub:xylene",
+        "sub:hydrogen"
+      ],
+      "search_terms": [
+        "catalytic reformer",
+        "aromatics complex",
+        "btx plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "proc:chlor-alkali": {
@@ -783,7 +1092,8 @@
       ],
       "produces": [
         "sub:chlorine",
-        "sub:caustic-soda"
+        "sub:caustic-soda",
+        "sub:hydrogen"
       ],
       "search_terms": [
         "chlor alkali plant",
@@ -791,7 +1101,7 @@
         "chlorine producer"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "proc:compounding": {
@@ -828,7 +1138,8 @@
       ],
       "produces": [
         "sub:ethylene",
-        "sub:propylene"
+        "sub:propylene",
+        "sub:butadiene"
       ],
       "search_terms": [
         "steam cracker",
@@ -836,7 +1147,7 @@
         "olefin plant"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "proc:distillation": {
@@ -846,14 +1157,20 @@
         "fractionation"
       ],
       "operates_on": [
-        "cat:petrochemicals"
+        "cat:petrochemicals",
+        "cat:fatty-acids"
+      ],
+      "produces": [
+        "cat:solvents",
+        "cat:aromatics",
+        "cat:fatty-acids"
       ],
       "search_terms": [
         "distillation plant",
         "fractionation plant"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "medium"
     },
     "proc:esterification": {
@@ -864,8 +1181,12 @@
       ],
       "operates_on": [
         "sub:phthalic-anhydride",
+        "sub:acrylic-acid",
+        "sub:acetic-acid",
         "sub:n-butanol",
-        "sub:methanol"
+        "sub:ethanol",
+        "sub:methanol",
+        "sub:2-ethylhexanol"
       ],
       "produces": [
         "cat:esters"
@@ -876,7 +1197,57 @@
         "esterification unit"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:ethoxylation": {
+      "kind": "process",
+      "label": "Ethoxylation and alkoxylation",
+      "aliases": [
+        "ethoxylate",
+        "alkoxylation"
+      ],
+      "operates_on": [
+        "sub:ethylene-oxide",
+        "sub:propylene-oxide",
+        "sub:fatty-alcohol",
+        "sub:n-butanol"
+      ],
+      "produces": [
+        "cat:nonionic-surfactants",
+        "cat:glycol-ethers",
+        "sub:polyether-polyol"
+      ],
+      "search_terms": [
+        "ethoxylation plant",
+        "alkoxylation unit",
+        "surfactant plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:fat-splitting": {
+      "kind": "process",
+      "label": "Fat splitting (hydrolysis)",
+      "aliases": [
+        "fat splitting",
+        "triglyceride hydrolysis"
+      ],
+      "operates_on": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "produces": [
+        "cat:fatty-acids",
+        "sub:glycerin"
+      ],
+      "search_terms": [
+        "fat splitting plant",
+        "oleochemical splitting",
+        "fatty acid plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "proc:formulation": {
@@ -887,11 +1258,19 @@
       ],
       "operates_on": [
         "cat:solvents",
-        "cat:surfactants"
+        "cat:surfactants",
+        "sub:base-oil",
+        "cat:fatty-acids",
+        "cat:esters",
+        "sub:ethanolamines"
       ],
       "produces": [
         "end:paints-coatings",
-        "end:detergents"
+        "end:detergents",
+        "end:adhesives-sealants",
+        "end:personal-care",
+        "end:greases",
+        "end:metalworking-fluids"
       ],
       "search_terms": [
         "formulation plant",
@@ -899,7 +1278,7 @@
         "contract manufacturer"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "medium"
     },
     "proc:hydrodealkylation": {
@@ -909,7 +1288,8 @@
         "hda"
       ],
       "operates_on": [
-        "sub:toluene"
+        "sub:toluene",
+        "sub:hydrogen"
       ],
       "produces": [
         "sub:benzene"
@@ -919,25 +1299,32 @@
         "benzene plant"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "medium"
     },
     "proc:hydrogenation": {
       "kind": "process",
-      "label": "Hydrogenation",
+      "label": "Hydrogenation / hydrogenolysis",
+      "aliases": [
+        "hydrogenolysis",
+        "fatty alcohol hydrogenation"
+      ],
       "operates_on": [
-        "cat:oleochemical-feedstocks"
+        "cat:fatty-acids",
+        "cat:biodiesel",
+        "sub:hydrogen"
       ],
       "produces": [
-        "cat:fatty-acids"
+        "cat:fatty-alcohols"
       ],
       "search_terms": [
         "hydrogenation plant",
         "fatty alcohol plant"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "medium"
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Oleochemical hydrogenolysis of fatty acids or FAME yields fatty alcohols. Simple hydrogenation of triglycerides yields hardened/saturated fats (not fatty acids)."
     },
     "proc:polymerization": {
       "kind": "process",
@@ -949,7 +1336,10 @@
       "operates_on": [
         "sub:ethylene",
         "sub:propylene",
+        "sub:butadiene",
+        "sub:styrene",
         "sub:acrylic-acid",
+        "sub:methyl-methacrylate",
         "sub:vinyl-chloride"
       ],
       "produces": [
@@ -961,7 +1351,7 @@
         "resin plant"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "proc:refining": {
@@ -977,7 +1367,8 @@
       "produces": [
         "cat:fuel-oils",
         "cat:base-oils",
-        "sub:naphtha"
+        "sub:naphtha",
+        "sub:diesel"
       ],
       "search_terms": [
         "oil refinery",
@@ -985,27 +1376,57 @@
         "refinery operator"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:saponification": {
+      "kind": "process",
+      "label": "Saponification and fatty acid neutralization",
+      "aliases": [
+        "saponify",
+        "soap neutralization"
+      ],
+      "operates_on": [
+        "cat:fatty-acids",
+        "cat:oleochemical-feedstocks",
+        "sub:caustic-soda"
+      ],
+      "produces": [
+        "sub:soap-noodles",
+        "end:soap"
+      ],
+      "search_terms": [
+        "soap noodle plant",
+        "saponification plant",
+        "soap base plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "proc:sulphonation": {
       "kind": "process",
-      "label": "Sulphonation",
+      "label": "Sulphonation and sulphation",
       "aliases": [
-        "sulfonation"
+        "sulfonation",
+        "sulphation"
       ],
       "operates_on": [
-        "sub:linear-alkylbenzene"
+        "sub:linear-alkylbenzene",
+        "sub:fatty-alcohol",
+        "sub:sulphuric-acid"
       ],
       "produces": [
-        "sub:labsa"
+        "sub:labsa",
+        "sub:sles"
       ],
       "search_terms": [
         "sulphonation plant",
-        "labsa plant"
+        "labsa plant",
+        "sles plant"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "proc:transesterification": {
@@ -1016,8 +1437,11 @@
       ],
       "operates_on": [
         "sub:palm-oil",
+        "sub:palm-kernel-oil",
+        "sub:coconut-oil",
         "sub:used-cooking-oil",
-        "sub:tallow"
+        "sub:tallow",
+        "sub:methanol"
       ],
       "produces": [
         "cat:biodiesel",
@@ -1029,7 +1453,57 @@
         "biodiesel refinery"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:2-ethylhexanol": {
+      "kind": "substance",
+      "label": "2-Ethylhexanol",
+      "aliases": [
+        "2-eh",
+        "2eh",
+        "isooctyl alcohol"
+      ],
+      "hs_codes": [
+        "2905.16"
+      ],
+      "categories": [
+        "cat:alcohol-solvents",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:dop"
+      ],
+      "consumed_in": [
+        "proc:esterification"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:acetic-acid": {
+      "kind": "substance",
+      "label": "Acetic acid",
+      "aliases": [
+        "glacial acetic acid",
+        "ethanoic acid",
+        "gaa"
+      ],
+      "hs_codes": [
+        "2915.21"
+      ],
+      "categories": [
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:ethyl-acetate",
+        "sub:butyl-acetate"
+      ],
+      "consumed_in": [
+        "proc:esterification"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:acetone": {
@@ -1044,43 +1518,69 @@
       "categories": [
         "cat:ketones"
       ],
+      "derived_to": [
+        "sub:bisphenol-a",
+        "sub:methyl-methacrylate",
+        "sub:isopropanol"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:acrylic-acid": {
       "kind": "substance",
       "label": "Acrylic acid",
       "aliases": [
-        "prop-2-enoic acid"
+        "prop-2-enoic acid",
+        "glacial acrylic acid"
       ],
       "hs_codes": [
         "2916.11"
       ],
       "categories": [
-        "cat:acrylates"
+        "cat:acrylates",
+        "cat:chemical-intermediates"
       ],
       "derived_to": [
         "sub:butyl-acrylate"
       ],
       "consumed_in": [
-        "proc:polymerization"
+        "proc:polymerization",
+        "proc:esterification",
+        "end:superabsorbent-polymer"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:ammonia": {
       "kind": "substance",
       "label": "Ammonia",
+      "aliases": [
+        "anhydrous ammonia",
+        "nh3"
+      ],
       "hs_codes": [
-        "2814.10"
+        "2814.10",
+        "2814.20"
       ],
       "categories": [
         "cat:inorganics"
       ],
+      "derived_to": [
+        "sub:urea",
+        "sub:nitric-acid",
+        "sub:ethanolamines"
+      ],
+      "consumed_in": [
+        "end:fertilizers"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:aniline": {
@@ -1095,8 +1595,11 @@
       "categories": [
         "cat:amines"
       ],
+      "derived_to": [
+        "sub:mdi"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:base-oil": {
@@ -1105,7 +1608,8 @@
       "aliases": [
         "base stock",
         "group i base oil",
-        "group ii base oil"
+        "group ii base oil",
+        "group iii base oil"
       ],
       "hs_codes": [
         "2710.19"
@@ -1132,16 +1636,37 @@
         "2902.20"
       ],
       "categories": [
-        "cat:aromatics",
-        "cat:aromatic-solvents"
+        "cat:aromatics"
       ],
       "derived_to": [
         "sub:ethylbenzene",
         "sub:cumene",
-        "sub:linear-alkylbenzene"
+        "sub:linear-alkylbenzene",
+        "sub:aniline"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Removed cat:aromatic-solvents: benzene is regulated/banned as an industrial solvent due to carcinogenicity."
+    },
+    "sub:bisphenol-a": {
+      "kind": "substance",
+      "label": "Bisphenol A",
+      "aliases": [
+        "bpa",
+        "diphenylolpropane"
+      ],
+      "hs_codes": [
+        "2907.23"
+      ],
+      "categories": [
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:epoxy-resin"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:butadiene": {
@@ -1156,13 +1681,21 @@
       "categories": [
         "cat:olefins"
       ],
+      "consumed_in": [
+        "proc:polymerization",
+        "end:tires-rubber"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:butyl-acetate": {
       "kind": "substance",
       "label": "Butyl acetate",
+      "aliases": [
+        "n-butyl acetate",
+        "nbac"
+      ],
       "hs_codes": [
         "2915.33"
       ],
@@ -1180,6 +1713,9 @@
     "sub:butyl-acrylate": {
       "kind": "substance",
       "label": "Butyl acrylate",
+      "aliases": [
+        "n-butyl acrylate"
+      ],
       "hs_codes": [
         "2916.12"
       ],
@@ -1198,8 +1734,10 @@
       "kind": "substance",
       "label": "Butyl glycol ether",
       "aliases": [
-        "ebutyl glycol",
-        "ethylene glycol monobutyl ether"
+        "butyl glycol",
+        "ethylene glycol monobutyl ether",
+        "2-butoxyethanol",
+        "butyl cellosolve"
       ],
       "hs_codes": [
         "2909.43"
@@ -1211,8 +1749,8 @@
         "end:paints-coatings"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "medium"
+      "source": "llm-review",
+      "confidence": "high"
     },
     "sub:carbon-black": {
       "kind": "substance",
@@ -1223,8 +1761,11 @@
       "categories": [
         "cat:inorganics"
       ],
+      "consumed_in": [
+        "end:tires-rubber"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:caustic-soda": {
@@ -1233,19 +1774,27 @@
       "aliases": [
         "sodium hydroxide",
         "lye",
-        "caustic"
+        "caustic",
+        "caustic soda flakes",
+        "caustic soda lye"
       ],
       "hs_codes": [
-        "2815.11"
+        "2815.11",
+        "2815.12"
       ],
       "categories": [
         "cat:alkalis"
       ],
+      "derived_to": [
+        "sub:soap-noodles"
+      ],
       "consumed_in": [
-        "end:soap"
+        "end:soap",
+        "proc:saponification",
+        "end:pulp-paper"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:chlorine": {
@@ -1258,10 +1807,13 @@
         "cat:inorganics"
       ],
       "derived_to": [
-        "sub:vinyl-chloride"
+        "sub:vinyl-chloride",
+        "sub:epichlorohydrin",
+        "sub:hydrochloric-acid",
+        "sub:phosgene"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:coal": {
@@ -1269,36 +1821,51 @@
       "label": "Coal",
       "aliases": [
         "thermal coal",
-        "coking coal"
+        "coking coal",
+        "bituminous coal"
       ],
       "hs_codes": [
-        "2701.19"
+        "2701.12",
+        "2701.19",
+        "2701.11"
       ],
       "categories": [
         "cat:coal-products"
       ],
+      "derived_to": [
+        "sub:ammonia",
+        "sub:methanol",
+        "sub:benzene"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:coconut-oil": {
       "kind": "substance",
       "label": "Coconut oil",
       "aliases": [
-        "copra oil"
+        "copra oil",
+        "cno"
       ],
       "hs_codes": [
-        "1513.11"
+        "1513.11",
+        "1513.19"
       ],
       "categories": [
         "cat:oleochemical-feedstocks"
       ],
       "derived_to": [
         "cat:fatty-acids",
-        "sub:glycerin"
+        "sub:glycerin",
+        "cat:biodiesel"
+      ],
+      "consumed_in": [
+        "proc:fat-splitting",
+        "proc:transesterification"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:crude-oil": {
@@ -1317,13 +1884,15 @@
       "derived_to": [
         "sub:naphtha",
         "sub:fuel-oil",
+        "sub:diesel",
         "sub:base-oil"
       ],
       "consumed_in": [
-        "proc:refining"
+        "proc:refining",
+        "proc:blending"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:cumene": {
@@ -1370,7 +1939,8 @@
       "label": "Diesel",
       "aliases": [
         "gasoil",
-        "gas oil"
+        "gas oil",
+        "ulsd"
       ],
       "hs_codes": [
         "2710.19"
@@ -1378,36 +1948,18 @@
       "categories": [
         "cat:fuel-oils"
       ],
+      "consumed_in": [
+        "end:biodiesel-blend"
+      ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "medium"
+      "source": "llm-review",
+      "confidence": "high"
     },
     "sub:dinp": {
       "kind": "substance",
       "label": "Diisononyl phthalate",
       "aliases": [
         "dinp"
-      ],
-      "hs_codes": [
-        "2917.34"
-      ],
-      "categories": [
-        "cat:plasticizers"
-      ],
-      "consumed_in": [
-        "end:pvc-compound"
-      ],
-      "status": "proposed",
-      "source": "seed",
-      "confidence": "medium"
-    },
-    "sub:dop": {
-      "kind": "substance",
-      "label": "Dioctyl phthalate",
-      "aliases": [
-        "dop",
-        "dehp",
-        "bis(2-ethylhexyl) phthalate"
       ],
       "hs_codes": [
         "2917.33"
@@ -1419,7 +1971,50 @@
         "end:pvc-compound"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Corrected HS code from 2917.34 to 2917.33 (Dinonyl or didecyl orthophthalates)."
+    },
+    "sub:dop": {
+      "kind": "substance",
+      "label": "Dioctyl phthalate",
+      "aliases": [
+        "dop",
+        "dehp",
+        "bis(2-ethylhexyl) phthalate"
+      ],
+      "hs_codes": [
+        "2917.32"
+      ],
+      "categories": [
+        "cat:plasticizers"
+      ],
+      "consumed_in": [
+        "end:pvc-compound"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Corrected HS code from 2917.33 to 2917.32 (Dioctyl orthophthalates)."
+    },
+    "sub:epichlorohydrin": {
+      "kind": "substance",
+      "label": "Epichlorohydrin",
+      "aliases": [
+        "ech"
+      ],
+      "hs_codes": [
+        "2910.30"
+      ],
+      "categories": [
+        "cat:chlorinated-monomers",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:epoxy-resin"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:epoxy-resin": {
@@ -1435,10 +2030,11 @@
         "cat:epoxies"
       ],
       "consumed_in": [
-        "end:paints-coatings"
+        "end:paints-coatings",
+        "end:adhesives-sealants"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:ethanol": {
@@ -1446,20 +2042,27 @@
       "label": "Ethanol",
       "aliases": [
         "ethyl alcohol",
-        "industrial ethanol"
+        "industrial ethanol",
+        "denatured alcohol"
       ],
       "hs_codes": [
-        "2207.10"
+        "2207.10",
+        "2207.20"
       ],
       "categories": [
         "cat:alcohol-solvents"
       ],
+      "derived_to": [
+        "sub:ethyl-acetate"
+      ],
       "consumed_in": [
-        "proc:esterification"
+        "proc:esterification",
+        "end:personal-care",
+        "end:paints-coatings"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "medium"
+      "source": "llm-review",
+      "confidence": "high"
     },
     "sub:ethanolamines": {
       "kind": "substance",
@@ -1468,21 +2071,33 @@
         "mea",
         "dea",
         "tea",
-        "monoethanolamine"
+        "monoethanolamine",
+        "diethanolamine",
+        "triethanolamine"
       ],
       "hs_codes": [
-        "2922.11"
+        "2922.11",
+        "2922.12",
+        "2922.15"
       ],
       "categories": [
         "cat:amines"
       ],
+      "consumed_in": [
+        "end:personal-care",
+        "end:metalworking-fluids",
+        "end:detergents"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:ethyl-acetate": {
       "kind": "substance",
       "label": "Ethyl acetate",
+      "aliases": [
+        "etac"
+      ],
       "hs_codes": [
         "2915.31"
       ],
@@ -1526,12 +2141,17 @@
         "cat:olefins"
       ],
       "derived_to": [
+        "sub:ethylene-oxide",
         "sub:ethylene-glycol",
         "sub:polyethylene",
-        "sub:vinyl-chloride"
+        "sub:vinyl-chloride",
+        "sub:ethylbenzene"
+      ],
+      "consumed_in": [
+        "proc:polymerization"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:ethylene-glycol": {
@@ -1547,8 +2167,66 @@
       "categories": [
         "cat:glycols"
       ],
+      "consumed_in": [
+        "end:coolants-antifreeze"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:ethylene-oxide": {
+      "kind": "substance",
+      "label": "Ethylene oxide",
+      "aliases": [
+        "eo",
+        "oxirane"
+      ],
+      "hs_codes": [
+        "2910.10"
+      ],
+      "categories": [
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:ethylene-glycol",
+        "sub:ethanolamines",
+        "sub:butyl-glycol-ether",
+        "sub:nonylphenol-ethoxylate",
+        "sub:polyether-polyol",
+        "sub:sles"
+      ],
+      "consumed_in": [
+        "proc:ethoxylation"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:fatty-alcohol": {
+      "kind": "substance",
+      "label": "Fatty alcohol",
+      "aliases": [
+        "lauryl alcohol",
+        "cetyl alcohol",
+        "stearyl alcohol",
+        "c12-14 fatty alcohol"
+      ],
+      "hs_codes": [
+        "3823.70",
+        "2905.17"
+      ],
+      "categories": [
+        "cat:fatty-alcohols"
+      ],
+      "derived_to": [
+        "sub:sles"
+      ],
+      "consumed_in": [
+        "proc:ethoxylation",
+        "proc:sulphonation"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:formaldehyde": {
@@ -1562,10 +2240,13 @@
         "2912.11"
       ],
       "categories": [
-        "cat:petrochemicals"
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:mdi"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:fuel-oil": {
@@ -1587,8 +2268,9 @@
         "proc:blending"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "high"
+      "source": "llm-review",
+      "confidence": "medium",
+      "expert_note": "Dropped derived_to sub:carbon-black: carbon-black feedstock is normally FCC slurry or decant oil, not fuel oil, and the edge surfaced tire manufacturers as end users of fuel-oil blending."
     },
     "sub:glycerin": {
       "kind": "substance",
@@ -1596,19 +2278,25 @@
       "aliases": [
         "glycerine",
         "glycerol",
-        "crude glycerin"
+        "crude glycerin",
+        "refined glycerin"
       ],
       "hs_codes": [
-        "2905.45"
+        "2905.45",
+        "1520.00"
       ],
       "categories": [
         "cat:oleochemicals"
+      ],
+      "derived_to": [
+        "sub:polyether-polyol",
+        "sub:epichlorohydrin"
       ],
       "consumed_in": [
         "end:personal-care"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:hydrochloric-acid": {
@@ -1624,8 +2312,35 @@
       "categories": [
         "cat:acids"
       ],
+      "derived_to": [
+        "sub:vinyl-chloride"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:hydrogen": {
+      "kind": "substance",
+      "label": "Hydrogen",
+      "aliases": [
+        "h2"
+      ],
+      "hs_codes": [
+        "2804.10"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "derived_to": [
+        "sub:ammonia",
+        "sub:hydrochloric-acid"
+      ],
+      "consumed_in": [
+        "proc:hydrogenation",
+        "proc:hydrodealkylation"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:hydrogen-peroxide": {
@@ -1640,8 +2355,14 @@
       "categories": [
         "cat:inorganics"
       ],
+      "derived_to": [
+        "sub:propylene-oxide"
+      ],
+      "consumed_in": [
+        "end:pulp-paper"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:isopropanol": {
@@ -1657,8 +2378,12 @@
       "categories": [
         "cat:alcohol-solvents"
       ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:personal-care"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:labsa": {
@@ -1669,7 +2394,7 @@
         "ddbsa"
       ],
       "hs_codes": [
-        "3402.11"
+        "3402.31"
       ],
       "categories": [
         "cat:anionic-surfactants"
@@ -1678,8 +2403,9 @@
         "end:detergents"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "high"
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Updated HS code from 3402.11 (pre-2022) to HS 2022 3402.31."
     },
     "sub:linear-alkylbenzene": {
       "kind": "substance",
@@ -1697,8 +2423,11 @@
       "derived_to": [
         "sub:labsa"
       ],
+      "consumed_in": [
+        "proc:sulphonation"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:lubricant-additives": {
@@ -1708,6 +2437,10 @@
         "lube additives",
         "additive packages"
       ],
+      "hs_codes": [
+        "3811.21",
+        "3811.29"
+      ],
       "categories": [
         "cat:lubricants"
       ],
@@ -1715,15 +2448,16 @@
         "proc:blending"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "medium"
+      "source": "llm-review",
+      "confidence": "high"
     },
     "sub:mdi": {
       "kind": "substance",
       "label": "Methylene diphenyl diisocyanate",
       "aliases": [
         "mdi",
-        "methylene diphenyl diisocyanate"
+        "polymeric mdi",
+        "pmdi"
       ],
       "hs_codes": [
         "2929.10"
@@ -1733,10 +2467,11 @@
       ],
       "consumed_in": [
         "end:rigid-pu-foam",
-        "end:flexible-pu-foam"
+        "end:flexible-pu-foam",
+        "end:adhesives-sealants"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:mek": {
@@ -1752,8 +2487,12 @@
       "categories": [
         "cat:ketones"
       ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:methanol": {
@@ -1761,7 +2500,8 @@
       "label": "Methanol",
       "aliases": [
         "methyl alcohol",
-        "wood alcohol"
+        "wood alcohol",
+        "meoh"
       ],
       "hs_codes": [
         "2905.11"
@@ -1770,14 +2510,16 @@
         "cat:alcohol-solvents"
       ],
       "derived_to": [
-        "sub:formaldehyde"
+        "sub:formaldehyde",
+        "sub:acetic-acid",
+        "sub:methyl-methacrylate"
       ],
       "consumed_in": [
         "proc:transesterification",
         "proc:esterification"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:methyl-methacrylate": {
@@ -1816,13 +2558,15 @@
       "derived_to": [
         "sub:butyl-acrylate",
         "sub:butyl-acetate",
-        "sub:dibutyl-phthalate"
+        "sub:dibutyl-phthalate",
+        "sub:butyl-glycol-ether"
       ],
       "consumed_in": [
-        "proc:esterification"
+        "proc:esterification",
+        "proc:ethoxylation"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:naphtha": {
@@ -1839,13 +2583,18 @@
       ],
       "derived_to": [
         "sub:ethylene",
-        "sub:propylene"
+        "sub:propylene",
+        "sub:butadiene",
+        "sub:benzene",
+        "sub:toluene",
+        "sub:xylene"
       ],
       "consumed_in": [
-        "proc:cracking"
+        "proc:cracking",
+        "proc:catalytic-reforming"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:nitric-acid": {
@@ -1857,8 +2606,15 @@
       "categories": [
         "cat:acids"
       ],
+      "derived_to": [
+        "sub:aniline",
+        "sub:toluene-diisocyanate"
+      ],
+      "consumed_in": [
+        "end:fertilizers"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:nonylphenol-ethoxylate": {
@@ -1868,6 +2624,9 @@
         "npe",
         "nonylphenol ethoxylates"
       ],
+      "hs_codes": [
+        "3402.42"
+      ],
       "categories": [
         "cat:nonionic-surfactants"
       ],
@@ -1875,27 +2634,35 @@
         "end:detergents"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "medium"
+      "source": "llm-review",
+      "confidence": "high"
     },
     "sub:palm-kernel-oil": {
       "kind": "substance",
       "label": "Palm kernel oil",
       "aliases": [
-        "pko"
+        "pko",
+        "cpko",
+        "rbdpko"
       ],
       "hs_codes": [
-        "1513.21"
+        "1513.21",
+        "1513.29"
       ],
       "categories": [
         "cat:oleochemical-feedstocks"
       ],
       "derived_to": [
         "cat:fatty-acids",
-        "sub:glycerin"
+        "sub:glycerin",
+        "cat:biodiesel"
+      ],
+      "consumed_in": [
+        "proc:fat-splitting",
+        "proc:transesterification"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:palm-oil": {
@@ -1903,10 +2670,12 @@
       "label": "Palm oil",
       "aliases": [
         "crude palm oil",
-        "cpo"
+        "cpo",
+        "rbd palm oil"
       ],
       "hs_codes": [
-        "1511.10"
+        "1511.10",
+        "1511.90"
       ],
       "categories": [
         "cat:oleochemical-feedstocks"
@@ -1918,10 +2687,11 @@
         "cat:biodiesel"
       ],
       "consumed_in": [
-        "proc:transesterification"
+        "proc:transesterification",
+        "proc:fat-splitting"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:pfad": {
@@ -1938,11 +2708,12 @@
       ],
       "derived_to": [
         "cat:fatty-acids",
-        "sub:glycerin"
+        "cat:biodiesel"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "medium"
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Removed sub:glycerin from derived_to: PFAD is predominantly free fatty acids, not triglycerides."
     },
     "sub:phenol": {
       "kind": "substance",
@@ -1954,10 +2725,56 @@
         "2907.11"
       ],
       "categories": [
-        "cat:aromatics"
+        "cat:aromatics",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:bisphenol-a"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:phosgene": {
+      "kind": "substance",
+      "label": "Phosgene",
+      "aliases": [
+        "carbonyl chloride",
+        "cocl2"
+      ],
+      "hs_codes": [
+        "2812.10"
+      ],
+      "categories": [
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:toluene-diisocyanate",
+        "sub:mdi"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Bridge node: chlorine is the feedstock, phosgene the intermediate, isocyanates the product. Without it chlorine appeared to convert straight into TDI/MDI."
+    },
+    "sub:phosphate-rock": {
+      "kind": "substance",
+      "label": "Phosphate rock",
+      "aliases": [
+        "rock phosphate",
+        "apatite"
+      ],
+      "hs_codes": [
+        "2510.10"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "derived_to": [
+        "sub:phosphoric-acid"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:phosphoric-acid": {
@@ -1969,8 +2786,11 @@
       "categories": [
         "cat:acids"
       ],
+      "consumed_in": [
+        "end:fertilizers"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:phthalic-anhydride": {
@@ -1985,7 +2805,7 @@
       ],
       "categories": [
         "cat:aromatics",
-        "cat:plasticizers"
+        "cat:chemical-intermediates"
       ],
       "derived_to": [
         "sub:dibutyl-phthalate",
@@ -1996,25 +2816,32 @@
         "proc:esterification"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "high"
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Removed cat:plasticizers: PA is an anhydride precursor to phthalate plasticizers, not a plasticizer itself."
     },
     "sub:polyether-polyol": {
       "kind": "substance",
       "label": "Polyether polyol",
       "aliases": [
         "polyol",
-        "polyether polyols"
+        "polyether polyols",
+        "ppg",
+        "polymer polyol"
+      ],
+      "hs_codes": [
+        "3907.29"
       ],
       "categories": [
         "cat:polyurethanes"
       ],
       "consumed_in": [
         "end:flexible-pu-foam",
-        "end:rigid-pu-foam"
+        "end:rigid-pu-foam",
+        "end:adhesives-sealants"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:polyethylene": {
@@ -2023,16 +2850,22 @@
       "aliases": [
         "pe",
         "hdpe",
-        "ldpe"
+        "ldpe",
+        "lldpe",
+        "polythene"
       ],
       "hs_codes": [
-        "3901.10"
+        "3901.10",
+        "3901.20"
       ],
       "categories": [
         "cat:polyolefins"
       ],
+      "consumed_in": [
+        "end:plastics-converting"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:polypropylene": {
@@ -2042,13 +2875,40 @@
         "pp"
       ],
       "hs_codes": [
-        "3902.10"
+        "3902.10",
+        "3902.30"
       ],
       "categories": [
         "cat:polyolefins"
       ],
+      "consumed_in": [
+        "end:plastics-converting"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:polystyrene": {
+      "kind": "substance",
+      "label": "Polystyrene",
+      "aliases": [
+        "ps",
+        "gpps",
+        "hips",
+        "eps"
+      ],
+      "hs_codes": [
+        "3903.11",
+        "3903.19"
+      ],
+      "categories": [
+        "cat:styrenics"
+      ],
+      "consumed_in": [
+        "end:plastics-converting"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:propylene": {
@@ -2066,10 +2926,19 @@
       "derived_to": [
         "sub:acrylic-acid",
         "sub:polypropylene",
-        "sub:propylene-glycol"
+        "sub:propylene-oxide",
+        "sub:propylene-glycol",
+        "sub:cumene",
+        "sub:n-butanol",
+        "sub:2-ethylhexanol",
+        "sub:isopropanol",
+        "sub:epichlorohydrin"
+      ],
+      "consumed_in": [
+        "proc:polymerization"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:propylene-glycol": {
@@ -2085,8 +2954,35 @@
       "categories": [
         "cat:glycols"
       ],
+      "consumed_in": [
+        "end:coolants-antifreeze"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:propylene-oxide": {
+      "kind": "substance",
+      "label": "Propylene oxide",
+      "aliases": [
+        "po",
+        "methyloxirane"
+      ],
+      "hs_codes": [
+        "2910.20"
+      ],
+      "categories": [
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:propylene-glycol",
+        "sub:polyether-polyol"
+      ],
+      "consumed_in": [
+        "proc:ethoxylation"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:pvc-resin": {
@@ -2103,10 +2999,12 @@
       ],
       "consumed_in": [
         "proc:compounding",
-        "end:cable-wire"
+        "end:pvc-compound",
+        "end:cable-wire",
+        "end:plastics-converting"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:salt": {
@@ -2129,11 +3027,55 @@
       "source": "seed",
       "confidence": "high"
     },
+    "sub:sles": {
+      "kind": "substance",
+      "label": "Sodium laureth sulfate",
+      "aliases": [
+        "sles",
+        "sodium lauryl ether sulfate"
+      ],
+      "hs_codes": [
+        "3402.39"
+      ],
+      "categories": [
+        "cat:anionic-surfactants"
+      ],
+      "consumed_in": [
+        "end:detergents",
+        "end:personal-care"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:soap-noodles": {
+      "kind": "substance",
+      "label": "Soap noodles",
+      "aliases": [
+        "toilet soap noodles",
+        "laundry soap noodles",
+        "soap base"
+      ],
+      "hs_codes": [
+        "3401.20"
+      ],
+      "categories": [
+        "cat:soap"
+      ],
+      "consumed_in": [
+        "end:soap"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
     "sub:soda-ash": {
       "kind": "substance",
       "label": "Soda ash",
       "aliases": [
-        "sodium carbonate"
+        "sodium carbonate",
+        "dense soda ash",
+        "light soda ash"
       ],
       "hs_codes": [
         "2836.20"
@@ -2141,8 +3083,12 @@
       "categories": [
         "cat:alkalis"
       ],
+      "consumed_in": [
+        "end:detergents",
+        "end:glass"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:styrene": {
@@ -2158,15 +3104,43 @@
       "categories": [
         "cat:aromatics"
       ],
+      "derived_to": [
+        "sub:polystyrene"
+      ],
+      "consumed_in": [
+        "proc:polymerization",
+        "end:tires-rubber"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:sulphur": {
+      "kind": "substance",
+      "label": "Sulphur",
+      "aliases": [
+        "sulfur",
+        "brimstone"
+      ],
+      "hs_codes": [
+        "2503.00"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "derived_to": [
+        "sub:sulphuric-acid"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:sulphuric-acid": {
       "kind": "substance",
       "label": "Sulphuric acid",
       "aliases": [
-        "sulfuric acid"
+        "sulfuric acid",
+        "oleum"
       ],
       "hs_codes": [
         "2807.00"
@@ -2174,8 +3148,15 @@
       "categories": [
         "cat:acids"
       ],
+      "derived_to": [
+        "sub:phosphoric-acid"
+      ],
+      "consumed_in": [
+        "proc:sulphonation",
+        "end:fertilizers"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:tallow": {
@@ -2186,27 +3167,36 @@
         "beef tallow"
       ],
       "hs_codes": [
-        "1502.00"
+        "1502.10"
       ],
       "categories": [
         "cat:oleochemical-feedstocks"
       ],
       "derived_to": [
         "cat:biodiesel",
-        "cat:fatty-acids"
+        "cat:fatty-acids",
+        "sub:glycerin"
+      ],
+      "consumed_in": [
+        "proc:transesterification",
+        "proc:fat-splitting"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "medium"
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Updated HS code from superseded 1502.00 to 1502.10."
     },
     "sub:titanium-dioxide": {
       "kind": "substance",
       "label": "Titanium dioxide",
       "aliases": [
         "tio2",
-        "titanium white"
+        "titanium white",
+        "rutile",
+        "anatase"
       ],
       "hs_codes": [
+        "3206.11",
         "2823.00"
       ],
       "categories": [
@@ -2216,7 +3206,7 @@
         "end:paints-coatings"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:toluene": {
@@ -2234,18 +3224,24 @@
         "cat:aromatic-solvents"
       ],
       "derived_to": [
-        "sub:benzene"
+        "sub:benzene",
+        "sub:toluene-diisocyanate"
+      ],
+      "consumed_in": [
+        "proc:hydrodealkylation",
+        "end:paints-coatings",
+        "end:adhesives-sealants"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "medium"
+      "source": "llm-review",
+      "confidence": "high"
     },
     "sub:toluene-diisocyanate": {
       "kind": "substance",
       "label": "Toluene diisocyanate",
       "aliases": [
         "tdi",
-        "toluene diisocyanate"
+        "tdi 80/20"
       ],
       "hs_codes": [
         "2929.10"
@@ -2263,15 +3259,24 @@
     "sub:urea": {
       "kind": "substance",
       "label": "Urea",
+      "aliases": [
+        "carbamide",
+        "prilled urea",
+        "granular urea"
+      ],
       "hs_codes": [
         "3102.10"
       ],
       "categories": [
-        "cat:inorganics"
+        "cat:chemical-intermediates"
+      ],
+      "consumed_in": [
+        "end:fertilizers"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "high"
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Organic carbamide made from ammonia and CO2 (HS chapter 31, not 28). Homed under organic chemical intermediates rather than petrochemicals, which is where the reviewed file put it."
     },
     "sub:used-cooking-oil": {
       "kind": "substance",
@@ -2288,13 +3293,15 @@
       ],
       "derived_to": [
         "cat:biodiesel",
-        "cat:fatty-acids"
+        "cat:fatty-acids",
+        "sub:glycerin"
       ],
       "consumed_in": [
-        "proc:transesterification"
+        "proc:transesterification",
+        "proc:fat-splitting"
       ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "high"
     },
     "sub:vinyl-chloride": {
@@ -2308,7 +3315,7 @@
         "2903.21"
       ],
       "categories": [
-        "cat:olefins"
+        "cat:chlorinated-monomers"
       ],
       "derived_to": [
         "sub:pvc-resin"
@@ -2317,18 +3324,26 @@
         "proc:polymerization"
       ],
       "status": "proposed",
-      "source": "seed",
-      "confidence": "high"
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Reclassified from cat:olefins to cat:chlorinated-monomers."
     },
     "sub:xylene": {
       "kind": "substance",
       "label": "Xylene",
       "aliases": [
         "xylenes",
-        "mixed xylene"
+        "mixed xylene",
+        "o-xylene",
+        "ortho-xylene",
+        "p-xylene",
+        "para-xylene"
       ],
       "hs_codes": [
-        "2902.44"
+        "2902.44",
+        "2902.41",
+        "2902.42",
+        "2902.43"
       ],
       "categories": [
         "cat:aromatics",
@@ -2337,10 +3352,14 @@
       "derived_to": [
         "sub:phthalic-anhydride"
       ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
       "status": "proposed",
-      "source": "seed",
+      "source": "llm-review",
       "confidence": "medium",
-      "expert_note": "Phthalic anhydride is the o-xylene route; mixed xylene mostly goes to solvents and gasoline blending."
+      "expert_note": "Phthalic anhydride is the o-xylene (2902.41) route; p-xylene (2902.43) goes to PTA/PET; mixed xylene (2902.44) mostly goes to solvents and gasoline blending."
     }
   }
 }

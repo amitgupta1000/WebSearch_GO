@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "revision": "curated-2026-11-18",
+  "reviewed_by": "Cline (applying the domain review notes to the machine-reviewed file)",
+  "notes": "Merge of edited_ontology.json (source=llm-review) with the review-application fixes: duplicate entry names removed, one-way edges closed, formulation outputs completed, urea re-homed, the fuel-oil -> carbon-black edge dropped (it leaked tire makers into fuel-oil research), and the notes' unimplemented items resolved: added polythene + aqueous ammonia HS codes, sulphur/phosphate-rock feedstocks, phosgene as the chlorine -> isocyanate bridge, and two value-chain leaves (plastics converting, pulp and paper). Declined with reasons: a bare 'peroxide' alias (matches benzoyl/cumene peroxide), cat:organic-acids (would fragment the ester/acid taxonomy; acrylic and acetic acid sit in chemical-intermediates), and proc:oxidation (a generic reaction with no operator vocabulary). Still pending a human domain expert: every node remains status=proposed.",
+  "nodes": {
+    "sub:phosgene": {
+      "kind": "substance",
+      "label": "Phosgene",
+      "aliases": ["carbonyl chloride", "cocl2"],
+      "hs_codes": ["2812.10"],
+      "categories": ["cat:chemical-intermediates"],
+      "derived_to": ["sub:toluene-diisocyanate", "sub:mdi"],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Bridge node: chlorine is the feedstock, phosgene the intermediate, isocyanates the product. Without it chlorine appeared to convert straight into TDI/MDI."
+    },
+    "sub:sulphur": {
+      "kind": "substance",
+      "label": "Sulphur",
+      "aliases": ["sulfur", "brimstone"],
+      "hs_codes": ["2503.00"],
+      "categories": ["cat:inorganics"],
+      "derived_to": ["sub:sulphuric-acid"],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:phosphate-rock": {
+      "kind": "substance",
+      "label": "Phosphate rock",
+      "aliases": ["rock phosphate", "apatite"],
+      "hs_codes": ["2510.10"],
+      "categories": ["cat:inorganics"],
+      "derived_to": ["sub:phosphoric-acid"],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:plastics-converting": {
+      "kind": "end-product",
+      "label": "Plastics converting",
+      "aliases": ["plastics processing", "film and packaging converting", "injection moulding"],
+      "consumes": ["sub:polyethylene", "sub:polypropylene", "sub:pvc-resin", "sub:polystyrene"],
+      "operator_phrases": ["plastic converter", "packaging manufacturer", "film manufacturer", "injection moulder", "plastic products manufacturer"],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "medium",
+      "expert_note": "Closes the polyethylene/polypropylene/polystyrene dead ends: without it those commodities reached no end-user leaf."
+    },
+    "end:pulp-paper": {
+      "kind": "end-product",
+      "label": "Pulp and paper",
+      "aliases": ["pulp mill", "paper mill"],
+      "consumes": ["sub:hydrogen-peroxide", "sub:caustic-soda"],
+      "operator_phrases": ["pulp mill", "paper manufacturer", "paper mill", "bleached pulp producer"],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    }
+  },
+  "corrections": {
+    "cat:soap": {
+      "aliases": ["toilet soap base"],
+      "expert_note": "Dropped the 'soap noodles' alias: the commodity node sub:soap-noodles now owns that entry name, and one name must resolve to one node."
+    },
+    "cat:fatty-alcohols": {
+      "aliases": ["oleochemical alcohols"],
+      "expert_note": "Dropped the 'fatty alcohol' alias: sub:fatty-alcohol is the commodity and owns the singular name."
+    },
+    "cat:esters": {
+      "consumed_in": ["end:metalworking-fluids", "proc:formulation"]
+    },
+    "sub:crude-oil": {
+      "consumed_in": ["proc:refining", "proc:blending"]
+    },
+    "cat:petrochemicals": {
+      "consumed_in": ["proc:distillation"]
+    },
+    "cat:fatty-acids": {
+      "consumed_in": ["end:soap", "end:greases", "proc:hydrogenation", "proc:saponification", "proc:distillation"]
+    },
+    "sub:fuel-oil": {
+      "derived_to": [],
+      "confidence": "medium",
+      "expert_note": "Dropped derived_to sub:carbon-black: carbon-black feedstock is normally FCC slurry or decant oil, not fuel oil, and the edge surfaced tire manufacturers as end users of fuel-oil blending."
+    },
+    "proc:formulation": {
+      "operates_on": ["cat:solvents", "cat:surfactants", "sub:base-oil", "cat:fatty-acids", "cat:esters", "sub:ethanolamines"],
+      "produces": ["end:paints-coatings", "end:detergents", "end:adhesives-sealants", "end:personal-care", "end:greases", "end:metalworking-fluids"]
+    },
+    "end:metalworking-fluids": {
+      "aliases": ["cutting fluids", "metalworking coolants"],
+      "expert_note": "Renamed the 'coolants' alias to 'metalworking coolants': end:coolants-antifreeze owns engine/heat-transfer coolants, and the bare word was ambiguous."
+    },
+    "sub:urea": {
+      "categories": ["cat:chemical-intermediates"],
+      "expert_note": "Organic carbamide made from ammonia and CO2 (HS chapter 31, not 28). Homed under organic chemical intermediates rather than petrochemicals, which is where the reviewed file put it."
+    },
+    "sub:polyethylene": {
+      "aliases": ["pe", "hdpe", "ldpe", "lldpe", "polythene"],
+      "consumed_in": ["end:plastics-converting"]
+    },
+    "sub:polypropylene": {
+      "consumed_in": ["end:plastics-converting"]
+    },
+    "sub:polystyrene": {
+      "consumed_in": ["end:plastics-converting"]
+    },
+    "sub:pvc-resin": {
+      "consumed_in": ["proc:compounding", "end:pvc-compound", "end:cable-wire", "end:plastics-converting"]
+    },
+    "sub:ammonia": {
+      "hs_codes": ["2814.10", "2814.20"]
+    },
+    "sub:hydrogen-peroxide": {
+      "consumed_in": ["end:pulp-paper"]
+    },
+    "sub:caustic-soda": {
+      "consumed_in": ["end:soap", "proc:saponification", "end:pulp-paper"]
+    },
+    "sub:chlorine": {
+      "derived_to": ["sub:vinyl-chloride", "sub:epichlorohydrin", "sub:hydrochloric-acid", "sub:phosgene"]
+    }
+  }
+}

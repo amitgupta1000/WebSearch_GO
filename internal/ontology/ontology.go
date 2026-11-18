@@ -58,14 +58,16 @@ const (
 )
 
 // Source records where a relation came from. "seed" means authored from the
-// in-repo vocabulary and not yet verified by a domain expert; the reviewer
-// upgrades it to hs/echa/operator/trade-db as they confirm each row.
+// in-repo vocabulary and not yet verified; "llm-review" means a machine review
+// proposed or corrected the row (still pending a domain expert); the reviewer
+// upgrades a row to hs/echa/operator/trade-db as they confirm it.
 const (
-	SourceSeed     = "seed"
-	SourceHS       = "hs"
-	SourceECHA     = "echa"
-	SourceOperator = "operator"
-	SourceTradeDB  = "trade-db"
+	SourceSeed      = "seed"
+	SourceLLMReview = "llm-review"
+	SourceHS        = "hs"
+	SourceECHA      = "echa"
+	SourceOperator  = "operator"
+	SourceTradeDB   = "trade-db"
 )
 
 // Confidence is the reviewer's (or seed's) certainty in a node's relations.
