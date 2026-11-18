@@ -253,18 +253,59 @@ func renderDemandChainMarkdown(report *models.DemandChainReport) string {
 // objective; the body opens with the value chain the search was built from.
 func renderDemandChainHTML(report *models.DemandChainReport) string {
 	return executeDocument(demandChainHTMLTemplate, document{
-		Title:        demandChainReportTitle(report),
-		CoverSubject: nonEmpty(report.Activity, "Activity"),
-		Subtitle:     trimmed(report.Geography),
-		Kicker:       kickerDemand,
-		CoverSummary: coverSummary(report.Objective, coverSummaryLimit),
-		GeneratedAt:  generatedStamp(report.CompletedAt),
-		CoverPhoto:   coverPhotoForScope("buyer"),
-		Chain:        report,
+		Title:            demandChainReportTitle(report),
+		CoverSubject:     nonEmpty(report.Activity, "Activity"),
+		Subtitle:         trimmed(report.Geography),
+		Kicker:           kickerDemand,
+		CoverSummary:     coverSummary(report.Objective, coverSummaryLimit),
+		GeneratedAt:      generatedStamp(report.CompletedAt),
+		CoverPhoto:       coverPhotoForScope("buyer"),
+		CoverSteps:       demandCoverSteps(report),
+		SummaryCompanies: topMarketCompanies(report.Results, summaryCompanyLimit),
+		Chain:            report,
 	})
 }
 
+// demandCoverSteps narrates the buyer pipeline the run actually executed.
+func demandCoverSteps(report *models.DemandChainReport) []CoverStep {
+	steps := make([]CoverStep, 0, 7)
+	if len(report.Chain) > 0 {
+		steps = append(steps, CoverStep{Label: "Value-chain inference", Detail: fmt.Sprintf("%d consuming stage(s) organised the search%s", len(report.Chain), chainSourceNote(report))})
+	} else {
+		steps = append(steps, CoverStep{Label: "Value-chain inference", Detail: "the operator supplied the stages directly"})
+	}
+	if len(report.QueryReviews) > 0 {
+		steps = append(steps, CoverStep{Label: "Query planning and review", Detail: fmt.Sprintf("%d planned queries were adversarially reviewed before spending a search", len(report.QueryReviews))})
+	}
+	steps = append(steps, CoverStep{Label: "Discovery and verification", Detail: fmt.Sprintf("%d search(es) across the lanes, %d verification search(es); %d candidates found, %d lead(s) reviewed, %d page(s) read", report.QueriesUsed, report.VerificationQueries, report.CandidatesFound, report.LeadsReviewed, report.PagesEnriched)})
+	if len(report.Reviews) > 0 {
+		steps = append(steps, CoverStep{Label: "Quality control", Detail: fmt.Sprintf("verdict %q; %d stage(s) below the coverage floor", report.Reviews[0].Verdict, len(report.Reviews[0].MissingStages))})
+	}
+	if len(report.TradeImporters) > 0 {
+		steps = append(steps, CoverStep{Label: "Crystal trade DB", Detail: fmt.Sprintf("%d ranked importer(s) from first-party customs data, queried before the web lanes", len(report.TradeImporters))})
+	}
+	steps = append(steps, CoverStep{Label: "Export", Detail: "Markdown and PDF printed by the same Chromium that reads the sources — no second model call"})
+	return steps
+}
+
+// chainSourceNote names where the value chain came from, so the cover's
+// inference step is honest about its provenance.
+func chainSourceNote(report *models.DemandChainReport) string {
+	if report.ChainInferred {
+		return " (model-inferred, adversarially reviewed)"
+	}
+	return " (operator-supplied or fallback)"
+}
+
 var demandChainHTMLTemplate = documentTemplate("demand-chain", `
+{{if or .SummaryCompanies .Chain.TradeImporters}}<section class="summary-page">
+<p class="summary-kicker">Summary — most relevant findings</p>
+<h1 class="summary-title">{{.Chain.Activity}}</h1>
+{{if .SummaryCompanies}}<table><thead><tr><th>Company</th><th>Role</th><th>Country</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .SummaryCompanies}}<tr><td>{{.Name}}</td><td>{{.Role}}</td><td>{{.Country}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{end}}
+{{if .Chain.TradeImporters}}<p class="dim">First-party customs records: {{len .Chain.TradeImporters}} ranked importer(s) — published separately; the operator decides how to weigh them.</p>{{end}}
+{{if .Chain.StageCoverage}}<p class="dim">Stage coverage: {{range $i, $s := .Chain.StageCoverage}}{{if $i}} · {{end}}{{$s.Stage}} {{$s.Count}}/{{$s.Minimum}}{{end}}.</p>{{end}}
+<p class="dim">The value chain, the full tables and the source appendix follow.</p>
+</section>{{end}}
 <header><h1>{{.Chain.Activity}} — Demand Chain</h1>{{if .Chain.Objective}}<p class="subtitle">{{.Chain.Objective}}</p>{{end}}{{if .Chain.ProductCategory}}<p class="dim">Category: {{.Chain.ProductCategory}}{{if .Chain.CategoryRationale}} — {{.Chain.CategoryRationale}}{{end}}</p>{{end}}</header>
 {{if .Chain.Chain}}<section>
 	<h2>Value chain</h2>

@@ -283,6 +283,137 @@ func (t *TradeDBClient) EntityNames(ctx context.Context, direction, query string
 	}
 	return response.Names, nil
 }
+// EntityProfiles returns the aggregated entity profiles whose names match
+// nameSearch: totals across every shipment the entity appears in, plus its
+// rank within the DB's profiled top set (top 500 importers / top 100
+// suppliers). The DB matches names case-insensitively; exact pins the full
+// spelling, which is what the /names typeahead resolution produces.
+func (t *TradeDBClient) EntityProfiles(ctx context.Context, direction, nameSearch string, exact bool, limit int) ([]models.TradeEntityProfile, error) {
+	if !t.Enabled() {
+		return nil, ErrTradeDBDisabled
+	}
+	nameSearch = strings.TrimSpace(nameSearch)
+	if nameSearch == "" {
+		return nil, nil
+	}
+	path := "/api/entity/importers"
+	if direction == models.TradeDirectionSupplier {
+		path = "/api/entity/suppliers"
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	query := url.Values{
+		"name_search": {nameSearch},
+		"limit":       {fmt.Sprintf("%d", limit)},
+	}
+	if exact {
+		query.Set("name_exact", "true")
+	}
+	// The response key follows the direction; both are decoded so one shape
+	// serves importer and supplier rows alike.
+	var response struct {
+		Importers []struct {
+			TrueImporterName  string  `json:"true_importer_name"`
+			GlobalRank        int     `json:"global_rank"`
+			TransactionCount  int     `json:"transaction_count"`
+			ProductCount      int     `json:"product_count"`
+			SupplierCount     int     `json:"supplier_count"`
+			TotalValueUSD     float64 `json:"total_value_usd"`
+			TotalQuantityMT   float64 `json:"total_quantity_mt"`
+		} `json:"importers"`
+		Suppliers []struct {
+			TrueSupplierName  string  `json:"true_supplier_name"`
+			GlobalRank        int     `json:"global_rank"`
+			TransactionCount  int     `json:"transaction_count"`
+			ProductCount      int     `json:"product_count"`
+			ImporterCount     int     `json:"importer_count"`
+			TotalValueUSD     float64 `json:"total_value_usd"`
+			TotalQuantityMT   float64 `json:"total_quantity_mt"`
+		} `json:"suppliers"`
+	}
+	if err := t.call(ctx, http.MethodGet, path+"?"+query.Encode(), nil, &response); err != nil {
+		return nil, err
+	}
+	profiles := make([]models.TradeEntityProfile, 0, len(response.Importers)+len(response.Suppliers))
+	for _, row := range response.Importers {
+		profiles = append(profiles, models.TradeEntityProfile{
+			Name:              row.TrueImporterName,
+			GlobalRank:        row.GlobalRank,
+			TransactionCount:  row.TransactionCount,
+			ProductCount:      row.ProductCount,
+			TotalValueUSD:     row.TotalValueUSD,
+			TotalQuantityMT:   row.TotalQuantityMT,
+			CounterpartyCount: row.SupplierCount,
+		})
+	}
+	for _, row := range response.Suppliers {
+		profiles = append(profiles, models.TradeEntityProfile{
+			Name:              row.TrueSupplierName,
+			GlobalRank:        row.GlobalRank,
+			TransactionCount:  row.TransactionCount,
+			ProductCount:      row.ProductCount,
+			TotalValueUSD:     row.TotalValueUSD,
+			TotalQuantityMT:   row.TotalQuantityMT,
+			CounterpartyCount: row.ImporterCount,
+		})
+	}
+	return profiles, nil
+}
+
+// EntityProducts returns one entity's aggregated product mix: the
+// standardized chemicals its shipments were filed under with transaction,
+// value and quantity totals. The endpoint answers for any name the data
+// carries, profiled or not; an unknown name answers with an empty breakdown
+// rather than an error, so a miss stays a miss.
+func (t *TradeDBClient) EntityProducts(ctx context.Context, direction, name string, limit int) (models.TradeEntityBreakdown, error) {
+	breakdown := models.TradeEntityBreakdown{}
+	if !t.Enabled() {
+		return breakdown, ErrTradeDBDisabled
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return breakdown, nil
+	}
+	base := "/api/entity/importers"
+	if direction == models.TradeDirectionSupplier {
+		base = "/api/entity/suppliers"
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	var response struct {
+		EntityName string `json:"entity_name"`
+		EntityType string `json:"entity_type"`
+		Products   []struct {
+			StandardizedChemicalName string  `json:"standardized_chemical_name"`
+			TransactionCount         int     `json:"transaction_count"`
+			TotalValueUSD            float64 `json:"total_value_usd"`
+			TotalQuantityMT          float64 `json:"total_quantity_mt"`
+			EntityRank               int     `json:"entity_rank"`
+		} `json:"products"`
+		TotalCount int `json:"total_count"`
+	}
+	path := base + "/" + url.PathEscape(name) + "/products?limit=" + fmt.Sprintf("%d", limit)
+	if err := t.call(ctx, http.MethodGet, path, nil, &response); err != nil {
+		return breakdown, err
+	}
+	breakdown.EntityName = response.EntityName
+	breakdown.EntityType = response.EntityType
+	breakdown.TotalCount = response.TotalCount
+	breakdown.Products = make([]models.TradeEntityProduct, 0, len(response.Products))
+	for _, row := range response.Products {
+		breakdown.Products = append(breakdown.Products, models.TradeEntityProduct{
+			Name:             row.StandardizedChemicalName,
+			TransactionCount: row.TransactionCount,
+			TotalValueUSD:    row.TotalValueUSD,
+			TotalQuantityMT:  row.TotalQuantityMT,
+			Rank:             row.EntityRank,
+		})
+	}
+	return breakdown, nil
+}
+
 
 // call performs one bounded, retrying API request. The concurrency semaphore
 // is held for the whole logical call, so a retry cannot exceed the in-flight

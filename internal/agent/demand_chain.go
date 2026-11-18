@@ -128,6 +128,9 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	if !query.IncludeIntermediaries {
 		report.Warnings = append(report.Warnings, "Traders, brokers and trading houses are excluded; rerun with intermediaries to include them.")
 	}
+	// The trade-DB lane runs right after the value-chain check, before any
+	// web lane spends a search — the same ordering as the seller landscape.
+	a.attachTradeImporters(ctx, query, report, eventCh)
 	categoryResults, categoryQueries, categoryHits, categoryVerificationQueries, categoryQueryReviews, categoryWarnings := a.researchCategoryLane(ctx, query, category, eventCh)
 	report.CategoryResults = categoryResults
 	report.CategoryQueries = categoryQueries
@@ -436,6 +439,9 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 	if len(report.Results) == 0 {
 		report.Warnings = append(report.Warnings, "No company met the consumption-verification threshold; discovery leads remain in the appendix.")
 	}
+	// Same verified-row customs enrichment as the seller landscape: cheap,
+	// cached, bounded by the trade-partner cap, and fail-soft per row.
+	enrichVerifiedTradeProfiles(ctx, a.engine, report.Results, eventCh)
 	// The stage-oriented roster: every company the operator lanes tied to a
 	// consuming stage — verified or not — grouped the way the value chain
 	// inferred them. The verified list above is the cross-cutting view; this
@@ -463,7 +469,6 @@ func (a *DemandChainAgent) Research(ctx context.Context, researchID string, quer
 		review.Verdict = "revise"
 	}
 	report.Reviews = append(report.Reviews, review)
-	a.attachTradeImporters(ctx, query, report, eventCh)
 	report.CompletedAt = time.Now()
 	if exports := a.engine.ExportDemandChain(ctx, report); len(exports) > 0 {
 		report.Exports = exports

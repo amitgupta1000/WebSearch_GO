@@ -27,6 +27,9 @@ type tradeDBMock struct {
 	options           *models.TradeFilterOptions
 	records           []models.TradeRecord
 	importersErr      error
+	entityProfiles   []models.TradeEntityProfile
+	entityProducts   models.TradeEntityBreakdown
+
 }
 
 func (m *tradeDBMock) TopImporters(ctx context.Context, product string, hsCodes []string, rankLimit int) ([]models.TradePartner, error) {
@@ -64,6 +67,18 @@ func (m *tradeDBMock) QueryRecords(ctx context.Context, query models.TradeQuery)
 	m.queryCalls++
 	m.lastQuery = query
 	return m.records, nil
+}
+
+func (m *tradeDBMock) EntityNames(ctx context.Context, direction, query string, limit int) ([]string, error) {
+	return nil, nil
+}
+
+func (m *tradeDBMock) EntityProfiles(ctx context.Context, direction, nameSearch string, exact bool, limit int) ([]models.TradeEntityProfile, error) {
+	return m.entityProfiles, nil
+}
+
+func (m *tradeDBMock) EntityProducts(ctx context.Context, direction, name string, limit int) (models.TradeEntityBreakdown, error) {
+	return m.entityProducts, nil
 }
 
 // TestTradeDBImporterScope pins the geography rule: importer records are

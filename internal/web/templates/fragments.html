@@ -1,4 +1,15 @@
 {{define "error_box"}}<div class="p-4 bg-red-950/50 border border-red-800 text-red-300 rounded-xl">Error: {{.}}</div>{{end}}
+{{define "trade_product_matches"}}
+{{if .Note}}<p class="text-[11px] text-amber-300">{{.Note}}</p>{{end}}
+{{if .Matches}}
+<p class="text-[11px] text-slate-400">Canonical trade DB names for <span class="text-slate-200">{{.Query}}</span> — pick the closest, or leave on auto-resolve:</p>
+<div class="flex flex-wrap gap-1.5 mt-1">
+	{{range .Matches}}<label class="cursor-pointer"><input type="radio" name="trade_product" value="{{.Name}}" class="sr-only peer"><span class="inline-block rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-300 peer-checked:border-emerald-500 peer-checked:text-emerald-300">{{.Name}}{{if .Exact}} <span class="text-emerald-400 font-semibold">exact</span>{{end}} <span class="text-slate-500">{{.Score}}</span></span></label>{{end}}
+	<label class="cursor-pointer"><input type="radio" name="trade_product" value="" checked class="sr-only peer"><span class="inline-block rounded-full border border-slate-800 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-500 peer-checked:border-slate-500 peer-checked:text-slate-300">auto-resolve</span></label>
+</div>
+{{end}}
+{{end}}
+
 
 {{define "log_entry"}}
 <div class="flex items-start gap-2.5 py-1.5 font-mono text-xs leading-relaxed border-b border-slate-900/60">
@@ -174,6 +185,7 @@
 		<div class="flex flex-wrap items-center gap-2">
 			<span class="text-[10px] text-emerald-300">{{$company.Status}}</span>
 			{{template "company_research_launch" (dict "Company" $company "Audience" .Audience "Location" (rrLocation $company.PresenceCountry $company.HQCountry $company.Country .Geography))}}
+			{{template "trade_profile_button" (dict "Company" $company)}}
 		</div>
 	</div>
 	<div class="text-xs text-emerald-300">{{$company.Activity}}{{if $company.Role}} · {{$company.Role}}{{end}}</div>
@@ -191,6 +203,7 @@
 		<div class="flex flex-wrap items-center gap-2">
 			<span class="text-[10px] text-emerald-300">{{.Status}}</span>
 			{{template "company_research_launch" (dict "Company" . "Audience" "producer" "Location" (rrLocation .PresenceCountry .HQCountry .Country))}}
+			{{template "trade_profile_button" (dict "Company" .)}}
 		</div>
 	</div>
 	<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
@@ -198,6 +211,7 @@
 		<span class="rounded-full border border-slate-700 px-2 py-0.5">{{if .Presence}}{{.Presence}}{{else}}location unknown{{end}}</span>
 	</div>
 	{{if or .PresenceCountry .HQCountry .Country}}<div class="text-[10px] text-slate-600">RR filter: {{if .PresenceCountry}}{{.PresenceCountry}}{{else if .HQCountry}}{{.HQCountry}}{{else}}{{.Country}}{{end}} · leadership, procurement/purchasing, sales/marketing · 5+ years</div>{{end}}
+	{{if .TradeProfile}}<div class="text-[10px] text-teal-300">Crystal customs: {{if .TradeProfile.TransactionCount}}{{.TradeProfile.TransactionCount}} shipment(s){{if .TradeProfile.TotalValueUSD}} · USD {{printf "%.0f" .TradeProfile.TotalValueUSD}}{{end}}{{end}}{{if .TradeProfile.TopProducts}}{{with (index .TradeProfile.TopProducts 0)}} · top: {{.Name}} ({{.TransactionCount}}){{end}}{{end}}</div>{{end}}
 	<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
 		<span class="rounded-full border border-indigo-900/70 bg-indigo-950/30 px-2 py-0.5">{{if .Role}}{{.Role}}{{else}}unclassified{{end}}</span>
 		<span class="rounded-full border border-slate-700 px-2 py-0.5">{{if .Presence}}{{.Presence}}{{else}}location unknown{{end}}</span>
@@ -425,7 +439,7 @@
 			<div class="flex flex-wrap justify-between gap-3"><span class="font-semibold text-white">{{.Name}}</span>
 				<div class="flex flex-wrap items-center gap-2">
 					<span class="text-[10px] text-emerald-300">{{.Status}}</span>
-					{{template "company_research_launch" (dict "Company" . "Audience" "buyer" "Location" (rrLocation .PresenceCountry .HQCountry .Country $.Geography))}}
+					{{template "company_research_launch" (dict "Company" . "Audience" "buyer" "Location" (rrLocation .PresenceCountry .HQCountry .Country $.Geography))}}{{template "trade_profile_button" (dict "Company" .)}}
 				</div>
 			</div>
 			{{if .Stage}}<div class="text-xs text-indigo-300">Consuming stage: {{.Stage}}</div>{{end}}
@@ -465,9 +479,9 @@
 	{{range .StageCandidates}}<div class="bg-slate-950 border border-slate-800 rounded-xl p-4">
 		<div class="flex justify-between gap-2"><span class="font-semibold text-white">{{.Stage.Name}}</span><span class="text-[10px] text-slate-500">{{if eq .Stage.Source "category"}}channel category · resale{{else if eq .Stage.Distance 2}}step 2 · derived{{else}}step 1 · direct{{end}} · {{.Stage.Source}}</span></div>
 		{{if .Stage.Rationale}}<p class="text-xs text-slate-400 mt-1">{{.Stage.Rationale}}</p>{{end}}
-		{{if .Companies}}<div class="mt-2 flex flex-wrap gap-1.5">{{range .Companies}}<div class="inline-flex flex-wrap items-center gap-1 text-[11px] {{if eq .Status "lead"}}text-slate-300{{else}}text-emerald-300{{end}} bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5" title="{{.Description}}{{if .Employees}} · Employees: {{.Employees}}{{end}}{{if .Turnover}} · Turnover: {{.Turnover}}{{end}}"><span>{{.Name}} · {{.Status}}{{if .Presence}} · {{.Presence}}{{end}}</span>{{template "company_research_launch" (dict "Company" . "Audience" "buyer" "Location" (rrLocation .PresenceCountry .HQCountry .Country $.Geography))}}{{template "market_sources" .Evidence}}</div>{{end}}</div>
+		{{if .Companies}}<div class="mt-2 flex flex-wrap gap-1.5">{{range .Companies}}<div class="inline-flex flex-wrap items-center gap-1 text-[11px] {{if eq .Status "lead"}}text-slate-300{{else}}text-emerald-300{{end}} bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5" title="{{.Description}}{{if .Employees}} · Employees: {{.Employees}}{{end}}{{if .Turnover}} · Turnover: {{.Turnover}}{{end}}"><span>{{.Name}} · {{.Status}}{{if .Presence}} · {{.Presence}}{{end}}</span>{{template "company_research_launch" (dict "Company" . "Audience" "buyer" "Location" (rrLocation .PresenceCountry .HQCountry .Country $.Geography))}}{{template "trade_profile_button" (dict "Company" .)}}{{template "market_sources" .Evidence}}</div>{{end}}</div>
 		{{else}}<p class="text-xs text-slate-500 mt-1">No stage-active companies surfaced.</p>{{end}}
-		{{if .GlobalCompanies}}<div class="mt-2 border-t border-slate-800 pt-2"><div class="text-[10px] uppercase tracking-wide text-amber-300">Global / cross-border · {{len .GlobalCompanies}}</div><div class="mt-1 flex flex-wrap gap-1.5">{{range .GlobalCompanies}}<div class="inline-flex flex-wrap items-center gap-1 text-[11px] text-slate-300 bg-slate-900 border border-amber-900/60 rounded px-1.5 py-0.5" title="{{.Description}}"><span>{{.Name}} · {{.Status}} · global</span>{{template "company_research_launch" (dict "Company" . "Audience" "buyer" "Location" (rrLocation .PresenceCountry .HQCountry .Country $.Geography))}}{{template "market_sources" .Evidence}}</div>{{end}}</div></div>{{end}}
+		{{if .GlobalCompanies}}<div class="mt-2 border-t border-slate-800 pt-2"><div class="text-[10px] uppercase tracking-wide text-amber-300">Global / cross-border · {{len .GlobalCompanies}}</div><div class="mt-1 flex flex-wrap gap-1.5">{{range .GlobalCompanies}}<div class="inline-flex flex-wrap items-center gap-1 text-[11px] text-slate-300 bg-slate-900 border border-amber-900/60 rounded px-1.5 py-0.5" title="{{.Description}}"><span>{{.Name}} · {{.Status}} · global</span>{{template "company_research_launch" (dict "Company" . "Audience" "buyer" "Location" (rrLocation .PresenceCountry .HQCountry .Country $.Geography))}}{{template "trade_profile_button" (dict "Company" .)}}{{template "market_sources" .Evidence}}</div>{{end}}</div></div>{{end}}
 	</div>{{end}}
 	<details class="border-t border-slate-800 pt-5">
 		<summary class="cursor-pointer text-[11px] uppercase tracking-[.2em] text-slate-500 font-semibold">Research links and demand signals</summary>
@@ -573,6 +587,39 @@
 {{if .Error}}<div class="text-[11px] text-amber-300">{{.Error}}</div>{{else if .Profile}}<div class="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-2 text-[11px] text-slate-300"><div class="text-emerald-300 font-medium">{{.Profile.Name}}</div>{{if .Profile.CurrentTitle}}<div>{{.Profile.CurrentTitle}} · {{.Profile.CurrentEmployer}}</div>{{end}}{{range .Profile.Emails}}{{if ne .Grade "F"}}<div>{{.Email}} <span class="text-slate-500">({{.Grade}})</span></div>{{end}}{{end}}{{range .Profile.Phones}}<div>{{.Number}}</div>{{end}}{{if .Profile.JobHistory}}<div class="mt-1 text-slate-400">Career history:</div><ul class="ml-3 list-disc">{{range .Profile.JobHistory}}<li>{{.Title}}{{if .Company}} · {{.Company}}{{end}}{{if or .StartDate .EndDate}} ({{.StartDate}}–{{.EndDate}}){{end}}</li>{{end}}</ul>{{end}}{{if .Profile.Education}}<div class="mt-1 text-slate-400">Education:</div>{{range .Profile.Education}}<div>{{if .Institution}}{{.Institution}}{{else}}{{.School}}{{end}}{{if .Degree}} · {{.Degree}}{{end}}</div>{{end}}{{end}}{{if .Profile.LinkedInURL}}<a class="text-indigo-300 hover:underline" href="{{.Profile.LinkedInURL}}" target="_blank" rel="noreferrer">LinkedIn</a>{{end}}{{if .Cached}}<div class="text-[10px] text-slate-500 mt-1">Served from the 24h RocketReach cache; no new lookup credit spent.</div>{{end}}{{if .Persisted}}<div class="text-[10px] text-emerald-400 mt-1">Saved to the research roster.</div>{{end}}</div>{{end}}
 {{end}}
 
+{{define "trade_profile_button"}}
+<form hx-post="/api/market-landscape/trade-profile" hx-target="next .trade-profile-results" hx-swap="innerHTML" class="inline">
+	<input type="hidden" name="company_name" value="{{.Company.Name}}">
+	<button type="submit" title="Fetch this company's aggregated Crystal customs profile: shipments, value and its own product mix — no research run, no search spend"
+	        class="text-[10px] rounded-full border border-teal-800 bg-teal-950/40 px-2 py-1 text-teal-200 hover:bg-teal-900/50">Fetch Trade Profile</button>
+</form>
+<div class="trade-profile-results w-full"></div>
+{{end}}
+
+{{define "market_trade_profile_result"}}
+{{if .Error}}<div class="rounded-lg border border-amber-900/50 bg-amber-950/20 p-2 text-[11px] text-amber-300">{{.Error}}</div>{{else if .Background}}
+<div class="rounded-lg border border-teal-900/50 bg-teal-950/20 p-3 text-[11px] text-slate-300 space-y-2">
+	{{if not .Background.Present}}<p class="text-amber-300">No exact customs-entity match for {{.Company}}{{if .Background.NameVariants}} — closest spellings: {{range $i, $v := .Background.NameVariants}}{{if $i}} · {{end}}{{$v}}{{end}}{{end}}.</p>{{end}}
+	<div class="flex flex-wrap items-center justify-between gap-2">
+		<span class="text-teal-300 font-medium">Crystal customs profile — {{.Background.MatchedName}}</span>
+		{{range .Background.Directions}}<span class="text-[10px] rounded-full border border-teal-800 px-2 py-0.5 text-teal-200">{{.}}</span>{{end}}
+	</div>
+	<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
+		{{if .Background.GlobalRank}}<span class="rounded-full border border-teal-900 px-2 py-0.5">rank #{{.Background.GlobalRank}} among the profiled top set</span>{{end}}
+		{{if .Background.TransactionCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.Background.TransactionCount}} shipment(s)</span>{{end}}
+		{{if .Background.ProductCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.Background.ProductCount}} product(s)</span>{{end}}
+		{{if .Background.TotalValueUSD}}<span class="rounded-full border border-teal-900 px-2 py-0.5">USD {{printf "%.0f" .Background.TotalValueUSD}}</span>{{end}}
+		{{if .Background.TotalQuantityMT}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{printf "%.0f" .Background.TotalQuantityMT}} MT</span>{{end}}
+	</div>
+	{{if .Background.TopProducts}}<div>
+		<div class="text-slate-400">Product mix (by shipments):</div>
+		<table class="w-full mt-1 text-[10px] text-slate-300"><thead><tr class="text-slate-500"><th class="text-left">Product</th><th class="text-right">Shipments</th><th class="text-right">Value (USD)</th><th class="text-right">Quantity (MT)</th></tr></thead>
+		<tbody>{{range .Background.TopProducts}}<tr class="border-t border-slate-800"><td>{{.Name}}</td><td class="text-right">{{.TransactionCount}}</td><td class="text-right">{{printf "%.0f" .TotalValueUSD}}</td><td class="text-right">{{printf "%.0f" .TotalQuantityMT}}</td></tr>{{end}}</tbody></table>
+	</div>{{end}}
+	<p class="text-[10px] text-slate-500">Aggregated first-party customs records (Crystal trade DB) — an importer may equally be a reseller; the operator decides. Checked {{.Background.CheckedAt.Format "02 Jan 2006 15:04"}}.</p>
+</div>{{end}}
+{{end}}
+
 {{define "workflow_console"}}
 <div class="space-y-6">
 	<!-- Workflow Console Container -->
@@ -647,6 +694,25 @@
 			{{if .Brief.FinancialYear}}<div><span class="text-slate-500">Financial year</span><br>{{.Brief.FinancialYear}}</div>{{end}}
 		</div>{{end}}
 		{{if .Brief.MetricsSource}}<a href="{{.Brief.MetricsSource}}" target="_blank" rel="noreferrer" class="text-[11px] text-indigo-400 hover:underline">Metrics source</a>{{end}}
+	</div>{{end}}
+	{{if .TradeBackground}}<div class="border-t border-slate-800 pt-4 space-y-2">
+		<h4 class="text-sm font-semibold text-slate-300">Trade DB background</h4>
+		{{if .TradeBackground.Present}}<p class="text-xs text-emerald-300">Named in the Crystal customs entity vocabulary as <span class="text-emerald-200 font-mono">{{.TradeBackground.MatchedName}}</span>{{if .TradeBackground.Directions}} (side: {{range $i, $d := .TradeBackground.Directions}}{{if $i}}, {{end}}{{$d}}{{end}}){{end}}.</p>
+		<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
+			{{if .TradeBackground.GlobalRank}}<span class="rounded-full border border-teal-900 px-2 py-0.5">rank #{{.TradeBackground.GlobalRank}} among the profiled top set</span>{{end}}
+			{{if .TradeBackground.TransactionCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.TradeBackground.TransactionCount}} shipment(s)</span>{{end}}
+			{{if .TradeBackground.ProductCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.TradeBackground.ProductCount}} product(s)</span>{{end}}
+			{{if .TradeBackground.TotalValueUSD}}<span class="rounded-full border border-teal-900 px-2 py-0.5">USD {{printf "%.0f" .TradeBackground.TotalValueUSD}}</span>{{end}}
+			{{if .TradeBackground.TotalQuantityMT}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{printf "%.0f" .TradeBackground.TotalQuantityMT}} MT</span>{{end}}
+		</div>
+		{{if .TradeBackground.TopProducts}}<div>
+			<div class="text-[11px] text-slate-400">Product mix (by shipments):</div>
+			<table class="w-full mt-1 text-[10px] text-slate-300"><thead><tr class="text-slate-500"><th class="text-left">Product</th><th class="text-right">Shipments</th><th class="text-right">Value (USD)</th><th class="text-right">Quantity (MT)</th></tr></thead>
+			<tbody>{{range .TradeBackground.TopProducts}}<tr class="border-t border-slate-800"><td>{{.Name}}</td><td class="text-right">{{.TransactionCount}}</td><td class="text-right">{{printf "%.0f" .TotalValueUSD}}</td><td class="text-right">{{printf "%.0f" .TotalQuantityMT}}</td></tr>{{end}}</tbody></table>
+		</div>{{end}}
+		{{else}}<p class="text-xs text-slate-500">No exact match in the Crystal customs entity vocabulary{{if .TradeBackground.Note}} — {{.TradeBackground.Note}}{{end}}.</p>{{end}}
+		{{if .TradeBackground.NameVariants}}<p class="text-xs text-slate-500">Closest customs names: {{range $i, $v := .TradeBackground.NameVariants}}{{if $i}} · {{end}}{{$v}}{{end}}</p>{{end}}
+		<p class="text-[11px] text-slate-600">Checked {{.TradeBackground.CheckedAt.Format "02 Jan 2006 15:04 MST"}} — aggregated first-party customs records; an importer may equally be a reseller.</p>
 	</div>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Results</div>

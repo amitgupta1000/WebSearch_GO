@@ -154,6 +154,17 @@ type TradeDBSource interface {
 	// QueryRecords returns raw customs records, whose origin_country field is
 	// the authoritative geography for supplier scoping.
 	QueryRecords(ctx context.Context, query models.TradeQuery) ([]models.TradeRecord, error)
+	// EntityNames returns the DB's typeahead suggestions for importer or
+	// supplier names — the vocabulary check behind a researched company's
+	// trade-DB background.
+	EntityNames(ctx context.Context, direction, query string, limit int) ([]string, error)
+	// EntityProfiles returns the aggregated entity profiles matching a name
+	// search on either side of the transaction (rank, shipments, product
+	// count, value) from the DB's profiled top set.
+	EntityProfiles(ctx context.Context, direction, nameSearch string, exact bool, limit int) ([]models.TradeEntityProfile, error)
+	// EntityProducts returns one entity's aggregated product mix — what it
+	// actually trades — which answers for any name the data carries.
+	EntityProducts(ctx context.Context, direction, name string, limit int) (models.TradeEntityBreakdown, error)
 }
 
 // WithTradeDB attaches the trade-DB client. A nil client keeps the capability

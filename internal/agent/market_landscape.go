@@ -103,6 +103,11 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 		resolution = chooseOntologyFamily(ctx, a.engine, resolution, marketLandscapeGeography(query), eventCh)
 	}
 	report.Warnings = append(report.Warnings, resolution.Warnings...)
+	// The trade-DB lane is the first step after the ontology check: its
+	// queries and answers land in the console log before any web lane spends
+	// a search, and the first-party sections are assembled before the long
+	// web pipeline runs.
+	a.attachTradePartners(ctx, query, report, eventCh)
 	category, categoryRationale, categorySource, categoryWarnings := a.marketCategoryFromResolution(ctx, resolution, query, eventCh)
 	report.ProductCategory = category
 	report.CategoryRationale = categoryRationale
@@ -257,6 +262,10 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	if len(report.Results) == 0 {
 		report.Warnings = append(report.Warnings, "No company met the verification threshold; discovery leads remain in the appendix.")
 	}
+	// The verified rows carry their aggregated customs profile: cheap
+	// (~110 ms per company warm, cached), bounded by the trade-partner cap,
+	// and fail-soft — a miss leaves the row unchanged.
+	enrichVerifiedTradeProfiles(ctx, a.engine, report.Results, eventCh)
 	report.Groups = marketGroupsFor(report.Results, query)
 	report.Coverage = marketCoverageFor(companies, query)
 	if !report.Coverage.Pass {
@@ -265,7 +274,6 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	if report.Coverage.Global > 0 {
 		report.Warnings = append(report.Warnings, fmt.Sprintf("%d global/cross-border company(ies) have no evidence of a plant, office or operation in the requested geography; they remain visible in the Global / cross-border section and are excluded from local coverage.", report.Coverage.Global))
 	}
-	a.attachTradePartners(ctx, query, report, eventCh)
 	report.CompletedAt = time.Now()
 	if exports := a.engine.ExportMarketLandscape(ctx, report); len(exports) > 0 {
 		report.Exports = exports

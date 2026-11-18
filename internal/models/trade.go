@@ -102,3 +102,51 @@ type TradeFilterOptions struct {
 	ForeignPorts          []string `json:"foreign_ports"`
 	CanonicalProductNames []string `json:"canonical_product_names"`
 }
+
+// TradeEntityProfile is one aggregated entity profile from the Crystal DB's
+// entity-profile listing: what the customs data knows about a company in
+// total, regardless of product. The listing is scoped to the profiled top
+// set (the API's own description: top 500 importers, top 100 suppliers), so
+// GlobalRank is a rank within that set, not an absolute position.
+type TradeEntityProfile struct {
+	// Name is the entity's exact spelling in the DB
+	// (true_importer_name / true_supplier_name).
+	Name string `json:"name"`
+	// GlobalRank is the entity's position in the profiled top set; the
+	// field is 1-based and only meaningful relative to that set.
+	GlobalRank int `json:"global_rank"`
+	// TransactionCount, ProductCount and TotalValueUSD/TotalQuantityMT are
+	// the aggregates across every shipment the entity appears in.
+	TransactionCount int     `json:"transaction_count"`
+	ProductCount     int     `json:"product_count"`
+	TotalValueUSD    float64 `json:"total_value_usd"`
+	TotalQuantityMT  float64 `json:"total_quantity_mt"`
+	// CounterpartyCount is the opposite-side count the profile row carries
+	// (supplier_count on importer rows, importer_count on supplier rows).
+	// Live rows have sampled 0 here, so it is optional and hidden when 0.
+	CounterpartyCount int `json:"counterparty_count,omitempty"`
+}
+
+// TradeEntityProduct is one line of an entity's aggregated product mix: the
+// standardized chemical the shipments were filed under with its totals.
+type TradeEntityProduct struct {
+	// Name is the canonical (standardized) chemical name — the same
+	// vocabulary the trade-product matcher ranks against.
+	Name string `json:"name"`
+	TransactionCount int     `json:"transaction_count"`
+	TotalValueUSD    float64 `json:"total_value_usd"`
+	TotalQuantityMT  float64 `json:"total_quantity_mt"`
+	// Rank is the product's position within this entity's own mix.
+	Rank int `json:"rank"`
+}
+
+// TradeEntityBreakdown is one entity's aggregated product breakdown. It
+// answers for any name the data carries, profiled or not; an unknown name
+// answers with TotalCount 0 and no products (HTTP 200 — a miss, not an error).
+type TradeEntityBreakdown struct {
+	EntityName string               `json:"entity_name"`
+	EntityType string               `json:"entity_type"`
+	Products   []TradeEntityProduct `json:"products"`
+	TotalCount int                  `json:"total_count"`
+}
+

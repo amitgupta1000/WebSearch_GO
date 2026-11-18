@@ -230,6 +230,23 @@ func tradePartnerDisplayProduct(partner models.TradePartner) string {
 	return "the product"
 }
 
+// tradeRankingSummary lines up a ranking answer for the console log: the row
+// count plus the head of the ranking, so a zero-row answer is as visible as a
+// populated one.
+func tradeRankingSummary(direction, product string, partners []models.TradePartner) string {
+	if len(partners) == 0 {
+		return fmt.Sprintf("0 ranked %s row(s) for product %q", direction, product)
+	}
+	head := make([]string, 0, 3)
+	for _, partner := range partners {
+		if len(head) == 3 {
+			break
+		}
+		head = append(head, fmt.Sprintf("%s (%d shipment(s), USD %.0f)", partner.Name, partner.TransactionCount, partner.TotalValueUSD))
+	}
+	return fmt.Sprintf("%d ranked %s row(s) for product %q — head: %s", len(partners), direction, product, strings.Join(head, " · "))
+}
+
 // tradePartnerClaimType types the custody evidence: an importer record is an
 // import claim; a supplier record is the supply-side observation.
 func tradePartnerClaimType(partner models.TradePartner) string {
@@ -258,11 +275,20 @@ func collectTradeImporters(ctx context.Context, client TradeDBSource, activity s
 	}
 	tctx, cancel := context.WithTimeout(ctx, tradeCollectionTimeout)
 	defer cancel()
-	emitAgentEvent(eventCh, models.EventThinking, "Querying the Crystal trade DB for the product's ranked importers", "", "")
+	// The query itself is a visible tool call, and its answer a visible tool
+	// result: the operator sees which name was searched and what came back,
+	// including the silent zero-row case.
+	emitAgentEvent(eventCh, models.EventToolCall,
+		fmt.Sprintf("product=%q · scope=India · limit=%d", activity, limit),
+		"trade-db", "top-importers")
 	partners, err := client.TopImporters(tctx, activity, nil, limit)
 	if err != nil {
+		emitAgentEvent(eventCh, models.EventToolResult,
+			fmt.Sprintf("query failed: %v", err), "trade-db", "top-importers")
 		return nil, []string{fmt.Sprintf("Trade-record importers unavailable; the run continues on web lanes: %v", err)}
 	}
+	emitAgentEvent(eventCh, models.EventToolResult,
+		tradeRankingSummary("importer", activity, partners), "trade-db", "top-importers")
 	return tradePartnerCompanies(partners, activity), nil
 }
 
@@ -298,11 +324,17 @@ func collectTradeSuppliers(ctx context.Context, client TradeDBSource, activity s
 		if tradeScopeIsIndia(countries, regions) {
 			return nil, []string{"Trade-record suppliers are foreign exporters into India; Indian sellers are out of their scope, so the section was skipped for this India run."}
 		}
-		emitAgentEvent(eventCh, models.EventThinking, "Querying the Crystal trade DB for the product's ranked exporters", "", "")
+		emitAgentEvent(eventCh, models.EventToolCall,
+			fmt.Sprintf("product=%q · scope=all origins (unscoped run) · limit=%d", activity, limit),
+			"trade-db", "top-suppliers")
 		partners, err := client.TopSuppliers(tctx, activity, nil, limit)
 		if err != nil {
+			emitAgentEvent(eventCh, models.EventToolResult,
+				fmt.Sprintf("query failed: %v", err), "trade-db", "top-suppliers")
 			return nil, []string{fmt.Sprintf("Trade-record suppliers unavailable; the run continues on web lanes: %v", err)}
 		}
+		emitAgentEvent(eventCh, models.EventToolResult,
+			tradeRankingSummary("supplier", activity, partners), "trade-db", "top-suppliers")
 		return tradePartnerCompanies(partners, activity), []string{"Trade-record suppliers are unscoped: no single origin region was requested, so the section carries the product's top exporters into India across all origins."}
 	}
 	// The DB has no region field: a region-scoped supplier query sends the ports
@@ -310,16 +342,30 @@ func collectTradeSuppliers(ctx context.Context, client TradeDBSource, activity s
 	// against the same expansion. Without the expansion "Middle East" matches no
 	// port and no origin, and every record is dropped.
 	regionCountries := tradeRegionCountries(region)
-	emitAgentEvent(eventCh, models.EventThinking, fmt.Sprintf("Querying the Crystal trade DB for supplier records scoped to %s (%d origin countries)", region, len(regionCountries)), "", "")
 	ports := []string{}
 	if options, err := client.FilterOptions(tctx); err == nil && options != nil {
 		ports = tools.ResolveForeignPortsForCountries(options.ForeignPorts, region, regionCountries)
 	}
+	emitAgentEvent(eventCh, models.EventToolCall,
+		fmt.Sprintf("product=%q · scope=%s (%d origin terms) · %d port filter(s) · limit=%d", activity, region, len(regionCountries), len(ports), tradeRecordPageLimit),
+		"trade-db", "query-records")
 	records, err := client.QueryRecords(tctx, models.TradeQuery{Product: activity, ForeignPorts: ports, Limit: tradeRecordPageLimit})
 	if err != nil {
+		emitAgentEvent(eventCh, models.EventToolResult,
+			fmt.Sprintf("query failed: %v", err), "trade-db", "query-records")
 		return nil, []string{fmt.Sprintf("Trade-record suppliers unavailable; the run continues on web lanes: %v", err)}
 	}
+	emitAgentEvent(eventCh, models.EventToolResult,
+		fmt.Sprintf("%d record row(s) returned for product %q across %d port filter(s)", len(records), activity, len(ports)),
+		"trade-db", "query-records")
 	companies, warnings := aggregateTradeSuppliers(records, activity, region, regionCountries, limit)
+	if len(records) == 0 {
+		// The zero-rows case needs its own word: the region warning below
+		// reads as a geography miss, but a product name the DB cannot match
+		// ("n-butanol" against "N BUTANOL (NBA)") empties the query before
+		// the origin filter ever sees a row.
+		warnings = append(warnings, fmt.Sprintf("The record query returned 0 rows for product %q — the DB matches names without punctuation (\"n-butanol\" matches nothing; \"n butanol\" matches), so a canonical product name from the trade-product matcher is what makes this lane return rows.", activity))
+	}
 	if len(ports) == 0 {
 		warnings = append(warnings, fmt.Sprintf("Trade-record supplier query was not port-filtered: the DB's port vocabulary does not name %s's ports, so origin countries were matched client-side (%s).", region, strings.Join(regionCountries, ", ")))
 	}
@@ -417,7 +463,10 @@ func (a *DemandChainAgent) attachTradeImporters(ctx context.Context, query model
 		return
 	}
 	limit := a.engine.TradeDBPartnerLimit()
-	companies, warnings := collectTradeImporters(ctx, client, query.Activity, limit, query.Countries, query.Regions, eventCh)
+	// Same discipline as the seller run: the product name resolves first and
+	// the resolution (match, miss, or operator pick) lands in the console log.
+	product := resolveTradeDBProduct(ctx, client, query.Activity, query.TradeProduct, eventCh)
+	companies, warnings := collectTradeImporters(ctx, client, product, limit, query.Countries, query.Regions, eventCh)
 	// The cap is enforced here as well as in the request: the API's rank limit
 	// is advisory, and the report budget is a hard promise.
 	if len(companies) > limit {
@@ -446,6 +495,11 @@ func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query mo
 		return
 	}
 	limit := a.engine.TradeDBPartnerLimit()
+	// The product name resolves first — this is the run's first trade-DB
+	// touch. The vocabulary match is what stands between the operator's
+	// "n-butanol" and the DB's "N BUTANOL (NBA)"; every outcome is emitted
+	// so the console log shows the exact string the customs queries carry.
+	product := resolveTradeDBProduct(ctx, client, query.Activity, query.TradeProduct, eventCh)
 	var (
 		wg           sync.WaitGroup
 		importers    []*models.MarketLandscapeCompany
@@ -456,11 +510,11 @@ func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query mo
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		importers, importerWarn = collectTradeImporters(ctx, client, query.Activity, limit, query.Countries, query.Regions, eventCh)
+		importers, importerWarn = collectTradeImporters(ctx, client, product, limit, query.Countries, query.Regions, eventCh)
 	}()
 	go func() {
 		defer wg.Done()
-		suppliers, supplierWarn = collectTradeSuppliers(ctx, client, query.Activity, limit, query.Countries, query.Regions, eventCh)
+		suppliers, supplierWarn = collectTradeSuppliers(ctx, client, product, limit, query.Countries, query.Regions, eventCh)
 	}()
 	wg.Wait()
 	report.Warnings = append(report.Warnings, importerWarn...)

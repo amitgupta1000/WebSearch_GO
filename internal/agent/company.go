@@ -174,6 +174,10 @@ func (ca *CompanyAgent) ResearchCompanyRun(ctx context.Context, sessionID string
 			state.Timings = timings
 		}
 		if chart != nil {
+			// The trade-DB background is a fast, fail-soft vocabulary check
+			// that runs even when the run spent its whole budget (detached
+			// context), so the dossier always carries what customs knows.
+			ca.attachTradeBackground(ctx, sessionID, brief, chart, eventCh)
 			chart.Timings = timings
 			// Exporting runs on a detached context inside the engine, so a run
 			// that used its whole research budget still saves its results.

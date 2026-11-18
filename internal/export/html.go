@@ -23,21 +23,30 @@ const printCSS = `
   * { box-sizing: border-box; }
   body { font-family: ` + brandSansStack + `; color: ` + brandInk + `; font-size: 10.5pt; line-height: 1.5; margin: 0; }
 
-  /* Cover */
+  /* Cover — the photograph leads: a full-width hero band above the title,
+     because the image is the first thing a reader should meet. */
   .cover { break-after: page; page-break-after: always; }
-  .cover-band { height: 4.5mm; background: ` + brandAccentSoft + `; border-radius: 1mm; margin-bottom: 10mm; }
-  .cover-grid { display: flex; gap: 9mm; align-items: flex-start; }
-  .cover-main { flex: 1 1 60%; }
-  .cover-figure { flex: 0 0 35%; margin: 26mm 0 0; break-inside: avoid; page-break-inside: avoid; }
-  .cover-photo { width: 100%; display: block; border-radius: 1.5mm; }
+  .cover-band { height: 4.5mm; background: ` + brandAccentSoft + `; border-radius: 1mm; margin-bottom: 6mm; }
+  .cover-figure { margin: 0 0 9mm; break-inside: avoid; page-break-inside: avoid; }
+  .cover-photo { width: 100%; height: 76mm; object-fit: cover; display: block; border-radius: 2mm; }
   .cover-figure figcaption { color: ` + brandSecondary + `; font-size: 8.5pt; font-style: italic; margin-top: 2mm; }
-  .wordmark { color: ` + brandAccent + `; font-weight: 700; font-size: 12pt; letter-spacing: 0.4em; text-transform: uppercase; margin: 0 0 15mm; }
+  .wordmark { color: ` + brandAccent + `; font-weight: 700; font-size: 12pt; letter-spacing: 0.4em; text-transform: uppercase; margin: 0 0 10mm; }
   .kicker { color: ` + brandAccent + `; font-weight: 700; font-size: 9.5pt; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 4mm; }
-  .cover-title { font-family: ` + brandSerifStack + `; font-weight: 400; font-size: 28pt; line-height: 1.12; margin: 0 0 6mm; }
+  .cover-title { font-family: ` + brandSerifStack + `; font-weight: 400; font-size: 30pt; line-height: 1.08; text-transform: uppercase; letter-spacing: 0.015em; margin: 0 0 6mm; }
   .cover-summary { color: ` + brandSecondary + `; font-size: 11pt; line-height: 1.55; margin: 0 0 3.5mm; }
   .cover-meta { color: ` + brandSecondary + `; font-size: 9.5pt; margin: 0 0 3mm; }
   .pill { display: inline-block; background: ` + brandCream + `; border: 1px solid ` + brandAccentSoft + `; border-radius: 999px; padding: 1.2mm 4mm; font-size: 8.5pt; font-weight: 700; letter-spacing: 0.04em; margin-right: 2mm; }
+  .cover-process { margin: 8mm 0 0; border-top: 1px solid ` + brandHairline + `; padding-top: 4mm; }
+  .cover-process h2 { font-family: ` + brandSerifStack + `; font-weight: 400; font-size: 12.5pt; margin: 0 0 2mm; }
+  .cover-process-note { color: ` + brandSecondary + `; font-size: 8.5pt; margin: 0 0 2.5mm; }
+  .cover-process ol { margin: 0; padding-left: 16px; font-size: 9pt; line-height: 1.5; }
+  .cover-process li { margin-bottom: 1.2mm; }
   .checked { color: ` + brandAccent + `; font-weight: 700; margin: 5mm 0 0; }
+
+  /* Findings summary — its own page between the cover and the body. */
+  .summary-page { break-after: page; page-break-after: always; }
+  .summary-kicker { color: ` + brandAccent + `; font-weight: 700; font-size: 9.5pt; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 3mm; }
+  .summary-title { font-family: ` + brandSerifStack + `; font-weight: 400; font-size: 22pt; text-transform: uppercase; line-height: 1.1; margin: 0 0 5mm; }
 
   /* Content */
   header { border-bottom: 1px solid ` + brandHairline + `; padding-bottom: 3mm; margin-bottom: 5mm; }
@@ -64,6 +73,14 @@ const printCSS = `
   footer { margin-top: 10mm; border-top: 1px solid ` + brandHairline + `; padding-top: 3mm; color: ` + brandSecondary + `; font-size: 8.5pt; }
 `
 
+// CoverStep is one pipeline step the cover narrates: what the run did and,
+// where the report carries the number, what the step measured. The steps are
+// derived from the report alone — no second model call ever writes the cover.
+type CoverStep struct {
+	Label  string
+	Detail string
+}
+
 // document is the data one printed artifact is rendered from. Company, person,
 // legal and market builds use the same struct so all templates share the shell,
 // including the branded cover: the kicker names the kind of report, the cover
@@ -76,27 +93,85 @@ type document struct {
 	Kicker       string
 	CoverSummary string
 	CoverPills   []string
-	GeneratedAt  string
-	CoverPhoto   template.URL
-	Chart        *models.OrgChart
-	Profile      *models.PersonProfile
-	Legal        *models.LegalReport
-	Market       *models.MarketLandscapeReport
-	Chain        *models.DemandChainReport
-	Body         template.HTML
-	Timings      []models.PhaseTiming
+	CoverSteps   []CoverStep
+	// SummaryCompanies is the trimmed verified roster the findings-summary
+	// page renders before the full body.
+	SummaryCompanies []models.MarketLandscapeCompany
+	GeneratedAt      string
+	CoverPhoto       template.URL
+	Chart            *models.OrgChart
+	Profile          *models.PersonProfile
+	Legal            *models.LegalReport
+	Market           *models.MarketLandscapeReport
+	Chain            *models.DemandChainReport
+	Body             template.HTML
+	Timings          []models.PhaseTiming
 }
 
 func renderMarketLandscapeHTML(report *models.MarketLandscapeReport) string {
 	return executeDocument(marketLandscapeHTMLTemplate, document{
-		Title:        marketReportTitle(report),
-		CoverSubject: nonEmpty(report.Activity, "Seller Landscape"),
-		Kicker:       kickerMarket,
-		CoverSummary: coverSummary(report.Objective, coverSummaryLimit),
-		GeneratedAt:  generatedStamp(report.CompletedAt),
-		CoverPhoto:   coverPhotoForScope("buyer"),
-		Market:       report,
+		Title:            marketReportTitle(report),
+		CoverSubject:     nonEmpty(report.Activity, "Seller Landscape"),
+		Kicker:           kickerMarket,
+		CoverSummary:     coverSummary(report.Objective, coverSummaryLimit),
+		GeneratedAt:      generatedStamp(report.CompletedAt),
+		CoverPhoto:       coverPhotoForScope("buyer"),
+		CoverSteps:       marketCoverSteps(report),
+		SummaryCompanies: topMarketCompanies(report.Results, summaryCompanyLimit),
+		Market:           report,
 	})
+}
+
+// summaryCompanyLimit caps the findings-summary table so the summary keeps to
+// one page regardless of how large the verified roster grew.
+const summaryCompanyLimit = 12
+
+// topMarketCompanies copies the head of a verified roster for the summary page.
+func topMarketCompanies(results []models.MarketLandscapeCompany, limit int) []models.MarketLandscapeCompany {
+	if len(results) > limit {
+		return results[:limit]
+	}
+	return results
+}
+
+// marketCoverSteps narrates the pipeline the run actually executed, from the
+// numbers the report carries alone.
+func marketCoverSteps(report *models.MarketLandscapeReport) []CoverStep {
+	steps := make([]CoverStep, 0, 7)
+	if report.ProductCategory != "" {
+		steps = append(steps, CoverStep{Label: "Activity resolution", Detail: fmt.Sprintf("resolved to the product category %q (source: %s)", report.ProductCategory, nonEmpty(report.CategorySource, "model"))})
+	} else {
+		steps = append(steps, CoverStep{Label: "Activity resolution", Detail: "no graph node matched; the model planned the research path"})
+	}
+	if len(report.SearchQueries) > 0 || len(report.QueryReviews) > 0 {
+		steps = append(steps, CoverStep{Label: "Query planning and review", Detail: fmt.Sprintf("%d search queries ran; %d planned queries were adversarially reviewed before spending a search", len(report.SearchQueries), len(report.QueryReviews))})
+	}
+	steps = append(steps, CoverStep{Label: "Discovery and verification", Detail: fmt.Sprintf("%d raw hits; %d candidates found, %d lead(s) reviewed, %d resolved; %d page(s) read", report.SearchHits, report.CandidatesFound, report.LeadsReviewed, report.LeadsResolved, report.PagesEnriched)})
+	if len(report.Reviews) > 0 {
+		detail := fmt.Sprintf("verdict %q", report.Reviews[0].Verdict)
+		if review := report.Reviews[0]; review.Coverage != nil {
+			detail += fmt.Sprintf("; coverage %d/%d in-scope companies", review.Coverage.Companies, review.Coverage.Minimum)
+		}
+		steps = append(steps, CoverStep{Label: "Quality control", Detail: detail})
+	}
+	if len(report.TradeImporters)+len(report.TradeSuppliers) > 0 || marketReportMentionsTrade(report) {
+		steps = append(steps, CoverStep{Label: "Crystal trade DB", Detail: fmt.Sprintf("%d ranked importer(s), %d supplier group(s) from first-party customs data, queried before the web lanes", len(report.TradeImporters), len(report.TradeSuppliers))})
+	}
+	steps = append(steps, CoverStep{Label: "Export", Detail: "Markdown and PDF printed by the same Chromium that reads the sources — no second model call"})
+	return steps
+}
+
+// marketReportMentionsTrade reports whether the run's warnings name the trade
+// lane, so a trade step that returned nothing still shows on the cover with
+// its zero counts rather than disappearing.
+func marketReportMentionsTrade(report *models.MarketLandscapeReport) bool {
+	for _, warning := range report.Warnings {
+		lowered := strings.ToLower(warning)
+		if strings.Contains(lowered, "trade-record") || strings.Contains(lowered, "trade db") {
+			return true
+		}
+	}
+	return false
 }
 
 // marketReportTitle is the document title, shared by the cover, the running
@@ -106,6 +181,14 @@ func marketReportTitle(report *models.MarketLandscapeReport) string {
 }
 
 var marketLandscapeHTMLTemplate = documentTemplate("market-landscape", `
+{{if or .SummaryCompanies .Market.TradeImporters .Market.TradeSuppliers}}<section class="summary-page">
+<p class="summary-kicker">Summary — most relevant findings</p>
+<h1 class="summary-title">{{.Market.Activity}}</h1>
+{{if .SummaryCompanies}}<table><thead><tr><th>Company</th><th>Role</th><th>Country</th><th>Status</th><th>Confidence</th></tr></thead><tbody>{{range .SummaryCompanies}}<tr><td>{{.Name}}</td><td>{{.Role}}</td><td>{{.Country}}</td><td>{{.Status}}</td><td>{{printf "%.2f" .Confidence}}</td></tr>{{end}}</tbody></table>{{end}}
+{{if or .Market.TradeImporters .Market.TradeSuppliers}}<p class="dim">First-party customs records: {{len .Market.TradeImporters}} ranked importer(s), {{len .Market.TradeSuppliers}} supplier group(s) — published separately; the operator decides how to weigh them.</p>{{end}}
+{{if .Market.Coverage}}<p class="dim">Coverage: {{.Market.Coverage.Companies}} / {{.Market.Coverage.Minimum}} in-scope companies ({{if .Market.Coverage.Pass}}PASS{{else}}below target{{end}}).</p>{{end}}
+<p class="dim">The full tables, the QC record and the source appendix follow.</p>
+</section>{{end}}
 <header><h1>{{.Market.Activity}} — Seller Landscape</h1><p class="subtitle">{{.Market.Objective}}</p>{{if .Market.ProductCategory}}<p class="dim">Category: {{.Market.ProductCategory}}{{if .Market.CategoryRationale}} — {{.Market.CategoryRationale}}{{end}}</p>{{end}}</header>
 {{if or .Market.ProductCategory .Market.CategoryResults .Market.CategoryQueries}}<section><h2>category level results</h2>
 {{if .Market.ProductCategory}}<p class="dim">Category: {{.Market.ProductCategory}}{{if .Market.CategoryLanes}} · discovery lanes: {{range .Market.CategoryLanes}}{{.}}; {{end}}{{if .Market.CategoryQueries}}({{.Market.CategoryQueries}} queries){{end}}{{end}}</p>{{end}}
@@ -143,21 +226,22 @@ func documentTemplate(name, body string) *template.Template {
 <body>
 <section class="cover">
 	<div class="cover-band"></div>
-	<div class="cover-grid">
-		<div class="cover-main">
-			<p class="wordmark">Crystal AI</p>
-			{{if .Kicker}}<p class="kicker">{{.Kicker}}</p>{{end}}
-			<h1 class="cover-title">{{.CoverSubject}}</h1>
-			{{if .CoverSummary}}<p class="cover-summary">{{.CoverSummary}}</p>{{end}}
-			{{if .Subtitle}}<p class="cover-meta">{{.Subtitle}}</p>{{end}}
-			{{if .CoverPills}}<p class="pill-row">{{range .CoverPills}}<span class="pill">{{.}}</span>{{end}}</p>{{end}}
-			<p class="checked">Checked {{.GeneratedAt}}</p>
-		</div>
-		<figure class="cover-figure">
-			{{if .CoverPhoto}}<img class="cover-photo" src="{{.CoverPhoto}}" alt="Illustrative cover photograph">
-			<figcaption>` + coverPhotoCaption + `</figcaption>{{end}}
-		</figure>
-	</div>
+	<figure class="cover-figure">
+		{{if .CoverPhoto}}<img class="cover-photo" src="{{.CoverPhoto}}" alt="Illustrative cover photograph">
+		<figcaption>` + coverPhotoCaption + `</figcaption>{{end}}
+	</figure>
+	<p class="wordmark">Crystal AI</p>
+	{{if .Kicker}}<p class="kicker">{{.Kicker}}</p>{{end}}
+	<h1 class="cover-title">{{.CoverSubject}}</h1>
+	{{if .CoverSummary}}<p class="cover-summary">{{.CoverSummary}}</p>{{end}}
+	{{if .Subtitle}}<p class="cover-meta">{{.Subtitle}}</p>{{end}}
+	{{if .CoverPills}}<p class="pill-row">{{range .CoverPills}}<span class="pill">{{.}}</span>{{end}}</p>{{end}}
+	{{if .CoverSteps}}<div class="cover-process">
+		<h2>How this report was produced</h2>
+		<p class="cover-process-note">Every figure below was measured during this run: the pipeline records what it did, in which order, and what each step found.</p>
+		<ol>{{range .CoverSteps}}{{if .Detail}}<li><strong>{{.Label}}</strong> — {{.Detail}}</li>{{else}}<li>{{.Label}}</li>{{end}}{{end}}</ol>
+	</div>{{end}}
+	<p class="checked">Checked {{.GeneratedAt}}</p>
 </section>
 ` + body + `
 </body>
@@ -398,6 +482,15 @@ var companyHTMLTemplate = documentTemplate("company", `
 {{if .Chart.Brief.Turnover}}<p><strong>Turnover:</strong> {{.Chart.Brief.Turnover}}</p>{{end}}
 {{if .Chart.Brief.FinancialYear}}<p><strong>Financial year:</strong> {{.Chart.Brief.FinancialYear}}</p>{{end}}
 {{if .Chart.Brief.MetricsSource}}<p><strong>Metrics source:</strong> <a href="{{.Chart.Brief.MetricsSource}}">{{.Chart.Brief.MetricsSource}}</a></p>{{end}}
+</section>{{end}}
+{{if .Chart.TradeBackground}}<section class="card">
+	<h2>Trade DB background</h2>
+	{{if .Chart.TradeBackground.Present}}<p>The confirmed name appears in the Crystal customs entity vocabulary as <strong>{{.Chart.TradeBackground.MatchedName}}</strong>{{if .Chart.TradeBackground.Directions}} (side: {{range $i, $d := .Chart.TradeBackground.Directions}}{{if $i}}, {{end}}{{$d}}{{end}}){{end}}.</p>
+	{{if or .Chart.TradeBackground.TransactionCount .Chart.TradeBackground.TotalValueUSD}}<table><thead><tr><th>Shipments</th><th>Products</th><th>Value (USD)</th><th>Quantity (MT)</th>{{if .Chart.TradeBackground.GlobalRank}}<th>Rank (profiled top set)</th>{{end}}</tr></thead><tbody><tr><td>{{.Chart.TradeBackground.TransactionCount}}</td><td>{{.Chart.TradeBackground.ProductCount}}</td><td>{{printf "%.0f" .Chart.TradeBackground.TotalValueUSD}}</td><td>{{printf "%.0f" .Chart.TradeBackground.TotalQuantityMT}}</td>{{if .Chart.TradeBackground.GlobalRank}}<td>#{{.Chart.TradeBackground.GlobalRank}}</td>{{end}}</tr></tbody></table>{{end}}
+	{{if .Chart.TradeBackground.TopProducts}}<table><thead><tr><th>Product (canonical)</th><th>Shipments</th><th>Value (USD)</th><th>Quantity (MT)</th></tr></thead><tbody>{{range .Chart.TradeBackground.TopProducts}}<tr><td>{{.Name}}</td><td>{{.TransactionCount}}</td><td>{{printf "%.0f" .TotalValueUSD}}</td><td>{{printf "%.0f" .TotalQuantityMT}}</td></tr>{{end}}</tbody></table>{{end}}
+	{{else}}<p class="dim">No exact match in the customs entity vocabulary{{if .Chart.TradeBackground.Note}} — {{.Chart.TradeBackground.Note}}{{end}}.</p>{{end}}
+	{{if .Chart.TradeBackground.NameVariants}}<p class="dim">Closest customs names: {{range $i, $v := .Chart.TradeBackground.NameVariants}}{{if $i}} · {{end}}{{$v}}{{end}}.</p>{{end}}
+	<p class="dim">Checked {{.Chart.TradeBackground.CheckedAt.Format "02 Jan 2006"}} — aggregated first-party customs records; an importer may equally be a reseller.</p>
 </section>{{end}}
 {{if .Chart.Leadership}}<section>
 	<h2>Executive Leadership</h2>

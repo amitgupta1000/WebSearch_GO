@@ -20,6 +20,13 @@ type MarketLandscapeQuery struct {
 	// is off by default because the DB is slow (its ranking queries take tens
 	// of seconds) and the operator, not the mode, decides when to spend it.
 	IncludeTradeRecords bool `json:"include_trade_records,omitempty"`
+	// TradeProduct is the operator-picked product name in the trade DB's own
+	// standardized vocabulary (the console's match picker). Empty means the
+	// run resolves the activity onto the vocabulary itself — a single hyphen
+	// is the difference between zero rows and the top ranking — and falls
+	// back to the raw activity when the vocabulary names nothing close.
+	TradeProduct string `json:"trade_product,omitempty"`
+
 	// QCPrompt is the operator-editable review policy. Empty means the default policy.
 	QCPrompt string `json:"qc_prompt,omitempty"`
 }
@@ -180,6 +187,11 @@ type MarketLandscapeCompany struct {
 	// Trade carries the first-party customs record the row was built from
 	// when the run opted into the trade DB. Nil for web-discovered rows.
 	Trade    *TradePartner             `json:"trade,omitempty"`
+	// TradeProfile carries the verified row's aggregated customs profile
+	// (shipments, value, product mix) when the run enriched it. Nil unless
+	// the trade DB is configured and the row was verified.
+	TradeProfile *TradeBackground `json:"trade_profile,omitempty"`
+
 	Evidence []MarketLandscapeEvidence `json:"evidence,omitempty"`
 }
 

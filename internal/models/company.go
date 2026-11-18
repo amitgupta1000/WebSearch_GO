@@ -43,9 +43,60 @@ type OrgChart struct {
 	// ResearchRoster preserves every person classified during the run, including
 	// discoveries and validation exclusions that are not in the current org chart.
 	ResearchRoster []CompanyResearchRow `json:"research_roster,omitempty"`
-	LastUpdated    time.Time            `json:"last_updated"`
+	// TradeBackground is the company's first-party customs presence as the
+	// Crystal trade DB sees it: whether the confirmed name appears in the
+	// DB's entity vocabulary, on which side of the transaction, and under
+	// which name spellings. Attached by the agent; nil when the trade DB is
+	// not configured or the check did not run.
+	TradeBackground *TradeBackground `json:"trade_background,omitempty"`
+
+	LastUpdated time.Time `json:"last_updated"`
 }
 
+// TradeBackground is the company's first-party customs presence as the Crystal
+// trade DB sees it. The DB today exposes entity-name lookups (its typeahead
+// vocabulary), not name-filtered record queries, so this is a presence check:
+// whether the confirmed company name appears among the importers or suppliers
+// the customs data carries, and under which spellings. It is evidence the
+// entity trades across Indian customs — not a shipment history.
+type TradeBackground struct {
+	// Present reports an exact (case-insensitive) match of the confirmed
+	// company name in the DB's importer or supplier vocabulary.
+	Present bool `json:"present"`
+	// Directions names the sides the name was found on: "importer" (an
+	// Indian buyer) and/or "supplier" (a foreign exporter into India).
+	Directions []string `json:"directions,omitempty"`
+	// MatchedName is the vocabulary spelling the exact match landed on, when
+	// one did.
+	MatchedName string `json:"matched_name,omitempty"`
+	// NameVariants are the closest vocabulary names the typeahead returned,
+	// so a near-miss ("ACCORD CHEMICAL CORPORATION" for a query about
+	// "ACCORD CHEMCORP") is visible rather than silently dropped.
+	NameVariants []string `json:"name_variants,omitempty"`
+	// Note carries the fail-soft outcome when the check could not run.
+	Note string `json:"note,omitempty"`
+	// CheckedAt is when the vocabulary was consulted.
+	CheckedAt time.Time `json:"checked_at,omitempty"`
+	// GlobalRank is the entity's position among the DB's profiled top
+	// importers (top 500) or suppliers (top 100); 0 when the entity is not
+	// in that set — the product mix below still stands.
+	GlobalRank int `json:"global_rank,omitempty"`
+	// TransactionCount, ProductCount, TotalValueUSD and TotalQuantityMT are
+	// the customs aggregates across every shipment the entity appears in.
+	// When the entity is outside the profiled set these are summed from its
+	// top-products breakdown instead, and ProductCount then reflects the
+	// breakdown's own row count.
+	TransactionCount int     `json:"transaction_count,omitempty"`
+	ProductCount     int     `json:"product_count,omitempty"`
+	TotalValueUSD    float64 `json:"total_value_usd,omitempty"`
+	TotalQuantityMT  float64 `json:"total_quantity_mt,omitempty"`
+	// TopProducts is the entity's own product ranking — what it actually
+	// trades, by shipment count and value, canonical names throughout.
+	TopProducts []TradeEntityProduct `json:"top_products,omitempty"`
+
+}
+
+// CompanyProfile is the concise business brief synthesized alongside the org chart.
 // CompanyProfile is the concise business brief synthesized alongside the org chart.
 type CompanyProfile struct {
 	BusinessDescription string     `json:"business_description,omitempty"`

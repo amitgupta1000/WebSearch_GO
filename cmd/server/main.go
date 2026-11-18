@@ -45,8 +45,8 @@ type Server struct {
 	// engine is kept for the resolution API: the landscape agents hold it privately,
 	// and the ontology endpoint answers "which path would this activity take?"
 	// without starting a run.
-	engine       *agent.Engine
-	rocketReach  *tools.RocketReachClient
+	engine      *agent.Engine
+	rocketReach *tools.RocketReachClient
 	// rocketReachCache memoises the paid on-demand lookups by RocketReach profile ID so a
 	// repeated Fetch RR click does not spend another credit. Guarded by rocketReachMu.
 	rocketReachMu    sync.Mutex
@@ -417,6 +417,14 @@ func main() {
 	// Resolution API: which research path an activity takes before any run spends
 	// a search. Same code path the Seller and Buyer Landscape modes start with.
 	mux.HandleFunc("POST /api/ontology/resolve", srv.handleOntologyResolve)
+	// The trade-product matcher: the DB's own canonical names offered to the
+	// operator before a run spends anything, so a typed "n-butanol" can
+	// become the DB's "N BUTANOL (NBA)" by human choice, not by guessing.
+	mux.HandleFunc("POST /api/trade/product-match", srv.handleTradeProductMatch)
+	// The on-demand customs profile: the button next to a company name
+	// renders its aggregated trade-DB profile in place — no run, no search
+	// spend, served from the shared per-name cache.
+	mux.HandleFunc("POST /api/market-landscape/trade-profile", srv.handleMarketTradeProfile)
 	// The knowledge graph, on demand: a page to look at and JSON to build on.
 	mux.HandleFunc("GET /ontology", srv.handleOntologyGraphPage)
 	mux.HandleFunc("GET /api/ontology/graph", srv.handleOntologyGraphJSON)
@@ -728,7 +736,10 @@ func marketLandscapeQueryFromForm(r *http.Request, activity string) models.Marke
 		// The trade-records opt-in is shared with the buyer mode: the same
 		// Crystal DB feeds both, scoped by each mode's own geography rules.
 		IncludeTradeRecords: r.FormValue("market_trade_records") == "1",
-		QCPrompt:            strings.TrimSpace(r.FormValue("market_qc_prompt")),
+		// The operator's pick from the trade-product matcher; empty lets the
+		// run resolve the activity onto the DB vocabulary itself.
+		TradeProduct: strings.TrimSpace(r.FormValue("trade_product")),
+		QCPrompt:     strings.TrimSpace(r.FormValue("market_qc_prompt")),
 	}
 }
 
@@ -931,6 +942,7 @@ func demandChainQueryFromForm(r *http.Request, activity string) models.DemandCha
 		StagesOverride:        splitFormList(r.FormValue("demand_stages")),
 		IncludeIntermediaries: r.FormValue("demand_intermediaries") == "1",
 		IncludeTradeRecords:   r.FormValue("demand_trade_records") == "1",
+		TradeProduct:          strings.TrimSpace(r.FormValue("trade_product")),
 		QCPrompt:              strings.TrimSpace(r.FormValue("demand_qc_prompt")),
 	}
 }

@@ -141,6 +141,12 @@ type DemandChainQuery struct {
 	// importers, published in its own section. Off by default — the DB answers
 	// in tens of seconds and the operator decides when to spend it.
 	IncludeTradeRecords bool `json:"include_trade_records,omitempty"`
+	// TradeProduct is the operator-picked product name in the trade DB's own
+	// standardized vocabulary (the console's match picker). Empty means the
+	// run resolves the activity onto the vocabulary itself and falls back to
+	// the raw activity when the vocabulary names nothing close.
+	TradeProduct string `json:"trade_product,omitempty"`
+
 	// Budget overrides. Zero keeps the mode defaults; a run spends at most
 	// DiscoveryQueries discovery searches and VerificationQueries verification
 	// searches, and enriches at most MaxLeadsEnriched discovery leads before
