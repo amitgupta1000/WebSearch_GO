@@ -1,0 +1,87 @@
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/amitgupta1000/WebSearch_GO/internal/ontology"
+)
+
+// TestHandleOntologyGraphPageDrawsTheGraph pins the page: an SVG, the filters, and
+// node links that keep the current filters.
+func TestHandleOntologyGraphPageDrawsTheGraph(t *testing.T) {
+	server := &Server{}
+	request := httptest.NewRequest(http.MethodGet, "/ontology?seed=n-butanol&hops=2", nil)
+	response := httptest.NewRecorder()
+	server.handleOntologyGraphPage(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
+	if contentType := response.Header().Get("Content-Type"); !strings.Contains(contentType, "text/html") {
+		t.Errorf("content type = %q", contentType)
+	}
+	page := response.Body.String()
+	for _, want := range []string{"<svg", `value="n-butanol"`, "n-Butanol"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	// A click must recentre *and* keep the hop filter.
+	if !strings.Contains(page, `href="/ontology?hops=2&amp;seed=`) {
+		t.Errorf("node links must carry the current filters: %s", firstLink(page))
+	}
+}
+
+// TestHandleOntologyGraphJSONServesTheSelection pins the machine-readable form.
+func TestHandleOntologyGraphJSONServesTheSelection(t *testing.T) {
+	server := &Server{}
+	request := httptest.NewRequest(http.MethodGet, "/api/ontology/graph?seed=oil%20blending&hops=1&kind=category", nil)
+	response := httptest.NewRecorder()
+	server.handleOntologyGraphJSON(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var view ontology.GraphView
+	if err := json.Unmarshal(response.Body.Bytes(), &view); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if view.Seed != "oil blending" || len(view.Nodes) == 0 || len(view.Nodes) >= 162 {
+		t.Errorf("view = %q with %d node(s), want a bounded selection", view.Seed, len(view.Nodes))
+	}
+	for _, node := range view.Nodes {
+		if node.Kind != ontology.KindCategory {
+			t.Errorf("node %s kind = %s, want the category filter honoured", node.ID, node.Kind)
+		}
+	}
+}
+
+// TestHandleOntologyGraphUnknownSeedIsHonest pins the failure mode: a seed the graph
+// cannot place draws everything and says so, rather than showing an empty canvas.
+func TestHandleOntologyGraphUnknownSeedIsHonest(t *testing.T) {
+	server := &Server{}
+	request := httptest.NewRequest(http.MethodGet, "/api/ontology/graph?seed=unobtainium", nil)
+	response := httptest.NewRecorder()
+	server.handleOntologyGraphJSON(response, request)
+	var view ontology.GraphView
+	if err := json.Unmarshal(response.Body.Bytes(), &view); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(view.Warnings) == 0 || len(view.Nodes) == 0 {
+		t.Errorf("view = %d node(s) %v, want the whole graph plus a warning", len(view.Nodes), view.Warnings)
+	}
+}
+
+func firstLink(page string) string {
+	index := strings.Index(page, `href="/ontology?`)
+	if index < 0 {
+		return "(no node link)"
+	}
+	end := index + 80
+	if end > len(page) {
+		end = len(page)
+	}
+	return page[index:end]
+}

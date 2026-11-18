@@ -12,6 +12,39 @@
   query `"n-butanol" "India"` (`TestDemandChainLive`, deep budget). The run logs were removed
   from the repo in the 2026-11-17 artifacts cleanup; artifacts under `%TEMP%\crystal-live-nbutanol*`.
 
+## 2026-11-18 — the knowledge graph is visual, on demand
+
+`internal/ontology/view.go` + `render.go` turn the document into a bounded, filtered,
+deterministically laid-out picture; three surfaces share it:
+
+- **Page**: `GET /ontology` (linked from the console header) — activity/node search box,
+  kind and edge filters, optional `approved=1`, all in the URL, so a graph view is a link.
+- **JSON**: `GET /api/ontology/graph` — the same selection for tooling.
+- **File**: `go run ./cmd/ontology graph [-activity X|-seed ID] [-hops N] [-kind …]
+  [-edge …] [-out kg.html|.svg|.json]` — the identical document without a server, which is
+  what curation and review notes need.
+
+Design choices worth knowing:
+
+- **No scripts, no CDN.** The SVG is rendered server-side and each node is an `<a href>`
+  that recentres the view. That keeps the artifact usable in a saved file, in a PDF and
+  behind a strict CSP, and it means the whole feature is Go and testable.
+- **Deterministic layout.** Whole graph: rings are taxonomy depth (root → 5 → 33 → 61 →
+  62 nodes), substances sit just outside their first family, processes/end products on the
+  outer ring. Seeded: rings are hop distance, nodes sorted by label, odd rings staggered.
+  Two renders of the same document are byte-identical (`TestViewLayoutIsDeterministic`).
+- **Seeds are activities too.** `seed=oil blending` seeds the nodes the resolver names
+  (the `oils` hub and `blending`), so "show me what the graph knows about this query" is
+  one click; an unplaceable seed draws everything and warns instead of showing a blank
+  canvas.
+- **Honest chrome**: legend with per-kind and per-edge counts, "N node(s) filtered out",
+  and proposed nodes outlined in pink — an unapproved row is visible at a glance.
+
+Tests pin the view (whole graph, seeded neighbourhood, id/label/alias/unknown seeds, kind
+and edge filters, determinism), the renderer (a circle per node, a line per edge, escaping
+so a label can never become markup, no `<script>`), the two handlers and the CLI's three
+output formats.
+
 ## 2026-11-18 — the oil hardcoding is out of the seller path
 
 The question "why is oil still hardcoded?" had a real answer: the graph knew oil as

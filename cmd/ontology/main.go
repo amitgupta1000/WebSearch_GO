@@ -39,6 +39,8 @@ const usage = `usage: ontology <command> [flags]
   harvest [-file PATH] [-out PATH]       trade DB canonical names as proposed substances
   explain -activity TEXT [-mode seller|buyer] [-geography TEXT] [-file PATH] [-json]
                                          resolve an activity's research path without a run
+  graph   [-activity TEXT | -seed ID] [-hops N] [-kind LIST] [-edge LIST] [-out PATH] [-json]
+                                         draw the knowledge graph (HTML page, SVG or JSON)
 `
 
 func main() {
@@ -64,6 +66,8 @@ func main() {
 		err = runHarvest(os.Args[2:])
 	case "explain":
 		err = runExplain(os.Args[2:])
+	case "graph":
+		err = runGraph(os.Args[2:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -295,6 +299,92 @@ func runHarvest(args []string) error {
 	}
 	fmt.Fprintf(os.Stderr, "harvested %d new substance(s); %d name(s) already covered\n", len(corrections), len(skipped))
 	return nil
+}
+
+// runGraph draws the knowledge graph as a self-contained page, an SVG or JSON. The
+// file is the same document the console serves, so a saved graph and a link agree.
+func runGraph(args []string) error {
+	set := flag.NewFlagSet("graph", flag.ExitOnError)
+	seed := set.String("seed", "", "node id or label to centre on (default: the whole graph)")
+	activity := set.String("activity", "", "alias of -seed, for an operator's activity")
+	hops := set.Int("hops", 0, "neighbourhood radius around the seed (default 2)")
+	kinds := set.String("kind", "", "comma-separated kinds to keep: substance, category, process, end-product")
+	edges := set.String("edge", "", "comma-separated edge families to keep (default: all)")
+	file := set.String("file", "", "document to draw (default: embedded seed)")
+	out := set.String("out", "", "write here instead of stdout; .json and .svg choose the format")
+	asJSON := set.Bool("json", false, "print the view as JSON")
+	title := set.String("title", "", "page title")
+	_ = set.Parse(args)
+	if strings.TrimSpace(*seed) == "" {
+		*seed = *activity
+	}
+	if strings.TrimSpace(*seed) == "" && len(set.Args()) > 0 {
+		*seed = strings.Join(set.Args(), " ")
+	}
+	document, err := load(*file)
+	if err != nil {
+		return err
+	}
+	view := document.View(ontology.ViewOptions{
+		Seed:  *seed,
+		Hops:  *hops,
+		Kinds: graphKinds(splitList(*kinds)),
+		Edges: splitList(*edges),
+	})
+
+	target := strings.ToLower(strings.TrimSpace(*out))
+	switch {
+	case *asJSON || strings.HasSuffix(target, ".json"):
+		raw, err := ontology.MarshalView(view)
+		if err != nil {
+			return err
+		}
+		if err := write(raw, *out); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "%d node(s), %d edge(s) → %s\n", len(view.Nodes), len(view.Edges), targetOrStdout(*out))
+	case strings.HasSuffix(target, ".svg"):
+		svg := ontology.RenderSVG(view, ontology.SVGOptions{LabelAll: len(view.Nodes) <= 60})
+		if err := write([]byte(svg), *out); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "%d node(s), %d edge(s) → %s\n", len(view.Nodes), len(view.Edges), *out)
+	default:
+		page := ontology.RenderPage(view, ontology.PageOptions{Title: *title})
+		if err := write(page, *out); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "%d node(s), %d edge(s) → %s\n", len(view.Nodes), len(view.Edges), targetOrStdout(*out))
+	}
+	return nil
+}
+
+// splitList parses a comma-separated flag value.
+func splitList(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// graphKinds converts the -kind flag values to node kinds.
+func graphKinds(names []string) []ontology.Kind {
+	kinds := make([]ontology.Kind, 0, len(names))
+	for _, name := range names {
+		kinds = append(kinds, ontology.Kind(name))
+	}
+	return kinds
+}
+
+func targetOrStdout(out string) string {
+	if strings.TrimSpace(out) == "" {
+		return "stdout"
+	}
+	return out
 }
 
 // runExplain prints the research path an activity takes: the same resolution the

@@ -104,6 +104,40 @@ for oil names the graph has no node for ("soybean oil", "white oil", "transforme
 oil"). It ranks variants and answers the reviewer anchor only when the graph is silent;
 extend the graph, never the table.
 
+## Seeing the graph (on demand)
+
+Three surfaces, one renderer (`internal/ontology/view.go` + `render.go`), so a link, a
+saved file and an API response always agree:
+
+```bash
+# the console page (also linked from the console header)
+open http://localhost:8080/ontology
+http://localhost:8080/ontology?seed=oil%20blending&hops=2
+http://localhost:8080/ontology?seed=cat:lubricants&kind=substance,category&edge=consumed_in
+
+# the same selection, machine-readable
+curl -s 'localhost:8080/api/ontology/graph?seed=n-butanol&hops=2'
+
+# a file, without a server (curation, review notes, offsite)
+go run ./cmd/ontology graph -activity "oil blending" -hops 2 -out kg.html
+go run ./cmd/ontology graph -seed cat:lubricants -out kg.svg
+go run ./cmd/ontology graph -kind category,process -json -out kg.json
+```
+
+- **Seed** accepts a node id, a label, an alias, or an *activity*: `-activity "oil
+  blending"` seeds the nodes the resolver names (the `oils` hub and the `blending`
+  process), which is what makes "show me what the graph knows about this query" a
+  useful question. An unplaceable seed draws the whole graph and says so.
+- **Layout is deterministic**: rings are taxonomy depth for the whole graph (root → 5
+  top categories → 33 → 61 → 62 nodes) or hop distance around a seed, sorted by label,
+  with odd rings staggered. The same document always draws the same picture, so two
+  reviews can be compared.
+- **No scripts, no CDN**: the SVG is built server-side and every node is an `<a>`, so a
+  click recentres the view and the entire filtered state lives in the URL. A saved page
+  keeps the drawing and drops the form and the links (there is no server to submit to).
+- Colours are by kind; edge families are coloured and, for `hypernym`, dashed. Proposed
+  nodes are outlined in pink, so an unapproved row is visible before it is trusted.
+
 ## API surface
 
 ```go

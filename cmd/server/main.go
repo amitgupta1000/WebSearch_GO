@@ -417,6 +417,9 @@ func main() {
 	// Resolution API: which research path an activity takes before any run spends
 	// a search. Same code path the Seller and Buyer Landscape modes start with.
 	mux.HandleFunc("POST /api/ontology/resolve", srv.handleOntologyResolve)
+	// The knowledge graph, on demand: a page to look at and JSON to build on.
+	mux.HandleFunc("GET /ontology", srv.handleOntologyGraphPage)
+	mux.HandleFunc("GET /api/ontology/graph", srv.handleOntologyGraphJSON)
 	mux.HandleFunc("POST /api/rerun", srv.handleRerun)
 	mux.HandleFunc("POST /api/question", srv.handleQuestion)
 	mux.HandleFunc("GET /api/company-roster.csv", srv.handleCompanyRosterCSV)
