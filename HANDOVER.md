@@ -12,6 +12,29 @@
   query `"n-butanol" "India"` (`TestDemandChainLive`, deep budget). The run logs were removed
   from the repo in the 2026-11-17 artifacts cleanup; artifacts under `%TEMP%\crystal-live-nbutanol*`.
 
+## 2026-11-18 — review accepted: ontology approved, runtime gate on
+
+The operator accepted the reviewed value chain, so the document is now **approved** and the resolver
+gate is **on by default**.
+
+- `cmd/ontology approve -file … -by "…”` marks every `proposed` node `approved` (rejected nodes keep
+  their rejection), records `reviewed_by`, bumps the revision once
+  (`curated-2026-11-18` → `curated-2026-11-18-approved`) and writes the canonical JSON. The approval
+  is the operator's act: node provenance (`seed` / `llm-review` / `hs`) is untouched.
+- `DefaultOptions.RequireApproved = true`: only approved nodes resolve. A `proposed` node (a harvest
+  row, a new curation entry) is excluded and the resolution says
+  "N matching node(s) are not approved yet" — distinct from the `unmodelled` warning, so the operator
+  knows whether to curate or to approve.
+- Document state: 162 nodes, all approved, **0 lint errors**, 4 warnings (four legitimate shared HS
+  headings: 2710.19 diesel/fuel oil/base oil, 2917.34 DBP/DINP, 3823.19 PFAD/fatty acids, 2929.10
+  TDI/MDI). Lint no longer reports pending nodes.
+- Tests: the gate test is now self-contained (approved vs proposed node in a fixture), the approval
+  helper is pinned (proposed → approved, rejection survives, idempotent revision), and the merge/diff
+  fixtures no longer depend on the seed being unapproved.
+- Not yet wired: the agents still call their legacy tables; the graph is exercised through
+  `ontology.Resolve/Expand/Subgraph/CanonicalTradeMatch`. Wiring the call sites is the remaining
+  step, and it now happens behind an on-by-default gate.
+
 ## 2026-11-18 — curated ontology merged (machine review applied)
 
 The domain review (`review notes.md`) and the edited document (`edited_ontology.json`) were merged

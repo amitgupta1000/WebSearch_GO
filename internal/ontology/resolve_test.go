@@ -100,29 +100,69 @@ func TestResolveUnmodelledActivityWarns(t *testing.T) {
 	}
 }
 
-// TestResolveRequireApprovedGatesProposedNodes pins the post-curation switch: with
-// the seed (everything proposed) nothing resolves, and once the nodes the
-// activity needs are approved it resolves again.
-func TestResolveRequireApprovedGatesProposedNodes(t *testing.T) {
-	document, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
+// TestRequireApprovedGateExcludesUnreviewedNodes pins the runtime gate: a node the
+// review has not approved does not resolve, and the warning says "approve", not
+// "unmodelled". Ungated resolution still sees it.
+func TestRequireApprovedGateExcludesUnreviewedNodes(t *testing.T) {
+	approved := StatusApproved
+	document := &Ontology{
+		SchemaVersion: SchemaVersion,
+		Revision:      "test",
+		Nodes: map[string]*Node{
+			"cat:family":   {ID: "cat:family", Kind: KindCategory, Label: "Family", Status: approved},
+			"sub:reviewed": {ID: "sub:reviewed", Kind: KindSubstance, Label: "Reviewed feed", Categories: []string{"cat:family"}, HSCodes: []string{"1111.11"}, Status: approved},
+			"sub:pending":  {ID: "sub:pending", Kind: KindSubstance, Label: "Pending feed", Categories: []string{"cat:family"}, HSCodes: []string{"2222.22"}, Status: StatusProposed},
+		},
 	}
 	strict := Options{RequireApproved: true, MaxFamilies: 5, MaxHops: 2}
-	if resolution := document.Resolve("Oil Blending", strict); len(resolution.Families) != 0 {
-		t.Fatalf("proposed nodes resolved under RequireApproved: %+v", resolution.Families)
+	if resolution := document.Resolve("reviewed feed", strict); len(resolution.Families) == 0 {
+		t.Fatalf("approved node did not resolve: %+v", resolution)
 	}
-	approved := StatusApproved
-	source := SourceOperator
-	for _, id := range []string{"cat:oils", "cat:lubricants", "cat:fuel-oils", "cat:oleochemical-feedstocks", "proc:blending", "sub:crude-oil", "cat:petrochemicals", "end:greases", "sub:base-oil", "cat:base-oils", "cat:fatty-acids"} {
-		if node := document.Nodes[id]; node != nil {
-			node.Status = approved
-			node.Source = source
-		}
+	pending := document.Resolve("pending feed", strict)
+	if len(pending.Families) != 0 || len(pending.Matches) != 0 {
+		t.Errorf("proposed node resolved under the gate: %+v", pending)
 	}
-	resolution := document.Resolve("Oil Blending", strict)
-	if len(resolution.Families) == 0 || resolution.Families[0].ID != "cat:lubricants" {
-		t.Fatalf("approved oil blending = %+v, want lubricants first", resolution.Families)
+	joined := strings.Join(pending.Warnings, " ")
+	if !strings.Contains(joined, "not approved") {
+		t.Errorf("warnings = %v, want the approval hint", pending.Warnings)
+	}
+	if strings.Contains(joined, "unmodelled") {
+		t.Errorf("warnings = %v, an unapproved node must not be reported as unmodelled", pending.Warnings)
+	}
+	if resolution := document.Resolve("pending feed", Options{MaxFamilies: 5, MaxHops: 2}); len(resolution.Families) == 0 {
+		t.Errorf("ungated resolution should still see the proposed node: %+v", resolution)
+	}
+}
+
+// TestApproveMarksProposedNodesOnly pins the sign-off helper: proposed nodes
+// become approved, rejected ones stay rejected, and the revision records it once.
+func TestApproveMarksProposedNodesOnly(t *testing.T) {
+	document := &Ontology{
+		SchemaVersion: SchemaVersion,
+		Revision:      "curated-1",
+		Nodes: map[string]*Node{
+			"cat:root":     {ID: "cat:root", Kind: KindCategory, Label: "Root", Status: StatusProposed},
+			"sub:keep":     {ID: "sub:keep", Kind: KindSubstance, Label: "Keep", Categories: []string{"cat:root"}, HSCodes: []string{"1111.11"}, Status: StatusRejected},
+			"sub:approved": {ID: "sub:approved", Kind: KindSubstance, Label: "Approved", Categories: []string{"cat:root"}, HSCodes: []string{"2222.22"}, Status: StatusApproved},
+		},
+	}
+	if got := Approve(document, "operator"); got != 1 {
+		t.Errorf("approved %d, want 1", got)
+	}
+	if document.Nodes["cat:root"].Status != StatusApproved {
+		t.Error("root was not approved")
+	}
+	if document.Nodes["sub:keep"].Status != StatusRejected {
+		t.Error("a rejection must survive approval")
+	}
+	if document.ReviewedBy != "operator" || document.Revision != "curated-1-approved" {
+		t.Errorf("metadata = %q/%q", document.ReviewedBy, document.Revision)
+	}
+	if got := Approve(document, "operator"); got != 0 || document.Revision != "curated-1-approved" {
+		t.Errorf("re-approval = %d/%q, want idempotent", got, document.Revision)
+	}
+	if pending := document.PendingApproval(); len(pending) != 0 {
+		t.Errorf("pending = %v, want none", pending)
 	}
 }
 

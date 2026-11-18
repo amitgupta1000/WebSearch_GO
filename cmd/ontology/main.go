@@ -29,6 +29,8 @@ const usage = `usage: ontology <command> [flags]
   lint    -file PATH                     validate the document; exit 2 on errors
   emit    [-file PATH] [-out PATH]       write the canonical, deterministic JSON
   review  [-file PATH] [-out PATH]       write the domain reviewer's worksheet
+  approve -file PATH -by NAME [-out PATH]
+                                         mark every proposed node approved
   merge   -base PATH -patch PATH [-out PATH]
                                          fold a curated file/patch onto the base
   diff    -before PATH -after PATH       list added/removed/changed nodes
@@ -48,6 +50,8 @@ func main() {
 		err = runEmit(os.Args[2:])
 	case "review":
 		err = runReview(os.Args[2:])
+	case "approve":
+		err = runApprove(os.Args[2:])
 	case "merge":
 		err = runMerge(os.Args[2:])
 	case "diff":
@@ -143,6 +147,50 @@ func runReview(args []string) error {
 		return err
 	}
 	return write([]byte(ontology.ReviewMarkdown(document)), *out)
+}
+
+// runApprove marks every proposed node approved and records the reviewer, then
+// writes the document (the operator's sign-off, kept reproducible).
+func runApprove(args []string) error {
+	set := flag.NewFlagSet("approve", flag.ExitOnError)
+	file := set.String("file", "", "document to approve")
+	by := set.String("by", "", "who is approving it (recorded as reviewed_by)")
+	out := set.String("out", "", "write the approved document here (default: in place when -file is set, else stdout)")
+	_ = set.Parse(args)
+	if *file == "" {
+		return fmt.Errorf("approve needs -file")
+	}
+	if strings.TrimSpace(*by) == "" {
+		return fmt.Errorf("approve needs -by: an approval without a reviewer name is not an audit trail")
+	}
+	document, err := ontology.LoadFileRaw(*file)
+	if err != nil {
+		return err
+	}
+	approved := ontology.Approve(document, *by)
+	notes := strings.TrimSpace(document.Notes)
+	if notes != "" {
+		notes += " "
+	}
+	document.Notes = notes + "Review accepted by " + strings.TrimSpace(*by) + "; the runtime gate resolves only approved nodes."
+	raw, err := ontology.Marshal(document)
+	if err != nil {
+		return err
+	}
+	target := *out
+	if target == "" {
+		target = *file
+	}
+	if err := write(raw, target); err != nil {
+		return err
+	}
+	fmt.Printf("approved %d node(s) for %q → %s\n", approved, *by, target)
+	for _, issue := range ontology.SortedIssues(ontology.Lint(document)) {
+		if issue.Severity == ontology.SeverityError {
+			fmt.Fprintln(os.Stderr, "lint:", issue.String())
+		}
+	}
+	return nil
 }
 
 func runMerge(args []string) error {

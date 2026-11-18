@@ -91,12 +91,11 @@ func TestDiffReportsReviewerEdits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Seed: %v", err)
 	}
-	approved := StatusApproved
 	after := &Ontology{SchemaVersion: SchemaVersion, Revision: "curated", Nodes: map[string]*Node{}}
 	for id, node := range before.Nodes {
 		after.Nodes[id] = node.clone()
 	}
-	after.Nodes["cat:aromatics"].Status = approved
+	after.Nodes["cat:aromatics"].Status = StatusRejected
 	after.Nodes["cat:aromatics"].ExpertNote = "confirmed by reviewer"
 	delete(after.Nodes, "sub:pvc-resin")
 	after.Nodes["sub:new-thing"] = &Node{Kind: KindSubstance, Label: "New thing", Categories: []string{"cat:aromatics"}, Status: StatusProposed}

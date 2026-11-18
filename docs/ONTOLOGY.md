@@ -48,7 +48,10 @@ go run ./cmd/ontology merge  -base   internal/ontology/data/chemicals.json -patc
 go run ./cmd/ontology lint   -file internal/ontology/data/chemicals.json -out internal/ontology/data/LINT.md
 go run ./cmd/ontology review -file internal/ontology/data/chemicals.json -out internal/ontology/data/REVIEW.md
 
-# 4. add the trade DB's canonical product names as proposed substances
+# 4. sign off: mark every proposed node approved and record who did it
+go run ./cmd/ontology approve -file internal/ontology/data/chemicals.json -by "domain expert"
+
+# 5. add the trade DB's canonical product names as proposed substances
 go run ./cmd/ontology harvest -out internal/ontology/data/harvest.json   # needs TRADE_DB_API_URL
 go run ./cmd/ontology merge -base internal/ontology/data/chemicals.json -patch internal/ontology/data/harvest.json -out internal/ontology/data/chemicals.json
 ```
@@ -70,8 +73,11 @@ chain := document.Expand([]string{"sub:n-butanol"}, ontology.Downstream, 2)
 matches, unmatched := document.CanonicalTradeMatch(dbCanonicalNames)
 ```
 
-`Options{RequireApproved: true}` is the post-curation gate: only nodes the expert approved resolve.
-The seed ships entirely `proposed`, so the gate stays off until the curated file lands.
+`Options{RequireApproved: true}` is the runtime gate and it is **on by default**: the shipped
+document is approved (`revision: …-approved`, `reviewed_by` recorded), so only reviewed chemistry can
+resolve. A node that is still `proposed` is excluded, and the resolution says so ("N matching node(s)
+are not approved yet") instead of claiming the activity is unmodelled — harvest and curation add
+rows as `proposed`, and they resolve only after `approve`.
 
 Matching is exact on labels, aliases and a process's `search_terms` (the indexed phrasing of the
 activity — "oil blending" names the blending process). When nothing matches, an activity that is the

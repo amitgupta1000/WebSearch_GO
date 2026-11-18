@@ -104,13 +104,14 @@ func TestMergeAcceptsFullFileAndPatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	approved := StatusApproved
+	note := "confirmed"
+	source := SourceOperator
 	patch := &Ontology{
 		SchemaVersion: SchemaVersion,
 		Revision:      "curated-1",
 		ReviewedBy:    "domain expert",
 		Nodes:         map[string]*Node{},
-		Corrections:   map[string]*Correction{"cat:aromatics": {Status: &approved, ExpertNote: stringPtr("confirmed")}},
+		Corrections:   map[string]*Correction{"cat:aromatics": {ExpertNote: &note, Source: &source}},
 	}
 	merged, err := Merge(base, patch)
 	if err != nil {
@@ -119,10 +120,10 @@ func TestMergeAcceptsFullFileAndPatch(t *testing.T) {
 	if merged.Revision != "curated-1" || merged.ReviewedBy != "domain expert" {
 		t.Errorf("merged metadata = %q/%q", merged.Revision, merged.ReviewedBy)
 	}
-	if merged.Nodes["cat:aromatics"].Status != StatusApproved {
-		t.Error("patch correction did not apply")
+	if merged.Nodes["cat:aromatics"].ExpertNote != "confirmed" || merged.Nodes["cat:aromatics"].Source != SourceOperator {
+		t.Errorf("patch correction did not apply: %+v", merged.Nodes["cat:aromatics"])
 	}
-	if base.Nodes["cat:aromatics"].Status == StatusApproved {
+	if base.Nodes["cat:aromatics"].ExpertNote != "" || base.Nodes["cat:aromatics"].Source == SourceOperator {
 		t.Error("merge mutated the base document")
 	}
 	// A full-file return replaces the node outright.
@@ -131,7 +132,7 @@ func TestMergeAcceptsFullFileAndPatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Merge full file: %v", err)
 	}
-	if full.Nodes["cat:aromatics"].Status != StatusApproved || len(full.Nodes["cat:aromatics"].Aliases) != 0 {
+	if full.Nodes["cat:aromatics"].Label != "Aromatics" || len(full.Nodes["cat:aromatics"].Aliases) != 0 {
 		t.Errorf("full-file replacement lost: %+v", full.Nodes["cat:aromatics"])
 	}
 }

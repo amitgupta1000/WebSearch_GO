@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "revision": "curated-2026-11-18",
-  "reviewed_by": "Cline (applying the domain review notes to the machine-reviewed file)",
-  "notes": "Merge of edited_ontology.json (source=llm-review) with the review-application fixes: duplicate entry names removed, one-way edges closed, formulation outputs completed, urea re-homed, the fuel-oil -\u003e carbon-black edge dropped (it leaked tire makers into fuel-oil research), and the notes' unimplemented items resolved: added polythene + aqueous ammonia HS codes, sulphur/phosphate-rock feedstocks, phosgene as the chlorine -\u003e isocyanate bridge, and two value-chain leaves (plastics converting, pulp and paper). Declined with reasons: a bare 'peroxide' alias (matches benzoyl/cumene peroxide), cat:organic-acids (would fragment the ester/acid taxonomy; acrylic and acetic acid sit in chemical-intermediates), and proc:oxidation (a generic reaction with no operator vocabulary). Still pending a human domain expert: every node remains status=proposed.",
+  "revision": "curated-2026-11-18-approved",
+  "reviewed_by": "Operator sign-off (review accepted 2026-11-18)",
+  "notes": "Merge of edited_ontology.json (source=llm-review) with the review-application fixes: duplicate entry names removed, one-way edges closed, formulation outputs completed, urea re-homed, the fuel-oil -\u003e carbon-black edge dropped (it leaked tire makers into fuel-oil research), and the notes' unimplemented items resolved: added polythene + aqueous ammonia HS codes, sulphur/phosphate-rock feedstocks, phosgene as the chlorine -\u003e isocyanate bridge, and two value-chain leaves (plastics converting, pulp and paper). Declined with reasons: a bare 'peroxide' alias (matches benzoyl/cumene peroxide), cat:organic-acids (would fragment the ester/acid taxonomy; acrylic and acetic acid sit in chemical-intermediates), and proc:oxidation (a generic reaction with no operator vocabulary). Still pending a human domain expert: every node remains status=proposed. Review accepted by Operator sign-off (review accepted 2026-11-18); the runtime gate resolves only approved nodes.",
   "nodes": {
     "cat:acetates": {
       "kind": "category",
@@ -13,7 +13,7 @@
       ],
       "parent": "cat:esters",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -25,7 +25,7 @@
         "mineral acids"
       ],
       "parent": "cat:inorganics",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -38,7 +38,7 @@
       ],
       "parent": "cat:esters",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high",
       "expert_note": "Removed generic alias 'acrylics' (often refers to PMMA polymer/sheet); acrylic acid is included here by commercial value-chain convention alongside acrylate/methacrylate esters."
@@ -50,7 +50,7 @@
         "alcohol solvent"
       ],
       "parent": "cat:solvents",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -62,7 +62,7 @@
         "caustics"
       ],
       "parent": "cat:inorganics",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -74,7 +74,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -85,7 +85,7 @@
         "anionic surfactant"
       ],
       "parent": "cat:surfactants",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -96,7 +96,7 @@
         "aromatic solvent"
       ],
       "parent": "cat:solvents",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -109,7 +109,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -122,7 +122,7 @@
       ],
       "parent": "cat:lubricants",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -146,7 +146,7 @@
         "proc:hydrogenation"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -160,7 +160,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -171,7 +171,7 @@
         "chemical"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -184,7 +184,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -197,7 +197,7 @@
       ],
       "parent": "cat:chemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -208,7 +208,7 @@
         "epoxy systems"
       ],
       "parent": "cat:polymers",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -219,7 +219,7 @@
         "ester solvent"
       ],
       "parent": "cat:solvents",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -235,7 +235,7 @@
         "proc:formulation"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -265,7 +265,7 @@
         "proc:distillation"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -277,7 +277,7 @@
       ],
       "parent": "cat:oleochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Dropped the 'fatty alcohol' alias: sub:fatty-alcohol is the commodity and owns the singular name."
@@ -292,7 +292,7 @@
         "hydraulic oil"
       ],
       "parent": "cat:lubricants",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -304,7 +304,7 @@
         "middle distillates"
       ],
       "parent": "cat:petrochemicals",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -316,7 +316,7 @@
       ],
       "parent": "cat:solvents",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -328,7 +328,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -340,7 +340,7 @@
       ],
       "parent": "cat:chemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -352,7 +352,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -363,7 +363,7 @@
         "ketone"
       ],
       "parent": "cat:solvents",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -379,7 +379,7 @@
         "end:metalworking-fluids"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -390,7 +390,7 @@
         "nonionic surfactant"
       ],
       "parent": "cat:surfactants",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -408,7 +408,7 @@
         "sub:crude-oil",
         "cat:oleochemical-feedstocks"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -421,7 +421,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -443,7 +443,7 @@
         "proc:transesterification"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -456,7 +456,7 @@
       ],
       "parent": "cat:chemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -471,7 +471,7 @@
         "proc:distillation"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -489,7 +489,7 @@
         "end:cable-wire"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -503,7 +503,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -514,7 +514,7 @@
         "polyolefin"
       ],
       "parent": "cat:polymers",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -528,7 +528,7 @@
       ],
       "parent": "cat:polymers",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -539,7 +539,7 @@
         "polyvinyl chloride"
       ],
       "parent": "cat:polymers",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -551,7 +551,7 @@
       ],
       "parent": "cat:oleochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Dropped the 'soap noodles' alias: the commodity node sub:soap-noodles now owns that entry name, and one name must resolve to one node."
@@ -569,7 +569,7 @@
         "end:adhesives-sealants"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -581,7 +581,7 @@
         "styrenic resins"
       ],
       "parent": "cat:polymers",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -599,7 +599,7 @@
         "end:personal-care"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -624,7 +624,7 @@
         "sealant manufacturer",
         "adhesive plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -644,7 +644,7 @@
         "fuel blending terminal",
         "biodiesel supplier"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -664,7 +664,7 @@
         "wire and cable plant",
         "cable compound producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -685,7 +685,7 @@
         "antifreeze blender",
         "antifreeze plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -708,7 +708,7 @@
         "detergent plant",
         "home care manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -733,7 +733,7 @@
         "fertilizer plant",
         "npk blending plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -754,7 +754,7 @@
         "pu foam plant",
         "mattress foam producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -773,7 +773,7 @@
         "float glass plant",
         "glass factory"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -792,7 +792,7 @@
         "grease plant",
         "lubricating grease producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -813,7 +813,7 @@
         "cutting fluid plant",
         "coolant manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Renamed the 'coolants' alias to 'metalworking coolants': end:coolants-antifreeze owns engine/heat-transfer coolants, and the bare word was ambiguous."
@@ -845,7 +845,7 @@
         "paint factory",
         "industrial coatings plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -869,7 +869,7 @@
         "cosmetic ingredient supplier",
         "toiletries plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium"
     },
@@ -894,7 +894,7 @@
         "injection moulder",
         "plastic products manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium",
       "expert_note": "Closes the polyethylene/polypropylene/polystyrene dead ends: without it those commodities reached no end-user leaf."
@@ -916,7 +916,7 @@
         "paper mill",
         "bleached pulp producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -940,7 +940,7 @@
         "masterbatch plant",
         "cable compound manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -960,7 +960,7 @@
         "insulation panel manufacturer",
         "pu insulation plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -982,7 +982,7 @@
         "soap plant",
         "toilet soap producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1000,7 +1000,7 @@
         "sap plant",
         "hygiene absorbent manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -1022,7 +1022,7 @@
         "rubber compounder",
         "synthetic rubber plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1050,7 +1050,7 @@
         "crude oil blending",
         "blending plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1076,7 +1076,7 @@
         "aromatics complex",
         "btx plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1100,7 +1100,7 @@
         "caustic soda plant",
         "chlorine producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1122,7 +1122,7 @@
         "compound plant",
         "masterbatch producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -1146,7 +1146,7 @@
         "cracker plant",
         "olefin plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1169,7 +1169,7 @@
         "distillation plant",
         "fractionation plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium"
     },
@@ -1196,7 +1196,7 @@
         "ester plant",
         "esterification unit"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1223,7 +1223,7 @@
         "alkoxylation unit",
         "surfactant plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1246,7 +1246,7 @@
         "oleochemical splitting",
         "fatty acid plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1277,7 +1277,7 @@
         "blending and filling plant",
         "contract manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium"
     },
@@ -1298,7 +1298,7 @@
         "hda unit",
         "benzene plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium"
     },
@@ -1321,7 +1321,7 @@
         "hydrogenation plant",
         "fatty alcohol plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Oleochemical hydrogenolysis of fatty acids or FAME yields fatty alcohols. Simple hydrogenation of triglycerides yields hardened/saturated fats (not fatty acids)."
@@ -1350,7 +1350,7 @@
         "polymerization plant",
         "resin plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1375,7 +1375,7 @@
         "crude oil refining",
         "refinery operator"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1400,7 +1400,7 @@
         "saponification plant",
         "soap base plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1425,7 +1425,7 @@
         "labsa plant",
         "sles plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1452,7 +1452,7 @@
         "transesterification plant",
         "biodiesel refinery"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1477,7 +1477,7 @@
       "consumed_in": [
         "proc:esterification"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1502,7 +1502,7 @@
       "consumed_in": [
         "proc:esterification"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1527,7 +1527,7 @@
         "end:paints-coatings",
         "end:adhesives-sealants"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1553,7 +1553,7 @@
         "proc:esterification",
         "end:superabsorbent-polymer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1579,7 +1579,7 @@
       "consumed_in": [
         "end:fertilizers"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1598,7 +1598,7 @@
       "derived_to": [
         "sub:mdi"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1622,7 +1622,7 @@
         "end:greases",
         "end:metalworking-fluids"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -1644,7 +1644,7 @@
         "sub:linear-alkylbenzene",
         "sub:aniline"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Removed cat:aromatic-solvents: benzene is regulated/banned as an industrial solvent due to carcinogenicity."
@@ -1665,7 +1665,7 @@
       "derived_to": [
         "sub:epoxy-resin"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1685,7 +1685,7 @@
         "proc:polymerization",
         "end:tires-rubber"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1706,7 +1706,7 @@
       "consumed_in": [
         "end:paints-coatings"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -1726,7 +1726,7 @@
         "end:adhesives-sealants",
         "end:paints-coatings"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -1748,7 +1748,7 @@
       "consumed_in": [
         "end:paints-coatings"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1764,7 +1764,7 @@
       "consumed_in": [
         "end:tires-rubber"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1793,7 +1793,7 @@
         "proc:saponification",
         "end:pulp-paper"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1812,7 +1812,7 @@
         "sub:hydrochloric-acid",
         "sub:phosgene"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1837,7 +1837,7 @@
         "sub:methanol",
         "sub:benzene"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1864,7 +1864,7 @@
         "proc:fat-splitting",
         "proc:transesterification"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1891,7 +1891,7 @@
         "proc:refining",
         "proc:blending"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1911,7 +1911,7 @@
         "sub:phenol",
         "sub:acetone"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -1930,7 +1930,7 @@
       "consumed_in": [
         "end:pvc-compound"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -1951,7 +1951,7 @@
       "consumed_in": [
         "end:biodiesel-blend"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1970,7 +1970,7 @@
       "consumed_in": [
         "end:pvc-compound"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Corrected HS code from 2917.34 to 2917.33 (Dinonyl or didecyl orthophthalates)."
@@ -1992,7 +1992,7 @@
       "consumed_in": [
         "end:pvc-compound"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Corrected HS code from 2917.33 to 2917.32 (Dioctyl orthophthalates)."
@@ -2013,7 +2013,7 @@
       "derived_to": [
         "sub:epoxy-resin"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2033,7 +2033,7 @@
         "end:paints-coatings",
         "end:adhesives-sealants"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2060,7 +2060,7 @@
         "end:personal-care",
         "end:paints-coatings"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2088,7 +2088,7 @@
         "end:metalworking-fluids",
         "end:detergents"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2108,7 +2108,7 @@
       "consumed_in": [
         "end:paints-coatings"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -2124,7 +2124,7 @@
       "derived_to": [
         "sub:styrene"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -2150,7 +2150,7 @@
       "consumed_in": [
         "proc:polymerization"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2170,7 +2170,7 @@
       "consumed_in": [
         "end:coolants-antifreeze"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2198,7 +2198,7 @@
       "consumed_in": [
         "proc:ethoxylation"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2225,7 +2225,7 @@
         "proc:ethoxylation",
         "proc:sulphonation"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2245,7 +2245,7 @@
       "derived_to": [
         "sub:mdi"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2267,7 +2267,7 @@
       "consumed_in": [
         "proc:blending"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium",
       "expert_note": "Dropped derived_to sub:carbon-black: carbon-black feedstock is normally FCC slurry or decant oil, not fuel oil, and the edge surfaced tire manufacturers as end users of fuel-oil blending."
@@ -2295,7 +2295,7 @@
       "consumed_in": [
         "end:personal-care"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2315,7 +2315,7 @@
       "derived_to": [
         "sub:vinyl-chloride"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2339,7 +2339,7 @@
         "proc:hydrogenation",
         "proc:hydrodealkylation"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2361,7 +2361,7 @@
       "consumed_in": [
         "end:pulp-paper"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2382,7 +2382,7 @@
         "end:paints-coatings",
         "end:personal-care"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2402,7 +2402,7 @@
       "consumed_in": [
         "end:detergents"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Updated HS code from 3402.11 (pre-2022) to HS 2022 3402.31."
@@ -2426,7 +2426,7 @@
       "consumed_in": [
         "proc:sulphonation"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2447,7 +2447,7 @@
       "consumed_in": [
         "proc:blending"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2470,7 +2470,7 @@
         "end:flexible-pu-foam",
         "end:adhesives-sealants"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2491,7 +2491,7 @@
         "end:paints-coatings",
         "end:adhesives-sealants"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2518,7 +2518,7 @@
         "proc:transesterification",
         "proc:esterification"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2537,7 +2537,7 @@
       "consumed_in": [
         "proc:polymerization"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -2565,7 +2565,7 @@
         "proc:esterification",
         "proc:ethoxylation"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2593,7 +2593,7 @@
         "proc:cracking",
         "proc:catalytic-reforming"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2613,7 +2613,7 @@
       "consumed_in": [
         "end:fertilizers"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2633,7 +2633,7 @@
       "consumed_in": [
         "end:detergents"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2661,7 +2661,7 @@
         "proc:fat-splitting",
         "proc:transesterification"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2690,7 +2690,7 @@
         "proc:transesterification",
         "proc:fat-splitting"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2710,7 +2710,7 @@
         "cat:fatty-acids",
         "cat:biodiesel"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Removed sub:glycerin from derived_to: PFAD is predominantly free fatty acids, not triglycerides."
@@ -2731,7 +2731,7 @@
       "derived_to": [
         "sub:bisphenol-a"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2752,7 +2752,7 @@
         "sub:toluene-diisocyanate",
         "sub:mdi"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Bridge node: chlorine is the feedstock, phosgene the intermediate, isocyanates the product. Without it chlorine appeared to convert straight into TDI/MDI."
@@ -2773,7 +2773,7 @@
       "derived_to": [
         "sub:phosphoric-acid"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2789,7 +2789,7 @@
       "consumed_in": [
         "end:fertilizers"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2815,7 +2815,7 @@
       "consumed_in": [
         "proc:esterification"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Removed cat:plasticizers: PA is an anhydride precursor to phthalate plasticizers, not a plasticizer itself."
@@ -2840,7 +2840,7 @@
         "end:rigid-pu-foam",
         "end:adhesives-sealants"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2864,7 +2864,7 @@
       "consumed_in": [
         "end:plastics-converting"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2884,7 +2884,7 @@
       "consumed_in": [
         "end:plastics-converting"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2907,7 +2907,7 @@
       "consumed_in": [
         "end:plastics-converting"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2937,7 +2937,7 @@
       "consumed_in": [
         "proc:polymerization"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2957,7 +2957,7 @@
       "consumed_in": [
         "end:coolants-antifreeze"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2981,7 +2981,7 @@
       "consumed_in": [
         "proc:ethoxylation"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3003,7 +3003,7 @@
         "end:cable-wire",
         "end:plastics-converting"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3023,7 +3023,7 @@
       "consumed_in": [
         "proc:chlor-alkali"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -3044,7 +3044,7 @@
         "end:detergents",
         "end:personal-care"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3065,7 +3065,7 @@
       "consumed_in": [
         "end:soap"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3087,7 +3087,7 @@
         "end:detergents",
         "end:glass"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3111,7 +3111,7 @@
         "proc:polymerization",
         "end:tires-rubber"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3131,7 +3131,7 @@
       "derived_to": [
         "sub:sulphuric-acid"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3155,7 +3155,7 @@
         "proc:sulphonation",
         "end:fertilizers"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3181,7 +3181,7 @@
         "proc:transesterification",
         "proc:fat-splitting"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Updated HS code from superseded 1502.00 to 1502.10."
@@ -3205,7 +3205,7 @@
       "consumed_in": [
         "end:paints-coatings"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3232,7 +3232,7 @@
         "end:paints-coatings",
         "end:adhesives-sealants"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3252,7 +3252,7 @@
       "consumed_in": [
         "end:flexible-pu-foam"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -3273,7 +3273,7 @@
       "consumed_in": [
         "end:fertilizers"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Organic carbamide made from ammonia and CO2 (HS chapter 31, not 28). Homed under organic chemical intermediates rather than petrochemicals, which is where the reviewed file put it."
@@ -3300,7 +3300,7 @@
         "proc:transesterification",
         "proc:fat-splitting"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3323,7 +3323,7 @@
       "consumed_in": [
         "proc:polymerization"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Reclassified from cat:olefins to cat:chlorinated-monomers."
@@ -3356,7 +3356,7 @@
         "end:paints-coatings",
         "end:adhesives-sealants"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium",
       "expert_note": "Phthalic anhydride is the o-xylene (2902.41) route; p-xylene (2902.43) goes to PTA/PET; mixed xylene (2902.44) mostly goes to solvents and gasoline blending."

@@ -1,6 +1,7 @@
 package ontology
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -48,17 +49,18 @@ type Resolution struct {
 	Warnings  []string `json:"warnings,omitempty"`
 }
 
-// Options tune resolution. RequireApproved is the post-curation gate: only nodes
-// the domain expert approved may resolve.
+// Options tune resolution. RequireApproved is the runtime gate: only nodes the
+// review has approved may resolve, so unreviewed chemistry can never reach a
+// search. It is on by default — the shipped document is approved.
 type Options struct {
 	RequireApproved bool
 	MaxFamilies     int
 	MaxHops         int
 }
 
-// DefaultOptions resolve every stored node (seed phase: everything is proposed)
-// and walk at most the two transformation steps the landscape scope allows.
-var DefaultOptions = Options{MaxFamilies: 5, MaxHops: 2}
+// DefaultOptions resolve only approved nodes (the review is complete) and walk at
+// most the two transformation steps the landscape scope allows.
+var DefaultOptions = Options{RequireApproved: true, MaxFamilies: 5, MaxHops: 2}
 
 // Resolve runs default-option resolution against the embedded document.
 func Resolve(activity string) Resolution { return ResolveWith(activity, DefaultOptions) }
@@ -97,8 +99,21 @@ func (o *Ontology) Resolve(activity string, options Options) Resolution {
 	// is about crude oil, not about the oil hypernym.
 	subject := longestMatch(o, result.Matches)
 	if subject == nil && len(result.Processes) == 0 {
+		// Distinguish "not in the graph" from "in the graph but not approved":
+		// the operator needs to know whether to curate or to approve.
+		if options.RequireApproved {
+			if pending := o.pendingMatches(text); pending > 0 {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("%d matching node(s) are not approved yet and were excluded; approve them before they can resolve", pending))
+				return result
+			}
+		}
 		result.Warnings = append(result.Warnings, "no ontology node matches this activity; it is unmodelled — review it and add it to the graph")
 		return result
+	}
+	if options.RequireApproved {
+		if pending := o.pendingMatches(text); pending > 0 {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("%d matching node(s) are not approved yet and were excluded; approve them before they can resolve", pending))
+		}
 	}
 	result.Families, result.Ambiguous = o.familiesFor(subject, result.Processes, options)
 	result.EndProducts = o.endProductsFor(subject, result.Families, options.MaxHops)
@@ -431,6 +446,19 @@ func (o *Ontology) endProductsFor(subject *Node, families []Family, maxHops int)
 		}
 	}
 	return leaves
+}
+
+// pendingMatches counts the nodes whose entry names the activity matches but
+// which the review has not approved, so the warning can say "approve them"
+// instead of claiming the activity is unmodelled.
+func (o *Ontology) pendingMatches(text string) int {
+	count := 0
+	for _, match := range o.exactEntryMatches(text, false) {
+		if match.Status != StatusApproved {
+			count++
+		}
+	}
+	return count
 }
 
 // categoryMembers indexes every category to the nodes that declare it, so a
