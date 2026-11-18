@@ -56,6 +56,8 @@ go run ./cmd/ontology harvest -out internal/ontology/data/harvest.json   # needs
 go run ./cmd/ontology merge -base internal/ontology/data/chemicals.json -patch internal/ontology/data/harvest.json -out internal/ontology/data/chemicals.json
 ```
 
+Two read-only commands help the roundtrip: `go run ./cmd/ontology explain -activity "n-butanol" [-mode seller|buyer] [-json]` prints the resolution a run would take (deterministic, no model call), and `go run ./cmd/ontology graph [-activity X | -seed ID] [-out kg.html|.svg|.json]` draws the knowledge graph.
+
 A correction replaces the field it names (slices wholesale). A correction for an unknown ID is an
 addition and must carry `kind` and `label`. Errors block the runtime load; warnings are the
 review work queue.

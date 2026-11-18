@@ -441,6 +441,11 @@ nothing. Person mode still has no freshness pass and no image OCR; company mode 
 | `SCRAPE_REVALIDATE_AFTER_SECONDS` | `86400` | Age at which a cached page is revalidated with `If-None-Match` / `If-Modified-Since` (`0` disables) |
 | `SCRAPE_MAX_RETRY_AFTER_SECONDS` | `5` | Cap on how long a server's `Retry-After` hint may delay a retry |
 | `DOCUMENT_EXTRACT_TIMEOUT_SECONDS` | `60` | How long one document's text extraction may take before it is reported as failed and the run continues |
+| `TRADE_DB_API_URL` | (empty) | Crystal import-export analytics API (Indian customs records). Empty disables the capability entirely: the trade-records sections, the product matcher and the entity profiles all report themselves off |
+| `TRADE_DB_TIMEOUT_SECONDS` | `60` | One trade-DB API call budget (the ranking queries answer in tens of seconds under load) |
+| `TRADE_DB_CONCURRENCY` | `3` | Simultaneous trade-DB calls; the client semaphore bounds every consumer |
+| `TRADE_DB_MAX_PARTNERS` | `20` | Report-wide cap on trade-DB names (clamped 1..40), and on verified rows enriched with a customs profile |
+| `HTTPS_PROXY` / `WEEDOO_PROXY_URL` / `LINKEDIN_PROXY_URL` / `INDIAN_KANOON_PROXY_URL` | (empty) | Egress routing: hosts that gate on caller-IP reputation (weedoo.in, linkedin.com, indiankanoon.org) route through their configured proxy; a host-specific knob falls back to the shared HTTPS_PROXY |
 
 When browser fallback is enabled, install the matching Playwright browser once with
 `go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium`.
@@ -519,13 +524,7 @@ gs://crystal-crm-store/WebSearch_GO/company/20260923-085002-klj-resources-limite
 - **Markdown** is rendered from the research models — org chart, departments and members,
   locations, sources, and the run's phase timings. Person runs produce the dossier equivalent
   under `person/`.
-- **PDF** is the same report as a Crystal AI branded document: a cover page carrying the
-  wordmark, a kicker naming the report kind ("Company research - Org chart", "Professional
-  dossier", "Legal and regulatory check", "Seller Landscape research", "Demand chain research"),
-  the serif title, the run's own summary, the checked stamp and an illustrative photograph —
-  followed by the report body in the brand's sage-teal palette. Chromium prints a running
-  footer on every page: the brand line with the report title and checked stamp on the left,
-  page numbers on the right.
+- **PDF** is the same report as a Crystal AI branded document, redesigned 2026-11-18: the cover leads with a full-width illustrative photograph, then the letter-spaced wordmark, a kicker naming the report kind, the query in large capitals, the run own summary, the pills and checked stamp, plus a measured How-this-report-was-produced step list; landscape and buyer reports open page 2 with a findings summary before the full body.
 - **Demand chain** (`mode=demand_chain`) is the buyer-side counterpart of Seller Landscape:
   it infers the product's value chain scoped to the buyer definition — manufacturers whose process
   consumes the product directly as an input (step 1) plus one derived step (step 2) — and an
@@ -855,6 +854,11 @@ The scraper is deliberately conservative, and several of these rules surprise pe
 | `POST` | `/api/research` | Start research: `mode` (`company`/`person`), `query`, `company_name`, `location`, optional company-brief scope fields, and optional `use_browser` (`1`/`0`) to render this run's pages in a real browser. Returns the live workflow console, or the final result fragment with `?sync=1` (used by the CLI and the org-chart drill-down). Full field list: [HTTP API reference](ARCHITECTURE.md#http-api-reference). |
 | `POST` | `/api/rerun` | Form fields: `session_id`, optional `use_browser`. Re-runs a completed company session's retained brief in a new session, which is how a thin result is escalated with browser rendering. |
 | `POST` | `/api/question` | Form fields: `session_id`, `question`. Answers a question from retained evidence or runs a fresh focused search when needed. |
+| `POST` | `/api/resolve-entity` / `/api/resolve-person` | Pre-run identity confirmation for company and person modes (top match preselected; confirming anchors the entity gate). |
+| `POST` | `/api/ontology/resolve` | Deterministic research-path preview for an activity: families, category, lanes, stages -- no run, no model call. The knowledge graph is at `GET /ontology` (page) and `GET /api/ontology/graph` (JSON). |
+| `POST` | `/api/trade/product-match` | Ranks the Crystal trade DB canonical product names against a typed activity (the landscape forms match button). |
+| `POST` | `/api/market-landscape/rocketreach` / `company-research` / `trade-profile` | Per-card actions on landscape results: Fetch RR contact lookup, launch the company dossier, fetch the aggregated customs profile (rank, shipments, value, product mix). |
+| `GET` | `/api/company-roster.csv` / `/api/exports` | CSV of a completed company session research roster; artifact download endpoint. |
 | `GET` | `/api/events` | Server-Sent Events (SSE) stream for live step logs & final synthesis. |
 | `GET` | `/healthz` | Liveness probe (`ok`). On Cloud Run the Knative queue-proxy answers this path at the edge before the container sees it. |
 | `GET` | `/api/health` | The same liveness probe on an unreserved path — use this one for Cloud Run health checks. |

@@ -759,6 +759,8 @@ Keep `proxiedHostRule`'s signature so the transport hook and tests are unchanged
 `proxiedHostList()` for the startup summary and browser selection. Follow the existing
 read-once-at-startup pattern (tests already have `restoreProxyKnobs`).
 
+> **2026-11-18 alignment note:** the shipped rule set is the three live hosts -- `weedoo.in`, `linkedin.com`, `indiankanoon.org` (`internal/tools/egress_proxy.go`). The social-host rules and the `SOCIAL_PROXY_URL` knob sketched above were never shipped; social surfaces are snippets-only by policy.
+
 2. **Give the scraper a second, browser-level proxy path.** Because Playwright's proxy is a
    launch option, add a lazily initialised `socialBrowser` created with
    `newPlaywrightRendererWithProxy(s.browserTimeout, socialProxyURL)` and a

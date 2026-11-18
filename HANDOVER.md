@@ -2,16 +2,49 @@
 
 ## Current state
 
-- Repository: `amitgupta1000/WebSearch_GO`, branch `main`, pushed to `origin/main`.
-- Latest commits: the "trade based search made explicit" series (`a2a8a5b` and the docs commit
-  that carries this file) â€” see `git log --oneline -5` for the exact chain.
+- Latest commits: `2524108` ("Wire the Crystal trade DB through the landscape, dossier and exports") and the docs commit that carries this file -- see `git log --oneline -5` for the exact chain.
 - Worktree clean after the docs commit.
-- Full Go suite: **734 tests passing, 0 failing** (`go test ./... -count=1`), `go vet` and
+- Full Go suite: **761 tests passing, 0 failing** (`go test ./... -count=1`), `go vet` and
   `go build` clean.
-- Live-verified this session: three full Buyer Landscape (`demand_chain`) runs on the sample
-  query `"n-butanol" "India"` (`TestDemandChainLive`, deep budget). The run logs were removed
-  from the repo in the 2026-11-17 artifacts cleanup; artifacts under `%TEMP%\crystal-live-nbutanol*`.
+- Live-verified this session: the Crystal trade DB work below (product matching, lane
+  visibility, entity profiles) against the deployed API; earlier sessions ran three full Buyer
+  Landscape runs on the sample query `"n-butanol" "India"`.
 
+
+## 2026-11-18 -- the Crystal trade DB is wired through: matching, visible lanes, entity profiles
+
+Live investigation first (deployed API + its OpenAPI spec), then four work streams:
+
+- **Product matching** (`internal/agent/trade_product.go`, `POST /api/trade/product-match`):
+  the DB token match is case-insensitive but punctuation-blind -- `n-butanol` returns 0 rows
+  while `n butanol` returns the full ranking, and the canonical vocabulary carries
+  `N BUTANOL (NBA)`. The console matcher offers the ranked canonical names (radio chips in both
+  landscape forms); the operator pick (`trade_product`) always wins, then an exact normalized
+  vocabulary match, then the raw activity. Pinned by `trade_product_test.go`.
+- **Lane visibility + ordering** (`trade_records.go`, `market_landscape.go`, `demand_chain.go`):
+  the trade lane now runs FIRST, right after the ontology check, before any web lane spends a
+  search, in both landscape modes. Every query is a Tool Call event and every answer a Tool
+  Result event (product, scope, port filters, row counts, ranking head), so a zero-row answer is
+  as visible as a populated one; a vocabulary miss names the closest entries in the log.
+- **Entity profiles** (`trade_profile.go`, `trade_background.go`; client methods
+  `EntityProfiles`/`EntityProducts`): the DB entity endpoints answer aggregated profiles
+  (global rank within the profiled top 500 importers / top 100 suppliers, shipments, product
+  count, value, MT) and per-entity product mixes for ANY name in the data (~55-70 ms warm).
+  `BuildTradeProfile` composes typeahead resolution (legal-suffix tolerant: "...Limited" finds
+  "...LTD") -> profile -> product mix, cached per name (1 h). Three surfaces: the company
+  dossier Trade DB background (console + PDF + Markdown), verified landscape rows (bounded by
+  `TRADE_DB_MAX_PARTNERS`, one summary event), and the on-demand **Fetch Trade Profile** button
+  next to every company name (`POST /api/market-landscape/trade-profile`, the Fetch-RR pattern).
+- **Export redesign** (`internal/export`): the cover leads with a full-width hero photograph,
+  the query prints in large capitals, a measured "How this report was produced" step list
+  follows, and page 2 opens with a findings summary; company exports carry the customs profile
+  card.
+
+Live-verified against the deployed API: the matcher chips for `n-butanol` led by
+`N BUTANOL (NBA)`; a full Seller Landscape run showed the trade events first and 68 first-party
+rows in the report (previously 0); `KLJ Resources Limited` resolved to the rank-#1 profile with
+the TOLUENE/ACETIC ACID/METHANOL product mix; unknown names degrade to notes. Full Go suite:
+**761 tests passing, 0 failing**; `go vet` and `go build` clean.
 ## 2026-11-18 — the knowledge graph is visual, on demand
 
 `internal/ontology/view.go` + `render.go` turn the document into a bounded, filtered,

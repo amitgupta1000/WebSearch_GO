@@ -32,7 +32,7 @@ The tools live in `internal/tools` (a Go package). The package splits into **cor
 | File | Purpose |
 |---|---|
 | **rocketreach.go** | Client for the RocketReach API — paid, explicitly-requested contact lookups (email/phone by name+company or LinkedIn URL). Own transport pinned to direct egress (proxying caused mid-response cuts), bounded retries, and rich HTTP-error preservation (quota/plan details) so failures are diagnosable. |
-| **tradedb.go** | Client for the Crystal import-export analytics API — cleaned Indian customs trade records behind a FastAPI/Postgres read layer. Fail-soft by design (trade research downgrades to web-only when unreachable), bounded concurrency, plus token-matching helpers for region/foreign-port name matching. |
+| **tradedb.go** | Client for the Crystal import-export analytics API — cleaned Indian customs trade records behind a FastAPI/Postgres read layer. Fail-soft by design (trade research downgrades to web-only when unreachable), bounded concurrency, token-matching helpers for region/foreign-port name matching, and the entity-profile family: aggregated per-company profiles (rank within the profiled top set, shipments, value) and per-entity product mixes for any name the data carries. |
 | **weedoo.go** | Client for weedoo.in (Indian company registry) driven through a dedicated headless browser, since it's fully client-rendered. Resolves company names → CINs via the search bar's typeahead (proximity-based name/CIN attribution, cached including misses), and fetches rendered company pages for the directors/DIN tables. Routes through the residential proxy when configured. |
 
 ## How they fit together
