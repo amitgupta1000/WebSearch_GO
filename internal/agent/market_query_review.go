@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
+	"github.com/amitgupta1000/WebSearch_GO/internal/ontology"
 )
 
 // market_query_review.go is the Seller Landscape's adversarial query review.
@@ -43,13 +44,33 @@ const (
 	marketQueryReviewMaxEvents = 12
 )
 
-// marketQueryFamilyAnchor resolves the oil family the activity itself names,
+// marketQueryFamilyAnchor resolves the product family the activity itself names,
 // independently of the model's category inference. It is the reviewer's
 // independent anchor: the inferred category is a hypothesis, so a category lane
-// that names a different chemistry (oleochemicals for oil/lubricant blending)
-// must be challenged rather than trusted. A nil result means the resolver can
-// prove no family, so the reviewer falls back to its own judgement.
+// that names a different chemistry must be challenged rather than trusted.
+//
+// The graph answers first — including the qualifier that picks a family out of an
+// ambiguous hub — and the legacy qualifier table answers only for oil names the
+// graph has no node for yet. A nil result means neither can prove a family, so the
+// reviewer falls back to its own judgement.
 func marketQueryFamilyAnchor(activity string) []string {
+	if document, err := ontology.Shared(); err == nil {
+		anchor := rankHypernymVariants(activityResolution{
+			Activity: strings.TrimSpace(activity),
+			Graph:    document.Resolve(activity, ontology.DefaultOptions),
+		})
+		if len(anchor.Graph.Families) > 0 {
+			labels := anchor.familyLabels()
+			// A qualifier that picks a family out of an ambiguous hub is the
+			// authoritative answer; the other variants are context for the model.
+			if anchor.ambiguousHub() {
+				if _, decided := oilQualifierFamily(activity); decided != "" {
+					labels = labels[:1]
+				}
+			}
+			return labels
+		}
+	}
 	return demandOilFamilies(activity)
 }
 
@@ -61,7 +82,7 @@ Judge every query on:
 1. Natural phrasing - real indexed industry phrasing ("lubricant blending plant", "blending and storage terminal") beats role-word stacks ("company operator manufacturer") that no page contains.
 2. Aptness - the vocabulary must match what the target pages say. Trade and customs vocabulary (exporter, shipment, customs, bill of lading) only pays off on a tradable product noun; a process or service activity alone is not a commodity, so re-anchor such lanes on the product category when one is given.
 3. Economy - no duplicated words, no redundant geography, one geography per query, and no query that only restates another query's words without adding a hard constraint such as a site: operator.
-4. Semantic correctness (product family) - a query must stay inside the product family the activity belongs to. The inferred product category is a hypothesis supplied by an earlier step, not ground truth: if a category lane names a different chemistry or industry (oleochemicals - fatty acids, glycerin, soap - for lubricant, fuel or crude oil blending), that lane is wrong even though its phrasing is good, and it must be dropped or rewritten to the activity's real family. A stated deterministic family is authoritative over the inferred category.
+4. Semantic correctness (product family) - a query must stay inside the product family the activity belongs to. The inferred product category is a hypothesis supplied by an earlier step, not ground truth: if a category lane names a different chemistry or industry than the activity's family, that lane is wrong even though its phrasing is good, and it must be dropped or rewritten to the activity's real family. A family that merely shares a word with the activity is not the same family. When a deterministic family is stated below, it is authoritative over the inferred category.
 
 Verdicts: "keep", "rewrite" (provide revised_query), or "drop" (with a short reason). Rewrite rules: preserve the lane's intent; you may re-anchor on the product category when it belongs to the activity's family, and you may replace a cross-family product term with the activity's family; use at most one geography and only inside the requested scope; a site: operator only from the allowlist, at most one, and then omit geography; at most 16 words per query; never repeat a content word; plain keyword queries, at most one quoted phrase for the exact activity or product term; never invent company names, places or domains outside the allowlist. When in doubt between a rewrite and a drop, prefer a drop: a noisy lane wastes a search and pollutes the candidate pool.`
 

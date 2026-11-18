@@ -165,12 +165,20 @@ func TestSellerPlanNeverCrossesOilFamilies(t *testing.T) {
 }
 
 
+// sellerPlanQueries composes the queries a Seller Landscape run would issue, using
+// the same resolution the run starts with: the graph supplies the category lanes
+// and the extra discovery phrases, and the legacy table answers only when the graph
+// has nothing.
 func sellerPlanQueries(query models.MarketLandscapeQuery) []string {
+	resolution := resolveActivity(context.Background(), nil, query.Activity, nil)
 	var queries []string
-	for _, search := range marketDiscoverySearches(query) {
+	for _, search := range marketDiscoverySearchesWithTerms(query, resolution.searchTerms()) {
 		queries = append(queries, search.Query)
 	}
-	category := demandFallbackCategory(query.Activity, nil)
+	category := resolution.primaryCategory()
+	if category == "" {
+		category = demandFallbackCategory(query.Activity, nil)
+	}
 	for _, lane := range marketCategoryLanes(category) {
 		for _, geography := range marketSearchGeographies(query) {
 			composed := strings.TrimSpace(lane)

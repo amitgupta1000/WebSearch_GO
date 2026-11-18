@@ -140,28 +140,29 @@ func TestMarketQueryReviewChallengesCrossFamilyCategoryLanes(t *testing.T) {
 	if !strings.Contains(llm.users[0], "hypothesis") {
 		t.Errorf("review prompt must present the category as a hypothesis: %q", llm.users[0])
 	}
-	if !strings.Contains(llm.users[0], "Activity product family (deterministic): lubricants") {
+	if !strings.Contains(llm.users[0], "Activity product family (deterministic): Lubricants") {
 		t.Errorf("review prompt must carry the deterministic family anchor: %q", llm.users[0])
 	}
-	if !strings.Contains(llm.systems[0], "Semantic correctness") || !strings.Contains(llm.systems[0], "oleochemicals") {
+	if !strings.Contains(llm.systems[0], "Semantic correctness") || !strings.Contains(llm.systems[0], "shares a word") {
 		t.Errorf("review system prompt must state the product-family criterion: %q", llm.systems[0])
 	}
 }
 
 // TestMarketQueryReviewFamilyAnchor covers the independent anchor the reviewer
-// receives: it resolves the activity's oil family without trusting the inferred
-// category, and stays silent when no family can be proven.
+// receives: the graph resolves the activity's family without trusting the inferred
+// category, an ambiguous hub is narrowed by the activity's own qualifier, and an
+// unmodelled activity leaves the reviewer to its own judgement.
 func TestMarketQueryReviewFamilyAnchor(t *testing.T) {
 	cases := []struct {
 		activity string
 		want     []string
 	}{
-		{activity: "Oil Blending", want: []string{"lubricants"}},
-		{activity: "fuel oil blending", want: []string{"fuel oils"}},
-		{activity: "crude oil blending", want: []string{"crude oil"}},
-		{activity: "used cooking oil", want: []string{"oleochemicals", "biodiesel"}},
-		{activity: "linear alkyl benzene", want: nil},
-		{activity: "n-butanol", want: nil},
+		{activity: "Oil Blending", want: []string{"Lubricants"}},
+		{activity: "fuel oil blending", want: []string{"Fuel oils"}},
+		{activity: "soybean oil", want: []string{"Oleochemical feedstocks"}},
+		{activity: "used cooking oil", want: []string{"Oleochemical feedstocks", "Biodiesel", "Fatty acids"}},
+		{activity: "n-butanol", want: []string{"Alcohol solvents", "Acrylates", "Acetates", "Plasticizers", "Glycol ethers"}},
+		{activity: "unobtainium powder", want: nil},
 	}
 	for _, testCase := range cases {
 		got := marketQueryFamilyAnchor(testCase.activity)

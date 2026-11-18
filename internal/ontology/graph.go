@@ -238,3 +238,41 @@ func (o *Ontology) CanonicalTradeMatch(names []string) (map[string]string, []str
 	return matches, unmatched
 }
 
+
+// SiblingVariants returns the other variants of the first hypernym hub that lists
+// nodeID as a hyponym — the families that share the hub's ambiguity ("fuel oils"
+// and "crude oil" are siblings of "lubricants" under the "oils" hub). A node with
+// no hub has no siblings, and an unknown node has none either.
+func (o *Ontology) SiblingVariants(nodeID string) []*Node {
+	if strings.TrimSpace(nodeID) == "" || o.Nodes[nodeID] == nil {
+		return nil
+	}
+	for _, id := range o.NodeIDs() {
+		hub := o.Nodes[id]
+		if hub == nil || len(hub.Hyponyms) == 0 {
+			continue
+		}
+		listed := false
+		for _, hyponym := range hub.Hyponyms {
+			if hyponym == nodeID {
+				listed = true
+				break
+			}
+		}
+		if !listed {
+			continue
+		}
+		siblings := make([]*Node, 0, len(hub.Hyponyms))
+		for _, siblingID := range hub.Hyponyms {
+			if siblingID == nodeID {
+				continue
+			}
+			if sibling := o.Nodes[siblingID]; sibling != nil {
+				siblings = append(siblings, sibling)
+			}
+		}
+		return siblings
+	}
+	return nil
+}
+

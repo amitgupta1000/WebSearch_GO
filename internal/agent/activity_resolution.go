@@ -92,8 +92,142 @@ func (r activityResolution) downstreamCategory() string {
 	return r.primaryCategory()
 }
 
-// searchTerms returns the graph's indexed phrases for the discovery lanes.
-func (r activityResolution) searchTerms() []string { return r.Graph.SearchTerms }
+// ambiguousHub reports whether every family the graph returned is a hypernym —
+// i.e. the activity named a family budget ("oil"), not a family.
+func (r activityResolution) ambiguousHub() bool {
+	if len(r.Graph.Families) < 2 {
+		return false
+	}
+	for _, family := range r.Graph.Families {
+		if family.Reason != "hypernym" {
+			return false
+		}
+	}
+	return true
+}
+
+// rankHypernymVariants orders an ambiguous hub's variants by the qualifier the
+// activity carries. The graph states which families are possible ("oil" spans
+// lubricants, fuel oils, crude oil and oleochemical feedstocks); the qualifier
+// decides which one the operator means, so "soybean oil" is a feedstock oil even
+// though "lubricants" is the hub's default rank, and "white oil" is a lubricant
+// even though a bare "oil" is ambiguous. With no qualifier the graph's rank stands
+// and the seller mode may ask the model to choose among the variants.
+func rankHypernymVariants(resolution activityResolution) activityResolution {
+	if !resolution.ambiguousHub() {
+		return resolution
+	}
+	label, qualifier := oilQualifierFamily(resolution.Activity)
+	if label == "" {
+		return resolution
+	}
+	for index, family := range resolution.Graph.Families {
+		if index == 0 || !strings.EqualFold(family.Label, label) {
+			continue
+		}
+		reordered := make([]ontology.Family, 0, len(resolution.Graph.Families))
+		reordered = append(reordered, resolution.Graph.Families[index])
+		reordered = append(reordered, resolution.Graph.Families[:index]...)
+		reordered = append(reordered, resolution.Graph.Families[index+1:]...)
+		for rank := range reordered {
+			reordered[rank].Rank = rank
+		}
+		resolution.Graph.Families = reordered
+		resolution.Warnings = append(resolution.Warnings, fmt.Sprintf(
+			"The activity's own qualifier (%s) selects %s among the hub's variants; %s drives the category lane.",
+			qualifier, family.Label, family.Label))
+		return resolution
+	}
+	return resolution
+}
+
+// oilQualifierFamily maps an oil-bearing activity onto the graph family its
+// qualifier names, returning the label and the qualifier words that decided it.
+//
+// This is the only oil knowledge left in code, and it exists for names the graph
+// has no node for ("soybean oil", "white oil"): the graph states what is possible,
+// the qualifier picks. When the graph gains those names this table disappears —
+// curate the graph, never extend the table.
+func oilQualifierFamily(activity string) (string, string) {
+	qualified := demandOilFamilies(activity)
+	if len(qualified) == 0 {
+		return "", ""
+	}
+	label, ok := activityQualifierFamilies[strings.ToLower(qualified[0])]
+	if !ok {
+		return "", ""
+	}
+	return label, strings.Join(qualified, "/")
+}
+
+// activityQualifierFamilies maps the qualifier vocabulary's family keys onto the
+// graph's labels.
+var activityQualifierFamilies = map[string]string{
+	"lubricants":    "lubricants",
+	"fuel oils":     "fuel oils",
+	"crude oil":     "crude oil",
+	"oleochemicals": "oleochemical feedstocks",
+	"biodiesel":     "biodiesel",
+}
+
+// searchTerms returns the graph's indexed phrases for the discovery lanes, minus
+// the phrases that name a *sibling* family of the one this run resolved to. A
+// shared process vocabulary spans families ("blending" indexes lubricant, fuel and
+// crude phrasing alike), so a fuel-oil run must not buy "lubricant blending" merely
+// because both run through blending. The exclusion comes from the hub's own
+// hyponyms, not from a table.
+func (r activityResolution) searchTerms() []string {
+	terms := r.Graph.SearchTerms
+	if r.document == nil || len(r.Graph.Families) == 0 {
+		return terms
+	}
+	siblings := r.document.SiblingVariants(r.Graph.Families[0].ID)
+	if len(siblings) == 0 {
+		return terms
+	}
+	filtered := make([]string, 0, len(terms))
+	for _, term := range terms {
+		lowered := strings.ToLower(term)
+		conflicting := false
+		for _, sibling := range siblings {
+			if activityNamesFamily(lowered, sibling.Label) {
+				conflicting = true
+				break
+			}
+		}
+		if !conflicting {
+			filtered = append(filtered, term)
+		}
+	}
+	return filtered
+}
+
+// activityNamesFamily reports whether a phrase names the family, tolerating the
+// plural/singular difference between labels and trade phrasing ("lubricants" label
+// vs "lubricant blending" phrase).
+func activityNamesFamily(phrase, label string) bool {
+	label = strings.ToLower(strings.TrimSpace(label))
+	if label == "" {
+		return false
+	}
+	if strings.Contains(phrase, label) || strings.Contains(phrase, strings.TrimSuffix(label, "s")) {
+		return true
+	}
+	// Multi-word labels ("oleochemical feedstocks") also appear with the trailing
+	// word pluralised away in phrases.
+	words := strings.Fields(label)
+	if len(words) > 1 {
+		parts := make([]string, 0, len(words))
+		for _, word := range words {
+			parts = append(parts, strings.TrimSuffix(word, "s"))
+		}
+		if strings.Contains(phrase, strings.Join(parts, " ")) {
+			return true
+		}
+	}
+	return false
+}
+
 
 // categoryRationale explains the choice in the report's own terms.
 func (r activityResolution) categoryRationale() string {
@@ -136,6 +270,9 @@ func resolveActivityWithDocument(ctx context.Context, engine *Engine, document *
 	resolution.Graph = document.Resolve(resolution.Activity, ontology.DefaultOptions)
 	if len(resolution.Graph.Families) > 0 || len(resolution.Graph.Processes) > 0 {
 		resolution.Path = pathOntology
+		// An ambiguous hub ("oil") is ranked by the activity's own qualifier, so a
+		// feedstock oil never inherits the petroleum default and vice versa.
+		resolution = rankHypernymVariants(resolution)
 		if len(resolution.Graph.Matches) > 0 {
 			resolution.NodeID = resolution.Graph.Matches[0].ID
 			resolution.NodeLabel = resolution.Graph.Matches[0].Label

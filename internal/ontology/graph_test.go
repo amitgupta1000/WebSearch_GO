@@ -111,3 +111,40 @@ func TestResolveJSONIsSerializable(t *testing.T) {
 		t.Errorf("resolution JSON = %s", raw)
 	}
 }
+
+// TestSiblingVariantsExposeTheHubsAmbiguity pins the graph primitive the search-term
+// filter relies on: the families that share a hub's ambiguity are its hyponyms.
+func TestSiblingVariantsExposeTheHubsAmbiguity(t *testing.T) {
+	document, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	siblings := document.SiblingVariants("cat:lubricants")
+	ids := make([]string, 0, len(siblings))
+	for _, sibling := range siblings {
+		ids = append(ids, sibling.ID)
+	}
+	for _, want := range []string{"cat:fuel-oils", "sub:crude-oil", "cat:oleochemical-feedstocks"} {
+		found := false
+		for _, id := range ids {
+			if id == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("siblings = %v, want %s among them", ids, want)
+		}
+	}
+	for _, id := range ids {
+		if id == "cat:lubricants" {
+			t.Errorf("siblings must not include the node itself: %v", ids)
+		}
+	}
+	if siblings := document.SiblingVariants("sub:n-butanol"); len(siblings) != 0 {
+		t.Errorf("a node without a hub must have no siblings, got %d", len(siblings))
+	}
+	if siblings := document.SiblingVariants("cat:not-a-node"); len(siblings) != 0 {
+		t.Errorf("an unknown node must have no siblings, got %d", len(siblings))
+	}
+}
+

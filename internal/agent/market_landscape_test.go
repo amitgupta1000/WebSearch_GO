@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -44,10 +45,13 @@ func TestMarketLanesFollowActivity(t *testing.T) {
 }
 
 func TestMarketDiscoverySearchesUseNaturalProcessTerms(t *testing.T) {
-	searches := marketDiscoverySearches(models.MarketLandscapeQuery{
+	// The run's own composition: the operator's wording plus the graph's indexed
+	// phrases for the resolved family.
+	resolution := resolveActivity(context.Background(), nil, "oil blending", nil)
+	searches := marketDiscoverySearchesWithTerms(models.MarketLandscapeQuery{
 		Activity: "oil blending",
 		Regions:  []string{"Middle East", "Africa"},
-	})
+	}, resolution.searchTerms())
 	queries := make(map[string]bool, len(searches))
 	for _, search := range searches {
 		queries[search.Query] = true
@@ -119,29 +123,44 @@ func TestMarketBlendingCategoryResolvesTheBlendedFamily(t *testing.T) {
 	}
 }
 
-// TestMarketActivitySearchTermsStayInsideTheOilFamily pins the expansion: a
-// generic oil blend also searches the indexed lubricant wording, while a fuel or
-// crude blend searches only its own phrase.
+// TestMarketActivitySearchTermsStayInsideTheOilFamily pins the split: the helper
+// only echoes the operator's wording, and the family phrases a run searches come
+// from the graph — so a generic oil blend gains the indexed lubricant wording while
+// a fuel, crude or feedstock blend never does.
 func TestMarketActivitySearchTermsStayInsideTheOilFamily(t *testing.T) {
-	contains := func(terms []string, want string) bool {
-		for _, term := range terms {
-			if term == want {
+	if terms := marketActivitySearchTerms("Oil Blending"); len(terms) != 1 || terms[0] != "Oil Blending" {
+		t.Errorf("marketActivitySearchTerms = %v, want the operator's wording alone", terms)
+	}
+	terms := func(activity string) []string {
+		resolution := resolveActivity(context.Background(), nil, activity, nil)
+		out := make([]string, 0, 8)
+		for _, search := range marketDiscoverySearchesWithTerms(models.MarketLandscapeQuery{Activity: activity}, resolution.searchTerms()) {
+			out = append(out, strings.ToLower(search.Query))
+		}
+		return out
+	}
+	contains := func(list []string, want string) bool {
+		for _, entry := range list {
+			if strings.Contains(entry, want) {
 				return true
 			}
 		}
 		return false
 	}
-	if terms := marketActivitySearchTerms("Oil Blending"); !contains(terms, "lubricant blending") {
-		t.Errorf("oil blending terms = %v, want the indexed lubricant phrase", terms)
+	if plan := terms("Oil Blending"); !contains(plan, "lubricant blending") {
+		t.Errorf("oil blending plan = %v, want the graph's indexed lubricant phrase", plan)
 	}
-	for _, activity := range []string{"fuel oil blending", "crude oil blending", "bunker fuel blending", "palm oil blending"} {
-		terms := marketActivitySearchTerms(activity)
-		if contains(terms, "lubricant blending") && !strings.Contains(strings.ToLower(activity), "lubricant") {
-			t.Errorf("%s terms = %v, must not be expanded to lubricant blending", activity, terms)
+	for _, activity := range []string{"fuel oil blending", "crude oil blending", "palm oil blending"} {
+		plan := terms(activity)
+		if contains(plan, "lubricant blending") {
+			t.Errorf("%s plan = %v, must not be expanded to lubricant blending", activity, plan)
 		}
 	}
-	if terms := marketActivitySearchTerms("fuel oil blending"); !contains(terms, "fuel oil blending") {
-		t.Errorf("fuel terms = %v, want the activity phrase kept", terms)
+	if plan := terms("palm oil blending"); !contains(plan, "fatty acids") && !contains(plan, "oleochemical") {
+		resolution := resolveActivity(context.Background(), nil, "palm oil blending", nil)
+		if resolution.primaryCategory() != "Oleochemical feedstocks" {
+			t.Errorf("palm oil category = %q, want the feedstock family; plan = %v", resolution.primaryCategory(), plan)
+		}
 	}
 }
 

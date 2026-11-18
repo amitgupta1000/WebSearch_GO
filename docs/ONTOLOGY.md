@@ -84,9 +84,25 @@ buyer mode reads it as *consuming stages*. The buyer's category is the **consumi
 family (`downstreamCategory`) — "n-butanol" broadens on acrylates, not on alcohol
 solvents — while the seller's is the product family.
 
-Ambiguous families ("oil", "oleochemicals") are ranked, and the seller mode may ask the
-model to choose among the **listed variants** using the requested geography; a failure or
-an out-of-list answer keeps the graph's rank order.
+Ambiguous families ("oil", "oleochemicals") are **data**: the graph marks the hub
+`hypernym: true` with ranked `hyponyms`, and nothing in the ontology package knows what
+an oil is. At runtime the hub is resolved in two steps:
+
+1. **Qualifier first** — the activity's own words pick among the hub's variants
+   (`soybean oil` → Oleochemical feedstocks, `white oil` → Lubricants, `fuel oil
+   blending` → Fuel oils). With no qualifier the hub's rank stands ("oil blending" →
+   lubricants) and the seller mode may ask the model to choose among the **listed**
+   variants using the requested geography; an out-of-list answer keeps the rank order.
+2. **Vocabulary isolation** — a shared process indexes every variant's phrasing
+   ("blending" carries lubricant, fuel and crude phrases), so `searchTerms()` drops any
+   phrase naming a **sibling variant** of the resolved family
+   (`Ontology.SiblingVariants`, derived from the hub's hyponyms). A fuel-oil run never
+   buys "lubricant blending", and an oil-blending run never buys "fuel oil blending".
+
+The one piece of oil knowledge left in code is `demandOilFamilies`: a qualifier table
+for oil names the graph has no node for ("soybean oil", "white oil", "transformer
+oil"). It ranks variants and answers the reviewer anchor only when the graph is silent;
+extend the graph, never the table.
 
 ## API surface
 
@@ -145,16 +161,19 @@ fan its whole membership into the end-product walk.
 
 ## Where it is wired
 
-- **Seller Landscape** (`market_landscape.go`): `resolveActivity` → `chooseOntologyFamily` when the
-  family is ambiguous → `marketCategoryFromResolution` (graph category, or the model's inference for
-  an unmodelled activity) → `marketDiscoverySearchesWithTerms` (the graph's indexed phrases join the
-  discovery lanes).
+- **Seller Landscape** (`market_landscape.go`): `resolveActivity` (hub ranking included) →
+  `chooseOntologyFamily` when the family is still ambiguous → `marketCategoryFromResolution`
+  (graph category, or the model's inference for an unmodelled activity) →
+  `marketDiscoverySearchesWithTerms` (the graph's family-safe phrases join the discovery
+  lanes; a phrase carrying the lane's own role word is not compounded with it). The
+  adversarial reviewer's independent anchor (`marketQueryFamilyAnchor`) is resolved from the
+  same graph.
 - **Buyer Landscape** (`demand_chain.go`): `resolveActivity` → `demandStagesFromOntology` →
-  `demandOntologyGuidance` (the stages are injected into the inference prompt) → the graph's stages
-  and consuming family stand in when the model returns nothing or the inference fails.
-- Not yet switched: the trade-DB product/HS scoping and the legacy category tables
+  `demandOntologyGuidance` (the stages are injected into the inference prompt) → the graph's
+  stages and consuming family stand in when the model returns nothing or the inference fails.
+- Still table-driven: the trade-DB product/HS scoping, and the legacy tables
   (`demandFallbackCategory`, `validateDemandCategory`, `demandStageCategoryRules`,
-  `demandCategoryConsumerFamilies`, `demandKnownDirectInputStages`, `knownStageProducts`). They
-  remain as the fallbacks the unmodelled branch uses; `ValidateDemandCategory` still rejects
-  over-broad categories before the graph family is consulted.
+  `demandCategoryConsumerFamilies`, `demandKnownDirectInputStages`, `knownStageProducts`) —
+  they are the unmodelled branch's fallbacks, and `demandOilFamilies` now only ranks hub
+  variants for oil names the graph does not model.
 

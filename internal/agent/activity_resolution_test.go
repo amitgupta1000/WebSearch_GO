@@ -188,6 +188,52 @@ func TestDemandStagesFromOntologyCarriesGraphVocabulary(t *testing.T) {
 	}
 }
 
+// TestHypernymVariantsFollowTheQualifier pins the graph's ambiguity rule: the hub
+// states which families are possible, and the activity's own qualifier decides
+// which one leads — so a feedstock oil is never ranked as a lubricant and a white
+// oil is never ranked as a feedstock.
+func TestHypernymVariantsFollowTheQualifier(t *testing.T) {
+	cases := map[string]string{
+		"oil blending":           "Lubricants",
+		"soybean oil":            "Oleochemical feedstocks",
+		"palm oil":               "Oleochemical feedstocks",
+		"white oil":              "Lubricants",
+		"used cooking oil":       "Oleochemical feedstocks",
+		"transformer oil":        "Lubricants",
+		"fuel oil blending":      "Fuel oils",
+		"crude oil blending":     "Crude oil",
+		"lubricant oil blending": "Lubricants",
+	}
+	for activity, want := range cases {
+		resolution := resolveActivity(context.Background(), nil, activity, nil)
+		if got := resolution.primaryCategory(); got != want {
+			t.Errorf("%q category = %q, want %q (families %v)", activity, got, want, resolution.familyLabels())
+		}
+	}
+}
+
+// TestSearchTermsExcludeSiblingFamilies pins the vocabulary guard: the blending
+// process indexes every oil family's phrasing, so a resolved run must keep only the
+// phrases of its own family.
+func TestSearchTermsExcludeSiblingFamilies(t *testing.T) {
+	terms := func(activity string) []string {
+		return resolveActivity(context.Background(), nil, activity, nil).searchTerms()
+	}
+	joined := strings.Join(terms("fuel oil blending"), " | ")
+	if strings.Contains(strings.ToLower(joined), "lubricant") {
+		t.Errorf("fuel oil terms = %q, must not carry the lubricant family's phrasing", joined)
+	}
+	joined = strings.Join(terms("oil blending"), " | ")
+	for _, banned := range []string{"fuel oil blending", "crude oil blending", "oleochemical"} {
+		if strings.Contains(strings.ToLower(joined), banned) {
+			t.Errorf("oil blending terms = %q, must not carry %q", joined, banned)
+		}
+	}
+	if !strings.Contains(strings.ToLower(joined), "lubricant blending") {
+		t.Errorf("oil blending terms = %q, want the lubricant phrasing", joined)
+	}
+}
+
 // TestMarketDiscoverySearchesUseGraphTerms pins the seller wiring: the graph's
 // indexed phrasing joins the discovery lanes, so "oil blending" also searches
 // "lubricant blending" without losing the operator's own words.

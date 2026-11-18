@@ -12,6 +12,45 @@
   query `"n-butanol" "India"` (`TestDemandChainLive`, deep budget). The run logs were removed
   from the repo in the 2026-11-17 artifacts cleanup; artifacts under `%TEMP%\crystal-live-nbutanol*`.
 
+## 2026-11-18 — the oil hardcoding is out of the seller path
+
+The question "why is oil still hardcoded?" had a real answer: the graph knew oil as
+**data**, but the agent layer still knew it as **code**, and one of those tables was
+live on every seller run.
+
+What the code held, and what replaced it:
+
+| was | now |
+|---|---|
+| `marketActivitySearchTerms` expanded "…blending" into "lubricant blending" / "fuel oil blending" from a word list | the graph's `search_terms` supply the phrasing |
+| `marketNamesOtherOilFamily` decided which families not to expand | deleted |
+| `marketQueryFamilyAnchor` = `demandOilFamilies` — the reviewer's authoritative family on **every** run | graph first (hub + qualifier), table only when the graph is silent |
+| the category prompt and the reviewer prompt spelled out oil → lubricants and "oleochemicals is a different chemistry" | the generic family rule; the graph states the family |
+| `TestMarketActivitySearchTerms…` / `sellerPlanQueries` asserted the table's behaviour | they assert the real (graph) plan |
+
+Two defects the audit exposed, both fixed:
+
+- **Hub ranking ignored the qualifier.** `soybean oil` resolved through the `oils` hub to
+  *lubricants* (rank 1), a regression against the old table. `rankHypernymVariants` now
+  orders the hub's variants by the activity's own qualifier: soybean/palm/coconut oil →
+  Oleochemical feedstocks, white oil → Lubricants, fuel oil → Fuel oils. No qualifier
+  keeps the hub's rank, and the seller mode may still ask the model to choose among the
+  listed variants.
+- **The process vocabulary leaked across families.** `proc:blending` indexes "oil
+  blending", "lubricant blending", "fuel oil blending" and "crude oil blending", so a
+  fuel-oil run was buying lubricant search. `activityResolution.searchTerms()` now drops
+  phrases naming a **sibling variant** of the resolved family, using the hub's own
+  `hyponyms` (`Ontology.SiblingVariants`) — graph-derived, no table. Lane composition
+  also refuses to pair a phrase with the role word it already carries ("blending plant"
+  + "plant").
+
+Still hardcoded, deliberately and documented: `demandOilFamilies`, a qualifier table for
+oil names the graph has no node for ("soybean oil", "white oil", "transformer oil"). It
+ranks hub variants and answers the anchor only when the graph is silent — the curation
+queue should add those names so the table can go. The ontology package itself contains no
+oil knowledge: `cat:oils` is `hypernym: true` with ranked `hyponyms`, and `SiblingVariants`
+reads them.
+
 ## 2026-11-18 — ontology wired into both landscape modes + resolution API
 
 The graph now drives the research path in the Seller and Buyer Landscapes, behind one
