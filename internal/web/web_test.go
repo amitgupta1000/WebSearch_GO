@@ -216,6 +216,12 @@ func TestIndexHasStableQueryControls(t *testing.T) {
 	if !strings.Contains(out.String(), `name="demand_qc_prompt"`) {
 		t.Error("expected the editable buyer QC prompt field")
 	}
+	if !strings.Contains(out.String(), `hx-include="closest form"`) {
+		t.Error("expected the trade-product pickers to include the enclosing form")
+	}
+	if strings.Contains(out.String(), "closest form [name='query']") {
+		t.Error("the picker include must be a plain closest-form selector, not a descendant selector")
+	}
 }
 
 func TestRelatedEntityGraphRendersExpandableNodes(t *testing.T) {

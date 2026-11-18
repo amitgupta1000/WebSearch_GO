@@ -264,12 +264,21 @@ func resolveTradeDBProduct(ctx context.Context, client TradeDBSource, activity, 
 	}
 
 	product, match, candidates, source := ResolveTradeProduct(requested, "", vocabulary)
+	vocabularyLoaded := len(vocabulary) > 0
 	switch source {
 	case TradeProductSourceVocabulary:
 		emitAgentEvent(eventCh, models.EventToolResult,
 			fmt.Sprintf("Trade DB product: %q matched the canonical vocabulary → querying %q", requested, match.Name),
 			"trade-db", "product-match")
 	case TradeProductSourceRaw:
+		if !vocabularyLoaded {
+			// The vocabulary never loaded, so nothing was compared: say so
+			// plainly instead of claiming no canonical name matched.
+			emitAgentEvent(eventCh, models.EventThinking,
+				fmt.Sprintf("Trade DB product: the canonical vocabulary is unavailable, so %q is queried as-is", requested),
+				"trade-db", "product-match")
+			break
+		}
 		emitAgentEvent(eventCh, models.EventThinking,
 			fmt.Sprintf("Trade DB product: no canonical name matches %q; the queries carry it as-is", requested),
 			"trade-db", "product-match")

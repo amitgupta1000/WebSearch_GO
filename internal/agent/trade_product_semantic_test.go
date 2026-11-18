@@ -126,3 +126,29 @@ func TestSemanticTradeProductMatchesWithoutModel(t *testing.T) {
 		t.Fatalf("matches = %+v, want the string prefilter", matches)
 	}
 }
+
+// TestSemanticTradeProductMatchesBoundsFallbackToAvailableCandidates pins the
+// narrow case the semantic fallback must never crash on: when the string
+// prefilter keeps fewer than five candidates and the model either fails or
+// returns no valid names, the fallback returns whatever candidates exist
+// instead of slicing past the end of the slice.
+func TestSemanticTradeProductMatchesBoundsFallbackToAvailableCandidates(t *testing.T) {
+	// "butanol" shares a token with exactly two of these names; STYRENE is
+	// excluded, so the prefilter keeps two candidates, fewer than the
+	// five-name semantic display cap.
+	vocabulary := []string{"N BUTANOL (NBA)", "ISOBUTANOL", "STYRENE"}
+
+	failing := &scriptedProductLLM{err: errors.New("model unavailable")}
+	if got := SemanticTradeProductMatches(context.Background(), failing, "butanol", vocabulary); len(got) != 2 {
+		t.Fatalf("model-outage fallback = %d candidates, want the 2 prefiltered names", len(got))
+	}
+
+	rejected := &scriptedProductLLM{}
+	rejected.response = append(rejected.response, struct {
+		Name      string `json:"name"`
+		Rationale string `json:"rationale"`
+	}{Name: "UNOBTAINIUM", Rationale: "invented"})
+	if got := SemanticTradeProductMatches(context.Background(), rejected, "butanol", vocabulary); len(got) != 2 {
+		t.Fatalf("rejected-picks fallback = %d candidates, want the 2 prefiltered names", len(got))
+	}
+}

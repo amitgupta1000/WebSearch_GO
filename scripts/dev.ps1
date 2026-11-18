@@ -37,7 +37,30 @@ function Import-EnvironmentVariable {
     }
 }
 
+# Local runs need the same non-secret trade-DB baseline the deployment uses:
+# the console's trade-product picker and the landscape trade lanes are off
+# unless TRADE_DB_API_URL reaches the server. Seed those keys from
+# deploy/cloud-run.env.yaml; a non-empty value already set in the environment wins.
+function Import-TradeDBEnvironment {
+    $envFile = Join-Path $root 'deploy/cloud-run.env.yaml'
+    if (-not (Test-Path $envFile)) {
+        return
+    }
+    foreach ($name in @('TRADE_DB_API_URL', 'TRADE_DB_CONCURRENCY', 'TRADE_DB_TIMEOUT_SECONDS', 'TRADE_DB_MAX_PARTNERS')) {
+        if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name, 'Process'))) {
+            continue
+        }
+        $line = Get-Content $envFile | Where-Object { $_ -match ('^' + [regex]::Escape($name) + ' *:') } | Select-Object -First 1
+        if ($null -eq $line) {
+            continue
+        }
+        $value = ($line -split ':', 2)[1].Trim().Trim('"')
+        [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+    }
+}
+
 Import-EnvironmentVariable -Name 'ROCKETREACH_API_KEY'
+Import-TradeDBEnvironment
 
 # The server exits immediately when it cannot bind its port, and that one fatal
 # line is easy to miss when the watcher restarts in the background, so the port

@@ -273,14 +273,14 @@
                         <div class="sm:col-span-2 flex flex-wrap gap-4 text-xs text-slate-300">
                             <label><input type="checkbox" name="market_contacts" value="1" class="mr-1 accent-indigo-500"> Collect public business contacts</label>
                             <label><input type="checkbox" name="market_trade_records" value="1" class="mr-1 accent-indigo-500"
-                                      hx-post="/api/trade/product-match" hx-trigger="change" hx-include="closest form [name='query']"
+                                      hx-post="/api/trade/product-match" hx-trigger="change" hx-include="closest form"
                                       hx-target="#trade-product-market-result" hx-swap="innerHTML"> Include Crystal trade records (slow, opt-in)</label>
                         </div>
                         <div class="sm:col-span-2" id="trade-product-market">
                             <label class="text-xs font-medium text-slate-400">Trade DB product name (searchable)</label>
                             <div class="flex flex-wrap items-center gap-2 mt-1">
                                 <input type="text" name="trade_product" list="trade-product-vocabulary" placeholder="Type to search the trade DB's canonical names, or click a suggestion" class="flex-1 min-w-[16rem] bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm">
-                                <button type="button" class="text-[11px] rounded-full border border-indigo-800 bg-indigo-950/40 px-2.5 py-1 text-indigo-200 hover:border-indigo-500" hx-post="/api/trade/product-match" hx-include="closest form [name='query']" hx-target="#trade-product-market-result" hx-swap="innerHTML">Suggest names</button>
+                                <button type="button" class="text-[11px] rounded-full border border-indigo-800 bg-indigo-950/40 px-2.5 py-1 text-indigo-200 hover:border-indigo-500" hx-post="/api/trade/product-match" hx-include="closest form" hx-target="#trade-product-market-result" hx-swap="innerHTML">Suggest names</button>
                             </div>
                             <div id="trade-product-market-result" class="mt-1"></div>
                             <div hx-get="/api/trade/product-vocabulary" hx-trigger="load" hx-swap="innerHTML"></div>
@@ -340,14 +340,14 @@
                     <div class="sm:col-span-2 flex flex-wrap gap-4 text-xs text-slate-300">
                         <label><input type="checkbox" name="demand_intermediaries" value="1" class="mr-1 accent-indigo-500"> Include traders, brokers and intermediaries</label>
                         <label><input type="checkbox" name="demand_trade_records" value="1" class="mr-1 accent-indigo-500"
-                                      hx-post="/api/trade/product-match" hx-trigger="change" hx-include="closest form [name='query']"
+                                      hx-post="/api/trade/product-match" hx-trigger="change" hx-include="closest form"
                                       hx-target="#trade-product-demand-result" hx-swap="innerHTML"> Include Crystal trade records (slow, opt-in)</label>
                     </div>
                         <div class="sm:col-span-2" id="trade-product-demand">
                             <label class="text-xs font-medium text-slate-400">Trade DB product name (searchable)</label>
                             <div class="flex flex-wrap items-center gap-2 mt-1">
                                 <input type="text" name="trade_product" list="trade-product-vocabulary" placeholder="Type to search the trade DB's canonical names, or click a suggestion" class="flex-1 min-w-[16rem] bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm">
-                                <button type="button" class="text-[11px] rounded-full border border-indigo-800 bg-indigo-950/40 px-2.5 py-1 text-indigo-200 hover:border-indigo-500" hx-post="/api/trade/product-match" hx-include="closest form [name='query']" hx-target="#trade-product-demand-result" hx-swap="innerHTML">Suggest names</button>
+                                <button type="button" class="text-[11px] rounded-full border border-indigo-800 bg-indigo-950/40 px-2.5 py-1 text-indigo-200 hover:border-indigo-500" hx-post="/api/trade/product-match" hx-include="closest form" hx-target="#trade-product-demand-result" hx-swap="innerHTML">Suggest names</button>
                             </div>
                             <div id="trade-product-demand-result" class="mt-1"></div>
                             <div hx-get="/api/trade/product-vocabulary" hx-trigger="load" hx-swap="innerHTML"></div>

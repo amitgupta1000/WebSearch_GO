@@ -63,7 +63,7 @@ func SemanticTradeProductMatches(ctx context.Context, llm LLMClient, activity st
 		"Use ONLY names from the candidate list; never invent a name. One short rationale per pick."
 	prompt := fmt.Sprintf("Operator typed: %q\nCandidate canonical names:\n%s", strings.TrimSpace(activity), strings.Join(lines, "\n"))
 	if err := llm.GenerateStructured(ctx, system, prompt, &target); err != nil {
-		return prefiltered[:tradeProductSemanticLimit]
+		return prefiltered[:min(len(prefiltered), tradeProductSemanticLimit)]
 	}
 
 	suggestions := make([]TradeProductMatch, 0, tradeProductSemanticLimit)
@@ -86,7 +86,7 @@ func SemanticTradeProductMatches(ctx context.Context, llm LLMClient, activity st
 		}
 	}
 	if len(suggestions) == 0 {
-		return prefiltered[:tradeProductSemanticLimit]
+		return prefiltered[:min(len(prefiltered), tradeProductSemanticLimit)]
 	}
 	return suggestions
 }
