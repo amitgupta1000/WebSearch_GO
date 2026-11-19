@@ -37,8 +37,8 @@ not in the supplied list.`
 // DefaultDemandQCPrompt is the operator-editable policy for the buyer
 // per-company QC review. The adversarial value-chain review has its own fixed
 // policy and is intentionally not editable here.
-const DefaultDemandQCPrompt = `Reject a row when it is a publisher, person, category/process title, article or product page,
-a supplier or trader rather than a buyer, tied to the wrong consuming stage, or supported only by
+const DefaultDemandQCPrompt = `Reject a row when it is a publisher, person, category/process title, article or product page, 
+rather than a buyer, tied to the wrong consuming stage, or supported only by
 passing mention with no demand evidence. Keep a company that consumes the product as an input or
 buys it to resell.
 Source rule: a company found on a market-intelligence directory (ensun, RevenueBase) is judged on
