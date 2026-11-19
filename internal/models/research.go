@@ -55,6 +55,17 @@ type CompanyBrief struct {
 	// EntitySource records where the identity came from: user, resolved or typed.
 	// "resolved" means the operator picked it in the entity dialogue.
 	EntitySource string `json:"entity_source,omitempty"`
+	// IncludeTradeRecords opts this run into the Crystal customs background.
+	// Off by default, like the landscape trade sections: the console's customs
+	// matcher offers the stored names first, so the DB is never queried unseen.
+	IncludeTradeRecords bool `json:"include_trade_records,omitempty"`
+	// TradeEntity is the operator's chosen stored customs spelling for this
+	// company (the pre-run entity matcher). When set it wins over the run's own
+	// resolution, so an imperfect name match never silently loses the profile.
+	TradeEntity string `json:"trade_entity,omitempty"`
+	// TradeEntityDirection is the side the pick was found on: importer or
+	// supplier. Empty defaults to importer, the side the resolver prefers.
+	TradeEntityDirection string `json:"trade_entity_direction,omitempty"`
 	ResearchPreferences
 }
 

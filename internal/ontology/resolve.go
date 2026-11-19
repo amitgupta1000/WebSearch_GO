@@ -162,6 +162,11 @@ func (o *Ontology) matchEntries(text string, requireApproved bool) []Match {
 // phrasing of the activity itself ("oil blending" names the blending process).
 func (o *Ontology) exactEntryMatches(text string, requireApproved bool) []Match {
 	var matches []Match
+	// A joined spelling ("toluenediisocyanate") is one token after normalization;
+	// only that shape takes the compact pass below, so two separate names can
+	// never merge into one.
+	normalized := strings.TrimSpace(text)
+	singleToken := normalized != "" && !strings.Contains(normalized, " ")
 	for _, id := range o.NodeIDs() {
 		node := o.Nodes[id]
 		if node == nil || node.Status == StatusRejected {
@@ -181,6 +186,12 @@ func (o *Ontology) exactEntryMatches(text string, requireApproved bool) []Match 
 				matched = true
 				break
 			}
+		}
+		if !matched && singleToken && joinedEntryName(normalized, node) {
+			// The activity is an entry name with its spaces folded away: the
+			// spelling people type ("toluenediisocyanate", "styrenemonomer").
+			matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: "joined", Status: node.Status})
+			matched = true
 		}
 		if matched || node.Kind != KindProcess {
 			continue
@@ -234,6 +245,34 @@ func matchedPhrase(text, phrase string) bool {
 		return false
 	}
 	return strings.Contains(text, " "+key+" ")
+}
+
+// joinedEntryMinLength is the shortest compact form the joined-word pass
+// accepts. Short entries ("TDI", "MEK") are already exact aliases, and letting
+// them into a substring-style comparison would only create collisions.
+const joinedEntryMinLength = 6
+
+// compactName folds a name to its unspaced comparable form: the shape an
+// operator types when the words are joined ("toluenediisocyanate") and the
+// space-free form the trade-DB alignment compares entry names on.
+func compactName(value string) string {
+	return strings.ReplaceAll(normalize(value), " ", "")
+}
+
+// joinedEntryName reports whether a single-token activity is one of the node's
+// entry names with its word spaces folded away. The comparison is exact, so it
+// never widens a match: "toluenediisocyanate" meets "Toluene diisocyanate",
+// but "isocyanate" does not meet "Toluene diisocyanate".
+func joinedEntryName(activity string, node *Node) bool {
+	if len(activity) < joinedEntryMinLength {
+		return false
+	}
+	for _, entry := range append([]string{node.Label}, node.Aliases...) {
+		if compactName(entry) == activity {
+			return true
+		}
+	}
+	return false
 }
 
 // nameLength is the length of a node's longest entry name: the specificity tie
@@ -519,6 +558,3 @@ func uniqueStrings(values []string) []string {
 	}
 	return out
 }
-
-
-

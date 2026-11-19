@@ -221,6 +221,41 @@ func semanticTradeEntityCandidates(ctx context.Context, llm LLMClient, query str
 	return ranked
 }
 
+// TradeEntityMatches resolves a researched company name onto the DB's stored
+// entity spellings for the console's pre-run matcher. The contract matches the
+// trade-product picker: a confident resolution is reported alone (the run would
+// take it), and everything weaker is returned as ranked suggestions with the
+// side each name was found on, so the operator can pin one before the run.
+func TradeEntityMatches(ctx context.Context, client TradeDBSource, llm LLMClient, name string) (matches []models.TradeEntityCandidate, confident bool) {
+	name = strings.TrimSpace(name)
+	if name == "" || client == nil {
+		return nil, false
+	}
+	found, candidates, seen := resolveTradeEntity(ctx, client, name)
+	if found.name != "" {
+		return []models.TradeEntityCandidate{{
+			Name:      found.name,
+			Direction: found.direction,
+			Score:     1,
+			Grade:     "exact",
+		}}, true
+	}
+	if ranked := semanticTradeEntityCandidates(ctx, llm, name, candidates); len(ranked) > 0 {
+		return ranked, false
+	}
+	// Nothing scored, but the typeahead did answer: the raw hits are still the
+	// operator's best lead, shown without a side because the ladder does not
+	// carry one for them.
+	fallback := make([]models.TradeEntityCandidate, 0, tradeEntityCandidateLimit)
+	for _, candidate := range seen {
+		if len(fallback) == tradeEntityCandidateLimit {
+			break
+		}
+		fallback = append(fallback, models.TradeEntityCandidate{Name: candidate, Grade: "typeahead"})
+	}
+	return fallback, false
+}
+
 // tradeEntityOverride records an operator's explicit pick: the researched name
 // resolves to this stored entity from here on (process lifetime), so the
 // profile fetch, repeat lookups and the button all use it.

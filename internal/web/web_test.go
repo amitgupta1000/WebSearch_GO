@@ -222,6 +222,58 @@ func TestIndexHasStableQueryControls(t *testing.T) {
 	if strings.Contains(out.String(), "closest form [name='query']") {
 		t.Error("the picker include must be a plain closest-form selector, not a descendant selector")
 	}
+	// The two landscape sections share one form, so their product fields must
+	// have distinct names: a shared trade_product let the first (empty) input
+	// shadow the operator's pick on every buyer run.
+	for _, field := range []string{`name="market_trade_product"`, `name="demand_trade_product"`} {
+		if !strings.Contains(out.String(), field) {
+			t.Errorf("expected the per-mode trade-product field %s", field)
+		}
+	}
+	if strings.Contains(out.String(), `name="trade_product"`) {
+		t.Error("the shared trade_product field shadows the pick across modes")
+	}
+	// The company mode carries its own customs opt-in and pre-run matcher.
+	for _, field := range []string{
+		`name="company_trade_records"`,
+		`name="trade_entity"`,
+		`id="trade-entity-company-result"`,
+		`hx-post="/api/trade/entity-match"`,
+	} {
+		if !strings.Contains(out.String(), field) {
+			t.Errorf("expected the company customs matcher control %s", field)
+		}
+	}
+}
+
+// TestTradeEntityMatchesFragmentRendersPicks pins the entity matcher's chips:
+// they name the stored spelling, its side and its grade, and they fill the two
+// inputs the run reads, so a pick reaches Company Research intact.
+func TestTradeEntityMatchesFragmentRendersPicks(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	view := struct {
+		Query   string
+		Matches []models.TradeEntityCandidate
+		Note    string
+	}{
+		Query: "KLJ Resources",
+		Matches: []models.TradeEntityCandidate{
+			{Name: "KLJ RESOURCES AFRICA LTD", Direction: "importer", Grade: "related"},
+		},
+	}
+	if err := tmpl.ExecuteTemplate(&out, "trade_entity_matches", view); err != nil {
+		t.Fatalf("execute trade_entity_matches: %v", err)
+	}
+	rendered := out.String()
+	for _, expected := range []string{"KLJ RESOURCES AFRICA LTD", "importer", "related", "trade_entity", "trade_entity_direction"} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("trade_entity_matches is missing %q", expected)
+		}
+	}
 }
 
 func TestRelatedEntityGraphRendersExpandableNodes(t *testing.T) {
@@ -942,6 +994,9 @@ type entityCandidatesStub struct {
 	Mode                        string
 	LegalPersons                string
 	IncludeDirectors            string
+	TradeEntity                 string
+	TradeEntityDirection        string
+	IncludeTradeRecords         string
 	TypedDomain                 bool
 }
 

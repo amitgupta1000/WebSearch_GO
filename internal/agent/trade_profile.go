@@ -277,9 +277,9 @@ func buildTradeProfileForEntity(ctx context.Context, client TradeDBSource, reque
 // closest names when nothing matched.
 func tradeProfileSummary(name, primary string, background *models.TradeBackground) string {
 	if !background.Present {
-		message := fmt.Sprintf("Trade DB profile: no exact customs-entity match for %q", name)
+		message := fmt.Sprintf("Trade DB profile: no confident customs-entity match for %q", name)
 		if len(background.NameVariants) > 0 {
-			message += " (closest names: " + orNoneList(background.NameVariants) + ")"
+			message += " (closest names: " + orNoneList(background.NameVariants) + "); pick one in the console's customs matcher to pin the profile"
 		}
 		return message
 	}

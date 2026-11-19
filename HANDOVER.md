@@ -11,6 +11,37 @@
   Landscape runs on the sample query `"n-butanol" "India"`.
 
 
+## 2026-11-19 -- ontology/trade-DB alignment, per-mode picks, company customs matcher
+
+Three defects from a live run (`toluenediisocyanate` -> the DB's
+`TOLUENE DI ISOCYANATE (TDI)`) that share one contract: the name the operator picks must be
+the name every step uses.
+
+- **Ontology <- Trade DB alignment** (`internal/ontology/product_alignment.go`, `resolve.go`,
+  `graph.go`): entry matching now folds joined spellings (`toluenediisocyanate` matches
+  `Toluene diisocyanate`, Via `joined`), and `AlignTradeProduct` resolves a DB canonical name
+  -- parenthetical trade abbreviations included -- onto the graph's substance and family.
+  `CanonicalTradeMatch` uses the same pass, so harvests and the runtime agree. Pinned by
+  `product_alignment_test.go`.
+- **The pick anchors the ontology step** (`internal/agent/activity_resolution.go`,
+  `market_landscape.go`, `demand_chain.go`, `activity_api.go`): when the operator picked a
+  trade-DB product, both landscape modes resolve the graph from it
+  (`resolveActivityForProduct`) instead of from the typed activity, and the run log names the
+  anchor. `POST /api/ontology/resolve` accepts `trade_product` and echoes it.
+- **Per-mode product fields** (`internal/web/templates/index.html`, `cmd/server/main.go`):
+  both landscape sections share one form and both inputs were named `trade_product`, so
+  `FormValue` returned the first (seller) input and a buyer run silently lost the pick. They
+  are now `market_trade_product` / `demand_trade_product`, each read by its own parser (the
+  legacy shared name still resolves), and the chip selector fills either. Pinned by
+  `TestTradeProductFieldsStayScopedToTheirMode`.
+- **Company customs matcher + opt-in** (`POST /api/trade/entity-match`,
+  `cmd/server/trade_entity_match.go`, `internal/agent/trade_entity_resolve.go`): Company
+  Research gets an opt-in checkbox, a stored-name matcher and selectable chips (name, side,
+  grade). The pick travels through the entity-confirmation round trip (`trade_entity`,
+  `trade_entity_direction`, `company_trade_records`), and `attachTradeBackground` only runs
+  when opted in, building the profile for the pick. A miss logs the closest stored names and
+  points at the matcher instead of failing silently.
+
 ## 2026-11-18 -- the Crystal trade DB is wired through: matching, visible lanes, entity profiles
 
 Live investigation first (deployed API + its OpenAPI spec), then four work streams:

@@ -4,11 +4,21 @@
 {{if .Matches}}
 <p class="text-[11px] text-slate-400">Suggested canonical names for <span class="text-slate-200">{{.Query}}</span> - click one to fill the field:</p>
 <div class="flex flex-wrap gap-1.5 mt-1">
-  {{range .Matches}}<button type="button" title="{{.Rationale}}" class="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-300 hover:border-emerald-600 hover:text-emerald-300" onclick="var b=this.closest('div[id$=result]');if(b&&b.parentElement){var i=b.parentElement.querySelector('[name=trade_product]');if(i){i.value='{{.Name}}';}}">{{.Name}}{{if .Grade}} <span class="text-slate-500 italic">{{.Grade}}</span>{{end}}</button>{{end}}
+  {{range .Matches}}<button type="button" title="{{.Rationale}}" class="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-300 hover:border-emerald-600 hover:text-emerald-300" onclick="var b=this.closest('div[id$=result]');if(b&&b.parentElement){var i=b.parentElement.querySelector('[name$=trade_product]');if(i){i.value='{{.Name}}';}}">{{.Name}}{{if .Grade}} <span class="text-slate-500 italic">{{.Grade}}</span>{{end}}</button>{{end}}
 </div>
 {{end}}
 {{end}}
 {{define "trade_product_vocabulary"}}<datalist id="trade-product-vocabulary">{{range .Names}}<option value="{{.}}">{{end}}</datalist>{{end}}
+
+{{define "trade_entity_matches"}}
+{{if .Note}}<p class="text-[11px] text-amber-300">{{.Note}}</p>{{end}}
+{{if .Matches}}
+<p class="text-[11px] text-slate-400">Stored customs names for <span class="text-slate-200">{{.Query}}</span> - click one to pin it for this run:</p>
+<div class="flex flex-wrap gap-1.5 mt-1">
+  {{range .Matches}}<button type="button" title="{{if .Rationale}}{{.Rationale}}{{else}}Stored spelling offered by the entity resolver{{end}}" class="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-300 hover:border-emerald-600 hover:text-emerald-300" onclick="var b=this.closest('div[id$=result]');if(b&&b.parentElement){var i=b.parentElement.querySelector('[name=trade_entity]');if(i){i.value='{{.Name}}';}var d=b.parentElement.querySelector('[name=trade_entity_direction]');if(d){d.value='{{.Direction}}';}}">{{.Name}}{{if .Direction}} <span class="text-slate-500 italic">{{.Direction}}</span>{{end}}{{if .Grade}} <span class="text-slate-500">&middot; {{.Grade}}</span>{{end}}</button>{{end}}
+</div>
+{{end}}
+{{end}}
 
 
 {{define "log_entry"}}
@@ -1398,6 +1408,9 @@
 			<input type="hidden" name="source_profile" value="{{$.SourceProfile}}">
 			<input type="hidden" name="entity_confirmed" value="1">
 			<input type="hidden" name="entity_source" value="resolved">
+			<input type="hidden" name="trade_entity" value="{{$.TradeEntity}}">
+			<input type="hidden" name="trade_entity_direction" value="{{$.TradeEntityDirection}}">
+			<input type="hidden" name="company_trade_records" value="{{$.IncludeTradeRecords}}">
 			<div class="flex items-center justify-between gap-2">
 				<span class="text-sm font-medium text-white break-all">{{if .Candidate.Domain}}{{.Candidate.Domain}}{{else}}{{.Query}}{{end}}</span>
 				<span class="text-[11px] text-slate-500">{{if .PreSelected}}top match · {{end}}score {{.Candidate.Score}}</span>
@@ -1457,6 +1470,9 @@
 		<input type="hidden" name="source_profile" value="{{.SourceProfile}}">
 		<input type="hidden" name="entity_confirmed" value="0">
 		<input type="hidden" name="entity_source" value="typed">
+		<input type="hidden" name="trade_entity" value="{{.TradeEntity}}">
+		<input type="hidden" name="trade_entity_direction" value="{{.TradeEntityDirection}}">
+		<input type="hidden" name="company_trade_records" value="{{.IncludeTradeRecords}}">
 		<button type="submit" class="w-full text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-1.5">Research by name only (entity unconfirmed)</button>
 	</form>
 </div>

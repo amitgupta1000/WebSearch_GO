@@ -326,3 +326,55 @@ func TestDemandOntologyGuidanceSkipsSelfProcess(t *testing.T) {
 		t.Errorf("guidance = %q, want the downstream grease stage", guidance)
 	}
 }
+
+// TestResolveActivityForProductAnchorsTheOntologyStep pins the alignment the
+// console relies on: the operator's trade-DB pick ("TOLUENE DI ISOCYANATE
+// (TDI)") resolves the graph onto the substance, so a joined or abbreviated
+// typed activity no longer anchors a broader family.
+func TestResolveActivityForProductAnchorsTheOntologyStep(t *testing.T) {
+	resolution := resolveActivityForProduct(context.Background(), nil, "toluenediisocyanate", "TOLUENE DI ISOCYANATE (TDI)", nil)
+	if !resolution.matched() || resolution.Path != pathOntology {
+		t.Fatalf("resolution = %+v, want an ontology match", resolution)
+	}
+	if resolution.NodeID != "sub:toluene-diisocyanate" {
+		t.Fatalf("node = %q (%q), want sub:toluene-diisocyanate", resolution.NodeID, resolution.NodeLabel)
+	}
+	if got := resolution.primaryCategory(); got != "Isocyanates" {
+		t.Errorf("primary category = %q, want Isocyanates", got)
+	}
+	if got := resolution.Graph.Activity; got != "TOLUENE DI ISOCYANATE (TDI)" {
+		t.Errorf("graph activity = %q, want the picked trade-DB name", got)
+	}
+}
+
+// TestResolveActivityForProductFallsBackWhenThePickDoesNotAlign keeps the
+// fail-soft contract: an unrelated pick must not steal the typed activity's
+// resolution.
+func TestResolveActivityForProductFallsBackWhenThePickDoesNotAlign(t *testing.T) {
+	resolution := resolveActivityForProduct(context.Background(), nil, "oil blending", "UNOBTAINIUM POWDER", nil)
+	if !resolution.matched() || resolution.primaryCategory() != "Lubricants" {
+		t.Fatalf("resolution = %+v, want the typed activity's oil resolution", resolution)
+	}
+}
+
+// TestResolveActivityAPIPreviewsTheTradeProductAnchor pins the preview surface:
+// /api/ontology/resolve accepts the pick and reports the node it anchored, so
+// the console can show the same path a run would take.
+func TestResolveActivityAPIPreviewsTheTradeProductAnchor(t *testing.T) {
+	view, err := ResolveActivity(context.Background(), nil, ActivityQuery{
+		Activity:     "toluenediisocyanate",
+		TradeProduct: "TOLUENE DI ISOCYANATE (TDI)",
+	})
+	if err != nil {
+		t.Fatalf("ResolveActivity: %v", err)
+	}
+	if view.NodeID != "sub:toluene-diisocyanate" || view.NodeLabel != "Toluene diisocyanate" {
+		t.Errorf("node = %q (%q), want the TDI substance", view.NodeID, view.NodeLabel)
+	}
+	if view.TradeProduct != "TOLUENE DI ISOCYANATE (TDI)" {
+		t.Errorf("trade product = %q, want the pick echoed", view.TradeProduct)
+	}
+	if view.Category != "Isocyanates" {
+		t.Errorf("category = %q, want Isocyanates", view.Category)
+	}
+}

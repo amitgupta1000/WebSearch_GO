@@ -281,3 +281,50 @@ func resetTradeEntityOverrides() {
 	tradeEntityOverrides.entries = make(map[string]tradeEntityOverride)
 	tradeEntityOverrides.order = nil
 }
+
+// TestTradeEntityMatchesSurfacesPicksBeforeTheRun pins the console matcher's
+// contract: a confident resolution comes back alone, and a miss comes back as
+// graded suggestions carrying their side, so the operator can pin one before a
+// run instead of discovering the empty profile afterwards.
+func TestTradeEntityMatchesSurfacesPicksBeforeTheRun(t *testing.T) {
+	resetTradeEntityOverrides()
+	exact := &recordingNamesMock{
+		TradeDBSource: &tradeDBMock{options: &models.TradeFilterOptions{}},
+		importer:      map[string][]string{},
+		supplier:      map[string][]string{"basf": {"BASF SE"}},
+	}
+	matches, confident := TradeEntityMatches(context.Background(), exact, nil, "BASF")
+	if !confident || len(matches) != 1 || matches[0].Name != "BASF SE" || matches[0].Direction != models.TradeDirectionSupplier {
+		t.Fatalf("matches = %+v confident=%v, want the single supplier-side exact match", matches, confident)
+	}
+	if matches[0].Grade != "exact" {
+		t.Errorf("grade = %q, want exact", matches[0].Grade)
+	}
+
+	miss := &recordingNamesMock{
+		TradeDBSource: &tradeDBMock{options: &models.TradeFilterOptions{}},
+		importer: map[string][]string{
+			"klj": {"KLJ RESOURCES AFRICA LTD", "KLJ RESOURCES KENYA LTD"},
+		},
+		supplier: map[string][]string{},
+	}
+	matches, confident = TradeEntityMatches(context.Background(), miss, nil, "KLJ")
+	if confident {
+		t.Error("confident = true on a miss, want suggestions only")
+	}
+	if len(matches) == 0 {
+		t.Fatal("matches = none, want the stored spellings offered")
+	}
+	for _, match := range matches {
+		if match.Name == "" || match.Direction != models.TradeDirectionImporter {
+			t.Errorf("match = %+v, want a named importer-side suggestion", match)
+		}
+	}
+
+	if matches, confident := TradeEntityMatches(context.Background(), exact, nil, "  "); len(matches) != 0 || confident {
+		t.Errorf("blank name = %+v confident=%v, want nothing", matches, confident)
+	}
+	if matches, confident := TradeEntityMatches(context.Background(), nil, nil, "BASF"); len(matches) != 0 || confident {
+		t.Errorf("nil client = %+v confident=%v, want nothing", matches, confident)
+	}
+}

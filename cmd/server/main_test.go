@@ -695,3 +695,37 @@ func TestRocketReachProfileCacheServesAndExpires(t *testing.T) {
 		t.Fatal("an expired cache entry must be removed on read")
 	}
 }
+
+// TestTradeProductFieldsStayScopedToTheirMode pins the fix for the shared-form
+// collision: both landscape sections used to post name="trade_product", so
+// FormValue returned the seller input (empty on a buyer run) and the operator's
+// pick was silently dropped. Each mode now reads its own field, with the legacy
+// shared name still accepted for saved posts.
+func TestTradeProductFieldsStayScopedToTheirMode(t *testing.T) {
+	market := marketLandscapeQueryFromForm(postForm("/api/research",
+		"mode=market_landscape&query=toluenediisocyanate&market_trade_product=TOLUENE+DI+ISOCYANATE+%28TDI%29"),
+		"toluenediisocyanate")
+	if market.TradeProduct != "TOLUENE DI ISOCYANATE (TDI)" {
+		t.Errorf("market trade product = %q, want the picked canonical name", market.TradeProduct)
+	}
+	demand := demandChainQueryFromForm(postForm("/api/research",
+		"mode=demand_chain&query=toluenediisocyanate&demand_trade_product=TOLUENE+DI+ISOCYANATE+%28TDI%29"),
+		"toluenediisocyanate")
+	if demand.TradeProduct != "TOLUENE DI ISOCYANATE (TDI)" {
+		t.Errorf("demand trade product = %q, want the picked canonical name", demand.TradeProduct)
+	}
+	// A buyer run must not adopt the seller section's value.
+	shadowed := demandChainQueryFromForm(postForm("/api/research",
+		"mode=demand_chain&query=toluenediisocyanate&market_trade_product=STYRENE+MONOMER"),
+		"toluenediisocyanate")
+	if shadowed.TradeProduct != "" {
+		t.Errorf("demand trade product = %q, want empty when only the seller field was posted", shadowed.TradeProduct)
+	}
+	// The legacy shared name still resolves.
+	legacy := marketLandscapeQueryFromForm(postForm("/api/research",
+		"mode=market_landscape&query=toluenediisocyanate&trade_product=STYRENE+MONOMER"),
+		"toluenediisocyanate")
+	if legacy.TradeProduct != "STYRENE MONOMER" {
+		t.Errorf("legacy trade product = %q, want the shared field accepted", legacy.TradeProduct)
+	}
+}

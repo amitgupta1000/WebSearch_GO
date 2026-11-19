@@ -63,7 +63,7 @@ func TestBuildTradeProfileGracefulWhenNothingMatches(t *testing.T) {
 	if len(background.NameVariants) == 0 {
 		t.Error("the miss must still carry the closest vocabulary names")
 	}
-	if !strings.Contains(summary, "no exact customs-entity match") {
+	if !strings.Contains(summary, "no confident customs-entity match") {
 		t.Errorf("summary = %q, want the miss wording", summary)
 	}
 }
@@ -124,4 +124,51 @@ func (m *exactNamesMock) EntityNames(ctx context.Context, direction, query strin
 		return m.supplierNames, nil
 	}
 	return m.importerNames, nil
+}
+
+// TestAttachTradeBackgroundIsOptInAndHonoursThePick pins the Company Research
+// contract: without the opt-in (and without a matcher pick) the run never
+// touches the DB, and a pick builds the profile for exactly that stored name
+// instead of re-resolving the confirmed name.
+func TestAttachTradeBackgroundIsOptInAndHonoursThePick(t *testing.T) {
+	resetTradeProfileMemo()
+	resetTradeEntityOverrides()
+	mock := &tradeDBMock{
+		options: &models.TradeFilterOptions{},
+		entityProfiles: []models.TradeEntityProfile{{
+			Name: "KLJ RESOURCES LTD", TransactionCount: 10, ProductCount: 1, TotalValueUSD: 5000,
+		}},
+		entityProducts: models.TradeEntityBreakdown{
+			EntityName: "KLJ RESOURCES LTD", EntityType: "importer", TotalCount: 1,
+			Products: []models.TradeEntityProduct{{Name: "TOLUENE", TransactionCount: 10, TotalValueUSD: 5000}},
+		},
+	}
+	client := &exactNamesMock{TradeDBSource: mock, importerNames: []string{"KLJ RESOURCES LTD"}}
+	engine := NewEngine(nil, nil, nil, nil, 0, 0, 0, WithTradeDB(client))
+	agent := NewCompanyAgent(engine)
+
+	// No opt-in, no pick: no DB work at all.
+	chart := &models.OrgChart{}
+	agent.attachTradeBackground(context.Background(), "s1", models.CompanyBrief{CompanyName: "KLJ Resources"}, chart, nil)
+	if chart.TradeBackground != nil {
+		t.Fatalf("TradeBackground = %+v, want none without the opt-in", chart.TradeBackground)
+	}
+
+	// Opted in with a pick: the profile is built for the chosen stored name.
+	chart = &models.OrgChart{}
+	agent.attachTradeBackground(context.Background(), "s1", models.CompanyBrief{
+		CompanyName:          "KLJ Resources",
+		IncludeTradeRecords:  true,
+		TradeEntity:          "KLJ RESOURCES LTD",
+		TradeEntityDirection: models.TradeDirectionImporter,
+	}, chart, nil)
+	if chart.TradeBackground == nil || !chart.TradeBackground.Present {
+		t.Fatalf("TradeBackground = %+v, want the picked entity's profile", chart.TradeBackground)
+	}
+	if chart.TradeBackground.MatchedName != "KLJ RESOURCES LTD" {
+		t.Errorf("matched name = %q, want the pick", chart.TradeBackground.MatchedName)
+	}
+	if len(chart.TradeBackground.TopProducts) == 0 {
+		t.Errorf("top products = %v, want the picked entity's product mix", chart.TradeBackground.TopProducts)
+	}
 }

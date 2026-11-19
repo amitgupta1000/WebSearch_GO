@@ -279,7 +279,7 @@
                         <div class="sm:col-span-2" id="trade-product-market">
                             <label class="text-xs font-medium text-slate-400">Trade DB product name (searchable)</label>
                             <div class="flex flex-wrap items-center gap-2 mt-1">
-                                <input type="text" name="trade_product" list="trade-product-vocabulary" placeholder="Type to search the trade DB's canonical names, or click a suggestion" class="flex-1 min-w-[16rem] bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm">
+                                <input type="text" name="market_trade_product" list="trade-product-vocabulary" placeholder="Type to search the trade DB's canonical names, or click a suggestion" class="flex-1 min-w-[16rem] bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm">
                                 <button type="button" class="text-[11px] rounded-full border border-indigo-800 bg-indigo-950/40 px-2.5 py-1 text-indigo-200 hover:border-indigo-500" hx-post="/api/trade/product-match" hx-include="closest form" hx-target="#trade-product-market-result" hx-swap="innerHTML">Suggest names</button>
                             </div>
                             <div id="trade-product-market-result" class="mt-1"></div>
@@ -346,7 +346,7 @@
                         <div class="sm:col-span-2" id="trade-product-demand">
                             <label class="text-xs font-medium text-slate-400">Trade DB product name (searchable)</label>
                             <div class="flex flex-wrap items-center gap-2 mt-1">
-                                <input type="text" name="trade_product" list="trade-product-vocabulary" placeholder="Type to search the trade DB's canonical names, or click a suggestion" class="flex-1 min-w-[16rem] bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm">
+                                <input type="text" name="demand_trade_product" list="trade-product-vocabulary" placeholder="Type to search the trade DB's canonical names, or click a suggestion" class="flex-1 min-w-[16rem] bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm">
                                 <button type="button" class="text-[11px] rounded-full border border-indigo-800 bg-indigo-950/40 px-2.5 py-1 text-indigo-200 hover:border-indigo-500" hx-post="/api/trade/product-match" hx-include="closest form" hx-target="#trade-product-demand-result" hx-swap="innerHTML">Suggest names</button>
                             </div>
                             <div id="trade-product-demand-result" class="mt-1"></div>
@@ -414,6 +414,22 @@
                             <option value="manager">Manager</option>
                         </select>
                         <span class="block text-[11px] text-slate-500 mt-1">Leave blank to use all four leadership levels.</span>
+                    </div>
+                    <div class="sm:col-span-2 lg:col-span-4" id="trade-entity-company">
+                        <label class="flex items-start gap-2 text-xs text-slate-300">
+                            <input type="checkbox" name="company_trade_records" value="1" class="mt-0.5 accent-indigo-500"
+                                   hx-post="/api/trade/entity-match" hx-trigger="change" hx-include="closest form"
+                                   hx-target="#trade-entity-company-result" hx-swap="innerHTML">
+                            <span><strong>Attach the Crystal customs background</strong><br><span class="text-[11px] text-slate-500">Opt in to the trade DB's aggregated customs profile for this company. The matcher lists the stored spellings it would use; pick one when the exact name is unknown, so an imperfect match is a choice instead of a silent miss.</span></span>
+                        </label>
+                        <div class="flex flex-wrap items-center gap-2 mt-2">
+                            <input type="text" name="trade_entity" placeholder="Stored customs name (optional) - use Match customs names"
+                                   class="flex-1 min-w-[16rem] bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm">
+                            <input type="hidden" name="trade_entity_direction" value="">
+                            <button type="button" class="text-[11px] rounded-full border border-indigo-800 bg-indigo-950/40 px-2.5 py-1 text-indigo-200 hover:border-indigo-500"
+                                    hx-post="/api/trade/entity-match" hx-include="closest form" hx-target="#trade-entity-company-result" hx-swap="innerHTML">Match customs names</button>
+                        </div>
+                        <div id="trade-entity-company-result" class="mt-1"></div>
                     </div>
                     <div class="sm:col-span-2 lg:col-span-2">
                         <label class="text-xs font-medium text-slate-400">RocketReach person location <span class="font-normal text-slate-500">(optional)</span></label>

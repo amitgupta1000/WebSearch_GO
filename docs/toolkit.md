@@ -61,8 +61,11 @@ The contract:
    model call, validated against the candidate list, when a model is available; the deterministic
    order stands otherwise). The operator picks from chips on the dossier card or in an unmatched
    Fetch Trade Profile result (`POST /api/trade/entity-profile`); the pick is remembered per
-   company for the process, invalidates the cached answer, and skips the typeahead. Headless runs
-   never pick for the operator: a miss stays a miss, with the closest spellings named in the note.
+   company for the process, invalidates the cached answer, and skips the typeahead. Company
+   Research also carries a pre-run matcher (`POST /api/trade/entity-match`) whose chips fill
+   `trade_entity`/`trade_entity_direction`, and its customs background is opt-in
+   (`company_trade_records`), so a run never queries the DB unseen. Headless runs never pick for
+   the operator: a miss stays a miss, with the closest spellings named in the note.
 
 ## How they fit together
 

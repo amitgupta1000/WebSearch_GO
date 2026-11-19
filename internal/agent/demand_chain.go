@@ -2090,8 +2090,10 @@ func (a *DemandChainAgent) inferDemandChainWithCategory(ctx context.Context, que
 
 	var inference models.DemandChainInference
 	// Activity resolution: a graph match (direct or model-confirmed alias) guides
-	// the chain; an unmodelled activity keeps the model's free planning.
-	resolution := resolveActivity(ctx, a.engine, query.Activity, eventCh)
+	// the chain; an unmodelled activity keeps the model's free planning. An
+	// operator-picked trade-DB product anchors this step, so the value chain the
+	// buyers are inferred from is the one the picked substance sits in.
+	resolution := resolveActivityForProduct(ctx, a.engine, query.Activity, query.TradeProduct, eventCh)
 	warnings := append([]string(nil), resolution.Warnings...)
 	var graphStages []models.ValueChainStage
 	if resolution.matched() {

@@ -118,6 +118,12 @@ type entityCandidateView struct {
 	// IncludeDirectors carries the legal run's directors toggle ("1" when on),
 	// so the confirmed card starts the run the operator asked for.
 	IncludeDirectors string
+	// TradeEntity, TradeEntityDirection and IncludeTradeRecords carry the
+	// operator's pre-run customs pick through the confirmation round trip, so
+	// the run attaches the profile for exactly the name that was chosen.
+	TradeEntity          string
+	TradeEntityDirection string
+	IncludeTradeRecords  string
 	// PreSelected marks the top candidate: it is the one the operator confirms by
 	// pressing Enter, so it is rendered first with autofocus on its button.
 	PreSelected bool
@@ -166,6 +172,11 @@ type entityCandidatesView struct {
 	LegalPersons string
 	// IncludeDirectors is the legal run's directors toggle, carried the same way.
 	IncludeDirectors string
+	// TradeEntity, TradeEntityDirection and IncludeTradeRecords travel the
+	// confirmation round trip with the card, so the customs pick survives it.
+	TradeEntity          string
+	TradeEntityDirection string
+	IncludeTradeRecords  string
 	// TypedDomain is true when the operator already gave a domain, so the step spent no
 	// search and can say so rather than implying it looked the company up.
 	TypedDomain bool
@@ -429,6 +440,10 @@ func main() {
 	// spend, served from the shared per-name cache.
 	mux.HandleFunc("POST /api/market-landscape/trade-profile", srv.handleMarketTradeProfile)
 	mux.HandleFunc("POST /api/trade/entity-profile", srv.handleTradeEntityProfile)
+	// The pre-run entity matcher: the stored customs spellings behind a
+	// researched company, offered before the run so an imperfect name is a
+	// choice rather than a silent miss.
+	mux.HandleFunc("POST /api/trade/entity-match", srv.handleTradeEntityMatch)
 	// The knowledge graph, on demand: a page to look at and JSON to build on.
 	mux.HandleFunc("GET /ontology", srv.handleOntologyGraphPage)
 	mux.HandleFunc("GET /ontology.svg", srv.handleOntologyGraphSVG)
@@ -603,7 +618,12 @@ func (s *Server) handleResearch(w http.ResponseWriter, r *http.Request) {
 		RegistrationID:              strings.TrimSpace(r.FormValue("entity_reg_id")),
 		EntityConfirmed:             strings.TrimSpace(r.FormValue("entity_confirmed")) == "1",
 		EntitySource:                entitySourceValue(r),
-		Industry:                    strings.TrimSpace(r.FormValue("company_industry")),
+		// The customs background is opt-in, and the matcher's pick travels
+		// beside it so a non-exact company name is never a silent miss.
+		IncludeTradeRecords:  strings.TrimSpace(r.FormValue("company_trade_records")) == "1",
+		TradeEntity:          strings.TrimSpace(r.FormValue("trade_entity")),
+		TradeEntityDirection: strings.TrimSpace(r.FormValue("trade_entity_direction")),
+		Industry:             strings.TrimSpace(r.FormValue("company_industry")),
 		ResearchPreferences: models.ResearchPreferences{
 			Country:         strings.TrimSpace(r.FormValue("company_country")),
 			City:            strings.TrimSpace(r.FormValue("company_city")),
@@ -742,8 +762,10 @@ func marketLandscapeQueryFromForm(r *http.Request, activity string) models.Marke
 		// Crystal DB feeds both, scoped by each mode's own geography rules.
 		IncludeTradeRecords: r.FormValue("market_trade_records") == "1",
 		// The operator's pick from the trade-product matcher; empty lets the
-		// run resolve the activity onto the DB vocabulary itself.
-		TradeProduct: strings.TrimSpace(r.FormValue("trade_product")),
+		// run resolve the activity onto the DB vocabulary itself. The seller
+		// and buyer sections share one form, so each mode carries its own
+		// field name; the legacy shared name stays readable for saved posts.
+		TradeProduct: firstNonEmpty(strings.TrimSpace(r.FormValue("market_trade_product")), strings.TrimSpace(r.FormValue("trade_product"))),
 		QCPrompt:     strings.TrimSpace(r.FormValue("market_qc_prompt")),
 	}
 }
@@ -947,8 +969,11 @@ func demandChainQueryFromForm(r *http.Request, activity string) models.DemandCha
 		StagesOverride:        splitFormList(r.FormValue("demand_stages")),
 		IncludeIntermediaries: r.FormValue("demand_intermediaries") == "1",
 		IncludeTradeRecords:   r.FormValue("demand_trade_records") == "1",
-		TradeProduct:          strings.TrimSpace(r.FormValue("trade_product")),
-		QCPrompt:              strings.TrimSpace(r.FormValue("demand_qc_prompt")),
+		// The buyer section's own field, with the legacy shared name as the
+		// fallback: one form holds both landscapes, so the names must differ or
+		// the first (empty) input would shadow the pick.
+		TradeProduct: firstNonEmpty(strings.TrimSpace(r.FormValue("demand_trade_product")), strings.TrimSpace(r.FormValue("trade_product"))),
+		QCPrompt:     strings.TrimSpace(r.FormValue("demand_qc_prompt")),
 	}
 }
 
@@ -1464,6 +1489,9 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 		RelatedPersonDomain:         strings.TrimSpace(r.FormValue("related_person_domain")),
 		RelatedMaxLeaders:           strings.TrimSpace(r.FormValue("related_max_leaders")),
 		LegalPersons:                strings.TrimSpace(r.FormValue("legal_persons")),
+		TradeEntity:                 strings.TrimSpace(r.FormValue("trade_entity")),
+		TradeEntityDirection:        strings.TrimSpace(r.FormValue("trade_entity_direction")),
+		IncludeTradeRecords:         strings.TrimSpace(r.FormValue("company_trade_records")),
 	}
 	// The mode travels with the step: the confirmation card posts it back, so a
 	// legal run's card starts a legal run. Only the modes that share this step
@@ -1523,6 +1551,9 @@ func (s *Server) handleResolveEntity(w http.ResponseWriter, r *http.Request) {
 			Mode:                        view.Mode,
 			LegalPersons:                view.LegalPersons,
 			IncludeDirectors:            view.IncludeDirectors,
+			TradeEntity:                 view.TradeEntity,
+			TradeEntityDirection:        view.TradeEntityDirection,
+			IncludeTradeRecords:         view.IncludeTradeRecords,
 			PreSelected:                 index == 0,
 		}
 		for otherIndex, other := range candidates {

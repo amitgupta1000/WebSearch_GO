@@ -229,6 +229,15 @@ func (o *Ontology) CanonicalTradeMatch(names []string) (map[string]string, []str
 			continue
 		}
 		found := o.Lookup(name)
+		if len(found) == 0 {
+			// The DB's canonical spelling may trail a trade abbreviation
+			// ("TOLUENE DI ISOCYANATE (TDI)") or join words the graph spaces
+			// ("toluenediisocyanate"). The alignment pass reads those, so a
+			// name the graph spells differently is not called unmatched.
+			if aligned, ok := o.AlignTradeProduct(name, Options{RequireApproved: true}); ok && len(aligned.Matches) == 1 {
+				found = []string{aligned.Matches[0].ID}
+			}
+		}
 		if len(found) != 1 {
 			unmatched = append(unmatched, name)
 			continue
@@ -237,7 +246,6 @@ func (o *Ontology) CanonicalTradeMatch(names []string) (map[string]string, []str
 	}
 	return matches, unmatched
 }
-
 
 // SiblingVariants returns the other variants of the first hypernym hub that lists
 // nodeID as a hyponym — the families that share the hub's ambiguity ("fuel oils"
@@ -275,4 +283,3 @@ func (o *Ontology) SiblingVariants(nodeID string) []*Node {
 	}
 	return nil
 }
-

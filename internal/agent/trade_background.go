@@ -30,6 +30,21 @@ func (ca *CompanyAgent) attachTradeBackground(ctx context.Context, sessionID str
 	if name == "" {
 		return
 	}
+	// The customs background is opt-in. An operator pick is itself an opt-in:
+	// it only exists because they asked the matcher.
+	pick := strings.TrimSpace(brief.TradeEntity)
+	if !brief.IncludeTradeRecords && pick == "" {
+		return
+	}
+	// The pick wins over re-resolving the confirmed name. Remembering it also
+	// makes the dossier's Fetch Trade Profile button land on the same entity.
+	if pick != "" {
+		direction := strings.ToLower(strings.TrimSpace(brief.TradeEntityDirection))
+		if direction != models.TradeDirectionImporter && direction != models.TradeDirectionSupplier {
+			direction = models.TradeDirectionImporter
+		}
+		SetTradeEntityOverride(name, pick, direction)
+	}
 	// The run may have spent its whole budget by the time this runs; the
 	// build rides a detached context, like the cache writes do.
 	dctx := context.WithoutCancel(ctx)
@@ -48,6 +63,14 @@ func (ca *CompanyAgent) attachTradeBackground(ctx context.Context, sessionID str
 	if background.Note != "" && !background.Present {
 		emitAgentEvent(eventCh, models.EventThinking,
 			fmt.Sprintf("Trade DB profile unavailable for %q: %s", name, summary),
+			"trade-db", "entity-profile")
+		return
+	}
+	if !background.Present {
+		// A miss is actionable, not silent: the dossier renders the candidate
+		// chips, and this line says where the pick lives.
+		emitAgentEvent(eventCh, models.EventThinking,
+			fmt.Sprintf("Trade DB profile: no confident match for %q - closest stored name(s): %s. Pick one in the console's customs matcher (or on the dossier card) to pin the profile.", name, orNoneList(background.NameVariants)),
 			"trade-db", "entity-profile")
 		return
 	}

@@ -55,6 +55,10 @@ type ActivityQuery struct {
 	Activity  string       `json:"activity"`
 	Geography string       `json:"geography,omitempty"`
 	Mode      ActivityMode `json:"mode,omitempty"`
+	// TradeProduct is the operator's pick from the trade-DB product matcher.
+	// When set it anchors the graph resolution before the typed activity does,
+	// so the preview matches what a trade-DB run actually uses.
+	TradeProduct string `json:"trade_product,omitempty"`
 }
 
 // ActivityFamilyView is one ranked product family the graph offers.
@@ -76,6 +80,9 @@ type ActivityResolution struct {
 	NodeID     string       `json:"node_id,omitempty"`
 	NodeLabel  string       `json:"node_label,omitempty"`
 	Confidence string       `json:"alias_confidence,omitempty"`
+	// TradeProduct echoes the picked trade-DB product that anchored the
+	// resolution, so a preview can say which name the graph followed.
+	TradeProduct string `json:"trade_product,omitempty"`
 
 	Families    []ActivityFamilyView `json:"families,omitempty"`
 	Processes   []string             `json:"processes,omitempty"`
@@ -112,8 +119,8 @@ func ResolveActivityAgainst(ctx context.Context, engine *Engine, document *ontol
 		}
 		document = shared
 	}
-	view := ActivityResolution{Activity: query.Activity, Mode: NormalizeActivityMode(string(query.Mode))}
-	resolution := resolveActivityWithDocument(ctx, engine, document, query.Activity, nil)
+	view := ActivityResolution{Activity: query.Activity, Mode: NormalizeActivityMode(string(query.Mode)), TradeProduct: strings.TrimSpace(query.TradeProduct)}
+	resolution := resolveActivityWithDocumentProduct(ctx, engine, document, query.Activity, query.TradeProduct, nil)
 	if resolution.matched() && view.Mode == ActivityModeSeller {
 		resolution = chooseOntologyFamily(ctx, engine, resolution, query.Geography, nil)
 	}

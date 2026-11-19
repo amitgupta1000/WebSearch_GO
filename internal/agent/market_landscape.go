@@ -97,8 +97,10 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	}
 	// Activity resolution: the curated graph decides the research path when it
 	// knows the activity (directly or through a model-confirmed alias); otherwise
-	// the model plans the path and the activity is reported as unmodelled.
-	resolution := resolveActivity(ctx, a.engine, query.Activity, eventCh)
+	// the model plans the path and the activity is reported as unmodelled. An
+	// operator-picked trade-DB product anchors this step, so the graph and the
+	// customs lane agree on the same substance.
+	resolution := resolveActivityForProduct(ctx, a.engine, query.Activity, query.TradeProduct, eventCh)
 	if resolution.matched() {
 		resolution = chooseOntologyFamily(ctx, a.engine, resolution, marketLandscapeGeography(query), eventCh)
 	}

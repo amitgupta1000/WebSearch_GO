@@ -38,10 +38,10 @@ const (
 // activityResolution is the shared result: the graph view, the node that anchored
 // it, and the warnings the report keeps.
 type activityResolution struct {
-	Activity string
-	Path     activityPath
-	Graph    ontology.Resolution
-	NodeID   string
+	Activity  string
+	Path      activityPath
+	Graph     ontology.Resolution
+	NodeID    string
 	NodeLabel string
 	// AliasConfidence is the model's confidence for an alias mapping.
 	AliasConfidence string
@@ -228,7 +228,6 @@ func activityNamesFamily(phrase, label string) bool {
 	return false
 }
 
-
 // categoryRationale explains the choice in the report's own terms.
 func (r activityResolution) categoryRationale() string {
 	if len(r.Graph.Families) == 0 {
@@ -259,9 +258,51 @@ func resolveActivity(ctx context.Context, engine *Engine, activity string, event
 	return resolveActivityWithDocument(ctx, engine, document, activity, eventCh)
 }
 
+// resolveActivityForProduct is resolveActivity with the operator's trade-DB
+// product pick as the ontology anchor. The pick is the DB's canonical name,
+// which the graph may know under a different spelling ("TOLUENE DI ISOCYANATE
+// (TDI)" vs "Toluene diisocyanate"); resolving it first makes the ontology step
+// agree with the trade step instead of anchoring a broader family. A pick the
+// graph cannot align falls back to the typed activity, unchanged.
+func resolveActivityForProduct(ctx context.Context, engine *Engine, activity, tradeProduct string, eventCh chan<- models.AgentEvent) activityResolution {
+	document, err := ontology.Shared()
+	if err != nil {
+		return unavailableActivityResolution(strings.TrimSpace(activity), err)
+	}
+	return resolveActivityWithDocumentProduct(ctx, engine, document, activity, tradeProduct, eventCh)
+}
+
 // resolveActivityWithDocument is the resolution against a chosen document: the
 // runtime uses the embedded seed, the CLI and review tools use a candidate file.
 func resolveActivityWithDocument(ctx context.Context, engine *Engine, document *ontology.Ontology, activity string, eventCh chan<- models.AgentEvent) activityResolution {
+	return resolveActivityWithDocumentProduct(ctx, engine, document, activity, "", eventCh)
+}
+
+// resolveActivityWithDocumentProduct anchors a trade-DB product pick first when
+// one was made; everything else is the ordinary three-branch resolution.
+func resolveActivityWithDocumentProduct(ctx context.Context, engine *Engine, document *ontology.Ontology, activity, tradeProduct string, eventCh chan<- models.AgentEvent) activityResolution {
+	if product := strings.TrimSpace(tradeProduct); product != "" && document != nil {
+		if graph, ok := document.AlignTradeProduct(product, ontology.DefaultOptions); ok {
+			resolution := activityResolution{
+				Activity: strings.TrimSpace(activity),
+				Path:     pathOntology,
+				Graph:    graph,
+				document: document,
+			}
+			if len(graph.Matches) > 0 {
+				resolution.NodeID = graph.Matches[0].ID
+				resolution.NodeLabel = graph.Matches[0].Label
+			}
+			resolution = rankHypernymVariants(resolution)
+			resolution.Warnings = append(resolution.Warnings, fmt.Sprintf(
+				"The trade-DB product %q anchored the ontology step: the graph resolves it to %q, so that node's value chain guides this run (typed activity %q).",
+				product, resolution.NodeLabel, resolution.Activity))
+			emitAgentEvent(eventCh, models.EventThinking,
+				fmt.Sprintf("Ontology path: trade DB product %q resolves to %s", product, strings.Join(resolution.familyLabels(), ", ")),
+				"ontology_resolve", "")
+			return resolution
+		}
+	}
 	resolution := activityResolution{Activity: strings.TrimSpace(activity)}
 	if document == nil {
 		return unavailableActivityResolution(resolution.Activity, fmt.Errorf("no value-chain document loaded"))
@@ -512,6 +553,3 @@ var ontologyAliasStopwords = map[string]bool{
 	"production": true, "manufacturing": true, "manufacturer": true, "manufacturers": true,
 	"plant": true, "products": true, "product": true, "based": true, "grade": true,
 }
-
-
-
