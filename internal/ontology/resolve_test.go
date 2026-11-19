@@ -60,6 +60,9 @@ func TestResolveQualifiedOilBlendingKeepsItsOwnFamily(t *testing.T) {
 		{"n-butanol", "cat:alcohol-solvents"},
 		{"linear alkyl benzene", "cat:aromatics"},
 		{"palm oil", "cat:oleochemical-feedstocks"},
+		{"crude palm oil", "cat:oleochemical-feedstocks"},
+		{"crude palm kernel oil", "cat:oleochemical-feedstocks"},
+		{"rbd palm oil", "cat:oleochemical-feedstocks"},
 	}
 	for _, testCase := range cases {
 		resolution := Resolve(testCase.activity)
@@ -163,6 +166,77 @@ func TestApproveMarksProposedNodesOnly(t *testing.T) {
 	}
 	if pending := document.PendingApproval(); len(pending) != 0 {
 		t.Errorf("pending = %v, want none", pending)
+	}
+}
+
+// TestResolvePrefersThePhraseThatMatched pins the operator's report: "crude palm
+// oil" is a palm-oil grade, not a mention of crude oil through the generic alias
+// "crude". Specificity is read from the matched phrase (two words beat one), and
+// a phrase absorbed by a longer match is not a second product.
+func TestResolvePrefersThePhraseThatMatched(t *testing.T) {
+	for _, activity := range []string{"crude palm oil", "CRUDE PALM OIL", "Crude Palm Oil"} {
+		resolution := Resolve(activity)
+		if len(resolution.Matches) == 0 || resolution.Matches[0].ID != "sub:palm-oil" {
+			t.Fatalf("%s matches = %+v, want sub:palm-oil first", activity, resolution.Matches)
+		}
+		for _, match := range resolution.Matches {
+			if match.ID == "sub:crude-oil" {
+				t.Errorf("%s matches = %+v: the absorbed alias \"crude\" must not survive as a second product", activity, resolution.Matches)
+			}
+		}
+		if len(resolution.Families) == 0 || resolution.Families[0].ID != "cat:oleochemical-feedstocks" {
+			t.Errorf("%s families = %+v, want cat:oleochemical-feedstocks", activity, resolution.Families)
+		}
+	}
+	// The plain product keeps resolving to itself: the fix must not trade one
+	// drift for another.
+	if resolution := Resolve("crude oil"); len(resolution.Matches) == 0 || resolution.Matches[0].ID != "sub:crude-oil" {
+		t.Errorf("crude oil matches = %+v, want sub:crude-oil", resolution.Matches)
+	}
+	// A bare modifier is never a product of its own.
+	if resolution := Resolve("crude glycerin"); len(resolution.Matches) != 1 || resolution.Matches[0].ID != "sub:glycerin" {
+		t.Errorf("crude glycerin matches = %+v, want only sub:glycerin", resolution.Matches)
+	}
+}
+
+// TestEveryEntryNameResolvesToItsOwnNode is the adversarial sweep the hand-written
+// tables lacked: it derives one case per entry name in the graph, so a generic
+// alias introduced anywhere ("crude" on crude oil, against "crude palm oil" on
+// palm oil) is caught without anyone thinking to write the pair down. Resolving a
+// complete entry name must name that entry's node, in either direction of the
+// family tree.
+func TestEveryEntryNameResolvesToItsOwnNode(t *testing.T) {
+	document, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	checked := 0
+	for _, id := range document.NodeIDs() {
+		node := document.Nodes[id]
+		if node == nil || node.Status != StatusApproved {
+			continue
+		}
+		for _, entry := range append([]string{node.Label}, node.Aliases...) {
+			if len(strings.Fields(normalize(entry))) < 2 {
+				// A single word is legitimately shared ("oil", "crude"): this
+				// sweep is about phrases, where a longer reading always exists.
+				continue
+			}
+			checked++
+			resolution := document.Resolve(entry, DefaultOptions)
+			if node.Kind == KindProcess {
+				if len(resolution.Processes) == 0 || resolution.Processes[0].ID != id {
+					t.Errorf("%q (an entry name of %s) named processes %+v", entry, id, resolution.Processes)
+				}
+				continue
+			}
+			if len(resolution.Matches) == 0 || resolution.Matches[0].ID != id {
+				t.Errorf("%q (an entry name of %s) resolved to %+v", entry, id, resolution.Matches)
+			}
+		}
+	}
+	if checked < 50 {
+		t.Fatalf("checked %d entry names, want the full sweep", checked)
 	}
 }
 

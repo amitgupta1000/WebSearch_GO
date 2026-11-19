@@ -27,8 +27,12 @@ type Match struct {
 	ID     string `json:"id"`
 	Label  string `json:"label"`
 	Kind   Kind   `json:"kind"`
-	Via    string `json:"via"` // "label" or "alias"
+	Via    string `json:"via"` // "label", "alias", "search-term", "joined" or "leading"
 	Status Status `json:"status"`
+	// Phrase is the entry name that matched the activity text. Specificity is
+	// read from it, never from the node's longest entry: the generic alias
+	// "crude" must not outrank the phrase "crude palm oil" it merely sits in.
+	Phrase string `json:"phrase,omitempty"`
 }
 
 // Resolution is the deterministic answer to "what does this activity mean in the
@@ -95,8 +99,11 @@ func (o *Ontology) Resolve(activity string, options Options) Resolution {
 		}
 		result.Matches = append(result.Matches, match)
 	}
-	// The subject is the longest name the activity matched: "crude oil blending"
-	// is about crude oil, not about the oil hypernym.
+	// A phrase absorbed by a longer match is not a second product: "crude palm
+	// oil" is palm oil, never a mention of crude oil through the alias "crude".
+	result.Matches = suppressContainedMatches(result.Matches)
+	// The subject is the most specific phrase the activity matched: "crude oil
+	// blending" is about crude oil, and "crude palm oil" about palm oil.
 	subject := longestMatch(o, result.Matches)
 	if subject == nil && len(result.Processes) == 0 {
 		// Distinguish "not in the graph" from "in the graph but not approved":
@@ -151,7 +158,7 @@ func (o *Ontology) matchEntries(text string, requireApproved bool) []Match {
 			continue
 		}
 		if leadingTokens(phrase, node.Label) || anyLeadingTokens(phrase, node.Aliases) {
-			matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: "leading", Status: node.Status})
+			matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: "leading", Status: node.Status, Phrase: phrase})
 		}
 	}
 	return sortedMatches(o, matches)
@@ -175,32 +182,36 @@ func (o *Ontology) exactEntryMatches(text string, requireApproved bool) []Match 
 		if requireApproved && node.Status != StatusApproved {
 			continue
 		}
-		if matchedPhrase(text, node.Label) {
-			matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: "label", Status: node.Status})
-			continue
-		}
-		matched := false
-		for _, alias := range node.Aliases {
-			if matchedPhrase(text, alias) {
-				matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: "alias", Status: node.Status})
-				matched = true
-				break
+		// The longest entry that matches names the node: "crude palm oil"
+		// reaches palm oil through its alias even though the label "Palm oil"
+		// matches the same text too. Recording the phrase -- not the node -- is
+		// what lets the ranking see that the one-token alias "crude" is the
+		// least specific reading of this activity.
+		phrase, via := "", ""
+		consider := func(entry, entryVia string) {
+			if !matchedPhrase(text, entry) {
+				return
+			}
+			if phrase == "" || len(normalize(entry)) > len(normalize(phrase)) {
+				phrase, via = entry, entryVia
 			}
 		}
-		if !matched && singleToken && joinedEntryName(normalized, node) {
+		consider(node.Label, "label")
+		for _, alias := range node.Aliases {
+			consider(alias, "alias")
+		}
+		if phrase == "" && singleToken && joinedEntryName(normalized, node) {
 			// The activity is an entry name with its spaces folded away: the
 			// spelling people type ("toluenediisocyanate", "styrenemonomer").
-			matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: "joined", Status: node.Status})
-			matched = true
+			phrase, via = normalized, "joined"
 		}
-		if matched || node.Kind != KindProcess {
-			continue
-		}
-		for _, term := range node.SearchTerms {
-			if matchedPhrase(text, term) {
-				matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: "search-term", Status: node.Status})
-				break
+		if phrase == "" && node.Kind == KindProcess {
+			for _, term := range node.SearchTerms {
+				consider(term, "search-term")
 			}
+		}
+		if phrase != "" {
+			matches = append(matches, Match{ID: id, Label: node.Label, Kind: node.Kind, Via: via, Status: node.Status, Phrase: phrase})
 		}
 	}
 	return matches
@@ -208,9 +219,74 @@ func (o *Ontology) exactEntryMatches(text string, requireApproved bool) []Match 
 
 func sortedMatches(o *Ontology, matches []Match) []Match {
 	sort.SliceStable(matches, func(i, j int) bool {
-		return nameLength(o.Nodes[matches[i].ID]) > nameLength(o.Nodes[matches[j].ID])
+		left, right := matches[i], matches[j]
+		if leftTokens, rightTokens := matchTokens(left), matchTokens(right); leftTokens != rightTokens {
+			return leftTokens > rightTokens
+		}
+		if leftChars, rightChars := len(normalize(left.Phrase)), len(normalize(right.Phrase)); leftChars != rightChars {
+			return leftChars > rightChars
+		}
+		if (left.Kind == KindSubstance) != (right.Kind == KindSubstance) {
+			return left.Kind == KindSubstance
+		}
+		if (left.Via == "leading") != (right.Via == "leading") {
+			// A leading match only says the activity opens a longer descriptive
+			// name; an exact entry name claims the whole phrase, so it wins.
+			return right.Via == "leading"
+		}
+		if leftLength, rightLength := nameLength(o.Nodes[left.ID]), nameLength(o.Nodes[right.ID]); leftLength != rightLength {
+			return leftLength > rightLength
+		}
+		return left.Label < right.Label
 	})
 	return matches
+}
+
+// matchTokens counts the words of the phrase that matched: the first measure of
+// specificity, because a phrase naming two words claims more of the activity
+// than a generic one-word alias.
+func matchTokens(match Match) int {
+	return len(strings.Fields(normalize(match.Phrase)))
+}
+
+// suppressContainedMatches drops a match whose phrase is only part of the span a
+// longer match claimed. "crude palm oil" names palm oil through the entry "crude
+// palm oil"; the one-token alias "crude" on the crude-oil node lies inside that
+// span, so the activity did not name a second product. A one-token match is also
+// dropped when a multi-token match shares the activity: a bare modifier is never
+// an independent product reading ("crude glycerin" is a glycerin grade, not a
+// crude-oil mention).
+func suppressContainedMatches(matches []Match) []Match {
+	if len(matches) < 2 {
+		return matches
+	}
+	longest := 0
+	for _, match := range matches {
+		if tokens := matchTokens(match); tokens > longest {
+			longest = tokens
+		}
+	}
+	kept := make([]Match, 0, len(matches))
+	for _, match := range matches {
+		key := normalize(match.Phrase)
+		absorbed := longest >= 2 && matchTokens(match) == 1
+		if !absorbed && key != "" {
+			for _, other := range matches {
+				if other.ID == match.ID {
+					continue
+				}
+				container := normalize(other.Phrase)
+				if len(container) > len(key) && strings.Contains(" "+container+" ", " "+key+" ") {
+					absorbed = true
+					break
+				}
+			}
+		}
+		if !absorbed {
+			kept = append(kept, match)
+		}
+	}
+	return kept
 }
 
 // leadingTokens reports whether the activity phrase opens the name, token by
@@ -290,22 +366,17 @@ func nameLength(node *Node) int {
 	return longest
 }
 
-// longestMatch picks the subject: the most specific name in the activity, with a
-// substance outranking a category of equal length.
+// longestMatch picks the subject: the most specific phrase the activity named.
+// Specificity is read from the matched phrase (tokens, then characters), so a
+// generic alias ("crude") can never outrank the longer entry it sits inside
+// ("crude palm oil"). Matches arrive sorted by that measure, so the first one is
+// the subject; the copy keeps the caller's slice untouched.
 func longestMatch(o *Ontology, matches []Match) *Node {
 	if len(matches) == 0 {
 		return nil
 	}
-	best := matches[0]
-	bestLength := nameLength(o.Nodes[best.ID])
-	for _, match := range matches[1:] {
-		length := nameLength(o.Nodes[match.ID])
-		if length > bestLength || (length == bestLength && match.Kind == KindSubstance && best.Kind != KindSubstance) {
-			best = match
-			bestLength = length
-		}
-	}
-	return o.Nodes[best.ID]
+	sorted := sortedMatches(o, append([]Match(nil), matches...))
+	return o.Nodes[sorted[0].ID]
 }
 
 // familiesFor ranks the product-family candidates. The subject decides: a

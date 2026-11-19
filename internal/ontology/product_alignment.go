@@ -86,7 +86,7 @@ func (o *Ontology) AlignTradeProduct(name string, options Options) (Resolution, 
 	if len(base) < tradeProductAlignmentMinLength {
 		return Resolution{Activity: name}, false
 	}
-	bestID, bestLength := "", 0
+	bestID, bestPhrase, bestLength := "", "", 0
 	for _, id := range o.NodesOfKind(KindSubstance) {
 		node := o.Nodes[id]
 		if node == nil || node.Status == StatusRejected {
@@ -104,7 +104,7 @@ func (o *Ontology) AlignTradeProduct(name string, options Options) (Resolution, 
 			// keep the longest-entry tie-break so a shared spelling never
 			// depends on map order.
 			if len(entryCompact) > bestLength {
-				bestID, bestLength = id, len(entryCompact)
+				bestID, bestPhrase, bestLength = id, entry, len(entryCompact)
 			}
 		}
 	}
@@ -114,7 +114,7 @@ func (o *Ontology) AlignTradeProduct(name string, options Options) (Resolution, 
 	subject := o.Nodes[bestID]
 	resolution := Resolution{
 		Activity: name,
-		Matches:  []Match{{ID: subject.ID, Label: subject.Label, Kind: subject.Kind, Via: "trade-product", Status: subject.Status}},
+		Matches:  []Match{{ID: subject.ID, Label: subject.Label, Kind: subject.Kind, Via: "trade-product", Status: subject.Status, Phrase: bestPhrase}},
 	}
 	resolution.Families, resolution.Ambiguous = o.familiesFor(subject, nil, options)
 	resolution.EndProducts = o.endProductsFor(subject, resolution.Families, options.MaxHops)

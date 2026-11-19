@@ -11,6 +11,31 @@
   Landscape runs on the sample query `"n-butanol" "India"`.
 
 
+## 2026-11-19 -- a generic alias can no longer steal the subject
+
+Operator report: `CRUDE PALM OIL` resolved to **crude oil** in the ontology.
+
+- **Cause**: `sub:crude-oil` carries the one-word alias `crude`, and `" crude palm oil "` contains
+  `" crude "`, so two substances matched. The subject was then picked by the node's *longest entry
+  name* (`petroleum crude`, 15 chars) instead of by the phrase that actually matched (`crude`,
+  5 chars), so crude oil beat palm oil (`crude palm oil`, 14 chars). The data was right; the
+  ranking was wrong. The trade-DB path (`AlignTradeProduct`, exact compact equality) was already
+  correct, so only the typed/activity path drifted.
+- **Fix** (`internal/ontology/resolve.go`): `Match` records the matched `phrase`; specificity is
+  that phrase's tokens then characters; a phrase contained in a longer matched phrase is absorbed,
+  and a one-word match is absorbed whenever a multi-word match shares the activity. `Matches[0]` is
+  the subject, so the agent's anchor (`activity_resolution.go`) and the resolver's own choice now
+  agree by construction.
+- **Why the adversarial checks missed it**: the resolution table tested one qualified name per
+  family (`crude oil`, `palm oil`, `used cooking oil`, ...) and never a name that *contains another
+  family's generic alias*; `lint` only checks exact entry-name uniqueness, and `crude` is unique as
+  an entry name; the downstream LLM reviewers (value-chain, query-plan) receive the anchor as
+  premise, so a substituted anchor reads as internally consistent to them.
+- **New checks**: `TestResolvePrefersThePhraseThatMatched` (the reported case, plus `crude oil` and
+  `crude glycerin` guards) and `TestEveryEntryNameResolvesToItsOwnNode`, a sweep derived from every
+  approved entry name in the document. `lint` now warns when a one-word substance entry opens
+  another substance's entry name (8 such pairs today, all base-substance/modifier shapes).
+
 ## 2026-11-19 -- ontology/trade-DB alignment, per-mode picks, company customs matcher
 
 Three defects from a live run (`toluenediisocyanate` -> the DB's

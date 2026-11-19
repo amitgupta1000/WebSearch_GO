@@ -67,3 +67,41 @@ func TestLintCatchesStructuralFaults(t *testing.T) {
 		t.Errorf("Validate = %v, want the ID-prefix error", err)
 	}
 }
+
+// TestLintWarnsAboutAGenericModifierAlias pins the data-side half of the "crude
+// palm oil" failure: a one-word substance entry that opens another substance's
+// entry name is flagged for review, and a warning never blocks the load.
+func TestLintWarnsAboutAGenericModifierAlias(t *testing.T) {
+	approved := StatusApproved
+	document := &Ontology{
+		SchemaVersion: SchemaVersion,
+		Revision:      "test",
+		Nodes: map[string]*Node{
+			"cat:oils": {ID: "cat:oils", Kind: KindCategory, Label: "Oils", Status: approved, Source: SourceOperator},
+			"sub:crude-oil": {
+				ID: "sub:crude-oil", Kind: KindSubstance, Label: "Crude oil", Aliases: []string{"crude"},
+				Categories: []string{"cat:oils"}, HSCodes: []string{"2709.00"}, Status: approved, Source: SourceOperator,
+			},
+			"sub:palm-oil": {
+				ID: "sub:palm-oil", Kind: KindSubstance, Label: "Palm oil", Aliases: []string{"crude palm oil"},
+				Categories: []string{"cat:oils"}, HSCodes: []string{"1511.10"}, Status: approved, Source: SourceOperator,
+			},
+		},
+	}
+	if err := Validate(document); err != nil {
+		t.Fatalf("a modifier-alias warning must not block the load: %v", err)
+	}
+	found := false
+	for _, issue := range Lint(document) {
+		if issue.Severity != SeverityWarning || issue.Node != "sub:crude-oil" {
+			continue
+		}
+		if strings.Contains(issue.Message, "crude palm oil") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("lint issues = %+v, want a warning for the modifier alias \"crude\"", Lint(document))
+	}
+}
+

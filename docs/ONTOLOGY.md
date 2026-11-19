@@ -195,6 +195,17 @@ activity — "oil blending" names the blending process). When nothing matches, a
 to `Hydrogen peroxide`. Downstream families carry a hop distance of 1, so a broad hub family cannot
 fan its whole membership into the end-product walk.
 
+Specificity is read from **the phrase that matched**, never from the node's longest entry name: a
+one-word alias is the least specific reading of an activity. `crude palm oil` names palm oil
+(through its own alias of that spelling), so the `crude` alias on `Crude oil` is absorbed by the
+longer span rather than reported as a second product — letting it win resolves a palm-oil grade to
+the crude-oil family, exactly the drift the graph exists to prevent. The same rule absorbs a
+one-word match whenever a multi-word match shares the activity (`crude glycerin` is a glycerin
+grade). `lint` warns when a one-word substance entry opens another substance's entry name (the
+data-side form of the hazard), and `TestEveryEntryNameResolvesToItsOwnNode` sweeps every entry name
+in the shipped document, so a generic alias added anywhere is caught by the graph itself rather
+than by whoever remembers to write the case.
+
 ## Where it is wired
 
 - **Seller Landscape** (`market_landscape.go`): `resolveActivity` (hub ranking included) →

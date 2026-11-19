@@ -223,6 +223,46 @@ func Lint(document *Ontology) []Issue {
 	if roots == 0 {
 		add(SeverityWarning, "", "categories", "no parentless category: the tree has no root")
 	}
+	// A one-word substance entry that opens another substance's entry name is the
+	// data-side hazard behind the "crude palm oil" mis-resolution: the longer
+	// phrase names the other node, so the short alias cannot also be read there.
+	// Resolution now prefers the longer phrase; this warning keeps the alias in
+	// the review queue so the next curator does not silently re-add it.
+	type modifierEntry struct{ id, name, field string }
+	var modifiers []modifierEntry
+	for _, id := range document.NodeIDs() {
+		node := document.Nodes[id]
+		if node == nil || node.Status == StatusRejected || node.Kind != KindSubstance {
+			continue
+		}
+		if len(strings.Fields(normalize(node.Label))) == 1 {
+			modifiers = append(modifiers, modifierEntry{id: id, name: node.Label, field: "label"})
+		}
+		for _, alias := range node.Aliases {
+			if len(strings.Fields(normalize(alias))) == 1 {
+				modifiers = append(modifiers, modifierEntry{id: id, name: alias, field: "aliases"})
+			}
+		}
+	}
+	for _, narrow := range modifiers {
+		narrowToken := strings.Fields(normalize(narrow.name))[0]
+		for _, id := range document.NodeIDs() {
+			if id == narrow.id {
+				continue
+			}
+			node := document.Nodes[id]
+			if node == nil || node.Status == StatusRejected || node.Kind != KindSubstance {
+				continue
+			}
+			for _, name := range append([]string{node.Label}, node.Aliases...) {
+				tokens := strings.Fields(normalize(name))
+				if len(tokens) < 2 || tokens[0] != narrowToken {
+					continue
+				}
+				add(SeverityWarning, narrow.id, narrow.field, "%q also opens %s's entry name %q, which resolves to that node; a one-word modifier is not a separate product there", narrow.name, id, name)
+			}
+		}
+	}
 	return issues
 }
 
