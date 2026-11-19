@@ -137,8 +137,9 @@ type Engine struct {
 	// opt-in and geography.
 	tradeDB TradeDBSource
 	// tradeDBPartnerLimit caps how many trade-DB names one report carries
-	// across its sections. Zero falls back to the default in the accessor;
-	// the accessor clamps the ceiling.
+	// across its sections. The importer section takes the head of the budget
+	// and the supplier section the remainder. Zero falls back to the default
+	// in the accessor; the accessor clamps the ceiling.
 	tradeDBPartnerLimit int
 }
 

@@ -148,9 +148,10 @@ type Config struct {
 	// at a time, so a small pool is what it can actually parallelize.
 	TradeDBConcurrency int
 	// TradeDBMaxPartners caps how many company names the trade-DB sections may
-	// carry in one report, across all of their sections. The DB ranks partners
-	// by shipment value, so the cap keeps the head of the ranking without
-	// letting a high-volume chemical swamp the report.
+	// carry in one report, across all of their sections. The importer section
+	// takes the head of the budget and the supplier section the remainder. The
+	// DB ranks partners by shipment value, so the cap keeps the head of the
+	// ranking without letting a high-volume chemical swamp the report.
 	TradeDBMaxPartners int
 	// CrystalDBURL is the Crystal TradeDB frontend (the Firebase app over the
 	// same customs data) the console launches. The URL lives here, not in the

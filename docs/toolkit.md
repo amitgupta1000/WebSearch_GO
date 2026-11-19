@@ -46,6 +46,13 @@ of both landscape models, and the on-demand Fetch Trade Profile button. Landscap
 *sections* (importers/suppliers per product) need no resolution at all — those names come **from**
 the DB.
 
+Landscape trade sections are budgeted report-wide: `TRADE_DB_MAX_PARTNERS` (default 20, max 40)
+caps both sections *together* - importers take the head, suppliers the remainder, and the report
+warns when the supplier section was trimmed. The region-scoped supplier ranking reads the 1,000
+most recent declarations at the region's ports (one bounded page), and the report names that
+window whenever the page came back full, so a recency-limited ranking is never read as the whole
+history.
+
 The contract:
 
 1. **Normalize** — case, `&`↔`and`, dots/commas/dashes/slashes/brackets, then drop trailing legal

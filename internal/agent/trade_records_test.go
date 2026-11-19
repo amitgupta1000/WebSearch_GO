@@ -27,9 +27,8 @@ type tradeDBMock struct {
 	options           *models.TradeFilterOptions
 	records           []models.TradeRecord
 	importersErr      error
-	entityProfiles   []models.TradeEntityProfile
-	entityProducts   models.TradeEntityBreakdown
-
+	entityProfiles    []models.TradeEntityProfile
+	entityProducts    models.TradeEntityBreakdown
 }
 
 func (m *tradeDBMock) TopImporters(ctx context.Context, product string, hsCodes []string, rankLimit int) ([]models.TradePartner, error) {
@@ -207,7 +206,6 @@ func TestAttachTradePartnersScopesMiddleEastSuppliers(t *testing.T) {
 		t.Errorf("port filter = %q, want only Middle East ports", ports)
 	}
 }
-
 
 // non-India region scopes the origin filter; India runs and multi-region runs
 // do not get a supplier scope.
@@ -576,5 +574,55 @@ func TestAttachTradeImportersUnavailableDegrades(t *testing.T) {
 	}
 	if len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "unavailable") {
 		t.Errorf("warnings = %v, want the unavailability warning", report.Warnings)
+	}
+}
+
+// TestTrimTradeSectionsSharesTheReportWideBudget pins the cap semantics: the
+// importer section takes the head of the budget and the supplier section keeps
+// the remainder, so the two sections never exceed the configured cap together.
+func TestTrimTradeSectionsSharesTheReportWideBudget(t *testing.T) {
+	companies := func(count int) []*models.MarketLandscapeCompany {
+		rows := make([]*models.MarketLandscapeCompany, count)
+		for index := range rows {
+			rows[index] = &models.MarketLandscapeCompany{Name: fmt.Sprintf("Company %d", index)}
+		}
+		return rows
+	}
+	cases := []struct {
+		name                                      string
+		importers, suppliers                      int
+		limit                                     int
+		wantImporters, wantSuppliers, wantDropped int
+	}{
+		{"importers take the whole budget", 20, 20, 20, 20, 0, 20},
+		{"suppliers get the remainder", 5, 20, 20, 5, 15, 5},
+		{"both fit", 3, 4, 20, 3, 4, 0},
+		{"both over the budget", 25, 25, 20, 20, 0, 25},
+		{"no importers", 0, 7, 20, 0, 7, 0},
+		{"unset limit falls back to the default", 20, 20, 0, 20, 0, 20},
+	}
+	for _, tc := range cases {
+		importers, suppliers, dropped := trimTradeSections(companies(tc.importers), companies(tc.suppliers), tc.limit)
+		if len(importers) != tc.wantImporters || len(suppliers) != tc.wantSuppliers || dropped != tc.wantDropped {
+			t.Errorf("%s: trimTradeSections(%d importers, %d suppliers, limit %d) = (%d, %d, dropped %d), want (%d, %d, %d)",
+				tc.name, tc.importers, tc.suppliers, tc.limit,
+				len(importers), len(suppliers), dropped,
+				tc.wantImporters, tc.wantSuppliers, tc.wantDropped)
+		}
+	}
+}
+
+// TestTradeSupplierWindowWarningOnlyWhenThePageIsFull pins the explanatory
+// note: a full page means older declarations may exist, so the report says the
+// ranking sits inside a recency window.
+func TestTradeSupplierWindowWarningOnlyWhenThePageIsFull(t *testing.T) {
+	if warning := tradeSupplierWindowWarning("N BUTANOL (NBA)", tradeRecordPageLimit-1); warning != "" {
+		t.Errorf("warning = %q, want none when the whole history fits", warning)
+	}
+	warning := tradeSupplierWindowWarning("N BUTANOL (NBA)", tradeRecordPageLimit)
+	for _, expected := range []string{"most recent declarations", "N BUTANOL (NBA)", "older shipments"} {
+		if !strings.Contains(warning, expected) {
+			t.Errorf("warning = %q, missing %q", warning, expected)
+		}
 	}
 }

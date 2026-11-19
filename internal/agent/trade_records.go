@@ -27,9 +27,11 @@ const (
 	// degrades to a warning and the run continues on web lanes.
 	tradeCollectionTimeout = 90 * time.Second
 	// tradeRecordPageLimit is the record page the supplier aggregation reads.
-	// The DB accepts up to 10000 rows; a chemical's recent shipments fit in a
-	// few hundred, and the aggregation only needs the names that repeat.
-	tradeRecordPageLimit = 200
+	// The DB accepts up to 10000 rows; one page of a thousand recent
+	// declarations is enough to rank a region's trade without paging, and the
+	// report says when the page came back full so the window is never mistaken
+	// for the whole history.
+	tradeRecordPageLimit = 1000
 )
 
 // tradeRegionCountries expands a requested region into the places the trade DB
@@ -356,9 +358,12 @@ func collectTradeSuppliers(ctx context.Context, client TradeDBSource, activity s
 		return nil, []string{fmt.Sprintf("Trade-record suppliers unavailable; the run continues on web lanes: %v", err)}
 	}
 	emitAgentEvent(eventCh, models.EventToolResult,
-		fmt.Sprintf("%d record row(s) returned for product %q across %d port filter(s)", len(records), activity, len(ports)),
+		fmt.Sprintf("%d record row(s) returned for product %q across %d port filter(s) (window: the %d most recent declaration(s))", len(records), activity, len(ports), tradeRecordPageLimit),
 		"trade-db", "query-records")
 	companies, warnings := aggregateTradeSuppliers(records, activity, region, regionCountries, limit)
+	if windowWarning := tradeSupplierWindowWarning(activity, len(records)); windowWarning != "" {
+		warnings = append(warnings, windowWarning)
+	}
 	if len(records) == 0 {
 		// The zero-rows case needs its own word: the region warning below
 		// reads as a geography miss, but a product name the DB cannot match
@@ -370,6 +375,16 @@ func collectTradeSuppliers(ctx context.Context, client TradeDBSource, activity s
 		warnings = append(warnings, fmt.Sprintf("Trade-record supplier query was not port-filtered: the DB's port vocabulary does not name %s's ports, so origin countries were matched client-side (%s).", region, strings.Join(regionCountries, ", ")))
 	}
 	return companies, warnings
+}
+
+// tradeSupplierWindowWarning explains the recency window when the record page
+// came back full: the aggregation then ranks the head of the recent
+// declarations, not the whole history, and the report must say so.
+func tradeSupplierWindowWarning(activity string, rows int) string {
+	if rows < tradeRecordPageLimit {
+		return ""
+	}
+	return fmt.Sprintf("Trade-record suppliers: ranked by value within the %d most recent declarations of product %q at the region's ports; older shipments are outside that window, so a supplier that has not shipped recently can be missing.", tradeRecordPageLimit, activity)
 }
 
 // aggregateTradeSuppliers folds one page of records into ranked supplier rows,
@@ -520,12 +535,14 @@ func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query mo
 	report.Warnings = append(report.Warnings, importerWarn...)
 	report.Warnings = append(report.Warnings, supplierWarn...)
 	// The cap is enforced here as well as in the requests: the API's rank
-	// limit is advisory, and the report budget is a hard promise.
-	if len(importers) > limit {
-		importers = importers[:limit]
-	}
-	if len(suppliers) > limit {
-		suppliers = suppliers[:limit]
+	// limit is advisory, and the report budget is a hard promise. It is a
+	// REPORT-wide budget: the importer section takes the head and the supplier
+	// section keeps what remains, so the sections never exceed it together.
+	importers, suppliers, droppedSuppliers := trimTradeSections(importers, suppliers, limit)
+	if droppedSuppliers > 0 {
+		report.Warnings = append(report.Warnings, fmt.Sprintf(
+			"Trade-record sections share a report-wide cap of %d name(s): the importer section takes the head (%d), so the supplier section keeps %d of its %d ranked name(s). Raise TRADE_DB_MAX_PARTNERS (max 40) for a longer supplier head.",
+			limit, len(importers), len(suppliers), len(suppliers)+droppedSuppliers))
 	}
 	for _, company := range importers {
 		report.TradeImporters = append(report.TradeImporters, *company)
@@ -533,6 +550,29 @@ func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query mo
 	for _, company := range suppliers {
 		report.TradeSuppliers = append(report.TradeSuppliers, *company)
 	}
+}
+
+// trimTradeSections enforces the report-wide trade-DB name cap: the importer
+// section takes the head of the budget and the supplier section keeps what
+// remains, so the two sections never exceed the configured cap together. It
+// returns the trimmed sections and how many supplier names were left out.
+func trimTradeSections(importers, suppliers []*models.MarketLandscapeCompany, limit int) ([]*models.MarketLandscapeCompany, []*models.MarketLandscapeCompany, int) {
+	if limit <= 0 {
+		limit = defaultTradeDBPartnerLimit
+	}
+	if len(importers) > limit {
+		importers = importers[:limit]
+	}
+	remaining := limit - len(importers)
+	if remaining < 0 {
+		remaining = 0
+	}
+	droppedSuppliers := 0
+	if len(suppliers) > remaining {
+		droppedSuppliers = len(suppliers) - remaining
+		suppliers = suppliers[:remaining]
+	}
+	return importers, suppliers, droppedSuppliers
 }
 
 // tradePartnerCountry names where the row's entity sits: Indian importers are

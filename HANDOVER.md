@@ -47,6 +47,12 @@ the name every step uses.
   revealed only by the redirect, never in the page; the password (`CRYSTAL_DB_PASSWORD`,
   default `Crystal@12345`, override in Secret Manager) is compared server-side in constant
   time and opens the app in a new tab. It gates the link, not the app's own sign-in.
+- **Report-wide trade budget and a stated supplier window** (`internal/agent/trade_records.go`):
+  `TRADE_DB_MAX_PARTNERS` now caps the importer and supplier sections *together* — importers
+  take the head, suppliers the remainder, and a warning explains any supplier names the budget
+  left out. The region-scoped supplier ranking reads the 1,000 most recent declarations at the
+  region's ports (up from 200) and the report says so whenever the page came back full, so the
+  recency window is never mistaken for the full history.
 
 ## 2026-11-18 -- the Crystal trade DB is wired through: matching, visible lanes, entity profiles
 
