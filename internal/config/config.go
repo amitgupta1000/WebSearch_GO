@@ -152,6 +152,16 @@ type Config struct {
 	// by shipment value, so the cap keeps the head of the ranking without
 	// letting a high-volume chemical swamp the report.
 	TradeDBMaxPartners int
+	// CrystalDBURL is the Crystal TradeDB frontend (the Firebase app over the
+	// same customs data) the console launches. The URL lives here, not in the
+	// page: the console carries a password-gated button, and only a correct
+	// password answers with the redirect.
+	CrystalDBURL string
+	// CrystalDBPassword gates that launch. It protects the console's link, not
+	// the external app: the Firebase app's own sign-in still governs access,
+	// and anyone who knows its URL can open it directly. Override with
+	// CRYSTAL_DB_PASSWORD.
+	CrystalDBPassword string
 }
 
 const (
@@ -208,6 +218,11 @@ const (
 	// than forty however the operator configures it.
 	defaultTradeDBMaxPartners = 20
 	maxTradeDBPartnersCap     = 40
+	// defaultCrystalDBURL and defaultCrystalDBPassword point the console's
+	// Explore Crystal TradeDB button at the operator's Firebase frontend. The
+	// password is a convenience gate in front of the link, not the app's auth.
+	defaultCrystalDBURL      = "https://crystal-importanalyst.web.app/"
+	defaultCrystalDBPassword = "Crystal@12345"
 )
 
 // Load loads configuration from environment variables with sensible defaults.
@@ -304,6 +319,9 @@ func Load() *Config {
 		TradeDBTimeout:     time.Duration(envInt("TRADE_DB_TIMEOUT_SECONDS", defaultTradeDBTimeoutSeconds)) * time.Second,
 		TradeDBConcurrency: envInt("TRADE_DB_CONCURRENCY", defaultTradeDBConcurrency),
 		TradeDBMaxPartners: clampTradeDBPartners(envInt("TRADE_DB_MAX_PARTNERS", defaultTradeDBMaxPartners)),
+
+		CrystalDBURL:      envString("CRYSTAL_DB_URL", defaultCrystalDBURL),
+		CrystalDBPassword: envString("CRYSTAL_DB_PASSWORD", defaultCrystalDBPassword),
 	}
 }
 

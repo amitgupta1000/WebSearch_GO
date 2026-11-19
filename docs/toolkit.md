@@ -66,6 +66,11 @@ The contract:
    `trade_entity`/`trade_entity_direction`, and its customs background is opt-in
    (`company_trade_records`), so a run never queries the DB unseen. Headless runs never pick for
    the operator: a miss stays a miss, with the closest spellings named in the note.
+5. **Launch the DB itself** - the console's *Explore Crystal TradeDB* button (header and both
+   landscape sections) posts a password to `POST /api/trade/explore`; only a match redirects
+   into the Firebase frontend (`CRYSTAL_DB_URL`), so the URL is never in the page. The password
+   (`CRYSTAL_DB_PASSWORD`) protects the link, not the app: the Firebase app's own sign-in is the
+   real boundary, and the redirect opens in a new tab so the console keeps its run.
 
 ## How they fit together
 

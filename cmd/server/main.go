@@ -444,6 +444,9 @@ func main() {
 	// researched company, offered before the run so an imperfect name is a
 	// choice rather than a silent miss.
 	mux.HandleFunc("POST /api/trade/entity-match", srv.handleTradeEntityMatch)
+	// The password-gated launch into the Crystal TradeDB frontend. The page
+	// carries a button, never the URL; only the configured password redirects.
+	mux.HandleFunc("POST /api/trade/explore", srv.handleCrystalExplore)
 	// The knowledge graph, on demand: a page to look at and JSON to build on.
 	mux.HandleFunc("GET /ontology", srv.handleOntologyGraphPage)
 	mux.HandleFunc("GET /ontology.svg", srv.handleOntologyGraphSVG)

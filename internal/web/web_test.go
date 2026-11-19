@@ -244,6 +244,24 @@ func TestIndexHasStableQueryControls(t *testing.T) {
 			t.Errorf("expected the company customs matcher control %s", field)
 		}
 	}
+	// The password-gated Crystal TradeDB launch sits in the header and at the
+	// top of both landscape sections, and the URL never reaches the page.
+	if got := strings.Count(out.String(), "openCrystalExplore()"); got < 3 {
+		t.Errorf("Explore Crystal TradeDB triggers = %d, want the header plus both landscape sections", got)
+	}
+	for _, expected := range []string{
+		`id="crystal-explore-dialog"`,
+		`action="/api/trade/explore"`,
+		`name="password"`,
+		`target="_blank"`,
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Errorf("the Crystal TradeDB launch is missing %s", expected)
+		}
+	}
+	if strings.Contains(out.String(), "crystal-importanalyst.web.app") {
+		t.Error("the console must not carry the TradeDB URL before the password")
+	}
 }
 
 // TestTradeEntityMatchesFragmentRendersPicks pins the entity matcher's chips:

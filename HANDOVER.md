@@ -41,6 +41,12 @@ the name every step uses.
   `trade_entity_direction`, `company_trade_records`), and `attachTradeBackground` only runs
   when opted in, building the profile for the pick. A miss logs the closest stored names and
   points at the matcher instead of failing silently.
+- **Explore Crystal TradeDB** (`POST /api/trade/explore`, `cmd/server/trade_explore.go`,
+  `internal/config`): a prominent launch in the console header and at the top of both
+  landscape sections. The Firebase URL lives in configuration (`CRYSTAL_DB_URL`) and is
+  revealed only by the redirect, never in the page; the password (`CRYSTAL_DB_PASSWORD`,
+  default `Crystal@12345`, override in Secret Manager) is compared server-side in constant
+  time and opens the app in a new tab. It gates the link, not the app's own sign-in.
 
 ## 2026-11-18 -- the Crystal trade DB is wired through: matching, visible lanes, entity profiles
 

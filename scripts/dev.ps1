@@ -46,7 +46,7 @@ function Import-TradeDBEnvironment {
     if (-not (Test-Path $envFile)) {
         return
     }
-    foreach ($name in @('TRADE_DB_API_URL', 'TRADE_DB_CONCURRENCY', 'TRADE_DB_TIMEOUT_SECONDS', 'TRADE_DB_MAX_PARTNERS')) {
+    foreach ($name in @('TRADE_DB_API_URL', 'TRADE_DB_CONCURRENCY', 'TRADE_DB_TIMEOUT_SECONDS', 'TRADE_DB_MAX_PARTNERS', 'CRYSTAL_DB_URL')) {
         if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name, 'Process'))) {
             continue
         }
