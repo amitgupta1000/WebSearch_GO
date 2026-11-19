@@ -188,15 +188,16 @@ func (e *Engine) TradeDB() TradeDBSource {
 }
 
 const (
-	// defaultTradeDBPartnerLimit is the report-wide cap on trade-DB names: the
-	// head of the shipment-value ranking, enough to act on without swamping
-	// the report.
+	// defaultTradeDBPartnerLimit is the per-section cap on trade-DB names: the
+	// head of the shipment-value ranking for each section, enough to act on
+	// without swamping the report. The importer and supplier sections each get
+	// it in full (20 + 20 by default).
 	defaultTradeDBPartnerLimit = 20
 	// maxTradeDBPartnerLimit is the ceiling the operator cap clamps to.
 	maxTradeDBPartnerLimit = 40
 )
 
-// WithTradeDBPartnerLimit sets the report-wide cap on trade-DB names. A
+// WithTradeDBPartnerLimit sets the per-section cap on trade-DB names. A
 // non-positive value keeps the default; values above the ceiling clamp to it
 // in the accessor.
 func WithTradeDBPartnerLimit(limit int) EngineOption {
@@ -207,7 +208,7 @@ func WithTradeDBPartnerLimit(limit int) EngineOption {
 	}
 }
 
-// TradeDBPartnerLimit returns the report-wide cap on trade-DB names, clamped:
+// TradeDBPartnerLimit returns the per-section cap on trade-DB names, clamped:
 // at least one (the capability must stay meaningful) and at most
 // maxTradeDBPartnerLimit (a misconfigured value must not swamp a report).
 func (e *Engine) TradeDBPartnerLimit() int {

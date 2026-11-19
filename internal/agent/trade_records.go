@@ -259,7 +259,7 @@ func tradePartnerClaimType(partner models.TradePartner) string {
 }
 
 // collectTradeImporters queries the DB for the product's ranked Indian
-// importers, capped at the report-wide partner budget. The opt-in is the
+// importers, capped at the per-section partner budget. The opt-in is the
 // caller's; this layer enforces the capability and the geography: importer
 // records are Indian importers, so a scope that does not contain India (directly
 // or through a named region such as Asia) is skipped with the reason in a
@@ -307,7 +307,7 @@ func tradePartnerCompanies(partners []models.TradePartner, activity string) []*m
 }
 
 // collectTradeSuppliers builds the seller-side section, capped at the
-// report-wide partner budget. When the run is scoped to exactly one non-India
+// per-section partner budget. When the run is scoped to exactly one non-India
 // region, the suppliers come from raw records so the origin country can filter
 // them: the ranking endpoint does not return the origin, but every record
 // carries it, and the region's foreign ports (resolved from the DB's own
@@ -388,7 +388,7 @@ func tradeSupplierWindowWarning(activity string, rows int) string {
 }
 
 // aggregateTradeSuppliers folds one page of records into ranked supplier rows,
-// capped at the report-wide partner budget. When a region was requested, records
+// capped at the partner budget. When a region was requested, records
 // whose origin country does not belong to the region are dropped — origin_country
 // is the authoritative geography, the port vocabulary only narrowed the query.
 // The region is expanded into its member countries before matching, because the
@@ -499,7 +499,9 @@ func (a *DemandChainAgent) attachTradeImporters(ctx context.Context, query model
 // collection timeout. The importer section needs a scope that contains India;
 // the supplier section needs a single origin scope (a named region is expanded to
 // its member countries) and falls back to the unscoped ranking for global or
-// multi-region runs. Each section is capped at the report-wide partner budget.
+// multi-region runs. Each section is capped at the partner budget on its own, so
+// a seller report is guaranteed the full importer head and the full supplier
+// head rather than one shared budget.
 func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query models.MarketLandscapeQuery, report *models.MarketLandscapeReport, eventCh chan<- models.AgentEvent) {
 	if !query.IncludeTradeRecords {
 		return
@@ -535,15 +537,11 @@ func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query mo
 	report.Warnings = append(report.Warnings, importerWarn...)
 	report.Warnings = append(report.Warnings, supplierWarn...)
 	// The cap is enforced here as well as in the requests: the API's rank
-	// limit is advisory, and the report budget is a hard promise. It is a
-	// REPORT-wide budget: the importer section takes the head and the supplier
-	// section keeps what remains, so the sections never exceed it together.
-	importers, suppliers, droppedSuppliers := trimTradeSections(importers, suppliers, limit)
-	if droppedSuppliers > 0 {
-		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"Trade-record sections share a report-wide cap of %d name(s): the importer section takes the head (%d), so the supplier section keeps %d of its %d ranked name(s). Raise TRADE_DB_MAX_PARTNERS (max 40) for a longer supplier head.",
-			limit, len(importers), len(suppliers), len(suppliers)+droppedSuppliers))
-	}
+	// limit is advisory, and the budget is a hard promise per section. Each
+	// section keeps the full cap, so a seller report is guaranteed up to the
+	// configured number of importers and the same number of suppliers.
+	importers = capTradeSection(importers, limit)
+	suppliers = capTradeSection(suppliers, limit)
 	for _, company := range importers {
 		report.TradeImporters = append(report.TradeImporters, *company)
 	}
@@ -552,27 +550,18 @@ func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query mo
 	}
 }
 
-// trimTradeSections enforces the report-wide trade-DB name cap: the importer
-// section takes the head of the budget and the supplier section keeps what
-// remains, so the two sections never exceed the configured cap together. It
-// returns the trimmed sections and how many supplier names were left out.
-func trimTradeSections(importers, suppliers []*models.MarketLandscapeCompany, limit int) ([]*models.MarketLandscapeCompany, []*models.MarketLandscapeCompany, int) {
+// capTradeSection bounds one trade-DB section to the configured name cap. The
+// cap is per section, not report-wide: the importer and supplier sections each
+// keep the full budget (20 + 20 by default), so neither side can starve the
+// other, and the head of each ranking survives.
+func capTradeSection(companies []*models.MarketLandscapeCompany, limit int) []*models.MarketLandscapeCompany {
 	if limit <= 0 {
 		limit = defaultTradeDBPartnerLimit
 	}
-	if len(importers) > limit {
-		importers = importers[:limit]
+	if len(companies) > limit {
+		return companies[:limit]
 	}
-	remaining := limit - len(importers)
-	if remaining < 0 {
-		remaining = 0
-	}
-	droppedSuppliers := 0
-	if len(suppliers) > remaining {
-		droppedSuppliers = len(suppliers) - remaining
-		suppliers = suppliers[:remaining]
-	}
-	return importers, suppliers, droppedSuppliers
+	return companies
 }
 
 // tradePartnerCountry names where the row's entity sits: Indian importers are

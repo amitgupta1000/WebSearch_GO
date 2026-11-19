@@ -444,7 +444,7 @@ nothing. Person mode still has no freshness pass and no image OCR; company mode 
 | `TRADE_DB_API_URL` | (empty) | Crystal import-export analytics API (Indian customs records). Empty disables the capability entirely: the trade-records sections, the product matcher and the entity profiles all report themselves off |
 | `TRADE_DB_TIMEOUT_SECONDS` | `60` | One trade-DB API call budget (the ranking queries answer in tens of seconds under load) |
 | `TRADE_DB_CONCURRENCY` | `3` | Simultaneous trade-DB calls; the client semaphore bounds every consumer |
-| `TRADE_DB_MAX_PARTNERS` | `20` | Report-wide cap on trade-DB names (clamped 1..40), and on verified rows enriched with a customs profile |
+| `TRADE_DB_MAX_PARTNERS` | `20` | Per-section cap on trade-DB names (clamped 1..40; importers and suppliers each carry up to this many), and on verified rows enriched with a customs profile |
 | `HTTPS_PROXY` / `WEEDOO_PROXY_URL` / `LINKEDIN_PROXY_URL` / `INDIAN_KANOON_PROXY_URL` | (empty) | Egress routing: hosts that gate on caller-IP reputation (weedoo.in, linkedin.com, indiankanoon.org) route through their configured proxy; a host-specific knob falls back to the shared HTTPS_PROXY |
 
 When browser fallback is enabled, install the matching Playwright browser once with

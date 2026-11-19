@@ -457,7 +457,7 @@ func TestAttachTradePartnersGlobalSuppliersAreLabelled(t *testing.T) {
 	}
 }
 
-// TestTradeDBPartnerLimitCapsTheSections pins the report-wide budget: with a
+// TestTradeDBPartnerLimitCapsTheSections pins the per-section budget: with a
 // limit of three, a buyer run's importer section carries at most three names
 // even when the DB ranks more.
 func TestTradeDBPartnerLimitCapsTheSections(t *testing.T) {
@@ -488,7 +488,7 @@ func TestTradeDBPartnerLimitCapsTheSections(t *testing.T) {
 // TestTradeDBPartnerLimitCapsEachSection pins the budget per section: the
 // sections are mutually exclusive by geography (India runs query importers;
 // single-region and global runs query suppliers), and each is capped at the
-// report-wide partner budget.
+// per-section partner budget.
 func TestTradeDBPartnerLimitCapsEachSection(t *testing.T) {
 	var importerPartners []models.TradePartner
 	for i := 1; i <= 5; i++ {
@@ -577,10 +577,11 @@ func TestAttachTradeImportersUnavailableDegrades(t *testing.T) {
 	}
 }
 
-// TestTrimTradeSectionsSharesTheReportWideBudget pins the cap semantics: the
-// importer section takes the head of the budget and the supplier section keeps
-// the remainder, so the two sections never exceed the configured cap together.
-func TestTrimTradeSectionsSharesTheReportWideBudget(t *testing.T) {
+// TestCapTradeSectionGuaranteesEachSideTheFullBudget pins the per-section cap:
+// every section is bounded to the configured limit on its own, so a seller
+// report is guaranteed 20 importers and 20 suppliers by default and neither
+// side can starve the other.
+func TestCapTradeSectionGuaranteesEachSideTheFullBudget(t *testing.T) {
 	companies := func(count int) []*models.MarketLandscapeCompany {
 		rows := make([]*models.MarketLandscapeCompany, count)
 		for index := range rows {
@@ -589,26 +590,30 @@ func TestTrimTradeSectionsSharesTheReportWideBudget(t *testing.T) {
 		return rows
 	}
 	cases := []struct {
-		name                                      string
-		importers, suppliers                      int
-		limit                                     int
-		wantImporters, wantSuppliers, wantDropped int
+		name        string
+		rows, limit int
+		want        int
 	}{
-		{"importers take the whole budget", 20, 20, 20, 20, 0, 20},
-		{"suppliers get the remainder", 5, 20, 20, 5, 15, 5},
-		{"both fit", 3, 4, 20, 3, 4, 0},
-		{"both over the budget", 25, 25, 20, 20, 0, 25},
-		{"no importers", 0, 7, 20, 0, 7, 0},
-		{"unset limit falls back to the default", 20, 20, 0, 20, 0, 20},
+		{"a full section keeps its budget", 20, 20, 20},
+		{"an over-full section is trimmed to the head", 25, 20, 20},
+		{"a short section is untouched", 3, 20, 3},
+		{"an unset limit falls back to the default", 25, 0, 20},
+		{"the ceiling is applied", 45, 40, 40},
 	}
 	for _, tc := range cases {
-		importers, suppliers, dropped := trimTradeSections(companies(tc.importers), companies(tc.suppliers), tc.limit)
-		if len(importers) != tc.wantImporters || len(suppliers) != tc.wantSuppliers || dropped != tc.wantDropped {
-			t.Errorf("%s: trimTradeSections(%d importers, %d suppliers, limit %d) = (%d, %d, dropped %d), want (%d, %d, %d)",
-				tc.name, tc.importers, tc.suppliers, tc.limit,
-				len(importers), len(suppliers), dropped,
-				tc.wantImporters, tc.wantSuppliers, tc.wantDropped)
+		if got := len(capTradeSection(companies(tc.rows), tc.limit)); got != tc.want {
+			t.Errorf("%s: capTradeSection(%d rows, limit %d) = %d, want %d", tc.name, tc.rows, tc.limit, got, tc.want)
 		}
+	}
+	// Both sections keep the full budget: 20 + 20, not 20 shared.
+	importers := capTradeSection(companies(20), 20)
+	suppliers := capTradeSection(companies(20), 20)
+	if len(importers)+len(suppliers) != 40 {
+		t.Errorf("sections = %d importers + %d suppliers, want the full 20 + 20", len(importers), len(suppliers))
+	}
+	// The head of each ranking survives the cap.
+	if got := capTradeSection(companies(1), 20); len(got) != 1 || got[0].Name != "Company 0" {
+		t.Errorf("capTradeSection kept %+v, want the ranking head", got)
 	}
 }
 

@@ -47,12 +47,12 @@ the name every step uses.
   revealed only by the redirect, never in the page; the password (`CRYSTAL_DB_PASSWORD`,
   default `Crystal@12345`, override in Secret Manager) is compared server-side in constant
   time and opens the app in a new tab. It gates the link, not the app's own sign-in.
-- **Report-wide trade budget and a stated supplier window** (`internal/agent/trade_records.go`):
-  `TRADE_DB_MAX_PARTNERS` now caps the importer and supplier sections *together* — importers
-  take the head, suppliers the remainder, and a warning explains any supplier names the budget
-  left out. The region-scoped supplier ranking reads the 1,000 most recent declarations at the
-  region's ports (up from 200) and the report says so whenever the page came back full, so the
-  recency window is never mistaken for the full history.
+- **Per-section trade budget and a stated supplier window** (`internal/agent/trade_records.go`):
+  `TRADE_DB_MAX_PARTNERS` caps each section on its own, so a seller report is guaranteed up to
+  20 importers and 20 suppliers (20 + 20 by default) and neither side can starve the other. The
+  region-scoped supplier ranking reads the 1,000 most recent declarations at the region's ports
+  (up from 200) and the report says so whenever the page came back full, so the recency window
+  is never mistaken for the full history.
 
 ## 2026-11-18 -- the Crystal trade DB is wired through: matching, visible lanes, entity profiles
 
@@ -629,7 +629,7 @@ opt-in data source:
 - **Rendering**: console (`fragments.html` trade record importers/suppliers sections), markdown +
   HTML exports (`internal/export/trade.go`, `html.go`, `demand_chain.go`, `market.go`).
 - **Config**: `TRADE_DB_API_URL` (empty = capability off), `TRADE_DB_TIMEOUT_SECONDS` (60),
-  `TRADE_DB_CONCURRENCY` (3), `TRADE_DB_MAX_PARTNERS` (**20**, clamped 1..40 — the report-wide cap on
+  `TRADE_DB_CONCURRENCY` (3), `TRADE_DB_MAX_PARTNERS` (**20**, clamped 1..40 — the per-section cap on
   trade-DB names across the sections, so a high-volume chemical cannot swamp the report; each
   section carries at most the cap, the ranking head by shipment value); startup summary reports
   `trade-db=`. Deploy values in `deploy/cloud-run.env.yaml`.
