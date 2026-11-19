@@ -47,6 +47,7 @@ func NormalizeActivityMode(mode string) ActivityMode {
 const (
 	ActivityPathOntology   = string(pathOntology)
 	ActivityPathAlias      = string(pathAlias)
+	ActivityPathOperator   = string(pathOperator)
 	ActivityPathUnmodelled = string(pathUnmodelled)
 )
 
@@ -59,6 +60,11 @@ type ActivityQuery struct {
 	// When set it anchors the graph resolution before the typed activity does,
 	// so the preview matches what a trade-DB run actually uses.
 	TradeProduct string `json:"trade_product,omitempty"`
+	// NodeID is the operator's ontology confirmation: the graph node this
+	// activity means. It is applied before the activity text is resolved (the
+	// text is what produced the wrong node), remembered for the activity for the
+	// life of the process, and echoed back on the resolution.
+	NodeID string `json:"node_id,omitempty"`
 }
 
 // ActivityFamilyView is one ranked product family the graph offers.
@@ -77,12 +83,19 @@ type ActivityResolution struct {
 	Mode       ActivityMode `json:"mode"`
 	Path       string       `json:"path"`
 	Matched    bool         `json:"matched"`
-	NodeID     string       `json:"node_id,omitempty"`
 	NodeLabel  string       `json:"node_label,omitempty"`
 	Confidence string       `json:"alias_confidence,omitempty"`
 	// TradeProduct echoes the picked trade-DB product that anchored the
 	// resolution, so a preview can say which name the graph followed.
 	TradeProduct string `json:"trade_product,omitempty"`
+	// NodeID echoes the ontology node the resolution is anchored on (the text's
+	// own match, or the operator's confirmation); Picked says which.
+	NodeID string `json:"node_id,omitempty"`
+	Picked bool   `json:"picked,omitempty"`
+	// Candidates are the nodes worth confirming, ranked: the match first, then
+	// its alternatives with the family each would drive. They are offered even
+	// on a clean match -- "check the match" is the point of the picker.
+	Candidates []ActivityCandidate `json:"candidates,omitempty"`
 
 	Families    []ActivityFamilyView `json:"families,omitempty"`
 	Processes   []string             `json:"processes,omitempty"`
@@ -120,15 +133,25 @@ func ResolveActivityAgainst(ctx context.Context, engine *Engine, document *ontol
 		document = shared
 	}
 	view := ActivityResolution{Activity: query.Activity, Mode: NormalizeActivityMode(string(query.Mode)), TradeProduct: strings.TrimSpace(query.TradeProduct)}
-	resolution := resolveActivityWithDocumentProduct(ctx, engine, document, query.Activity, query.TradeProduct, nil)
-	if resolution.matched() && view.Mode == ActivityModeSeller {
+	nodeID := strings.TrimSpace(query.NodeID)
+	resolution := resolveActivityWithAnchor(ctx, engine, document, query.Activity, query.TradeProduct, nodeID, nil)
+	// An explicit confirmation is remembered for the activity, the way the trade
+	// entity picker remembers its pick: the console previews once, and the run
+	// that follows reuses it without resending the field.
+	if nodeID != "" && resolution.Path == pathOperator {
+		SetOntologyPick(query.Activity, nodeID)
+	}
+	// A confirmed node needs no model arbitration: the operator already chose.
+	if resolution.matched() && view.Mode == ActivityModeSeller && resolution.Path != pathOperator {
 		resolution = chooseOntologyFamily(ctx, engine, resolution, query.Geography, nil)
 	}
 	view.Path = string(resolution.Path)
 	view.Matched = resolution.matched()
 	view.NodeID = resolution.NodeID
 	view.NodeLabel = resolution.NodeLabel
+	view.Picked = resolution.Path == pathOperator
 	view.Confidence = resolution.AliasConfidence
+	view.Candidates = activityCandidates(document, resolution.Graph, query.Activity, ontologyCandidateLimit)
 	view.Warnings = append(view.Warnings, resolution.Warnings...)
 	for _, family := range resolution.Graph.Families {
 		view.Families = append(view.Families, ActivityFamilyView{

@@ -26,6 +26,12 @@ type MarketLandscapeQuery struct {
 	// is the difference between zero rows and the top ranking — and falls
 	// back to the raw activity when the vocabulary names nothing close.
 	TradeProduct string `json:"trade_product,omitempty"`
+	// OntologyNode is the operator's confirmation from the ontology picker: the
+	// graph node the activity means. When set it anchors the value-chain step
+	// directly, without re-reading the activity text, which is what produced the
+	// wrong node in the first place. Empty falls back to the text resolution and
+	// then to any pick remembered for the activity.
+	OntologyNode string `json:"ontology_node,omitempty"`
 
 	// QCPrompt is the operator-editable review policy. Empty means the default policy.
 	QCPrompt string `json:"qc_prompt,omitempty"`

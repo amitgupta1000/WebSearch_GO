@@ -2093,7 +2093,7 @@ func (a *DemandChainAgent) inferDemandChainWithCategory(ctx context.Context, que
 	// the chain; an unmodelled activity keeps the model's free planning. An
 	// operator-picked trade-DB product anchors this step, so the value chain the
 	// buyers are inferred from is the one the picked substance sits in.
-	resolution := resolveActivityForProduct(ctx, a.engine, query.Activity, query.TradeProduct, eventCh)
+	resolution := resolveActivityForQuery(ctx, a.engine, query.Activity, query.TradeProduct, query.OntologyNode, eventCh)
 	warnings := append([]string(nil), resolution.Warnings...)
 	var graphStages []models.ValueChainStage
 	if resolution.matched() {

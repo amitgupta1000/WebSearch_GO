@@ -216,6 +216,11 @@ type DemandChainQuery struct {
 	// run resolves the activity onto the vocabulary itself and falls back to
 	// the raw activity when the vocabulary names nothing close.
 	TradeProduct string `json:"trade_product,omitempty"`
+	// OntologyNode is the operator's confirmation from the ontology picker: the
+	// graph node the activity means. The buyer mode uses it for the same reason
+	// the seller mode does -- the typed text is what produced the wrong node --
+	// and it anchors the consuming stages directly.
+	OntologyNode string `json:"ontology_node,omitempty"`
 
 	// Budget overrides. Zero keeps the mode defaults; a run spends at most
 	// DiscoveryQueries discovery searches and VerificationQueries verification

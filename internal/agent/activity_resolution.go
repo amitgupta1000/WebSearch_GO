@@ -31,6 +31,9 @@ const (
 	pathOntology activityPath = "ontology"
 	// pathAlias is a model-confirmed alias of a graph node.
 	pathAlias activityPath = "alias"
+	// pathOperator is an operator-confirmed node: the activity text is not
+	// re-read, because the text is what produced the wrong node.
+	pathOperator activityPath = "operator"
 	// pathUnmodelled means the graph knows nothing about it: the model plans freely.
 	pathUnmodelled activityPath = "unmodelled"
 )
@@ -50,9 +53,10 @@ type activityResolution struct {
 	document *ontology.Ontology
 }
 
-// matched reports whether the graph (directly or through an alias) knows the activity.
+// matched reports whether the graph (directly, through an alias, or through the
+// operator's confirmation) knows the activity.
 func (r activityResolution) matched() bool {
-	return r.Path == pathOntology || r.Path == pathAlias
+	return r.Path == pathOntology || r.Path == pathAlias || r.Path == pathOperator
 }
 
 // primaryCategory is the family label that should drive the category lane.
@@ -255,7 +259,7 @@ func resolveActivity(ctx context.Context, engine *Engine, activity string, event
 	if err != nil {
 		return unavailableActivityResolution(strings.TrimSpace(activity), err)
 	}
-	return resolveActivityWithDocument(ctx, engine, document, activity, eventCh)
+	return resolveActivityWithAnchor(ctx, engine, document, activity, "", "", eventCh)
 }
 
 // resolveActivityForProduct is resolveActivity with the operator's trade-DB
@@ -265,11 +269,54 @@ func resolveActivity(ctx context.Context, engine *Engine, activity string, event
 // agree with the trade step instead of anchoring a broader family. A pick the
 // graph cannot align falls back to the typed activity, unchanged.
 func resolveActivityForProduct(ctx context.Context, engine *Engine, activity, tradeProduct string, eventCh chan<- models.AgentEvent) activityResolution {
+	return resolveActivityForQuery(ctx, engine, activity, tradeProduct, "", eventCh)
+}
+
+// resolveActivityForQuery is the full entry point: the trade-DB product pick and
+// the operator's ontology confirmation both anchor the graph step. The
+// confirmation wins when both are present, because it is the more specific
+// statement of intent ("this product, this node").
+func resolveActivityForQuery(ctx context.Context, engine *Engine, activity, tradeProduct, nodeID string, eventCh chan<- models.AgentEvent) activityResolution {
 	document, err := ontology.Shared()
 	if err != nil {
 		return unavailableActivityResolution(strings.TrimSpace(activity), err)
 	}
-	return resolveActivityWithDocumentProduct(ctx, engine, document, activity, tradeProduct, eventCh)
+	return resolveActivityWithAnchor(ctx, engine, document, activity, tradeProduct, nodeID, eventCh)
+}
+
+// resolveActivityWithAnchor applies the operator's ontology confirmation -- the
+// node id passed with the run, or the one remembered for this activity -- and
+// only then the graph resolution the activity earns on its own. A confirmation
+// that names no approved node is reported and ignored, never guessed around.
+func resolveActivityWithAnchor(ctx context.Context, engine *Engine, document *ontology.Ontology, activity, tradeProduct, nodeID string, eventCh chan<- models.AgentEvent) activityResolution {
+	activity = strings.TrimSpace(activity)
+	pick := strings.TrimSpace(nodeID)
+	invalidPick := ""
+	if pick == "" {
+		pick = ontologyPickFor(activity)
+	}
+	if pick != "" && document != nil {
+		if graph, ok := document.ResolveNode(pick, ontology.DefaultOptions); ok {
+			label := pick
+			if len(graph.Matches) > 0 {
+				label = graph.Matches[0].Label
+			}
+			resolution := activityResolution{
+				Activity: activity, Path: pathOperator, Graph: graph,
+				NodeID: pick, NodeLabel: label, document: document,
+			}
+			resolution.Warnings = append(resolution.Warnings, ontologyPickNotice(activity, pick, label))
+			emitAgentEvent(eventCh, models.EventThinking, ontologyPickLog(pick, label), "ontology_pick", "")
+			return resolution
+		}
+		invalidPick = pick
+	}
+	resolution := resolveActivityWithDocumentProduct(ctx, engine, document, activity, tradeProduct, eventCh)
+	if invalidPick != "" {
+		resolution.Warnings = append(resolution.Warnings, fmt.Sprintf(
+			"The chosen ontology node %q is not an approved node, so the activity was resolved from its text instead.", invalidPick))
+	}
+	return resolution
 }
 
 // resolveActivityWithDocument is the resolution against a chosen document: the

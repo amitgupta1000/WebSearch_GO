@@ -78,6 +78,45 @@ func ResolveWith(activity string, options Options) Resolution {
 	return document.Resolve(activity, options)
 }
 
+// ResolveNode anchors a resolution on one node the operator confirmed, the same
+// way AlignTradeProduct anchors on the trade DB's canonical name. The activity
+// text is what produced the wrong node in the first place ("crude palm oil" once
+// reached the crude-oil alias "crude"), so an operator confirmation is applied
+// directly instead of being re-read through the text.
+func (o *Ontology) ResolveNode(nodeID string, options Options) (Resolution, bool) {
+	nodeID = strings.TrimSpace(nodeID)
+	node := o.Nodes[nodeID]
+	if node == nil || node.Status == StatusRejected {
+		return Resolution{}, false
+	}
+	if options.RequireApproved && node.Status != StatusApproved {
+		return Resolution{}, false
+	}
+	if options.MaxFamilies <= 0 {
+		options.MaxFamilies = DefaultOptions.MaxFamilies
+	}
+	if options.MaxHops <= 0 {
+		options.MaxHops = DefaultOptions.MaxHops
+	}
+	resolution := Resolution{
+		Activity: node.Label,
+		Matches:  []Match{{ID: node.ID, Label: node.Label, Kind: node.Kind, Via: "operator", Status: node.Status, Phrase: node.Label}},
+	}
+	resolution.Families, resolution.Ambiguous = o.familiesFor(node, nil, options)
+	resolution.EndProducts = o.endProductsFor(node, resolution.Families, options.MaxHops)
+	resolution.SearchTerms = uniqueStrings(o.searchTermsFor(nil, resolution.Families))
+	return resolution, true
+}
+
+// ResolveNode runs ResolveNode against the embedded, approved document.
+func ResolveNode(nodeID string) (Resolution, bool) {
+	document, err := Load()
+	if err != nil {
+		return Resolution{}, false
+	}
+	return document.ResolveNode(nodeID, DefaultOptions)
+}
+
 // Resolve resolves one activity against this document.
 func (o *Ontology) Resolve(activity string, options Options) Resolution {
 	if options.MaxFamilies <= 0 {

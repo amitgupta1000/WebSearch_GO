@@ -100,7 +100,7 @@ func (a *MarketLandscapeAgent) Research(ctx context.Context, researchID string, 
 	// the model plans the path and the activity is reported as unmodelled. An
 	// operator-picked trade-DB product anchors this step, so the graph and the
 	// customs lane agree on the same substance.
-	resolution := resolveActivityForProduct(ctx, a.engine, query.Activity, query.TradeProduct, eventCh)
+	resolution := resolveActivityForQuery(ctx, a.engine, query.Activity, query.TradeProduct, query.OntologyNode, eventCh)
 	if resolution.matched() {
 		resolution = chooseOntologyFamily(ctx, a.engine, resolution, marketLandscapeGeography(query), eventCh)
 	}

@@ -428,6 +428,7 @@ func main() {
 	// Resolution API: which research path an activity takes before any run spends
 	// a search. Same code path the Seller and Buyer Landscape modes start with.
 	mux.HandleFunc("POST /api/ontology/resolve", srv.handleOntologyResolve)
+	mux.HandleFunc("POST /api/ontology/match", srv.handleOntologyMatch)
 	// The trade-product matcher: the DB's own canonical names offered to the
 	// operator before a run spends anything, so a typed "n-butanol" can
 	// become the DB's "N BUTANOL (NBA)" by human choice, not by guessing.
@@ -769,6 +770,10 @@ func marketLandscapeQueryFromForm(r *http.Request, activity string) models.Marke
 		// and buyer sections share one form, so each mode carries its own
 		// field name; the legacy shared name stays readable for saved posts.
 		TradeProduct: firstNonEmpty(strings.TrimSpace(r.FormValue("market_trade_product")), strings.TrimSpace(r.FormValue("trade_product"))),
+		// The operator's ontology confirmation, shared by both landscape
+		// sections because they share one activity field; it anchors the graph
+		// step on the node the operator confirmed.
+		OntologyNode: strings.TrimSpace(r.FormValue("ontology_node")),
 		QCPrompt:     strings.TrimSpace(r.FormValue("market_qc_prompt")),
 	}
 }
@@ -976,6 +981,8 @@ func demandChainQueryFromForm(r *http.Request, activity string) models.DemandCha
 		// fallback: one form holds both landscapes, so the names must differ or
 		// the first (empty) input would shadow the pick.
 		TradeProduct: firstNonEmpty(strings.TrimSpace(r.FormValue("demand_trade_product")), strings.TrimSpace(r.FormValue("trade_product"))),
+		// The operator's ontology confirmation (one activity field, one panel).
+		OntologyNode: strings.TrimSpace(r.FormValue("ontology_node")),
 		QCPrompt:     strings.TrimSpace(r.FormValue("demand_qc_prompt")),
 	}
 }

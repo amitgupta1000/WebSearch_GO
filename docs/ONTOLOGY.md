@@ -206,6 +206,26 @@ data-side form of the hazard), and `TestEveryEntryNameResolvesToItsOwnNode` swee
 in the shipped document, so a generic alias added anywhere is caught by the graph itself rather
 than by whoever remembers to write the case.
 
+## Operator confirmation
+
+Resolution is suggestion-first, like the trade DB's product and entity pickers.
+The API answer carries ranked `candidates`: the current match first, then the
+alternative nodes by shared content words, then the ranked variants of an
+ambiguous hub (before the alternatives when the activity is ambiguous, because
+there the variants are the useful choice). Every candidate names the family it
+would drive, so the choice is about the research path, not just a word.
+
+Sending `node_id` back confirms one. `Ontology.ResolveNode` anchors on that node
+directly -- the activity text is never re-read, because the text is what produced
+the wrong node -- the resolution reports `path: "operator"` with a warning naming
+the confirmation, and the pick is remembered for the activity for the life of the
+process, so the run that follows reuses it without resending the field. An
+unknown or unapproved id is reported and ignored; the text path resolves instead.
+A confirmed node also skips the model's family-choice call: the operator already
+chose. Wiring: `POST /api/ontology/match` (chips under the activity field) and
+`node_id` on `POST /api/ontology/resolve`, plus `ontology_node` on both landscape
+queries.
+
 ## Where it is wired
 
 - **Seller Landscape** (`market_landscape.go`): `resolveActivity` (hub ranking included) →

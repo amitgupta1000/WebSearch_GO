@@ -11,6 +11,38 @@
   Landscape runs on the sample query `"n-butanol" "India"`.
 
 
+## 2026-11-19 -- the ontology match is now the operator's to confirm
+
+Follow-up to the "crude palm oil" report: the ranking is fixed, and the operator
+can now check the match and anchor the run on the node they meant. Same contract
+as the trade-DB product and entity pickers -- suggest, never guess.
+
+- **Candidates** (`internal/agent/ontology_candidates.go`): `ActivityCandidate`
+  ranks the nodes worth confirming. The graph's match comes first (graded
+  `exact` / `spelling` / `process` / `prefix`), then the alternative nodes by
+  shared content words scored on their single best-fitting name -- so
+  "crude palm oil" offers **crude oil** as the first alternative, not "base oil"
+  -- then the ranked variants of an ambiguous hub. For an ambiguous activity
+  ("oil blending") the variants lead instead, because there they are the useful
+  choice. Every candidate carries the family it would drive.
+- **Confirmation** (`internal/agent/ontology_pick.go`, `activity_resolution.go`):
+  `ontology.ResolveNode` anchors on a node without re-reading the text;
+  `path: "operator"` says a confirmation produced the resolution, with a warning
+  naming it, and the model's family-choice call is skipped. Picks are remembered
+  per activity for the process (FIFO, 64) exactly like the trade-entity
+  overrides; an unknown or unapproved id is reported and ignored.
+- **Wiring**: `POST /api/ontology/resolve` accepts `node_id` and echoes `node_id`,
+  `picked` and `candidates`; `POST /api/ontology/match` renders the console
+  picker; the landscape form has one "Check ontology match" panel under the
+  activity field whose chips set a hidden `ontology_node` that both landscape
+  queries carry (`models.MarketLandscapeQuery.OntologyNode`,
+  `DemandChainQuery.OntologyNode`).
+- **Tests**: `TestResolveNodeAnchorsThePick` (ontology),
+  `TestActivityCandidatesRankTheMatchFirst`,
+  `TestActivityCandidatesLeadWithVariantsWhenAmbiguous`,
+  `TestOntologyPickAnchorsTheResolution`, `TestOntologyPickIgnoresUnapprovedNodes`
+  (agent), `TestOntologyMatchRendersCandidates` (server, chips + remembered pick).
+
 ## 2026-11-19 -- a generic alias can no longer steal the subject
 
 Operator report: `CRUDE PALM OIL` resolved to **crude oil** in the ontology.

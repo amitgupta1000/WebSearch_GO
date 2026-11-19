@@ -249,6 +249,32 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
+// TestResolveNodeAnchorsThePick pins the operator-confirmation primitive: a
+// confirmed node resolves to itself with its own value chain, and anything the
+// review has not approved cannot be forced in.
+func TestResolveNodeAnchorsThePick(t *testing.T) {
+	document, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	resolution, ok := document.ResolveNode("sub:palm-oil", DefaultOptions)
+	if !ok {
+		t.Fatal("sub:palm-oil did not resolve")
+	}
+	if len(resolution.Matches) != 1 || resolution.Matches[0].ID != "sub:palm-oil" || resolution.Matches[0].Via != "operator" {
+		t.Fatalf("matches = %+v, want the confirmed node via operator", resolution.Matches)
+	}
+	if len(resolution.Families) == 0 || resolution.Families[0].ID != "cat:oleochemical-feedstocks" {
+		t.Errorf("families = %+v, want cat:oleochemical-feedstocks first", resolution.Families)
+	}
+	if len(resolution.EndProducts) == 0 {
+		t.Error("a confirmed node must still produce its end-product leaves")
+	}
+	if _, ok := document.ResolveNode("sub:not-a-node", DefaultOptions); ok {
+		t.Error("an unknown node must not resolve")
+	}
+}
+
 // TestResolveDescriptiveLabels pins the review finding that descriptive labels
 // must still answer the activity people type: "saponification" resolves through
 // the label "Saponification and fatty acid neutralization", and "soap" resolves

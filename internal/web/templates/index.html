@@ -141,6 +141,18 @@
                         <input id="primary-query" type="text" name="query" required autocomplete="organization" spellcheck="false" placeholder="e.g. Anthropic, Stripe, Datadog..."
                                class="field w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 text-sm">
                     </div>
+
+                    <!-- Ontology confirmation: suggestion-first, the same contract as the trade-DB pickers -->
+                    <div id="ontology-match-panel" class="hidden md:col-span-2 space-y-1">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <label class="text-xs font-medium text-slate-400">Ontology match (optional)</label>
+                            <button type="button" class="text-[11px] rounded-full border border-sky-800 bg-sky-950/40 px-2.5 py-1 text-sky-200 hover:border-sky-500"
+                                    hx-post="/api/ontology/match" hx-include="closest form" hx-target="#ontology-match-result" hx-swap="innerHTML">Check ontology match</button>
+                        </div>
+                        <input type="hidden" name="ontology_node" value="">
+                        <div id="ontology-match-result" class="mt-1"></div>
+                        <p class="text-[11px] text-slate-500">Confirms the value-chain node this activity means - click a candidate to anchor the run on it. The choice is remembered for this activity.</p>
+                    </div>
                 </div>
 
                 <div id="news-fields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
@@ -644,6 +656,7 @@
             const bf = document.getElementById('demand-fields');
             const nf = document.getElementById('news-fields');
             const df = document.getElementById('deepsearch-fields');
+            const op = document.getElementById('ontology-match-panel');
             const ql = document.getElementById('query-label');
             const qi = document.getElementById('primary-query');
             const companySubmit = document.getElementById('company-submit');
@@ -658,8 +671,10 @@
             if (bf) bf.classList.add('hidden');
             if (nf) nf.classList.add('hidden');
             if (df) df.classList.add('hidden');
+            if (op) op.classList.add('hidden');
             if (mode === 'demand_chain') {
                 if (bf) bf.classList.remove('hidden');
+                if (op) op.classList.remove('hidden');
                 ql.innerText = 'Product / commodity';
                 qi.placeholder = 'e.g. used cooking oil, crude palm oil, sulfur';
                 if (companySubmit) companySubmit.classList.remove('hidden');
@@ -671,6 +686,7 @@
                 }
             } else if (mode === 'market_landscape') {
                 if (mf) mf.classList.remove('hidden');
+                if (op) op.classList.remove('hidden');
                 ql.innerText = 'Activity / market question';
                 qi.placeholder = 'e.g. oil blending (crude oil + fuel oil)';
                 if (companySubmit) companySubmit.classList.remove('hidden');

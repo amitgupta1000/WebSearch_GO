@@ -21,6 +21,19 @@
 {{end}}
 
 
+{{define "ontology_match"}}
+{{if .Note}}<p class="text-[11px] text-amber-300">{{.Note}}</p>{{end}}
+{{if .Matched}}
+<p class="text-[11px] text-slate-400">{{if .Picked}}Confirmed: <span class="text-emerald-300">{{.NodeLabel}}</span>{{else}}Resolves to <span class="text-slate-200">{{.NodeLabel}}</span>{{end}} <span class="text-slate-500">{{.NodeID}}{{if .Category}} &middot; family {{.Category}}{{end}}</span></p>
+{{end}}
+{{if .Candidates}}
+<p class="text-[11px] text-slate-500 mt-1">{{if .Picked}}Other nodes for this activity:{{else}}Not what you meant? Confirm the node this activity means:{{end}}</p>
+<div class="flex flex-wrap gap-1.5 mt-1">
+  {{range .Candidates}}<button type="button" title="{{.Kind}}{{if .Phrase}} &middot; matched {{.Phrase}}{{end}}{{if .FamilyLabel}} &middot; family {{.FamilyLabel}}{{end}}" hx-post="/api/ontology/match" hx-include="closest form" hx-vals='{"ontology_node":"{{.NodeID}}"}' hx-target="#ontology-match-result" hx-swap="innerHTML" onclick="var f=this.closest('form');if(f){var i=f.querySelector('[name=ontology_node]');if(i){i.value='{{.NodeID}}';}}" class="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-300 hover:border-emerald-600 hover:text-emerald-300">{{.Label}}{{if .FamilyLabel}} <span class="text-slate-500">&middot; {{.FamilyLabel}}</span>{{end}}{{if .Grade}} <span class="text-slate-500 italic">{{.Grade}}</span>{{end}}</button>{{end}}
+</div>
+{{end}}
+{{end}}
+
 {{define "log_entry"}}
 <div class="flex items-start gap-2.5 py-1.5 font-mono text-xs leading-relaxed border-b border-slate-900/60">
 	<span class="text-slate-500 select-none shrink-0">[{{.FormattedTime}}]</span>
