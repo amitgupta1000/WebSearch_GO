@@ -236,8 +236,28 @@ func buildTradeProfileForEntity(ctx context.Context, client TradeDBSource, reque
 		MatchedName: entityName,
 		Directions:  []string{direction},
 	}
+	// The aggregate profile and the product mix are independent lookups against
+	// the same DB, and a profile build sits on the run's critical path (the
+	// dossier waits for it), so they run concurrently rather than back to back.
+	var (
+		profiles     []models.TradeEntityProfile
+		profilesErr  error
+		breakdown    models.TradeEntityBreakdown
+		breakdownErr error
+		wg           sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		profiles, profilesErr = client.EntityProfiles(ctx, direction, entityName, true, tradeProfileNamesLimit)
+	}()
+	go func() {
+		defer wg.Done()
+		breakdown, breakdownErr = client.EntityProducts(ctx, direction, entityName, tradeProfileProductsLimit)
+	}()
+	wg.Wait()
 	// The aggregate profile row (profiled top set only).
-	if profiles, err := client.EntityProfiles(ctx, direction, entityName, true, tradeProfileNamesLimit); err == nil {
+	if profilesErr == nil {
 		for _, profile := range profiles {
 			if tradeNameMatches(profile.Name, entityName) {
 				background.GlobalRank = profile.GlobalRank
@@ -249,10 +269,10 @@ func buildTradeProfileForEntity(ctx context.Context, client TradeDBSource, reque
 			}
 		}
 	} else {
-		background.Note = fmt.Sprintf("the aggregate profile lookup failed: %v", err)
+		background.Note = fmt.Sprintf("the aggregate profile lookup failed: %v", profilesErr)
 	}
 	// The product mix answers for any name the data carries.
-	if breakdown, err := client.EntityProducts(ctx, direction, entityName, tradeProfileProductsLimit); err == nil && breakdown.TotalCount > 0 {
+	if breakdownErr == nil && breakdown.TotalCount > 0 {
 		background.TopProducts = breakdown.Products
 		if background.TransactionCount == 0 {
 			// Outside the profiled set: the breakdown's own totals stand in
@@ -265,8 +285,8 @@ func buildTradeProfileForEntity(ctx context.Context, client TradeDBSource, reque
 			}
 			background.ProductCount = breakdown.TotalCount
 		}
-	} else if err != nil && background.Note == "" {
-		background.Note = fmt.Sprintf("the product breakdown lookup failed: %v", err)
+	} else if breakdownErr != nil && background.Note == "" {
+		background.Note = fmt.Sprintf("the product breakdown lookup failed: %v", breakdownErr)
 	}
 	summary := tradeProfileSummary(requested, direction, background)
 	return background, summary

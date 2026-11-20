@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/amitgupta1000/WebSearch_GO/internal/models"
 )
@@ -124,15 +126,20 @@ func TestTradeEntityQueryLadder(t *testing.T) {
 }
 
 // recordingNamesMock scripts EntityNames per query and direction, recording
-// every query so tests can pin the ladder walk.
+// every query so tests can pin the ladder walk. The mutex guards the recording:
+// the resolver walks the two sides concurrently, so EntityNames is called from
+// two goroutines at once.
 type recordingNamesMock struct {
 	TradeDBSource
+	mu       sync.Mutex
 	importer map[string][]string
 	supplier map[string][]string
 	queries  []string
 }
 
 func (m *recordingNamesMock) EntityNames(_ context.Context, direction, query string, _ int) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.queries = append(m.queries, direction+":"+query)
 	table := m.importer
 	if direction == models.TradeDirectionSupplier {
@@ -326,5 +333,61 @@ func TestTradeEntityMatchesSurfacesPicksBeforeTheRun(t *testing.T) {
 	}
 	if matches, confident := TradeEntityMatches(context.Background(), nil, nil, "BASF"); len(matches) != 0 || confident {
 		t.Errorf("nil client = %+v confident=%v, want nothing", matches, confident)
+	}
+}
+
+// blockingNamesMock holds each side's first EntityNames call until both sides
+// have arrived, so the resolver can only finish if it walks the two sides
+// concurrently. A serial implementation deadlocks on the rendezvous until the
+// context expires.
+type blockingNamesMock struct {
+	TradeDBSource
+	arrived chan string
+	release chan struct{}
+}
+
+func (m *blockingNamesMock) EntityNames(ctx context.Context, direction, _ string, _ int) ([]string, error) {
+	select {
+	case m.arrived <- direction:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	select {
+	case <-m.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return nil, nil
+}
+
+// TestResolveTradeEntityQueriesBothSidesConcurrently pins the concurrency the
+// resolver promises: a cold profile build must not pay the typeahead latency
+// twice. Both sides have to be in flight before either is released.
+func TestResolveTradeEntityQueriesBothSidesConcurrently(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := &blockingNamesMock{arrived: make(chan string, 2), release: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		resolveTradeEntity(ctx, client, "ACME TRADING LIMITED")
+	}()
+	seen := map[string]bool{}
+	for index := 0; index < 2; index++ {
+		select {
+		case side := <-client.arrived:
+			seen[side] = true
+		case <-ctx.Done():
+			t.Fatalf("only %d side(s) reached the typeahead within the budget; the sides are not concurrent", index)
+		}
+	}
+	close(client.release)
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("the resolver did not finish after both sides were released")
+	}
+	if !seen[models.TradeDirectionImporter] || !seen[models.TradeDirectionSupplier] {
+		t.Errorf("sides seen = %v, want both importer and supplier in flight", seen)
 	}
 }

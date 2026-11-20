@@ -11,6 +11,52 @@
   Landscape runs on the sample query `"n-butanol" "India"`.
 
 
+## 2026-11-19 -- performance review: two serial trade-DB paths now run concurrently
+
+A read-only review pass over the trade/ontology/entity paths. Findings and what
+was done about them:
+
+- **Fixed: the entity resolver walked the two sides serially**
+  (`internal/agent/trade_entity_resolve.go`). `resolveTradeEntity` queried the
+  importer side, then the supplier side, so a cold profile build paid the
+  typeahead latency twice. The sides are independent and the DB client already
+  bounds in-flight work with its own semaphore, so they now run concurrently and
+  are merged importer-first (the importer's confident match still wins the tie).
+  Each side keeps its ladder's early exit on a confident match. Pinned by
+  `TestResolveTradeEntityQueriesBothSidesConcurrently` -- a rendezvous test that
+  deadlocks on a serial implementation -- and the resolver's test mock is now
+  mutex-guarded because EntityNames is called from two goroutines.
+- **Fixed: the profile builder ran its two lookups back to back**
+  (`internal/agent/trade_profile.go`). `EntityProfiles` (aggregate) and
+  `EntityProducts` (product mix) are independent, and a profile build sits on the
+  dossier's critical path, so they now run concurrently. The aggregate result is
+  still applied before the product mix, preserving the "breakdown totals stand in
+  when the entity is outside the profiled set" rule.
+- **Fixed: the scoring hot path re-normalized the query per candidate**
+  (`internal/agent/trade_entity_resolve.go`). The typed name's normalized form,
+  legal-form core and compact core are computed once (`tradeEntityQueryScore`)
+  and reused across every ladder answer on both sides;
+  `scoreTradeEntityCandidate` remains as the one-shot wrapper for single-pair
+  callers and tests.
+- **Reviewed, deliberately not changed:**
+  - *"Do we validate legitimate TradeDB names?"* -- no expensive validation
+    exists. The first-party sections use the DB's canonical name directly
+    (`tradePartnerCompany`), they are excluded from the entity gate and verified
+    roster by design, and the entity gate is only applied to web-sourced
+    identity. The one residual check is the defensive `tradeNameMatches` re-match
+    in `buildTradeProfileForEntity`, which guards against the API returning a
+    fuzzy row; it is cheap and stays.
+  - *Normalization sprawl* -- ~11 near-duplicate name-comparison helpers across
+    `agent` and `ontology` (`normalizeTradeEntityName`, `tradeNameCore`,
+    `normalizeTradeProductName`, `normalizeMarketName`, `normalizePersonName`,
+    `normalizeDomain`, `normalizeTitle`, `ontology.normalize`, `compactName`,
+    `tradeProductBase`, `tradeProductSimilarity`). All are in use, each for a
+    reason, but they are the same idea re-implemented. Consolidating behind one
+    optioned `normalizeName` is the highest long-term value and deserves its own
+    test-guarded pass rather than a drive-by edit.
+  - *`staticcheck` / `deadcode` were not run* (not installed here); a linter
+    sweep is the systematic way to find genuinely unused functions.
+
 ## 2026-11-19 -- the ontology match is now the operator's to confirm
 
 Follow-up to the "crude palm oil" report: the ranking is fixed, and the operator

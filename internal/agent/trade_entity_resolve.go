@@ -65,23 +65,44 @@ func tradeEntityQueryLadder(name string) []string {
 	return queries
 }
 
-// scoreTradeEntityCandidate grades one stored entity name against the typed
-// name: 1.0 normalized-equal, 0.98 core-equal (both confident), 0.85 token
-// containment, then a character-similarity band down to the loose threshold.
-func scoreTradeEntityCandidate(query, candidate string) (float64, string) {
-	queryNorm, candidateNorm := normalizeTradeEntityName(query), normalizeTradeEntityName(candidate)
-	if queryNorm != "" && queryNorm == candidateNorm {
+// tradeEntityQueryScore is the typed name's comparable forms, computed once and
+// reused for every candidate. Scoring normalizes the *query* on every call, and
+// one resolver walk scores up to three ladder answers on each of two sides, so
+// the invariant belongs outside the loop rather than inside it.
+type tradeEntityQueryScore struct {
+	norm    string
+	core    string
+	tokens  []string
+	compact string
+}
+
+// newTradeEntityQueryScore precomputes the query's normalized form, legal-form
+// core, core tokens and compact core.
+func newTradeEntityQueryScore(name string) tradeEntityQueryScore {
+	core := tradeNameCore(name)
+	return tradeEntityQueryScore{
+		norm:    normalizeTradeEntityName(name),
+		core:    core,
+		tokens:  strings.Fields(core),
+		compact: compactTradeEntityName(core),
+	}
+}
+
+// score grades one stored entity name against the typed name: 1.0
+// normalized-equal, 0.98 core-equal (both confident), 0.85 token containment,
+// then a character-similarity band down to the loose threshold.
+func (q tradeEntityQueryScore) score(candidate string) (float64, string) {
+	if q.norm != "" && q.norm == normalizeTradeEntityName(candidate) {
 		return 1.0, "exact"
 	}
-	queryCore, candidateCore := tradeNameCore(query), tradeNameCore(candidate)
-	if queryCore != "" && queryCore == candidateCore {
+	candidateCore := tradeNameCore(candidate)
+	if q.core != "" && q.core == candidateCore {
 		return tradeEntityConfidentScore, "core"
 	}
-	queryTokens := strings.Fields(queryCore)
-	if len(queryTokens) > 0 {
+	if len(q.tokens) > 0 {
 		candidateTokens := strings.Fields(candidateCore)
 		contained := 0
-		for _, token := range queryTokens {
+		for _, token := range q.tokens {
 			for _, candidateToken := range candidateTokens {
 				if token == candidateToken {
 					contained++
@@ -89,62 +110,78 @@ func scoreTradeEntityCandidate(query, candidate string) (float64, string) {
 				}
 			}
 		}
-		if contained == len(queryTokens) {
+		if contained == len(q.tokens) {
 			return 0.85, "related"
 		}
 	}
-	compact := func(value string) string { return strings.ReplaceAll(value, " ", "") }
-	ratio := tradeProductSimilarity(compact(queryCore), compact(candidateCore))
+	ratio := tradeProductSimilarity(q.compact, compactTradeEntityName(candidateCore))
 	if ratio >= tradeEntityLooseThreshold {
 		return 0.3 + 0.5*ratio, "loose"
 	}
 	return 0, ""
 }
 
+// scoreTradeEntityCandidate is the one-shot form for callers that score a single
+// pair; the hot path builds the query form once and calls its score method.
+func scoreTradeEntityCandidate(query, candidate string) (float64, string) {
+	return newTradeEntityQueryScore(query).score(candidate)
+}
+
+// compactTradeEntityName folds a normalized name to its space-free comparable
+// form, the shape the character-similarity band compares on.
+func compactTradeEntityName(value string) string {
+	return strings.ReplaceAll(value, " ", "")
+}
+
+// tradeEntityDirectionResult is one side's answer: its own walk of the query
+// ladder, kept separate so the two sides can run concurrently and be merged
+// after. Nothing inside it is shared across sides.
+type tradeEntityDirectionResult struct {
+	direction  string
+	match      tradeEntityMatch
+	candidates []models.TradeEntityCandidate
+	seen       []string
+}
+
 // resolveTradeEntity walks both sides of the transaction and returns either a
 // confident match or the ranked suggestions, plus every distinct typeahead hit
-// (context for the operator when nothing scored). Importer matches win ties
-// (an Indian buyer is the side the operator usually means).
+// (context for the operator when nothing scored).
+//
+// The two sides are independent, so they run concurrently: a cold profile build
+// otherwise pays the typeahead latency twice, and the DB client already bounds
+// in-flight work with its own semaphore. Each side still walks its ladder in
+// order and stops at its first confident match; the importer's confident match
+// wins the tie (an Indian buyer is the side the operator usually means) because
+// the merged results are read in that order.
 func resolveTradeEntity(ctx context.Context, client TradeDBSource, name string) (tradeEntityMatch, []models.TradeEntityCandidate, []string) {
-	var match tradeEntityMatch
-	byKey := map[string]models.TradeEntityCandidate{}
-	seen := make([]string, 0, tradeProfileNamesLimit)
-	seenSet := map[string]bool{}
-	for _, direction := range []string{models.TradeDirectionImporter, models.TradeDirectionSupplier} {
-		for _, query := range tradeEntityQueryLadder(name) {
-			names, err := client.EntityNames(ctx, direction, query, tradeProfileNamesLimit)
-			if err != nil {
-				continue
-			}
-			for _, candidate := range names {
-				candidate = strings.TrimSpace(candidate)
-				if candidate == "" {
-					continue
-				}
-				if !seenSet[strings.ToLower(candidate)] {
-					seenSet[strings.ToLower(candidate)] = true
-					seen = append(seen, candidate)
-				}
-				score, grade := scoreTradeEntityCandidate(name, candidate)
-				if score == 0 {
-					continue
-				}
-				key := strings.ToLower(candidate) + "|" + direction
-				if existing, ok := byKey[key]; ok && existing.Score >= score {
-					continue
-				}
-				byKey[key] = models.TradeEntityCandidate{Name: candidate, Direction: direction, Score: score, Grade: grade}
-				if score >= tradeEntityConfidentScore && match.name == "" {
-					match = tradeEntityMatch{name: candidate, direction: direction}
-				}
-			}
-			if match.name != "" && match.direction == direction {
-				break
-			}
+	directions := []string{models.TradeDirectionImporter, models.TradeDirectionSupplier}
+	results := make([]tradeEntityDirectionResult, len(directions))
+	var wg sync.WaitGroup
+	for index, direction := range directions {
+		wg.Add(1)
+		go func(index int, direction string) {
+			defer wg.Done()
+			results[index] = resolveTradeEntityDirection(ctx, client, name, direction)
+		}(index, direction)
+	}
+	wg.Wait()
+	seen := mergeTradeEntitySeen(results)
+	// Importer first: a confident match on that side is the one the operator
+	// usually means, so it wins the tie against an equally confident supplier.
+	for _, result := range results {
+		if result.match.name != "" {
+			return result.match, nil, seen
 		}
 	}
-	if match.name != "" {
-		return match, nil, seen
+	byKey := map[string]models.TradeEntityCandidate{}
+	for _, result := range results {
+		for _, candidate := range result.candidates {
+			key := strings.ToLower(candidate.Name) + "|" + candidate.Direction
+			if existing, ok := byKey[key]; ok && existing.Score >= candidate.Score {
+				continue
+			}
+			byKey[key] = candidate
+		}
 	}
 	candidates := make([]models.TradeEntityCandidate, 0, len(byKey))
 	for _, candidate := range byKey {
@@ -163,6 +200,72 @@ func resolveTradeEntity(ctx context.Context, client TradeDBSource, name string) 
 		candidates = candidates[:tradeEntityCandidateLimit]
 	}
 	return tradeEntityMatch{}, candidates, seen
+}
+
+// resolveTradeEntityDirection walks one side's query ladder: the typed name, its
+// legal-form-stripped core, then its first two significant tokens. It stops at
+// that side's first confident match, because the later rungs only exist to
+// survive a miss. The typed name's comparable forms are computed once for the
+// whole walk.
+func resolveTradeEntityDirection(ctx context.Context, client TradeDBSource, name, direction string) tradeEntityDirectionResult {
+	result := tradeEntityDirectionResult{direction: direction}
+	query := newTradeEntityQueryScore(name)
+	byKey := map[string]models.TradeEntityCandidate{}
+	seenSet := map[string]bool{}
+	for _, ladderQuery := range tradeEntityQueryLadder(name) {
+		names, err := client.EntityNames(ctx, direction, ladderQuery, tradeProfileNamesLimit)
+		if err != nil {
+			continue
+		}
+		for _, candidate := range names {
+			candidate = strings.TrimSpace(candidate)
+			if candidate == "" {
+				continue
+			}
+			key := strings.ToLower(candidate)
+			if !seenSet[key] {
+				seenSet[key] = true
+				result.seen = append(result.seen, candidate)
+			}
+			score, grade := query.score(candidate)
+			if score == 0 {
+				continue
+			}
+			if existing, ok := byKey[key]; ok && existing.Score >= score {
+				continue
+			}
+			byKey[key] = models.TradeEntityCandidate{Name: candidate, Direction: direction, Score: score, Grade: grade}
+			if score >= tradeEntityConfidentScore && result.match.name == "" {
+				result.match = tradeEntityMatch{name: candidate, direction: direction}
+			}
+		}
+		if result.match.name != "" {
+			break
+		}
+	}
+	for _, candidate := range byKey {
+		result.candidates = append(result.candidates, candidate)
+	}
+	return result
+}
+
+// mergeTradeEntitySeen flattens the sides' typeahead hits importer-first and
+// de-duplicated, so the fallback list stays deterministic despite the
+// concurrency.
+func mergeTradeEntitySeen(results []tradeEntityDirectionResult) []string {
+	seen := make([]string, 0, tradeProfileNamesLimit*len(results))
+	seenSet := map[string]bool{}
+	for _, result := range results {
+		for _, candidate := range result.seen {
+			key := strings.ToLower(candidate)
+			if seenSet[key] {
+				continue
+			}
+			seenSet[key] = true
+			seen = append(seen, candidate)
+		}
+	}
+	return seen
 }
 
 // semanticTradeEntityCandidates re-ranks the deterministic suggestions with
