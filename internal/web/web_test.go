@@ -17,6 +17,7 @@ func TestTradeEntityPickRendersCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Templates(): %v", err)
 	}
+
 	var out strings.Builder
 	view := map[string]any{
 		"Company": "Sasol Chemicals",
@@ -54,6 +55,32 @@ func TestTradeEntityPickRendersCandidates(t *testing.T) {
 	}
 	if strings.Contains(present.String(), "/api/trade/entity-profile") {
 		t.Error("a present profile must not offer the picker")
+	}
+}
+
+func TestTradeProfileResultRendersBothDirections(t *testing.T) {
+	tmpl, err := Templates()
+	if err != nil {
+		t.Fatalf("Templates(): %v", err)
+	}
+	var out strings.Builder
+	view := map[string]any{
+		"Company": "Acme",
+		"Background": &models.TradeBackground{
+			Present: true,
+			Sides: []models.TradeBackgroundSide{
+				{Direction: models.TradeDirectionImporter, MatchedName: "ACME IMPORTER"},
+				{Direction: models.TradeDirectionSupplier, MatchedName: "ACME SUPPLIER"},
+			},
+		},
+	}
+	if err := tmpl.ExecuteTemplate(&out, "market_trade_profile_result", view); err != nil {
+		t.Fatalf("execute dual-side profile: %v", err)
+	}
+	for _, want := range []string{"importer side", "ACME IMPORTER", "supplier side", "ACME SUPPLIER"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("dual-side profile misses %q", want)
+		}
 	}
 }
 

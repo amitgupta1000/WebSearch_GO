@@ -764,7 +764,9 @@ func marketLandscapeQueryFromForm(r *http.Request, activity string) models.Marke
 		IncludeContacts: r.FormValue("market_contacts") == "1",
 		// The trade-records opt-in is shared with the buyer mode: the same
 		// Crystal DB feeds both, scoped by each mode's own geography rules.
-		IncludeTradeRecords: r.FormValue("market_trade_records") == "1",
+		IncludeTradeRecords:         r.FormValue("market_trade_records") == "1",
+		TradeSupplierLimit:          parseBoundedInt(r.FormValue("market_trade_supplier_limit"), 20, 20, 40),
+		TradeSellerIncludeImporters: r.FormValue("market_trade_sides") == "suppliers_and_importers",
 		// The operator's pick from the trade-product matcher; empty lets the
 		// run resolve the activity onto the DB vocabulary itself. The seller
 		// and buyer sections share one form, so each mode carries its own

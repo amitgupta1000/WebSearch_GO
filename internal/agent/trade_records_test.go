@@ -485,10 +485,9 @@ func TestTradeDBPartnerLimitCapsTheSections(t *testing.T) {
 	}
 }
 
-// TestTradeDBPartnerLimitCapsEachSection pins the budget per section: the
-// sections are mutually exclusive by geography (India runs query importers;
-// single-region and global runs query suppliers), and each is capped at the
-// per-section partner budget.
+// TestTradeDBPartnerLimitCapsEachSection pins seller-mode supplier discovery:
+// seller reports never publish importer rows, and supplier results are capped
+// at the configured partner budget.
 func TestTradeDBPartnerLimitCapsEachSection(t *testing.T) {
 	var importerPartners []models.TradePartner
 	for i := 1; i <= 5; i++ {
@@ -510,10 +509,12 @@ func TestTradeDBPartnerLimitCapsEachSection(t *testing.T) {
 	agent := NewMarketLandscapeAgent(engine)
 	eventCh := make(chan models.AgentEvent, 32)
 
-	// India run: importers only, capped at two.
+	// India seller run with both sides selected: suppliers are out of scope,
+	// while the importer section is capped independently at two.
 	india := &models.MarketLandscapeReport{}
 	agent.attachTradePartners(context.Background(), models.MarketLandscapeQuery{
 		Activity: "caustic soda", Countries: []string{"India"}, IncludeTradeRecords: true,
+		TradeSellerIncludeImporters: true,
 	}, india, eventCh)
 	if len(india.TradeImporters) != 2 {
 		t.Fatalf("India importers = %d, want the cap of 2", len(india.TradeImporters))

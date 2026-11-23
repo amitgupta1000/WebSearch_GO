@@ -299,6 +299,18 @@
                             <label><input type="checkbox" name="market_trade_records" value="1" class="mr-1 accent-indigo-500"
                                       hx-post="/api/trade/product-match" hx-trigger="change" hx-include="closest form"
                                       hx-target="#trade-product-market-result" hx-swap="innerHTML"> Include Crystal trade records (slow, opt-in)</label>
+                            <label>Supplier results
+                                <select name="market_trade_supplier_limit" class="ml-1 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-white">
+                                    <option value="20" selected>Top 20</option>
+                                    <option value="40">Top 40</option>
+                                </select>
+                            </label>
+                            <label>TradeDB sides
+                                <select name="market_trade_sides" class="ml-1 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-white">
+                                    <option value="suppliers" selected>Show Suppliers</option>
+                                    <option value="suppliers_and_importers">Show Suppliers + Importers</option>
+                                </select>
+                            </label>
                         </div>
                         <div class="sm:col-span-2" id="trade-product-market">
                             <label class="text-xs font-medium text-slate-400">Trade DB product name (searchable)</label>

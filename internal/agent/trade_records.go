@@ -498,14 +498,8 @@ func (a *DemandChainAgent) attachTradeImporters(ctx context.Context, query model
 }
 
 // attachTradePartners populates the seller report's first-party sections when
-// the run opted in. The two collections run concurrently — the DB's ranking
-// queries are slow, and each is bounded by the client's own semaphore and the
-// collection timeout. The importer section needs a scope that contains India;
-// the supplier section needs a single origin scope (a named region is expanded to
-// its member countries) and falls back to the unscoped ranking for global or
-// multi-region runs. Each section is capped at the partner budget on its own, so
-// a seller report is guaranteed the full importer head and the full supplier
-// head rather than one shared budget.
+// the run opts in. Suppliers are always included; importers are included only
+// when the operator explicitly selects both sides.
 func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query models.MarketLandscapeQuery, report *models.MarketLandscapeReport, eventCh chan<- models.AgentEvent) {
 	if !query.IncludeTradeRecords {
 		return
@@ -515,7 +509,10 @@ func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query mo
 		report.Warnings = append(report.Warnings, "Trade records were requested, but the trade DB API is not configured on this deployment.")
 		return
 	}
-	limit := a.engine.TradeDBPartnerLimit()
+	limit := query.TradeSupplierLimit
+	if limit != 20 && limit != 40 {
+		limit = a.engine.TradeDBPartnerLimit()
+	}
 	// The product name resolves first — this is the run's first trade-DB
 	// touch. The vocabulary match is what stands between the operator's
 	// "n-butanol" and the DB's "N BUTANOL (NBA)"; every outcome is emitted
@@ -528,15 +525,18 @@ func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query mo
 		importerWarn []string
 		supplierWarn []string
 	)
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		importers, importerWarn = collectTradeImporters(ctx, client, product, limit, query.Countries, query.Regions, eventCh)
-	}()
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		suppliers, supplierWarn = collectTradeSuppliers(ctx, client, product, limit, query.Countries, query.Regions, eventCh)
 	}()
+	if query.TradeSellerIncludeImporters {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			importers, importerWarn = collectTradeImporters(ctx, client, product, limit, query.Countries, query.Regions, eventCh)
+		}()
+	}
 	wg.Wait()
 	report.Warnings = append(report.Warnings, importerWarn...)
 	report.Warnings = append(report.Warnings, supplierWarn...)

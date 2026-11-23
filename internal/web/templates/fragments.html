@@ -213,9 +213,14 @@
 	</div>
 	<div class="text-xs text-emerald-300">{{$company.Activity}}{{if $company.Role}} · {{$company.Role}}{{end}}</div>
 	<div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400"><div><span class="text-slate-600">Domain</span><br>{{if $company.Domain}}{{$company.Domain}}{{else}}Not established{{end}}</div><div><span class="text-slate-600">Geography</span><br>{{if $company.PresenceCountry}}{{$company.PresenceCountry}}{{else if $company.Country}}{{$company.Country}}{{else}}Not established{{end}}</div><div><span class="text-slate-600">Employees</span><br>{{if $company.Employees}}{{$company.Employees}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Turnover</span><br>{{if $company.Turnover}}{{$company.Turnover}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Financial year</span><br>{{if $company.FinancialYear}}{{$company.FinancialYear}}{{else}}Not stated{{end}}</div><div><span class="text-slate-600">Evidence</span><br>{{len $company.Evidence}} qualifying record(s)</div><div><span class="text-slate-600">Confidence</span><br>{{printf "%.0f" (mul $company.Confidence 100)}}%</div></div>
-	{{if $company.Description}}<p class="text-xs text-slate-300 leading-relaxed">{{$company.Description}}</p>{{else}}<p class="text-xs text-slate-500">No descriptive summary was available in the collected snippets.</p>{{end}}
+	{{if $company.Trade}}<div class="flex flex-wrap gap-2 text-[10px] text-teal-300">
+		<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.Trade.TransactionCount}} shipment(s)</span>
+		<span class="rounded-full border border-teal-900 px-2 py-0.5">USD {{printf "%.0f" .Trade.TotalValueUSD}}</span>
+		<span class="rounded-full border border-teal-900 px-2 py-0.5">{{printf "%.0f" .Trade.TotalQuantityMT}} MT</span>
+		<span class="rounded-full border border-teal-900 px-2 py-0.5">rank #{{.Trade.Rank}}</span>
+	</div>{{else if $company.Description}}<p class="text-xs text-slate-300 leading-relaxed">{{$company.Description}}</p>{{else}}<p class="text-xs text-slate-500">No descriptive summary was available in the collected snippets.</p>{{end}}
 	{{if $company.MetricsSource}}<a href="{{$company.MetricsSource}}" target="_blank" rel="noreferrer" class="block text-[11px] text-emerald-400 hover:underline break-all">Metrics source</a>{{end}}
-	{{template "market_sources" $company.Evidence}}
+	{{if not $company.Trade}}{{template "market_sources" $company.Evidence}}{{end}}
 </div>
 {{end}}
 
@@ -624,22 +629,26 @@
 <div class="space-y-2">
 <div class="rounded-lg border border-teal-900/50 bg-teal-950/20 p-3 text-[11px] text-slate-300 space-y-2">
 	{{if not .Background.Present}}<p class="text-amber-300">No exact customs-entity match for {{.Company}}{{if .Background.NameVariants}} — closest spellings: {{range $i, $v := .Background.NameVariants}}{{if $i}} · {{end}}{{$v}}{{end}}{{end}}.</p>{{end}}
-	<div class="flex flex-wrap items-center justify-between gap-2">
-		<span class="text-teal-300 font-medium">{{if .Background.MatchedName}}Crystal customs profile — {{.Background.MatchedName}}{{else}}Crystal customs profile{{end}}</span>
-		{{range .Background.Directions}}<span class="text-[10px] rounded-full border border-teal-800 px-2 py-0.5 text-teal-200">{{.}}</span>{{end}}
-	</div>
-	<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
+	{{range .Background.Sides}}<div class="border border-slate-800 rounded-md p-3 space-y-2">
+		<div class="text-teal-300 font-medium">{{.Direction}} side — {{.MatchedName}}</div>
+		<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
+			{{if .GlobalRank}}<span class="rounded-full border border-teal-900 px-2 py-0.5">rank #{{.GlobalRank}} among the profiled top set</span>{{end}}
+			{{if .TransactionCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.TransactionCount}} shipment(s)</span>{{end}}
+			{{if .ProductCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.ProductCount}} product(s)</span>{{end}}
+			{{if .TotalValueUSD}}<span class="rounded-full border border-teal-900 px-2 py-0.5">USD {{printf "%.0f" .TotalValueUSD}}</span>{{end}}
+			{{if .TotalQuantityMT}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{printf "%.0f" .TotalQuantityMT}} MT</span>{{end}}
+		</div>
+		{{if .TopProducts}}<div><div class="text-slate-400">Product mix (by shipments):</div>
+			<table class="w-full mt-1 text-[10px] text-slate-300"><thead><tr class="text-slate-500"><th class="text-left">Product</th><th class="text-right">Shipments</th><th class="text-right">Value (USD)</th><th class="text-right">Quantity (MT)</th></tr></thead>
+			<tbody>{{range .TopProducts}}<tr class="border-t border-slate-800"><td>{{.Name}}</td><td class="text-right">{{.TransactionCount}}</td><td class="text-right">{{printf "%.0f" .TotalValueUSD}}</td><td class="text-right">{{printf "%.0f" .TotalQuantityMT}}</td></tr>{{end}}</tbody></table>
+		</div>{{end}}
+	</div>{{end}}
+	{{if not .Background.Sides}}<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
 		{{if .Background.GlobalRank}}<span class="rounded-full border border-teal-900 px-2 py-0.5">rank #{{.Background.GlobalRank}} among the profiled top set</span>{{end}}
 		{{if .Background.TransactionCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.Background.TransactionCount}} shipment(s)</span>{{end}}
 		{{if .Background.ProductCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.Background.ProductCount}} product(s)</span>{{end}}
 		{{if .Background.TotalValueUSD}}<span class="rounded-full border border-teal-900 px-2 py-0.5">USD {{printf "%.0f" .Background.TotalValueUSD}}</span>{{end}}
 		{{if .Background.TotalQuantityMT}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{printf "%.0f" .Background.TotalQuantityMT}} MT</span>{{end}}
-	</div>
-	{{if and (not .Background.GlobalRank) (not .Background.TransactionCount) (not .Background.TopProducts)}}<p class="text-[10px] text-slate-500">The DB carries no aggregate rows or product mix for this stored name — it may be outside the profiled vocabulary; pick another suggestion if one fits better.</p>{{end}}
-	{{if .Background.TopProducts}}<div>
-		<div class="text-slate-400">Product mix (by shipments):</div>
-		<table class="w-full mt-1 text-[10px] text-slate-300"><thead><tr class="text-slate-500"><th class="text-left">Product</th><th class="text-right">Shipments</th><th class="text-right">Value (USD)</th><th class="text-right">Quantity (MT)</th></tr></thead>
-		<tbody>{{range .Background.TopProducts}}<tr class="border-t border-slate-800"><td>{{.Name}}</td><td class="text-right">{{.TransactionCount}}</td><td class="text-right">{{printf "%.0f" .TotalValueUSD}}</td><td class="text-right">{{printf "%.0f" .TotalQuantityMT}}</td></tr>{{end}}</tbody></table>
 	</div>{{end}}
 	<p class="text-[10px] text-slate-500">Aggregated first-party customs records (Crystal trade DB) — an importer may equally be a reseller; the operator decides. Checked {{.Background.CheckedAt.Format "02 Jan 2006 15:04"}}. Coverage: declaration dates 01 Mar 2023 through 31 Jan 2026.</p>
 </div>
@@ -745,18 +754,28 @@
 	</div>{{end}}
 	{{if .TradeBackground}}<div class="border-t border-slate-800 pt-4 space-y-2">
 		<h4 class="text-sm font-semibold text-slate-300">Trade DB background</h4>
-		{{if .TradeBackground.Present}}<p class="text-xs text-emerald-300">Named in the Crystal customs entity vocabulary as <span class="text-emerald-200 font-mono">{{.TradeBackground.MatchedName}}</span>{{if .TradeBackground.Directions}} (side: {{range $i, $d := .TradeBackground.Directions}}{{if $i}}, {{end}}{{$d}}{{end}}){{end}}.</p>
-		<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
+		{{if .TradeBackground.Present}}<p class="text-xs text-emerald-300">Named in the Crystal customs entity vocabulary on: <span class="text-emerald-200 font-mono">{{range $i, $d := .TradeBackground.Directions}}{{if $i}} and {{end}}{{$d}}{{end}}</span>.</p>
+		{{range .TradeBackground.Sides}}<div class="border border-slate-800 rounded-md p-3 space-y-2">
+			<div class="text-xs text-slate-300 font-semibold">{{.Direction}} side: <span class="font-mono text-emerald-200">{{.MatchedName}}</span></div>
+			<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
+				{{if .GlobalRank}}<span class="rounded-full border border-teal-900 px-2 py-0.5">rank #{{.GlobalRank}} among the profiled top set</span>{{end}}
+				{{if .TransactionCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.TransactionCount}} shipment(s)</span>{{end}}
+				{{if .ProductCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.ProductCount}} product(s)</span>{{end}}
+				{{if .TotalValueUSD}}<span class="rounded-full border border-teal-900 px-2 py-0.5">USD {{printf "%.0f" .TotalValueUSD}}</span>{{end}}
+				{{if .TotalQuantityMT}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{printf "%.0f" .TotalQuantityMT}} MT</span>{{end}}
+			</div>
+			{{if .TopProducts}}<div>
+				<div class="text-[11px] text-slate-400">Product mix (by shipments):</div>
+				<table class="w-full mt-1 text-[10px] text-slate-300"><thead><tr class="text-slate-500"><th class="text-left">Product</th><th class="text-right">Shipments</th><th class="text-right">Value (USD)</th><th class="text-right">Quantity (MT)</th></tr></thead>
+				<tbody>{{range .TopProducts}}<tr class="border-t border-slate-800"><td>{{.Name}}</td><td class="text-right">{{.TransactionCount}}</td><td class="text-right">{{printf "%.0f" .TotalValueUSD}}</td><td class="text-right">{{printf "%.0f" .TotalQuantityMT}}</td></tr>{{end}}</tbody></table>
+			</div>{{end}}
+		</div>{{end}}
+		{{if not .TradeBackground.Sides}}<div class="flex flex-wrap gap-2 text-[10px] text-slate-400">
 			{{if .TradeBackground.GlobalRank}}<span class="rounded-full border border-teal-900 px-2 py-0.5">rank #{{.TradeBackground.GlobalRank}} among the profiled top set</span>{{end}}
 			{{if .TradeBackground.TransactionCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.TradeBackground.TransactionCount}} shipment(s)</span>{{end}}
 			{{if .TradeBackground.ProductCount}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{.TradeBackground.ProductCount}} product(s)</span>{{end}}
 			{{if .TradeBackground.TotalValueUSD}}<span class="rounded-full border border-teal-900 px-2 py-0.5">USD {{printf "%.0f" .TradeBackground.TotalValueUSD}}</span>{{end}}
 			{{if .TradeBackground.TotalQuantityMT}}<span class="rounded-full border border-teal-900 px-2 py-0.5">{{printf "%.0f" .TradeBackground.TotalQuantityMT}} MT</span>{{end}}
-		</div>
-		{{if .TradeBackground.TopProducts}}<div>
-			<div class="text-[11px] text-slate-400">Product mix (by shipments):</div>
-			<table class="w-full mt-1 text-[10px] text-slate-300"><thead><tr class="text-slate-500"><th class="text-left">Product</th><th class="text-right">Shipments</th><th class="text-right">Value (USD)</th><th class="text-right">Quantity (MT)</th></tr></thead>
-			<tbody>{{range .TradeBackground.TopProducts}}<tr class="border-t border-slate-800"><td>{{.Name}}</td><td class="text-right">{{.TransactionCount}}</td><td class="text-right">{{printf "%.0f" .TotalValueUSD}}</td><td class="text-right">{{printf "%.0f" .TotalQuantityMT}}</td></tr>{{end}}</tbody></table>
 		</div>{{end}}
 		{{else}}<p class="text-xs text-slate-500">No exact match in the Crystal customs entity vocabulary{{if .TradeBackground.Note}} — {{.TradeBackground.Note}}{{end}}.</p>{{end}}
 		{{if .TradeBackground.NameVariants}}<p class="text-xs text-slate-500">Closest customs names: {{range $i, $v := .TradeBackground.NameVariants}}{{if $i}} · {{end}}{{$v}}{{end}}</p>{{end}}

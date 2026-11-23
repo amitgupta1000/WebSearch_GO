@@ -26,6 +26,11 @@ type MarketLandscapeQuery struct {
 	// is the difference between zero rows and the top ranking — and falls
 	// back to the raw activity when the vocabulary names nothing close.
 	TradeProduct string `json:"trade_product,omitempty"`
+	// TradeSupplierLimit controls the seller-mode TradeDB supplier head.
+	TradeSupplierLimit int `json:"trade_supplier_limit,omitempty"`
+	// TradeSellerIncludeImporters enables the separate importer section in
+	// seller mode; suppliers remain the default seller-side discovery.
+	TradeSellerIncludeImporters bool `json:"trade_seller_include_importers,omitempty"`
 	// OntologyNode is the operator's confirmation from the ontology picker: the
 	// graph node the activity means. When set it anchors the value-chain step
 	// directly, without re-reading the activity text, which is what produced the
@@ -192,7 +197,7 @@ type MarketLandscapeCompany struct {
 	KeyPeopleSources map[string]string `json:"key_people_sources,omitempty"`
 	// Trade carries the first-party customs record the row was built from
 	// when the run opted into the trade DB. Nil for web-discovered rows.
-	Trade    *TradePartner             `json:"trade,omitempty"`
+	Trade *TradePartner `json:"trade,omitempty"`
 	// TradeProfile carries the verified row's aggregated customs profile
 	// (shipments, value, product mix) when the run enriched it. Nil unless
 	// the trade DB is configured and the row was verified.
