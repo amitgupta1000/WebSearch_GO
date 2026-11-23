@@ -24,7 +24,7 @@ import (
 // SchemaVersion is the document contract. A file declaring another version is
 // refused rather than guessed at: the reviewer's tooling must agree with the
 // runtime about what a field means.
-const SchemaVersion = 1
+const SchemaVersion = 3
 
 // Kind is the node type. The four kinds are the operator's entry tiers plus the
 // value chain's leaves.
@@ -124,7 +124,10 @@ type Node struct {
 	Hypernym bool     `json:"hypernym,omitempty"`
 	Hyponyms []string `json:"hyponyms,omitempty"`
 	// IsIntermediate marks a salable family that is itself consumed onward.
-	IsIntermediate bool `json:"is_intermediate,omitempty"`
+	IsIntermediate    bool   `json:"is_intermediate,omitempty"`
+	TransportProfile  string `json:"transport_profile,omitempty"`
+	MerchantLiquidity string `json:"merchant_liquidity,omitempty"`
+	TraversalPolicy   string `json:"traversal_policy,omitempty"`
 
 	Status     Status `json:"status"`
 	Source     string `json:"source,omitempty"`
@@ -142,20 +145,23 @@ type Correction struct {
 	// Delete removes the node. Dangling references are caught by the linter.
 	Delete bool `json:"delete,omitempty"`
 
-	Aliases         *[]string `json:"aliases,omitempty"`
-	HSCodes         *[]string `json:"hs_codes,omitempty"`
-	Parent          *string   `json:"parent,omitempty"`
-	Categories      *[]string `json:"categories,omitempty"`
-	DerivedTo       *[]string `json:"derived_to,omitempty"`
-	ConsumedIn      *[]string `json:"consumed_in,omitempty"`
-	OperatesOn      *[]string `json:"operates_on,omitempty"`
-	Produces        *[]string `json:"produces,omitempty"`
-	Consumes        *[]string `json:"consumes,omitempty"`
-	OperatorPhrases *[]string `json:"operator_phrases,omitempty"`
-	SearchTerms     *[]string `json:"search_terms,omitempty"`
-	Hypernym        *bool     `json:"hypernym,omitempty"`
-	Hyponyms        *[]string `json:"hyponyms,omitempty"`
-	IsIntermediate  *bool     `json:"is_intermediate,omitempty"`
+	Aliases           *[]string `json:"aliases,omitempty"`
+	HSCodes           *[]string `json:"hs_codes,omitempty"`
+	Parent            *string   `json:"parent,omitempty"`
+	Categories        *[]string `json:"categories,omitempty"`
+	DerivedTo         *[]string `json:"derived_to,omitempty"`
+	ConsumedIn        *[]string `json:"consumed_in,omitempty"`
+	OperatesOn        *[]string `json:"operates_on,omitempty"`
+	Produces          *[]string `json:"produces,omitempty"`
+	Consumes          *[]string `json:"consumes,omitempty"`
+	OperatorPhrases   *[]string `json:"operator_phrases,omitempty"`
+	SearchTerms       *[]string `json:"search_terms,omitempty"`
+	Hypernym          *bool     `json:"hypernym,omitempty"`
+	Hyponyms          *[]string `json:"hyponyms,omitempty"`
+	IsIntermediate    *bool     `json:"is_intermediate,omitempty"`
+	TransportProfile  *string   `json:"transport_profile,omitempty"`
+	MerchantLiquidity *string   `json:"merchant_liquidity,omitempty"`
+	TraversalPolicy   *string   `json:"traversal_policy,omitempty"`
 
 	Status     *Status `json:"status,omitempty"`
 	Source     *string `json:"source,omitempty"`
@@ -392,6 +398,15 @@ func (n *Node) apply(c *Correction) {
 	}
 	if c.IsIntermediate != nil {
 		n.IsIntermediate = *c.IsIntermediate
+	}
+	if c.TransportProfile != nil {
+		n.TransportProfile = *c.TransportProfile
+	}
+	if c.MerchantLiquidity != nil {
+		n.MerchantLiquidity = *c.MerchantLiquidity
+	}
+	if c.TraversalPolicy != nil {
+		n.TraversalPolicy = *c.TraversalPolicy
 	}
 	if c.Status != nil {
 		n.Status = *c.Status

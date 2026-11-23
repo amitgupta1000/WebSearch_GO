@@ -10,17 +10,20 @@ import (
 // only the fields a prompt needs to reason about relations, and only node IDs —
 // never free-text chemistry the model could misread.
 type LexiconNode struct {
-	ID         string   `json:"id"`
-	Kind       Kind     `json:"kind"`
-	Label      string   `json:"label"`
-	Parent     string   `json:"parent,omitempty"`
-	Aliases    []string `json:"aliases,omitempty"`
-	Categories []string `json:"categories,omitempty"`
-	DerivedTo  []string `json:"derived_to,omitempty"`
-	ConsumedIn []string `json:"consumed_in,omitempty"`
-	OperatesOn []string `json:"operates_on,omitempty"`
-	Produces   []string `json:"produces,omitempty"`
-	Status     Status   `json:"status"`
+	ID                string   `json:"id"`
+	Kind              Kind     `json:"kind"`
+	Label             string   `json:"label"`
+	Parent            string   `json:"parent,omitempty"`
+	Aliases           []string `json:"aliases,omitempty"`
+	Categories        []string `json:"categories,omitempty"`
+	DerivedTo         []string `json:"derived_to,omitempty"`
+	ConsumedIn        []string `json:"consumed_in,omitempty"`
+	OperatesOn        []string `json:"operates_on,omitempty"`
+	Produces          []string `json:"produces,omitempty"`
+	TransportProfile  string   `json:"transport_profile,omitempty"`
+	MerchantLiquidity string   `json:"merchant_liquidity,omitempty"`
+	TraversalPolicy   string   `json:"traversal_policy,omitempty"`
+	Status            Status   `json:"status"`
 }
 
 // Lexicon is the bounded subgraph the prompts may reference. It is the answer to
@@ -83,7 +86,9 @@ func (o *Ontology) Subgraph(ids []string, hops int) *Lexicon {
 			ID: current.id, Kind: node.Kind, Label: node.Label, Parent: node.Parent,
 			Aliases: node.Aliases, Categories: node.Categories, DerivedTo: node.DerivedTo,
 			ConsumedIn: node.ConsumedIn, OperatesOn: node.OperatesOn, Produces: node.Produces,
-			Status: node.Status,
+			TransportProfile: node.TransportProfile, MerchantLiquidity: node.MerchantLiquidity,
+			TraversalPolicy: node.TraversalPolicy,
+			Status:          node.Status,
 		})
 		if current.distance >= hops {
 			continue

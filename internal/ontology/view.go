@@ -37,14 +37,17 @@ const DefaultViewHops = 2
 
 // ViewNode is one rendered node.
 type ViewNode struct {
-	ID      string   `json:"id"`
-	Kind    Kind     `json:"kind"`
-	Label   string   `json:"label"`
-	Status  Status   `json:"status"`
-	Source  string   `json:"source,omitempty"`
-	Aliases []string `json:"aliases,omitempty"`
-	HSCodes []string `json:"hs_codes,omitempty"`
-	Note    string   `json:"expert_note,omitempty"`
+	ID                string   `json:"id"`
+	Kind              Kind     `json:"kind"`
+	Label             string   `json:"label"`
+	Status            Status   `json:"status"`
+	Source            string   `json:"source,omitempty"`
+	Aliases           []string `json:"aliases,omitempty"`
+	HSCodes           []string `json:"hs_codes,omitempty"`
+	Note              string   `json:"expert_note,omitempty"`
+	TransportProfile  string   `json:"transport_profile,omitempty"`
+	MerchantLiquidity string   `json:"merchant_liquidity,omitempty"`
+	TraversalPolicy   string   `json:"traversal_policy,omitempty"`
 	// Ring is the hop distance from the seed, or the taxonomy depth for the whole
 	// graph. It drives the layout and the legend.
 	Ring int `json:"ring"`
@@ -387,7 +390,9 @@ func (o *Ontology) selectView(seeds []string, hops int, kinds map[Kind]bool, edg
 			ID: id, Kind: node.Kind, Label: node.Label, Status: node.Status,
 			Source: node.Source, Aliases: cloneStrings(node.Aliases),
 			HSCodes: cloneStrings(node.HSCodes), Note: node.ExpertNote,
-			Ring: ring[id],
+			TransportProfile: node.TransportProfile, MerchantLiquidity: node.MerchantLiquidity,
+			TraversalPolicy: node.TraversalPolicy,
+			Ring:            ring[id],
 		})
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })

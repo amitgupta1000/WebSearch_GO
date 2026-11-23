@@ -12,7 +12,7 @@
       ],
       "parent": "cat:esters",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -24,7 +24,7 @@
         "mineral acids"
       ],
       "parent": "cat:inorganics",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -37,7 +37,7 @@
       ],
       "parent": "cat:esters",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -49,7 +49,7 @@
         "oxo alcohols"
       ],
       "parent": "cat:alcohols",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -64,7 +64,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -79,7 +79,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -92,7 +92,7 @@
         "carbonates"
       ],
       "parent": "cat:inorganics",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -105,7 +105,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -118,7 +118,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -129,7 +129,7 @@
         "anionic surfactant"
       ],
       "parent": "cat:surfactants",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -140,7 +140,7 @@
         "aromatic solvent"
       ],
       "parent": "cat:solvents",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -153,7 +153,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -166,7 +166,7 @@
       ],
       "parent": "cat:lubricants",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -192,7 +192,7 @@
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -206,7 +206,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -220,7 +220,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -231,7 +231,7 @@
         "chemical"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -245,7 +245,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -258,7 +258,7 @@
       ],
       "parent": "cat:chemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -269,7 +269,7 @@
         "epoxy systems"
       ],
       "parent": "cat:polymers",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -280,7 +280,7 @@
         "ester solvent"
       ],
       "parent": "cat:solvents",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -295,7 +295,7 @@
         "end:metalworking-fluids"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -308,7 +308,7 @@
       ],
       "parent": "cat:amines",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -322,7 +322,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -337,7 +337,7 @@
       ],
       "parent": "cat:surfactants",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -368,7 +368,7 @@
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -376,12 +376,11 @@
       "kind": "category",
       "label": "Fatty alcohols",
       "aliases": [
-        "fatty alcohol",
         "oleochemical alcohols"
       ],
       "parent": "cat:alcohols",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -395,7 +394,7 @@
         "hydraulic oil"
       ],
       "parent": "cat:lubricants",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -407,7 +406,7 @@
         "middle distillates"
       ],
       "parent": "cat:petrochemicals",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -420,7 +419,7 @@
       ],
       "parent": "cat:ethers",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -433,7 +432,7 @@
       ],
       "parent": "cat:alcohols",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -445,7 +444,7 @@
       ],
       "parent": "cat:chemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -457,7 +456,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -469,7 +468,7 @@
         "ketones"
       ],
       "parent": "cat:solvents",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -485,7 +484,7 @@
         "end:metalworking-fluids"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -499,7 +498,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -510,7 +509,7 @@
         "nonionic surfactant"
       ],
       "parent": "cat:surfactants",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -530,7 +529,7 @@
       ],
       "traversal_policy": "lexical_only",
       "expert_note": "Lexical hypernym only; never traverse during causal propagation.",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -543,7 +542,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -565,7 +564,7 @@
         "proc:transesterification"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -578,7 +577,7 @@
       ],
       "parent": "cat:chemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -591,7 +590,7 @@
       ],
       "parent": "cat:chemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -609,7 +608,7 @@
         "end:cable-wire"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -624,7 +623,7 @@
       ],
       "parent": "cat:petrochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -635,7 +634,7 @@
         "polyolefin"
       ],
       "parent": "cat:polymers",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -649,7 +648,7 @@
       ],
       "parent": "cat:polymers",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -660,7 +659,7 @@
         "polyvinyl chloride"
       ],
       "parent": "cat:polymers",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -668,12 +667,11 @@
       "kind": "category",
       "label": "Soap bases",
       "aliases": [
-        "soap noodles",
         "toilet soap base"
       ],
       "parent": "cat:oleochemicals",
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -690,7 +688,7 @@
         "end:adhesives-sealants"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -702,7 +700,7 @@
         "styrenic resins"
       ],
       "parent": "cat:polymers",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -720,7 +718,7 @@
         "end:personal-care"
       ],
       "is_intermediate": true,
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -755,7 +753,7 @@
         "sealant manufacturer",
         "adhesive plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -793,7 +791,7 @@
         "agrochemical manufacturer",
         "pharma intermediate plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -819,7 +817,7 @@
         "automotive compounder",
         "appliance manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -839,7 +837,7 @@
         "fuel blending terminal",
         "biodiesel supplier"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -859,7 +857,7 @@
         "wire and cable plant",
         "cable compound producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -884,7 +882,7 @@
         "construction chemical plant",
         "pce superplasticizer producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -906,7 +904,7 @@
         "antifreeze blender",
         "antifreeze plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -935,7 +933,7 @@
         "detergent plant",
         "home care manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -961,7 +959,7 @@
         "fertilizer plant",
         "npk blending plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -985,7 +983,7 @@
         "pu foam plant",
         "mattress foam producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1010,7 +1008,7 @@
         "feed additive blender",
         "food ingredient plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1031,7 +1029,7 @@
         "float glass plant",
         "glass factory"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1051,7 +1049,7 @@
         "grease plant",
         "lubricating grease producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1077,7 +1075,7 @@
         "cutting fluid plant",
         "coolant manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1105,7 +1103,7 @@
         "spandex manufacturer",
         "acrylic fiber producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1129,7 +1127,7 @@
         "film extrusion plant",
         "flexible packaging manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1194,7 +1192,7 @@
         "paint factory",
         "industrial coatings plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1223,7 +1221,7 @@
         "cosmetic ingredient supplier",
         "toiletries plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium"
     },
@@ -1246,7 +1244,7 @@
         "pvc pipe extruder",
         "plastic pipe plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1274,7 +1272,7 @@
         "pet resin manufacturer",
         "polyester yarn producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1299,7 +1297,7 @@
         "masterbatch plant",
         "cable compound manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1325,7 +1323,7 @@
         "phenolic resin plant",
         "melamine resin producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1345,7 +1343,7 @@
         "insulation panel manufacturer",
         "pu insulation plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -1367,7 +1365,7 @@
         "soap plant",
         "toilet soap producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1385,7 +1383,7 @@
         "sap plant",
         "hygiene absorbent manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -1411,7 +1409,7 @@
         "rubber compounder",
         "synthetic rubber plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1438,7 +1436,7 @@
         "fuel oil blending",
         "blending plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1469,7 +1467,7 @@
         "aromatics complex",
         "btx plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1494,7 +1492,7 @@
         "caustic soda plant",
         "chlorine producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1517,7 +1515,7 @@
         "compound plant",
         "masterbatch producer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -1546,7 +1544,7 @@
         "olefin plant",
         "ethane cracker"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1570,7 +1568,7 @@
         "distillation plant",
         "fractionation plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium"
     },
@@ -1606,7 +1604,7 @@
         "ester plant",
         "esterification unit"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1637,7 +1635,7 @@
         "alkoxylation unit",
         "surfactant plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1661,7 +1659,7 @@
         "oleochemical splitting",
         "fatty acid plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1687,7 +1685,7 @@
         "blending and filling plant",
         "contract manufacturer"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium"
     },
@@ -1709,7 +1707,7 @@
         "hda unit",
         "benzene plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium"
     },
@@ -1736,7 +1734,7 @@
         "fatty alcohol plant",
         "cyclohexane unit"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1762,7 +1760,7 @@
         "methanol to olefins",
         "cto complex"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1797,7 +1795,7 @@
         "polymerization plant",
         "resin plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1825,7 +1823,7 @@
         "crude oil refining",
         "refinery operator"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1851,7 +1849,7 @@
         "saponification plant",
         "soap base plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1878,7 +1876,7 @@
         "labsa plant",
         "sles plant"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1906,7 +1904,7 @@
         "transesterification plant",
         "biodiesel refinery"
       ],
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1933,7 +1931,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1963,7 +1961,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -1988,7 +1986,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2025,7 +2023,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2054,7 +2052,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2086,7 +2084,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2112,7 +2110,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2139,7 +2137,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2164,7 +2162,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2191,7 +2189,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2230,7 +2228,7 @@
       ],
       "transport_profile": "cryogenic_gas",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2251,7 +2249,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2278,7 +2276,7 @@
       ],
       "transport_profile": "product_or_crude_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -2307,7 +2305,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2334,7 +2332,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2356,7 +2354,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2379,7 +2377,7 @@
       ],
       "transport_profile": "cryogenic_gas",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2409,7 +2407,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2433,7 +2431,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2457,7 +2455,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -2483,7 +2481,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2508,7 +2506,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2533,7 +2531,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2563,7 +2561,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2581,7 +2579,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2614,7 +2612,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2638,7 +2636,7 @@
       ],
       "transport_profile": "pipeline_or_captive",
       "merchant_liquidity": "captive",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2665,7 +2663,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2694,7 +2692,7 @@
       ],
       "transport_profile": "vegetable_oil_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2725,7 +2723,7 @@
       ],
       "transport_profile": "product_or_crude_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2747,7 +2745,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -2771,7 +2769,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2795,7 +2793,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2823,7 +2821,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2846,7 +2844,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2871,7 +2869,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Byproduct dicarboxylic acid mixture (adipic/glutaric/succinic) from adipic acid manufacture; traded as DBA flakes or liquid for polyester polyols, DBE solvents, and coatings."
@@ -2893,7 +2891,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -2919,7 +2917,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2945,7 +2943,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2968,7 +2966,7 @@
       ],
       "transport_profile": "product_or_crude_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -2992,7 +2990,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3016,7 +3014,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3038,7 +3036,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3062,7 +3060,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3085,7 +3083,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3110,7 +3108,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3135,7 +3133,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3156,7 +3154,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3179,7 +3177,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3202,7 +3200,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3224,7 +3222,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3247,7 +3245,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3273,7 +3271,7 @@
       ],
       "transport_profile": "cryogenic_gas",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3304,7 +3302,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3326,7 +3324,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -3344,7 +3342,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -3378,7 +3376,7 @@
       ],
       "transport_profile": "cryogenic_gas",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3402,7 +3400,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3426,7 +3424,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3465,7 +3463,7 @@
       ],
       "transport_profile": "pipeline_or_captive",
       "merchant_liquidity": "captive",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3495,7 +3493,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3522,7 +3520,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "low",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3547,7 +3545,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3574,7 +3572,7 @@
       ],
       "transport_profile": "product_or_crude_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3605,7 +3603,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3630,7 +3628,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3652,7 +3650,7 @@
       ],
       "transport_profile": "specialized_acid_tanker",
       "merchant_liquidity": "low",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3678,7 +3676,7 @@
       ],
       "transport_profile": "pipeline_or_captive",
       "merchant_liquidity": "captive",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3699,7 +3697,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3722,7 +3720,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3749,7 +3747,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3773,7 +3771,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3797,7 +3795,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3820,7 +3818,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3844,7 +3842,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3868,7 +3866,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3890,7 +3888,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3919,7 +3917,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3944,7 +3942,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3967,7 +3965,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -3991,7 +3989,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4017,7 +4015,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4041,7 +4039,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4064,7 +4062,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4102,7 +4100,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4126,7 +4124,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4150,7 +4148,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4173,7 +4171,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4197,7 +4195,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4224,7 +4222,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4247,7 +4245,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4271,7 +4269,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4295,7 +4293,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4330,7 +4328,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4354,7 +4352,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4378,7 +4376,7 @@
       ],
       "transport_profile": "product_or_crude_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4406,7 +4404,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4429,7 +4427,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4465,7 +4463,7 @@
       ],
       "transport_profile": "product_or_crude_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4493,7 +4491,7 @@
       ],
       "transport_profile": "cryogenic_gas",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4515,7 +4513,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4537,7 +4535,7 @@
       ],
       "transport_profile": "specialized_acid_tanker",
       "merchant_liquidity": "low",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4561,7 +4559,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4584,7 +4582,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4614,7 +4612,7 @@
       ],
       "transport_profile": "vegetable_oil_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4645,7 +4643,7 @@
       ],
       "transport_profile": "vegetable_oil_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4668,7 +4666,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4690,7 +4688,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4715,7 +4713,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4742,7 +4740,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4760,7 +4758,7 @@
       ],
       "transport_profile": "specialized_acid_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4783,7 +4781,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4815,7 +4813,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4842,7 +4840,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4868,7 +4866,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4895,7 +4893,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4919,7 +4917,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4943,7 +4941,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4969,7 +4967,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -4993,7 +4991,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5017,7 +5015,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5053,7 +5051,7 @@
       ],
       "transport_profile": "cryogenic_gas",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5077,7 +5075,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5108,7 +5106,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "low",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5134,7 +5132,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5160,7 +5158,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5184,7 +5182,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5206,7 +5204,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -5229,7 +5227,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5252,7 +5250,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5276,7 +5274,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5298,7 +5296,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5321,7 +5319,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5347,7 +5345,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5372,7 +5370,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5400,7 +5398,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5426,7 +5424,7 @@
       ],
       "transport_profile": "specialized_acid_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5454,7 +5452,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5480,7 +5478,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high",
       "expert_note": "Pure THF (2932.11) is a liquid cyclic ether solvent/monomer; flaked solid form in commercial catalogs often denotes downstream PTMEG (3907.29) for spandex."
@@ -5506,7 +5504,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5536,7 +5534,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5559,7 +5557,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "seed",
       "confidence": "high"
     },
@@ -5582,7 +5580,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5605,7 +5603,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5630,7 +5628,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5652,7 +5650,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5679,7 +5677,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5707,7 +5705,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5733,7 +5731,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5759,7 +5757,7 @@
       ],
       "transport_profile": "cryogenic_gas",
       "merchant_liquidity": "medium",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5787,7 +5785,7 @@
       ],
       "transport_profile": "container_or_dry_bulk",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "high"
     },
@@ -5817,7 +5815,7 @@
       ],
       "transport_profile": "liquid_chemical_tanker",
       "merchant_liquidity": "high",
-      "status": "proposed",
+      "status": "approved",
       "source": "llm-review",
       "confidence": "medium"
     }

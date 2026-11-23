@@ -160,7 +160,7 @@ func TestMarketQueryReviewFamilyAnchor(t *testing.T) {
 		{activity: "Oil Blending", want: []string{"Lubricants"}},
 		{activity: "fuel oil blending", want: []string{"Fuel oils"}},
 		{activity: "soybean oil", want: []string{"Oleochemical feedstocks"}},
-		{activity: "used cooking oil", want: []string{"Oleochemical feedstocks", "Biodiesel", "Fatty acids"}},
+		{activity: "used cooking oil", want: []string{"Oleochemical feedstocks", "Biodiesel", "Fatty acids", "Alcohols and polyols"}},
 		{activity: "n-butanol", want: []string{"Alcohol solvents", "Acrylates", "Acetates", "Plasticizers", "Glycol ethers"}},
 		{activity: "unobtainium powder", want: nil},
 	}

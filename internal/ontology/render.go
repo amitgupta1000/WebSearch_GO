@@ -128,6 +128,15 @@ func titleSuffix(node ViewNode) string {
 	if len(node.HSCodes) > 0 {
 		parts = append(parts, "HS: "+strings.Join(node.HSCodes, ", "))
 	}
+	if node.TransportProfile != "" {
+		parts = append(parts, "transport: "+node.TransportProfile)
+	}
+	if node.MerchantLiquidity != "" {
+		parts = append(parts, "liquidity: "+node.MerchantLiquidity)
+	}
+	if node.TraversalPolicy != "" {
+		parts = append(parts, "traversal: "+node.TraversalPolicy)
+	}
 	if len(parts) == 0 {
 		return ""
 	}
@@ -351,6 +360,15 @@ func renderNodeTable(view *GraphView, linkPrefix string) string {
 		}
 		if codes := strings.Join(node.HSCodes, ", "); codes != "" {
 			fmt.Fprintf(&b, "<span class=\"id\">HS %s</span>", html.EscapeString(codes))
+		}
+		if node.TransportProfile != "" {
+			fmt.Fprintf(&b, "<span class=\"id\">transport: %s</span>", html.EscapeString(node.TransportProfile))
+		}
+		if node.MerchantLiquidity != "" {
+			fmt.Fprintf(&b, "<span class=\"id\">liquidity: %s</span>", html.EscapeString(node.MerchantLiquidity))
+		}
+		if node.TraversalPolicy != "" {
+			fmt.Fprintf(&b, "<span class=\"id\">traversal: %s</span>", html.EscapeString(node.TraversalPolicy))
 		}
 		fmt.Fprintf(&b, "</td><td class=\"kind-%s\">%s</td><td>%d</td><td>%d</td></tr>",
 			cssToken(string(node.Kind)), html.EscapeString(string(node.Kind)), node.Ring, node.Degree)

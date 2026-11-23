@@ -191,6 +191,9 @@ func writeNodeBullet(b *strings.Builder, document *Ontology, id string) {
 	writeField("consumes", node.Consumes)
 	writeField("operator phrases", node.OperatorPhrases)
 	writeField("search terms", node.SearchTerms)
+	writeField("transport profile", []string{node.TransportProfile})
+	writeField("merchant liquidity", []string{node.MerchantLiquidity})
+	writeField("traversal policy", []string{node.TraversalPolicy})
 	if node.Hypernym {
 		writeField("ranked variants", node.Hyponyms)
 	}
@@ -307,6 +310,9 @@ func nodeFields(node *Node) [][2]string {
 		{"operator_phrases", strings.Join(node.OperatorPhrases, "; ")},
 		{"search_terms", strings.Join(node.SearchTerms, "; ")},
 		{"hyponyms", strings.Join(node.Hyponyms, "; ")},
+		{"transport_profile", node.TransportProfile},
+		{"merchant_liquidity", node.MerchantLiquidity},
+		{"traversal_policy", node.TraversalPolicy},
 		{"status", string(node.Status)},
 		{"source", node.Source},
 		{"confidence", node.Confidence},
@@ -320,5 +326,3 @@ func revisionOf(document *Ontology) string {
 	}
 	return document.Revision
 }
-
-
