@@ -102,10 +102,12 @@ func RenderSVG(view *GraphView, options SVGOptions) string {
 		fmt.Fprintf(&b, `<title>%s — %s (%s)%s</title>`, html.EscapeString(node.Label), html.EscapeString(string(node.Kind)), html.EscapeString(node.ID), titleSuffix(node))
 		fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" fill-opacity="0.9" stroke="%s" stroke-width="%.1f"/>`,
 			x, y, nodeRadius, colour, statusStroke(node.Status), statusWidth(node.Status))
+		labelClass := "kg-node-label-on-hover"
 		if options.LabelAll || node.Ring <= 1 || node.Degree >= 6 {
-			fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" text-anchor="middle" font-size="13" fill="#e2e8f0">%s</text>`,
-				x, y-nodeRadius-6, html.EscapeString(node.Label))
+			labelClass = "kg-node-label-visible"
 		}
+		fmt.Fprintf(&b, `<text class="kg-node-label %s" x="%.1f" y="%.1f" text-anchor="middle" font-size="13" fill="#e2e8f0">%s</text>`,
+			labelClass, x, y-nodeRadius-6, html.EscapeString(node.Label))
 		if options.LinkPrefix != "" {
 			b.WriteString(`</a>`)
 		}
@@ -396,6 +398,8 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 420px)
 .hint { margin: 0 0 .45rem; color: #64748b; font-size: .74rem; }
 .kg-svg { width: 100%; height: auto; display: block; }
 .kg-node text { paint-order: stroke; stroke: #020617; stroke-width: 4px; stroke-linejoin: round; font-weight: 500; }
+.kg-node-label-on-hover { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+.kg-node:hover .kg-node-label-on-hover, .kg-node:focus-within .kg-node-label-on-hover { opacity: 1; }
 .kg-node a:hover circle, .kg-node a:focus-visible circle { stroke: #f8fafc; stroke-width: 3; }
 .kg-node a:focus-visible { outline: none; }
 .kg-edge-hypernym { stroke-dasharray: 6 4; }

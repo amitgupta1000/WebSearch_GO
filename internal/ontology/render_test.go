@@ -90,21 +90,24 @@ func TestRenderPageCarriesTheChrome(t *testing.T) {
 	}
 }
 
-// TestRenderSVGLabelAllAddsLabels pins the label toggle: labelling every node
-// draws one label per node, more than the default (rings 0-1 plus hubs).
+// TestRenderSVGLabelAllAddsLabels pins the label toggle: every node has a
+// discoverable label, while LabelAll makes every label visible without hover.
 func TestRenderSVGLabelAllAddsLabels(t *testing.T) {
 	document, err := Load()
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	view := document.View(ViewOptions{})
-	defaultLabels := strings.Count(RenderSVG(view, SVGOptions{}), "<text ")
-	allLabels := strings.Count(RenderSVG(view, SVGOptions{LabelAll: true}), "<text ")
-	if allLabels != len(view.Nodes) {
-		t.Errorf("LabelAll labels = %d, want one per node (%d)", allLabels, len(view.Nodes))
+	defaultSVG := RenderSVG(view, SVGOptions{})
+	allSVG := RenderSVG(view, SVGOptions{LabelAll: true})
+	if got := strings.Count(defaultSVG, `<text class="kg-node-label`); got != len(view.Nodes) {
+		t.Errorf("default labels = %d, want one per node (%d)", got, len(view.Nodes))
 	}
-	if allLabels <= defaultLabels {
-		t.Errorf("LabelAll labels = %d, default = %d, want more", allLabels, defaultLabels)
+	if got := strings.Count(allSVG, "kg-node-label-visible"); got != len(view.Nodes) {
+		t.Errorf("visible labels = %d, want one per node (%d)", got, len(view.Nodes))
+	}
+	if strings.Contains(allSVG, "kg-node-label-on-hover") {
+		t.Error("LabelAll must not leave labels hover-only")
 	}
 }
 

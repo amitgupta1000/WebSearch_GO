@@ -60,6 +60,26 @@ func TestHandleOntologyGraphJSONServesTheSelection(t *testing.T) {
 
 // TestHandleOntologyGraphUnknownSeedIsHonest pins the failure mode: a seed the graph
 // cannot place draws everything and says so, rather than showing an empty canvas.
+func TestHandleOntologyGraphJSONUsesReadableDefaultEdges(t *testing.T) {
+	server := &Server{}
+	request := httptest.NewRequest(http.MethodGet, "/api/ontology/graph", nil)
+	response := httptest.NewRecorder()
+	server.handleOntologyGraphJSON(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var view ontology.GraphView
+	if err := json.Unmarshal(response.Body.Bytes(), &view); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, edge := range view.Edges {
+		switch edge.Type {
+		case "parent", "category", "hypernym":
+			t.Errorf("default graph includes taxonomy edge %q", edge.Type)
+		}
+	}
+}
+
 func TestHandleOntologyGraphUnknownSeedIsHonest(t *testing.T) {
 	server := &Server{}
 	request := httptest.NewRequest(http.MethodGet, "/api/ontology/graph?seed=unobtainium", nil)

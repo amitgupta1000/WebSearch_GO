@@ -72,6 +72,9 @@ func ontologyViewFromRequest(r *http.Request) (*ontology.GraphView, error) {
 			edges = append(edges, strings.TrimSpace(edge))
 		}
 	}
+	if len(edges) == 0 {
+		edges = []string{"derived_to", "consumed_in", "operates_on", "produces", "consumes"}
+	}
 	return document.View(ontology.ViewOptions{
 		Seed:         strings.TrimSpace(query.Get("seed")),
 		Hops:         hops,
