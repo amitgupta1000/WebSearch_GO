@@ -24,7 +24,7 @@ func TestLoaderRejectsUnknownFields(t *testing.T) {
 // TestMarshalIsDeterministic pins the roundtrip artifact: emitting twice gives
 // identical bytes, corrections are cleared, and hyponym rank order survives.
 func TestMarshalIsDeterministic(t *testing.T) {
-	document, err := LoadFile(filepath.Join("data", "chemicals.json"))
+	document, err := LoadFile(filepath.Join("data", "Chem_KG.json"))
 	if err != nil {
 		t.Fatalf("LoadFile: %v", err)
 	}

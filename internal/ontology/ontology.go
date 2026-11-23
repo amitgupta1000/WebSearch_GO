@@ -173,7 +173,7 @@ type Ontology struct {
 	Corrections   map[string]*Correction `json:"corrections,omitempty"`
 }
 
-//go:embed data/chemicals.json
+//go:embed data/Chem_KG.json
 var embeddedSeed []byte
 
 // Seed returns the reviewed document shipped with the binary, without applying
@@ -505,4 +505,3 @@ func normalize(value string) string {
 	}
 	return strings.TrimSpace(b.String())
 }
-

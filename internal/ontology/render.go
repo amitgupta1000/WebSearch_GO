@@ -285,7 +285,7 @@ func RenderPage(view *GraphView, options PageOptions) []byte {
 	b.WriteString(renderNodeTable(view, options.LinkPrefix))
 	b.WriteString("</aside></main>")
 	b.WriteString("<footer>Deterministic layout: rings are taxonomy depth (whole graph) or hop distance (seeded). ")
-	b.WriteString("The graph is data — curate <code>internal/ontology/data/chemicals.json</code>; the renderer knows no chemistry.</footer>")
+	b.WriteString("The graph is data — curate <code>internal/ontology/data/Chem_KG.json</code>; the renderer knows no chemistry.</footer>")
 	b.WriteString("</body></html>")
 	return []byte(b.String())
 }

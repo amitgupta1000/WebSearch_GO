@@ -66,7 +66,7 @@ func Slug(label string) string {
 }
 
 // HarvestDocument wraps harvested corrections as a document whose nodes are
-// empty, so `merge -base data/chemicals.json -patch harvested.json` folds them
+// empty, so `merge -base data/Chem_KG.json -patch harvested.json` folds them
 // onto the reviewed base without touching it by hand.
 func HarvestDocument(revision string, corrections map[string]*Correction) *Ontology {
 	if strings.TrimSpace(revision) == "" {

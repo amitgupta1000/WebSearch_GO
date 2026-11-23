@@ -1,0 +1,5825 @@
+{
+  "schema_version": 3,
+  "revision": "seed-2026-11-23-extended",
+  "notes": "Extended chemical value chain KB covering all INDIAN-EQUITIES watchlist groups and ~95 specialty/commodity chemicals, verified HS 2022 codes, transport_profile & merchant_liquidity tags, traversal_policy guards, and 100% bidirectional edge symmetry.",
+  "nodes": {
+    "cat:acetates": {
+      "kind": "category",
+      "label": "Acetates",
+      "aliases": [
+        "acetate",
+        "acetic esters"
+      ],
+      "parent": "cat:esters",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:acids": {
+      "kind": "category",
+      "label": "Inorganic acids",
+      "aliases": [
+        "inorganic acid",
+        "mineral acids"
+      ],
+      "parent": "cat:inorganics",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:acrylates": {
+      "kind": "category",
+      "label": "Acrylates",
+      "aliases": [
+        "acrylate",
+        "acrylic monomers"
+      ],
+      "parent": "cat:esters",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:alcohol-solvents": {
+      "kind": "category",
+      "label": "Alcohol solvents",
+      "aliases": [
+        "alcohol solvent",
+        "oxo alcohols"
+      ],
+      "parent": "cat:alcohols",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:alcohols": {
+      "kind": "category",
+      "label": "Alcohols and polyols",
+      "aliases": [
+        "alcohol",
+        "alcohols",
+        "polyhydric alcohols",
+        "diols"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:aliphatic-compounds": {
+      "kind": "category",
+      "label": "Aliphatic compounds",
+      "aliases": [
+        "aliphatic compound",
+        "aliphatics",
+        "paraffins",
+        "aliphatic solvents"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:alkalis": {
+      "kind": "category",
+      "label": "Alkalis and carbonates",
+      "aliases": [
+        "alkali",
+        "caustics",
+        "carbonates"
+      ],
+      "parent": "cat:inorganics",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:amides": {
+      "kind": "category",
+      "label": "Amides",
+      "aliases": [
+        "amide",
+        "aprotic amide solvents"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:amines": {
+      "kind": "category",
+      "label": "Amines",
+      "aliases": [
+        "amine",
+        "alkylamines"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:anionic-surfactants": {
+      "kind": "category",
+      "label": "Anionic surfactants",
+      "aliases": [
+        "anionic surfactant"
+      ],
+      "parent": "cat:surfactants",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:aromatic-solvents": {
+      "kind": "category",
+      "label": "Aromatic solvents",
+      "aliases": [
+        "aromatic solvent"
+      ],
+      "parent": "cat:solvents",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:aromatics": {
+      "kind": "category",
+      "label": "Aromatics",
+      "aliases": [
+        "aromatic",
+        "btx"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:base-oils": {
+      "kind": "category",
+      "label": "Base oils",
+      "aliases": [
+        "lubricant base oil",
+        "base stocks"
+      ],
+      "parent": "cat:lubricants",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:biodiesel": {
+      "kind": "category",
+      "label": "Biodiesel",
+      "aliases": [
+        "fame",
+        "fatty acid methyl ester",
+        "b100",
+        "pme",
+        "ucome",
+        "sme"
+      ],
+      "hs_codes": [
+        "3826.00"
+      ],
+      "parent": "cat:oleochemicals",
+      "consumed_in": [
+        "end:biodiesel-blend",
+        "proc:hydrogenation"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:carboxylic-acids": {
+      "kind": "category",
+      "label": "Carboxylic acids",
+      "aliases": [
+        "carboxylic acid",
+        "organic acids",
+        "polycarboxylic acids"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:chemical-intermediates": {
+      "kind": "category",
+      "label": "Organic chemical intermediates",
+      "aliases": [
+        "chemical intermediate",
+        "oxygenated intermediates",
+        "organic intermediates"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:chemicals": {
+      "kind": "category",
+      "label": "Chemicals",
+      "aliases": [
+        "chemical"
+      ],
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:chlorinated-monomers": {
+      "kind": "category",
+      "label": "Chlorinated monomers and solvents",
+      "aliases": [
+        "chlorinated monomer",
+        "chloromethanes",
+        "chlorinated hydrocarbons"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:coal-products": {
+      "kind": "category",
+      "label": "Coal products",
+      "aliases": [
+        "coal product",
+        "coal chemicals"
+      ],
+      "parent": "cat:chemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:epoxies": {
+      "kind": "category",
+      "label": "Epoxy resins",
+      "aliases": [
+        "epoxy systems"
+      ],
+      "parent": "cat:polymers",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:ester-solvents": {
+      "kind": "category",
+      "label": "Ester solvents",
+      "aliases": [
+        "ester solvent"
+      ],
+      "parent": "cat:solvents",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:esters": {
+      "kind": "category",
+      "label": "Esters",
+      "aliases": [
+        "ester"
+      ],
+      "parent": "cat:petrochemicals",
+      "consumed_in": [
+        "end:metalworking-fluids"
+      ],
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:ethanolamines": {
+      "kind": "category",
+      "label": "Ethanolamines",
+      "aliases": [
+        "alkanolamines",
+        "ethanolamines"
+      ],
+      "parent": "cat:amines",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:ethers": {
+      "kind": "category",
+      "label": "Ethers",
+      "aliases": [
+        "ether",
+        "cyclic ethers",
+        "polyethers"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:ethoxylates-propoxylates": {
+      "kind": "category",
+      "label": "Ethoxylates and propoxylates",
+      "aliases": [
+        "ethoxylates-propoxylates",
+        "alkoxylates",
+        "ethoxylates",
+        "propoxylates"
+      ],
+      "parent": "cat:surfactants",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:fatty-acids": {
+      "kind": "category",
+      "label": "Fatty acids",
+      "aliases": [
+        "fatty acid",
+        "stearic acid",
+        "oleic acid",
+        "lauric acid",
+        "palmitic acid",
+        "distilled fatty acid"
+      ],
+      "hs_codes": [
+        "3823.11",
+        "3823.12",
+        "3823.13",
+        "3823.19"
+      ],
+      "parent": "cat:oleochemicals",
+      "consumed_in": [
+        "end:soap",
+        "end:greases",
+        "proc:hydrogenation",
+        "proc:saponification"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:fatty-alcohols": {
+      "kind": "category",
+      "label": "Fatty alcohols",
+      "aliases": [
+        "fatty alcohol",
+        "oleochemical alcohols"
+      ],
+      "parent": "cat:alcohols",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:finished-lubricants": {
+      "kind": "category",
+      "label": "Finished lubricants",
+      "aliases": [
+        "finished lubricant",
+        "lubricating oil",
+        "engine oil",
+        "hydraulic oil"
+      ],
+      "parent": "cat:lubricants",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:fuel-oils": {
+      "kind": "category",
+      "label": "Fuel oils",
+      "aliases": [
+        "marine fuel",
+        "middle distillates"
+      ],
+      "parent": "cat:petrochemicals",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:glycol-ethers": {
+      "kind": "category",
+      "label": "Glycol ethers",
+      "aliases": [
+        "glycol ether",
+        "glycol ether esters"
+      ],
+      "parent": "cat:ethers",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:glycols": {
+      "kind": "category",
+      "label": "Glycols and diols",
+      "aliases": [
+        "glycol",
+        "glycols"
+      ],
+      "parent": "cat:alcohols",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:inorganics": {
+      "kind": "category",
+      "label": "Inorganics",
+      "aliases": [
+        "inorganic chemicals"
+      ],
+      "parent": "cat:chemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:isocyanates": {
+      "kind": "category",
+      "label": "Isocyanates",
+      "aliases": [
+        "isocyanate"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:ketones": {
+      "kind": "category",
+      "label": "Ketones",
+      "aliases": [
+        "ketone",
+        "ketones"
+      ],
+      "parent": "cat:solvents",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:lubricants": {
+      "kind": "category",
+      "label": "Lubricants",
+      "aliases": [
+        "lubricant"
+      ],
+      "parent": "cat:petrochemicals",
+      "consumed_in": [
+        "end:greases",
+        "end:metalworking-fluids"
+      ],
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:monomers": {
+      "kind": "category",
+      "label": "Monomers",
+      "aliases": [
+        "monomer",
+        "monomers",
+        "macromonomers"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:nonionic-surfactants": {
+      "kind": "category",
+      "label": "Nonionic surfactants",
+      "aliases": [
+        "nonionic surfactant"
+      ],
+      "parent": "cat:surfactants",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:oils": {
+      "kind": "category",
+      "label": "Oils",
+      "aliases": [
+        "oil"
+      ],
+      "parent": "cat:chemicals",
+      "hypernym": true,
+      "hyponyms": [
+        "cat:lubricants",
+        "cat:fuel-oils",
+        "sub:crude-oil",
+        "cat:oleochemical-feedstocks"
+      ],
+      "traversal_policy": "lexical_only",
+      "expert_note": "Lexical hypernym only; never traverse during causal propagation.",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:olefins": {
+      "kind": "category",
+      "label": "Olefins",
+      "aliases": [
+        "alkenes",
+        "olefin"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:oleochemical-feedstocks": {
+      "kind": "category",
+      "label": "Oleochemical feedstocks",
+      "aliases": [
+        "oleochemical feedstock",
+        "fats and oils",
+        "triglyceride feedstock",
+        "vegetable oil",
+        "vegetable oils",
+        "feedstock oil"
+      ],
+      "parent": "cat:oleochemicals",
+      "consumed_in": [
+        "proc:fat-splitting",
+        "proc:saponification",
+        "proc:transesterification"
+      ],
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:oleochemicals": {
+      "kind": "category",
+      "label": "Oleochemicals",
+      "aliases": [
+        "oleochemical",
+        "fatty chemicals"
+      ],
+      "parent": "cat:chemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:petrochemicals": {
+      "kind": "category",
+      "label": "Petrochemicals",
+      "aliases": [
+        "petrochemical",
+        "petrochemicals"
+      ],
+      "parent": "cat:chemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:plasticizers": {
+      "kind": "category",
+      "label": "Plasticizers",
+      "aliases": [
+        "plasticizer",
+        "phthalates"
+      ],
+      "parent": "cat:esters",
+      "consumed_in": [
+        "proc:compounding",
+        "end:pvc-compound",
+        "end:cable-wire"
+      ],
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:polymers": {
+      "kind": "category",
+      "label": "Polymers and resins",
+      "aliases": [
+        "polymer",
+        "polymers",
+        "resin",
+        "resins"
+      ],
+      "parent": "cat:petrochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:polyolefins": {
+      "kind": "category",
+      "label": "Polyolefins",
+      "aliases": [
+        "polyolefin"
+      ],
+      "parent": "cat:polymers",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:polyurethanes": {
+      "kind": "category",
+      "label": "Polyurethanes",
+      "aliases": [
+        "polyurethane",
+        "pu",
+        "polyurethane systems"
+      ],
+      "parent": "cat:polymers",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:pvc": {
+      "kind": "category",
+      "label": "PVC",
+      "aliases": [
+        "polyvinyl chloride"
+      ],
+      "parent": "cat:polymers",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "cat:soap": {
+      "kind": "category",
+      "label": "Soap bases",
+      "aliases": [
+        "soap noodles",
+        "toilet soap base"
+      ],
+      "parent": "cat:oleochemicals",
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:solvents": {
+      "kind": "category",
+      "label": "Solvents",
+      "aliases": [
+        "solvent"
+      ],
+      "parent": "cat:petrochemicals",
+      "consumed_in": [
+        "proc:formulation",
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:styrenics": {
+      "kind": "category",
+      "label": "Styrenic polymers",
+      "aliases": [
+        "styrenics",
+        "styrenic resins"
+      ],
+      "parent": "cat:polymers",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "cat:surfactants": {
+      "kind": "category",
+      "label": "Surfactants",
+      "aliases": [
+        "surfactant",
+        "surface active agents"
+      ],
+      "parent": "cat:petrochemicals",
+      "consumed_in": [
+        "proc:formulation",
+        "end:detergents",
+        "end:personal-care"
+      ],
+      "is_intermediate": true,
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:adhesives-sealants": {
+      "kind": "end-product",
+      "label": "Adhesives and sealants",
+      "aliases": [
+        "adhesive",
+        "sealant"
+      ],
+      "consumes": [
+        "cat:solvents",
+        "sub:butyl-acrylate",
+        "sub:2-ethylhexyl-acrylate",
+        "sub:vinyl-acetate-monomer",
+        "sub:mdi",
+        "sub:polyether-polyol",
+        "sub:epoxy-resin",
+        "sub:dicyandiamide",
+        "sub:toluene",
+        "sub:xylene",
+        "sub:solvent-mx",
+        "sub:acetone",
+        "sub:mek",
+        "sub:mibk",
+        "sub:hexane",
+        "sub:methyl-acetate",
+        "sub:tetrahydrofuran"
+      ],
+      "operator_phrases": [
+        "adhesive manufacturer",
+        "sealant manufacturer",
+        "adhesive plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:agrochemicals-pharma": {
+      "kind": "end-product",
+      "label": "Agrochemicals and pharmaceuticals",
+      "aliases": [
+        "agrochemicals",
+        "active pharmaceutical ingredients",
+        "api",
+        "crop protection"
+      ],
+      "consumes": [
+        "sub:dimethylformamide",
+        "sub:dimethylacetamide",
+        "sub:dichloromethane",
+        "sub:diethyl-malonate",
+        "sub:dicyandiamide",
+        "sub:diethylamine",
+        "sub:triethylamine",
+        "sub:mono-n-butylamine",
+        "sub:di-n-butylamine",
+        "sub:tri-n-butylamine",
+        "sub:tri-n-propylamine",
+        "sub:salicylic-acid",
+        "sub:propionic-acid",
+        "sub:formic-acid",
+        "sub:tetrahydrofuran",
+        "sub:monoethanolamine",
+        "sub:diethanolamine",
+        "sub:solvent-c9"
+      ],
+      "operator_phrases": [
+        "api manufacturer",
+        "agrochemical manufacturer",
+        "pharma intermediate plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:automotive-appliances": {
+      "kind": "end-product",
+      "label": "Automotive and appliances",
+      "aliases": [
+        "automotive parts",
+        "white goods",
+        "injection molding"
+      ],
+      "consumes": [
+        "sub:polypropylene",
+        "sub:polystyrene",
+        "sub:acrylonitrile",
+        "sub:polyether-polyol",
+        "sub:polymer-polyol",
+        "sub:mdi",
+        "sub:butoxy-triglycol"
+      ],
+      "operator_phrases": [
+        "injection molder",
+        "automotive compounder",
+        "appliance manufacturer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:biodiesel-blend": {
+      "kind": "end-product",
+      "label": "Biodiesel blending",
+      "aliases": [
+        "biodiesel blend",
+        "fuel blending"
+      ],
+      "consumes": [
+        "cat:biodiesel",
+        "sub:diesel"
+      ],
+      "operator_phrases": [
+        "biodiesel blender",
+        "fuel blending terminal",
+        "biodiesel supplier"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:cable-wire": {
+      "kind": "end-product",
+      "label": "Cable and wire",
+      "aliases": [
+        "cable",
+        "wire and cable"
+      ],
+      "consumes": [
+        "sub:pvc-resin",
+        "cat:plasticizers"
+      ],
+      "operator_phrases": [
+        "cable manufacturer",
+        "wire and cable plant",
+        "cable compound producer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:construction-admixtures": {
+      "kind": "end-product",
+      "label": "Construction chemicals and concrete admixtures",
+      "aliases": [
+        "concrete admixtures",
+        "superplasticizer",
+        "pce admixture",
+        "construction chemicals"
+      ],
+      "consumes": [
+        "sub:vpeg-2400",
+        "sub:sodium-gluconate",
+        "sub:diisopropanolamine",
+        "sub:triethanolamine",
+        "sub:polyethylene-glycol"
+      ],
+      "operator_phrases": [
+        "admixture manufacturer",
+        "construction chemical plant",
+        "pce superplasticizer producer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:coolants-antifreeze": {
+      "kind": "end-product",
+      "label": "Coolants and antifreeze",
+      "aliases": [
+        "antifreeze",
+        "engine coolant",
+        "heat transfer fluid"
+      ],
+      "consumes": [
+        "sub:ethylene-glycol",
+        "sub:diethylene-glycol",
+        "sub:propylene-glycol"
+      ],
+      "operator_phrases": [
+        "coolant manufacturer",
+        "antifreeze blender",
+        "antifreeze plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:detergents": {
+      "kind": "end-product",
+      "label": "Detergents",
+      "aliases": [
+        "detergent",
+        "home care"
+      ],
+      "consumes": [
+        "sub:labsa",
+        "sub:sles",
+        "cat:surfactants",
+        "sub:alkyl-alcohol-ethoxylate",
+        "sub:lauryl-alcohol-ethoxylate",
+        "sub:nonylphenol-ethoxylate",
+        "sub:soda-ash",
+        "sub:sodium-gluconate",
+        "sub:monoethanolamine",
+        "sub:diethanolamine",
+        "sub:triethanolamine"
+      ],
+      "operator_phrases": [
+        "detergent manufacturer",
+        "detergent plant",
+        "home care manufacturer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:fertilizers": {
+      "kind": "end-product",
+      "label": "Fertilizers",
+      "aliases": [
+        "fertilizer",
+        "npk",
+        "nitrogen fertilizer",
+        "phosphate fertilizer"
+      ],
+      "consumes": [
+        "sub:urea",
+        "sub:ammonia",
+        "sub:nitric-acid",
+        "sub:phosphoric-acid",
+        "sub:sulphuric-acid",
+        "sub:potassium-carbonate"
+      ],
+      "operator_phrases": [
+        "fertilizer manufacturer",
+        "fertilizer plant",
+        "npk blending plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:flexible-pu-foam": {
+      "kind": "end-product",
+      "label": "Flexible PU foam",
+      "aliases": [
+        "flexible foam",
+        "pu foam"
+      ],
+      "consumes": [
+        "sub:toluene-diisocyanate",
+        "sub:mdi",
+        "sub:polyether-polyol",
+        "sub:polymer-polyol",
+        "sub:adipic-acid",
+        "sub:dichloromethane"
+      ],
+      "operator_phrases": [
+        "flexible foam manufacturer",
+        "pu foam plant",
+        "mattress foam producer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:food-feed-preservatives": {
+      "kind": "end-product",
+      "label": "Food, beverage and feed preservatives",
+      "aliases": [
+        "food preservatives",
+        "silage preservatives",
+        "animal feed additives"
+      ],
+      "consumes": [
+        "sub:benzoic-acid",
+        "sub:sodium-benzoate",
+        "sub:propionic-acid",
+        "sub:formic-acid",
+        "sub:n-butyric-acid",
+        "sub:propylene-glycol"
+      ],
+      "operator_phrases": [
+        "preservative manufacturer",
+        "feed additive blender",
+        "food ingredient plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:glass": {
+      "kind": "end-product",
+      "label": "Glass manufacturing",
+      "aliases": [
+        "float glass",
+        "container glass",
+        "specialty glass"
+      ],
+      "consumes": [
+        "sub:soda-ash",
+        "sub:potassium-carbonate"
+      ],
+      "operator_phrases": [
+        "glass manufacturer",
+        "float glass plant",
+        "glass factory"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:greases": {
+      "kind": "end-product",
+      "label": "Greases",
+      "aliases": [
+        "grease"
+      ],
+      "consumes": [
+        "sub:base-oil",
+        "cat:fatty-acids",
+        "cat:lubricants"
+      ],
+      "operator_phrases": [
+        "grease manufacturer",
+        "grease plant",
+        "lubricating grease producer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:metalworking-fluids": {
+      "kind": "end-product",
+      "label": "Metalworking fluids",
+      "aliases": [
+        "cutting fluids",
+        "coolants"
+      ],
+      "consumes": [
+        "sub:base-oil",
+        "cat:esters",
+        "cat:lubricants",
+        "sub:monoethanolamine",
+        "sub:diethanolamine",
+        "sub:triethanolamine",
+        "sub:diisopropanolamine",
+        "sub:2-ethylhexanoic-acid"
+      ],
+      "operator_phrases": [
+        "metalworking fluid manufacturer",
+        "cutting fluid plant",
+        "coolant manufacturer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:nylon-fibers-textiles": {
+      "kind": "end-product",
+      "label": "Nylon, spandex and synthetic fibers",
+      "aliases": [
+        "nylon 66",
+        "spandex",
+        "acrylic fiber",
+        "synthetic leather"
+      ],
+      "consumes": [
+        "sub:adipic-acid",
+        "sub:cyclohexanone",
+        "sub:acrylonitrile",
+        "sub:dimethylformamide",
+        "sub:dimethylacetamide",
+        "sub:tetrahydrofuran",
+        "sub:purified-isophthalic-acid",
+        "sub:formic-acid"
+      ],
+      "operator_phrases": [
+        "nylon polymer plant",
+        "spandex manufacturer",
+        "acrylic fiber producer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:packaging-film": {
+      "kind": "end-product",
+      "label": "Packaging and films",
+      "aliases": [
+        "flexible packaging",
+        "bopp film",
+        "blow molding",
+        "plastic bags"
+      ],
+      "consumes": [
+        "sub:polyethylene",
+        "sub:polypropylene",
+        "sub:polystyrene",
+        "sub:vinyl-acetate-monomer"
+      ],
+      "operator_phrases": [
+        "packaging converter",
+        "film extrusion plant",
+        "flexible packaging manufacturer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:paints-coatings": {
+      "kind": "end-product",
+      "label": "Paints and coatings",
+      "aliases": [
+        "paint",
+        "coatings",
+        "printing inks",
+        "alkyd resins",
+        "powder coatings"
+      ],
+      "consumes": [
+        "cat:solvents",
+        "sub:titanium-dioxide",
+        "sub:epoxy-resin",
+        "sub:butyl-acrylate",
+        "sub:methyl-acrylate",
+        "sub:2-ethylhexyl-acrylate",
+        "sub:methyl-methacrylate",
+        "sub:vinyl-acetate-monomer",
+        "sub:butyl-acetate",
+        "sub:ethyl-acetate",
+        "sub:isobutyl-acetate",
+        "sub:n-propyl-acetate",
+        "sub:methyl-acetate",
+        "sub:butyl-glycol-ether",
+        "sub:butoxy-diglycol-ether",
+        "sub:butoxy-triglycol",
+        "sub:butyl-glycol-acetate",
+        "sub:butyl-diglycol-acetate",
+        "sub:pgmea",
+        "sub:toluene",
+        "sub:xylene",
+        "sub:solvent-mx",
+        "sub:solvent-c9",
+        "sub:acetone",
+        "sub:mek",
+        "sub:mibk",
+        "sub:isophorone",
+        "sub:cyclohexanone",
+        "sub:isopropanol",
+        "sub:ethanol",
+        "sub:n-propanol",
+        "sub:isobutyl-alcohol",
+        "sub:methyl-isobutyl-carbinol",
+        "sub:neopentyl-glycol",
+        "sub:pentaerythritol",
+        "sub:mp-diol",
+        "sub:dibasic-acid",
+        "sub:maleic-anhydride",
+        "sub:phthalic-anhydride",
+        "sub:phthalic-acid",
+        "sub:purified-isophthalic-acid",
+        "sub:benzoic-acid",
+        "sub:2-ethylhexanoic-acid"
+      ],
+      "operator_phrases": [
+        "paint manufacturer",
+        "coatings manufacturer",
+        "paint factory",
+        "industrial coatings plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:personal-care": {
+      "kind": "end-product",
+      "label": "Personal care products",
+      "aliases": [
+        "personal care",
+        "cosmetics"
+      ],
+      "consumes": [
+        "sub:glycerin",
+        "cat:surfactants",
+        "sub:sles",
+        "sub:lauryl-alcohol-ethoxylate",
+        "sub:alkyl-alcohol-ethoxylate",
+        "sub:polyethylene-glycol",
+        "sub:dipropylene-glycol",
+        "sub:ethanol",
+        "sub:isopropanol",
+        "sub:triethanolamine",
+        "sub:salicylic-acid"
+      ],
+      "operator_phrases": [
+        "personal care manufacturer",
+        "cosmetic ingredient supplier",
+        "toiletries plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "medium"
+    },
+    "end:pipes-profiles": {
+      "kind": "end-product",
+      "label": "Pipes, profiles and construction",
+      "aliases": [
+        "pvc pipe",
+        "hdpe pipe",
+        "window profiles",
+        "agricultural pipes"
+      ],
+      "consumes": [
+        "sub:pvc-resin",
+        "sub:polyethylene",
+        "sub:polypropylene"
+      ],
+      "operator_phrases": [
+        "pipe manufacturer",
+        "pvc pipe extruder",
+        "plastic pipe plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:polyester-pet": {
+      "kind": "end-product",
+      "label": "Polyester fiber and PET resin",
+      "aliases": [
+        "polyester",
+        "pet bottle resin",
+        "polyester staple fiber",
+        "psf",
+        "poy",
+        "unsaturated polyester resin",
+        "upr"
+      ],
+      "consumes": [
+        "sub:ethylene-glycol",
+        "sub:diethylene-glycol",
+        "sub:purified-isophthalic-acid",
+        "sub:maleic-anhydride",
+        "sub:mp-diol"
+      ],
+      "operator_phrases": [
+        "polyester plant",
+        "pet resin manufacturer",
+        "polyester yarn producer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:pvc-compound": {
+      "kind": "end-product",
+      "label": "PVC compounding",
+      "aliases": [
+        "pvc compound",
+        "pvc compounds"
+      ],
+      "consumes": [
+        "sub:pvc-resin",
+        "cat:plasticizers",
+        "sub:dop",
+        "sub:dinp",
+        "sub:dibutyl-phthalate",
+        "sub:2-ethylhexanoic-acid"
+      ],
+      "operator_phrases": [
+        "pvc compound manufacturer",
+        "pvc compounder",
+        "masterbatch plant",
+        "cable compound manufacturer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:resins-laminates": {
+      "kind": "end-product",
+      "label": "Industrial resins and laminates",
+      "aliases": [
+        "phenolic resin",
+        "melamine formaldehyde resin",
+        "decorative laminates",
+        "plywood adhesives"
+      ],
+      "consumes": [
+        "sub:phenol",
+        "sub:formaldehyde",
+        "sub:urea",
+        "sub:melamine",
+        "sub:dicyandiamide",
+        "sub:epoxy-resin"
+      ],
+      "operator_phrases": [
+        "laminate manufacturer",
+        "phenolic resin plant",
+        "melamine resin producer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:rigid-pu-foam": {
+      "kind": "end-product",
+      "label": "Rigid PU foam",
+      "aliases": [
+        "rigid foam",
+        "insulation foam"
+      ],
+      "consumes": [
+        "sub:mdi",
+        "sub:polyether-polyol"
+      ],
+      "operator_phrases": [
+        "rigid foam manufacturer",
+        "insulation panel manufacturer",
+        "pu insulation plant"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:soap": {
+      "kind": "end-product",
+      "label": "Soap manufacturing",
+      "aliases": [
+        "soap producer",
+        "soap plant",
+        "bar soap"
+      ],
+      "consumes": [
+        "cat:fatty-acids",
+        "sub:caustic-soda",
+        "sub:soap-noodles"
+      ],
+      "operator_phrases": [
+        "soap manufacturer",
+        "soap plant",
+        "toilet soap producer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "end:superabsorbent-polymer": {
+      "kind": "end-product",
+      "label": "Superabsorbent polymer",
+      "aliases": [
+        "sap"
+      ],
+      "consumes": [
+        "sub:acrylic-acid"
+      ],
+      "operator_phrases": [
+        "superabsorbent polymer manufacturer",
+        "sap plant",
+        "hygiene absorbent manufacturer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "end:tires-rubber": {
+      "kind": "end-product",
+      "label": "Tires and synthetic rubber",
+      "aliases": [
+        "tires",
+        "rubber goods",
+        "synthetic rubber",
+        "nbr",
+        "sbr"
+      ],
+      "consumes": [
+        "sub:carbon-black",
+        "sub:butadiene",
+        "sub:styrene",
+        "sub:acrylonitrile",
+        "sub:mibk"
+      ],
+      "operator_phrases": [
+        "tire manufacturer",
+        "rubber compounder",
+        "synthetic rubber plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:blending": {
+      "kind": "process",
+      "label": "Oil and lubricant blending",
+      "aliases": [
+        "blend",
+        "lube blending"
+      ],
+      "operates_on": [
+        "sub:base-oil",
+        "sub:lubricant-additives",
+        "sub:fuel-oil"
+      ],
+      "produces": [
+        "cat:finished-lubricants",
+        "cat:fuel-oils"
+      ],
+      "traversal_policy": "direct_causal",
+      "search_terms": [
+        "oil blending",
+        "lubricant blending",
+        "fuel oil blending",
+        "blending plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:catalytic-reforming": {
+      "kind": "process",
+      "label": "Catalytic reforming",
+      "aliases": [
+        "naphtha reforming",
+        "btx extraction",
+        "reformer"
+      ],
+      "operates_on": [
+        "sub:naphtha"
+      ],
+      "produces": [
+        "sub:benzene",
+        "sub:toluene",
+        "sub:xylene",
+        "sub:orthoxylene",
+        "sub:isomer-mx",
+        "sub:solvent-mx",
+        "sub:solvent-c9",
+        "sub:hydrogen"
+      ],
+      "traversal_policy": "direct_causal",
+      "search_terms": [
+        "catalytic reformer",
+        "aromatics complex",
+        "btx plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:chlor-alkali": {
+      "kind": "process",
+      "label": "Chlor-alkali electrolysis",
+      "aliases": [
+        "chlor alkali",
+        "membrane cell"
+      ],
+      "operates_on": [
+        "sub:salt"
+      ],
+      "produces": [
+        "sub:chlorine",
+        "sub:caustic-soda",
+        "sub:hydrogen"
+      ],
+      "traversal_policy": "direct_causal",
+      "search_terms": [
+        "chlor alkali plant",
+        "caustic soda plant",
+        "chlorine producer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:compounding": {
+      "kind": "process",
+      "label": "Compounding",
+      "aliases": [
+        "compound"
+      ],
+      "operates_on": [
+        "sub:pvc-resin",
+        "cat:plasticizers"
+      ],
+      "produces": [
+        "end:pvc-compound"
+      ],
+      "traversal_policy": "direct_causal",
+      "search_terms": [
+        "pvc compounding",
+        "compound plant",
+        "masterbatch producer"
+      ],
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "proc:cracking": {
+      "kind": "process",
+      "label": "Steam cracking",
+      "aliases": [
+        "steam cracker",
+        "cracking",
+        "ethane cracker",
+        "naphtha cracker"
+      ],
+      "operates_on": [
+        "sub:naphtha",
+        "sub:ethane"
+      ],
+      "produces": [
+        "sub:ethylene",
+        "sub:propylene",
+        "sub:butadiene"
+      ],
+      "traversal_policy": "direct_causal",
+      "search_terms": [
+        "steam cracker",
+        "cracker plant",
+        "olefin plant",
+        "ethane cracker"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:distillation": {
+      "kind": "process",
+      "label": "Distillation",
+      "aliases": [
+        "fractionation"
+      ],
+      "operates_on": [
+        "cat:fatty-acids",
+        "cat:aromatics"
+      ],
+      "produces": [
+        "cat:solvents",
+        "cat:aromatics",
+        "cat:fatty-acids"
+      ],
+      "traversal_policy": "non_bridging_unit_op",
+      "search_terms": [
+        "distillation plant",
+        "fractionation plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "medium"
+    },
+    "proc:esterification": {
+      "kind": "process",
+      "label": "Esterification",
+      "aliases": [
+        "esterify"
+      ],
+      "operates_on": [
+        "sub:phthalic-anhydride",
+        "sub:acrylic-acid",
+        "sub:acetic-acid",
+        "sub:formic-acid",
+        "sub:propionic-acid",
+        "sub:n-butyric-acid",
+        "sub:2-ethylhexanoic-acid",
+        "sub:n-butanol",
+        "sub:isobutyl-alcohol",
+        "sub:n-propanol",
+        "sub:ethanol",
+        "sub:methanol",
+        "sub:2-ethylhexanol",
+        "sub:butyl-glycol-ether",
+        "sub:butoxy-diglycol-ether"
+      ],
+      "produces": [
+        "cat:esters"
+      ],
+      "traversal_policy": "recipe_only",
+      "search_terms": [
+        "esterification plant",
+        "ester plant",
+        "esterification unit"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:ethoxylation": {
+      "kind": "process",
+      "label": "Ethoxylation and alkoxylation",
+      "aliases": [
+        "ethoxylate",
+        "alkoxylation"
+      ],
+      "operates_on": [
+        "sub:ethylene-oxide",
+        "sub:propylene-oxide",
+        "sub:fatty-alcohol",
+        "sub:isotridecanol",
+        "sub:n-butanol"
+      ],
+      "produces": [
+        "cat:ethoxylates-propoxylates",
+        "cat:nonionic-surfactants",
+        "cat:glycol-ethers",
+        "sub:polyether-polyol",
+        "sub:polymer-polyol"
+      ],
+      "traversal_policy": "recipe_only",
+      "search_terms": [
+        "ethoxylation plant",
+        "alkoxylation unit",
+        "surfactant plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:fat-splitting": {
+      "kind": "process",
+      "label": "Fat splitting (hydrolysis)",
+      "aliases": [
+        "fat splitting",
+        "triglyceride hydrolysis"
+      ],
+      "operates_on": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "produces": [
+        "cat:fatty-acids",
+        "sub:glycerin"
+      ],
+      "traversal_policy": "direct_causal",
+      "search_terms": [
+        "fat splitting plant",
+        "oleochemical splitting",
+        "fatty acid plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:formulation": {
+      "kind": "process",
+      "label": "Formulation and blending",
+      "aliases": [
+        "formulate"
+      ],
+      "operates_on": [
+        "cat:solvents",
+        "cat:surfactants"
+      ],
+      "produces": [
+        "end:paints-coatings",
+        "end:detergents",
+        "end:adhesives-sealants",
+        "end:personal-care"
+      ],
+      "traversal_policy": "non_bridging_unit_op",
+      "search_terms": [
+        "formulation plant",
+        "blending and filling plant",
+        "contract manufacturer"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "medium"
+    },
+    "proc:hydrodealkylation": {
+      "kind": "process",
+      "label": "Hydrodealkylation",
+      "aliases": [
+        "hda"
+      ],
+      "operates_on": [
+        "sub:toluene",
+        "sub:hydrogen"
+      ],
+      "produces": [
+        "sub:benzene"
+      ],
+      "traversal_policy": "direct_causal",
+      "search_terms": [
+        "hda unit",
+        "benzene plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "medium"
+    },
+    "proc:hydrogenation": {
+      "kind": "process",
+      "label": "Hydrogenation / hydrogenolysis",
+      "aliases": [
+        "hydrogenolysis",
+        "fatty alcohol hydrogenation"
+      ],
+      "operates_on": [
+        "cat:fatty-acids",
+        "cat:biodiesel",
+        "sub:hydrogen",
+        "sub:benzene"
+      ],
+      "produces": [
+        "cat:fatty-alcohols",
+        "sub:cyclohexane"
+      ],
+      "traversal_policy": "recipe_only",
+      "search_terms": [
+        "hydrogenation plant",
+        "fatty alcohol plant",
+        "cyclohexane unit"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:mto": {
+      "kind": "process",
+      "label": "Methanol-to-Olefins (MTO / MTP)",
+      "aliases": [
+        "mto",
+        "mtp",
+        "coal-to-olefins",
+        "cto"
+      ],
+      "operates_on": [
+        "sub:methanol"
+      ],
+      "produces": [
+        "sub:ethylene",
+        "sub:propylene"
+      ],
+      "traversal_policy": "direct_causal",
+      "search_terms": [
+        "mto plant",
+        "methanol to olefins",
+        "cto complex"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:polymerization": {
+      "kind": "process",
+      "label": "Polymerization",
+      "aliases": [
+        "polymerisation",
+        "polymerize"
+      ],
+      "operates_on": [
+        "sub:ethylene",
+        "sub:propylene",
+        "sub:butadiene",
+        "sub:styrene",
+        "sub:acrylonitrile",
+        "sub:vinyl-acetate-monomer",
+        "sub:acrylic-acid",
+        "sub:methyl-acrylate",
+        "sub:butyl-acrylate",
+        "sub:2-ethylhexyl-acrylate",
+        "sub:methyl-methacrylate",
+        "sub:vinyl-chloride",
+        "sub:vpeg-2400"
+      ],
+      "produces": [
+        "cat:polymers"
+      ],
+      "traversal_policy": "recipe_only",
+      "search_terms": [
+        "polymer plant",
+        "polymerization plant",
+        "resin plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:refining": {
+      "kind": "process",
+      "label": "Refining",
+      "aliases": [
+        "refine",
+        "oil refining"
+      ],
+      "operates_on": [
+        "sub:crude-oil"
+      ],
+      "produces": [
+        "cat:fuel-oils",
+        "cat:base-oils",
+        "sub:naphtha",
+        "sub:diesel",
+        "sub:n-paraffins",
+        "sub:hexane"
+      ],
+      "traversal_policy": "direct_causal",
+      "search_terms": [
+        "oil refinery",
+        "crude oil refining",
+        "refinery operator"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:saponification": {
+      "kind": "process",
+      "label": "Saponification and fatty acid neutralization",
+      "aliases": [
+        "saponify",
+        "soap neutralization"
+      ],
+      "operates_on": [
+        "cat:fatty-acids",
+        "cat:oleochemical-feedstocks",
+        "sub:caustic-soda"
+      ],
+      "produces": [
+        "sub:soap-noodles",
+        "end:soap"
+      ],
+      "traversal_policy": "direct_causal",
+      "search_terms": [
+        "soap noodle plant",
+        "saponification plant",
+        "soap base plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:sulphonation": {
+      "kind": "process",
+      "label": "Sulphonation and sulphation",
+      "aliases": [
+        "sulfonation",
+        "sulphation"
+      ],
+      "operates_on": [
+        "sub:linear-alkylbenzene",
+        "sub:fatty-alcohol",
+        "sub:lauryl-alcohol-ethoxylate",
+        "sub:sulphuric-acid"
+      ],
+      "produces": [
+        "sub:labsa",
+        "sub:sles"
+      ],
+      "traversal_policy": "recipe_only",
+      "search_terms": [
+        "sulphonation plant",
+        "labsa plant",
+        "sles plant"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "proc:transesterification": {
+      "kind": "process",
+      "label": "Transesterification",
+      "aliases": [
+        "transesterify"
+      ],
+      "operates_on": [
+        "sub:palm-oil",
+        "sub:palm-kernel-oil",
+        "sub:coconut-oil",
+        "sub:used-cooking-oil",
+        "sub:tallow",
+        "sub:methanol"
+      ],
+      "produces": [
+        "cat:biodiesel",
+        "sub:glycerin"
+      ],
+      "traversal_policy": "direct_causal",
+      "search_terms": [
+        "biodiesel plant",
+        "transesterification plant",
+        "biodiesel refinery"
+      ],
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:2-ethylhexanoic-acid": {
+      "kind": "substance",
+      "label": "2-Ethylhexanoic acid",
+      "aliases": [
+        "2-eha",
+        "2-ethyl-hexanoic-acid",
+        "2-ethyl-hexaonic-acid",
+        "octoic acid"
+      ],
+      "hs_codes": [
+        "2915.90"
+      ],
+      "categories": [
+        "cat:carboxylic-acids"
+      ],
+      "consumed_in": [
+        "proc:esterification",
+        "end:paints-coatings",
+        "end:pvc-compound",
+        "end:metalworking-fluids"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:2-ethylhexanol": {
+      "kind": "substance",
+      "label": "2-Ethylhexanol",
+      "aliases": [
+        "2-eh",
+        "2eh",
+        "2-ethyl-hexanol",
+        "isooctyl alcohol"
+      ],
+      "hs_codes": [
+        "2905.16"
+      ],
+      "categories": [
+        "cat:alcohol-solvents",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:dop",
+        "sub:2-ethylhexyl-acrylate",
+        "sub:2-ethylhexanoic-acid"
+      ],
+      "consumed_in": [
+        "proc:esterification"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:2-ethylhexyl-acrylate": {
+      "kind": "substance",
+      "label": "2-Ethylhexyl acrylate",
+      "aliases": [
+        "2-eha monomer",
+        "2-ethyl-hexyl-acrylate"
+      ],
+      "hs_codes": [
+        "2916.12"
+      ],
+      "categories": [
+        "cat:acrylates",
+        "cat:monomers"
+      ],
+      "consumed_in": [
+        "proc:polymerization",
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:acetic-acid": {
+      "kind": "substance",
+      "label": "Acetic acid",
+      "aliases": [
+        "glacial acetic acid",
+        "ethanoic acid",
+        "gaa",
+        "acetic-acid"
+      ],
+      "hs_codes": [
+        "2915.21"
+      ],
+      "categories": [
+        "cat:carboxylic-acids",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:ethyl-acetate",
+        "sub:butyl-acetate",
+        "sub:methyl-acetate",
+        "sub:n-propyl-acetate",
+        "sub:isobutyl-acetate",
+        "sub:vinyl-acetate-monomer",
+        "sub:butyl-glycol-acetate",
+        "sub:butyl-diglycol-acetate",
+        "sub:pgmea",
+        "sub:dimethylacetamide"
+      ],
+      "consumed_in": [
+        "proc:esterification"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:acetone": {
+      "kind": "substance",
+      "label": "Acetone",
+      "aliases": [
+        "propanone"
+      ],
+      "hs_codes": [
+        "2914.11"
+      ],
+      "categories": [
+        "cat:ketones"
+      ],
+      "derived_to": [
+        "sub:bisphenol-a",
+        "sub:methyl-methacrylate",
+        "sub:isopropanol",
+        "sub:mibk",
+        "sub:isophorone"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:acrylic-acid": {
+      "kind": "substance",
+      "label": "Acrylic acid",
+      "aliases": [
+        "prop-2-enoic acid",
+        "glacial acrylic acid",
+        "acrylic-acid-glacial"
+      ],
+      "hs_codes": [
+        "2916.11"
+      ],
+      "categories": [
+        "cat:acrylates",
+        "cat:carboxylic-acids",
+        "cat:monomers"
+      ],
+      "derived_to": [
+        "sub:butyl-acrylate",
+        "sub:methyl-acrylate",
+        "sub:2-ethylhexyl-acrylate"
+      ],
+      "consumed_in": [
+        "proc:polymerization",
+        "proc:esterification",
+        "end:superabsorbent-polymer"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:acrylonitrile": {
+      "kind": "substance",
+      "label": "Acrylonitrile",
+      "aliases": [
+        "acn",
+        "vinyl cyanide"
+      ],
+      "hs_codes": [
+        "2926.10"
+      ],
+      "categories": [
+        "cat:monomers",
+        "cat:chemical-intermediates"
+      ],
+      "consumed_in": [
+        "proc:polymerization",
+        "end:nylon-fibers-textiles",
+        "end:tires-rubber",
+        "end:automotive-appliances"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:adipic-acid": {
+      "kind": "substance",
+      "label": "Adipic acid",
+      "aliases": [
+        "hexanedioic acid",
+        "adipic-acid"
+      ],
+      "hs_codes": [
+        "2917.12"
+      ],
+      "categories": [
+        "cat:carboxylic-acids",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:dibasic-acid"
+      ],
+      "consumed_in": [
+        "end:nylon-fibers-textiles",
+        "end:flexible-pu-foam"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:alkyl-alcohol-ethoxylate": {
+      "kind": "substance",
+      "label": "Alkyl alcohol ethoxylate",
+      "aliases": [
+        "aeo",
+        "alcohol ethoxylate",
+        "alkyl-alcohol-ethoxylate"
+      ],
+      "hs_codes": [
+        "3402.42"
+      ],
+      "categories": [
+        "cat:ethoxylates-propoxylates",
+        "cat:nonionic-surfactants"
+      ],
+      "consumed_in": [
+        "end:detergents",
+        "end:personal-care"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:alpha-olefin": {
+      "kind": "substance",
+      "label": "Alpha olefin",
+      "aliases": [
+        "linear alpha olefin",
+        "lao",
+        "alpha-olefin",
+        "1-hexene",
+        "1-octene"
+      ],
+      "hs_codes": [
+        "2901.29"
+      ],
+      "categories": [
+        "cat:aliphatic-compounds",
+        "cat:olefins"
+      ],
+      "derived_to": [
+        "sub:isotridecanol",
+        "sub:polyethylene"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:ammonia": {
+      "kind": "substance",
+      "label": "Ammonia",
+      "aliases": [
+        "anhydrous ammonia",
+        "nh3"
+      ],
+      "hs_codes": [
+        "2814.10",
+        "2814.20"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "derived_to": [
+        "sub:urea",
+        "sub:nitric-acid",
+        "sub:acrylonitrile",
+        "sub:monoethanolamine",
+        "sub:diethanolamine",
+        "sub:triethanolamine",
+        "sub:diethylamine",
+        "sub:triethylamine",
+        "sub:mono-n-butylamine",
+        "sub:di-n-butylamine",
+        "sub:tri-n-butylamine",
+        "sub:tri-n-propylamine",
+        "sub:diisopropanolamine",
+        "sub:dicyandiamide"
+      ],
+      "consumed_in": [
+        "end:fertilizers"
+      ],
+      "transport_profile": "cryogenic_gas",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:aniline": {
+      "kind": "substance",
+      "label": "Aniline",
+      "aliases": [
+        "aminobenzene"
+      ],
+      "hs_codes": [
+        "2921.41"
+      ],
+      "categories": [
+        "cat:amines"
+      ],
+      "derived_to": [
+        "sub:mdi"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:base-oil": {
+      "kind": "substance",
+      "label": "Base oil",
+      "aliases": [
+        "base stock",
+        "base-oil",
+        "group i base oil",
+        "group ii base oil",
+        "group iii base oil"
+      ],
+      "hs_codes": [
+        "2710.19"
+      ],
+      "categories": [
+        "cat:base-oils"
+      ],
+      "consumed_in": [
+        "proc:blending",
+        "end:greases",
+        "end:metalworking-fluids"
+      ],
+      "transport_profile": "product_or_crude_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:benzene": {
+      "kind": "substance",
+      "label": "Benzene",
+      "aliases": [
+        "benzol"
+      ],
+      "hs_codes": [
+        "2902.20"
+      ],
+      "categories": [
+        "cat:aromatics"
+      ],
+      "derived_to": [
+        "sub:ethylbenzene",
+        "sub:cumene",
+        "sub:linear-alkylbenzene",
+        "sub:aniline",
+        "sub:cyclohexane",
+        "sub:maleic-anhydride"
+      ],
+      "consumed_in": [
+        "proc:hydrogenation"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:benzoic-acid": {
+      "kind": "substance",
+      "label": "Benzoic acid",
+      "aliases": [
+        "benzoic-acid",
+        "benzenecarboxylic acid"
+      ],
+      "hs_codes": [
+        "2916.31"
+      ],
+      "categories": [
+        "cat:carboxylic-acids",
+        "cat:aromatics"
+      ],
+      "derived_to": [
+        "sub:sodium-benzoate"
+      ],
+      "consumed_in": [
+        "end:food-feed-preservatives",
+        "end:paints-coatings"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:bisphenol-a": {
+      "kind": "substance",
+      "label": "Bisphenol A",
+      "aliases": [
+        "bpa",
+        "diphenylolpropane"
+      ],
+      "hs_codes": [
+        "2907.23"
+      ],
+      "categories": [
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:epoxy-resin"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:butadiene": {
+      "kind": "substance",
+      "label": "Butadiene",
+      "aliases": [
+        "1 3 butadiene"
+      ],
+      "hs_codes": [
+        "2901.24"
+      ],
+      "categories": [
+        "cat:olefins",
+        "cat:monomers"
+      ],
+      "consumed_in": [
+        "proc:polymerization",
+        "end:tires-rubber"
+      ],
+      "transport_profile": "cryogenic_gas",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:butoxy-diglycol-ether": {
+      "kind": "substance",
+      "label": "Butoxy diglycol ether",
+      "aliases": [
+        "butyl diglycol",
+        "bdg",
+        "diethylene glycol monobutyl ether",
+        "butoxy-diglycol-ether",
+        "butyl carbitol"
+      ],
+      "hs_codes": [
+        "2909.43"
+      ],
+      "categories": [
+        "cat:glycol-ethers"
+      ],
+      "derived_to": [
+        "sub:butyl-diglycol-acetate",
+        "sub:butoxy-triglycol"
+      ],
+      "consumed_in": [
+        "proc:esterification",
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:butoxy-triglycol": {
+      "kind": "substance",
+      "label": "Butoxy triglycol",
+      "aliases": [
+        "btg",
+        "triethylene glycol monobutyl ether",
+        "butoxy-tri-glycol"
+      ],
+      "hs_codes": [
+        "2909.44"
+      ],
+      "categories": [
+        "cat:glycol-ethers"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:automotive-appliances"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:butyl-acetate": {
+      "kind": "substance",
+      "label": "Butyl acetate",
+      "aliases": [
+        "n-butyl acetate",
+        "nbac",
+        "butyl-acetate"
+      ],
+      "hs_codes": [
+        "2915.33"
+      ],
+      "categories": [
+        "cat:acetates",
+        "cat:ester-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:butyl-acrylate": {
+      "kind": "substance",
+      "label": "Butyl acrylate",
+      "aliases": [
+        "n-butyl acrylate",
+        "bam",
+        "butyl-acrylate"
+      ],
+      "hs_codes": [
+        "2916.12"
+      ],
+      "categories": [
+        "cat:acrylates",
+        "cat:monomers"
+      ],
+      "consumed_in": [
+        "proc:polymerization",
+        "end:adhesives-sealants",
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:butyl-diglycol-acetate": {
+      "kind": "substance",
+      "label": "Butyl diglycol acetate",
+      "aliases": [
+        "bdga",
+        "diethylene glycol monobutyl ether acetate",
+        "butyl-di-glycol-acetate"
+      ],
+      "hs_codes": [
+        "2915.39"
+      ],
+      "categories": [
+        "cat:acetates",
+        "cat:glycol-ethers",
+        "cat:ester-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:butyl-glycol-acetate": {
+      "kind": "substance",
+      "label": "Butyl glycol acetate",
+      "aliases": [
+        "bga",
+        "ethylene glycol monobutyl ether acetate",
+        "butyl-glycol-acetate"
+      ],
+      "hs_codes": [
+        "2915.39"
+      ],
+      "categories": [
+        "cat:acetates",
+        "cat:glycol-ethers",
+        "cat:ester-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:butyl-glycol-ether": {
+      "kind": "substance",
+      "label": "Butyl glycol ether",
+      "aliases": [
+        "butyl glycol",
+        "butyl-glycol",
+        "ethylene glycol monobutyl ether",
+        "2-butoxyethanol",
+        "butyl cellosolve"
+      ],
+      "hs_codes": [
+        "2909.43"
+      ],
+      "categories": [
+        "cat:glycol-ethers"
+      ],
+      "derived_to": [
+        "sub:butyl-glycol-acetate",
+        "sub:butoxy-diglycol-ether"
+      ],
+      "consumed_in": [
+        "proc:esterification",
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:carbon-black": {
+      "kind": "substance",
+      "label": "Carbon black",
+      "hs_codes": [
+        "2803.00"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "consumed_in": [
+        "end:tires-rubber"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:caustic-soda": {
+      "kind": "substance",
+      "label": "Caustic soda",
+      "aliases": [
+        "sodium hydroxide",
+        "lye",
+        "caustic",
+        "caustic soda flakes",
+        "caustic soda lye"
+      ],
+      "hs_codes": [
+        "2815.11",
+        "2815.12"
+      ],
+      "categories": [
+        "cat:alkalis"
+      ],
+      "derived_to": [
+        "sub:soap-noodles",
+        "sub:sodium-benzoate",
+        "sub:sodium-gluconate",
+        "sub:salicylic-acid"
+      ],
+      "consumed_in": [
+        "end:soap",
+        "proc:saponification"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:chlorine": {
+      "kind": "substance",
+      "label": "Chlorine",
+      "hs_codes": [
+        "2801.10"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "derived_to": [
+        "sub:ethylene-dichloride",
+        "sub:dichloromethane",
+        "sub:vinyl-chloride",
+        "sub:epichlorohydrin",
+        "sub:hydrochloric-acid",
+        "sub:mdi",
+        "sub:toluene-diisocyanate"
+      ],
+      "transport_profile": "pipeline_or_captive",
+      "merchant_liquidity": "captive",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:coal": {
+      "kind": "substance",
+      "label": "Coal",
+      "aliases": [
+        "thermal coal",
+        "coking coal",
+        "bituminous coal"
+      ],
+      "hs_codes": [
+        "2701.12",
+        "2701.19",
+        "2701.11"
+      ],
+      "categories": [
+        "cat:coal-products"
+      ],
+      "derived_to": [
+        "sub:ammonia",
+        "sub:methanol",
+        "sub:benzene"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:coconut-oil": {
+      "kind": "substance",
+      "label": "Coconut oil",
+      "aliases": [
+        "copra oil",
+        "cno"
+      ],
+      "hs_codes": [
+        "1513.11",
+        "1513.19"
+      ],
+      "categories": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "derived_to": [
+        "cat:fatty-acids",
+        "sub:glycerin",
+        "cat:biodiesel"
+      ],
+      "consumed_in": [
+        "proc:fat-splitting",
+        "proc:transesterification"
+      ],
+      "transport_profile": "vegetable_oil_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:crude-oil": {
+      "kind": "substance",
+      "label": "Crude oil",
+      "aliases": [
+        "petroleum crude",
+        "crude",
+        "crude-oil"
+      ],
+      "hs_codes": [
+        "2709.00"
+      ],
+      "categories": [
+        "cat:petrochemicals"
+      ],
+      "derived_to": [
+        "sub:naphtha",
+        "sub:fuel-oil",
+        "sub:diesel",
+        "sub:base-oil",
+        "sub:n-paraffins",
+        "sub:hexane"
+      ],
+      "consumed_in": [
+        "proc:refining"
+      ],
+      "transport_profile": "product_or_crude_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:cumene": {
+      "kind": "substance",
+      "label": "Cumene",
+      "aliases": [
+        "isopropylbenzene"
+      ],
+      "hs_codes": [
+        "2902.70"
+      ],
+      "categories": [
+        "cat:aromatics"
+      ],
+      "derived_to": [
+        "sub:phenol",
+        "sub:acetone"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:cyclohexane": {
+      "kind": "substance",
+      "label": "Cyclohexane",
+      "aliases": [
+        "hexahydrobenzene",
+        "cyclohexane"
+      ],
+      "hs_codes": [
+        "2902.11"
+      ],
+      "categories": [
+        "cat:aliphatic-compounds",
+        "cat:solvents"
+      ],
+      "derived_to": [
+        "sub:cyclohexanol",
+        "sub:cyclohexanone"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:cyclohexanol": {
+      "kind": "substance",
+      "label": "Cyclohexanol",
+      "aliases": [
+        "hexahydrophenol",
+        "cyclohexanol"
+      ],
+      "hs_codes": [
+        "2906.12"
+      ],
+      "categories": [
+        "cat:alcohols",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:cyclohexanone",
+        "sub:adipic-acid"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:cyclohexanone": {
+      "kind": "substance",
+      "label": "Cyclohexanone",
+      "aliases": [
+        "cyc",
+        "anone",
+        "cyclohexanone"
+      ],
+      "hs_codes": [
+        "2914.22"
+      ],
+      "categories": [
+        "cat:ketones",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:adipic-acid"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:nylon-fibers-textiles"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:di-n-butylamine": {
+      "kind": "substance",
+      "label": "Di-n-butylamine",
+      "aliases": [
+        "dba",
+        "dibutylamine",
+        "di-n-butyl-amine"
+      ],
+      "hs_codes": [
+        "2921.19"
+      ],
+      "categories": [
+        "cat:amines"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:dibasic-acid": {
+      "kind": "substance",
+      "label": "Dibasic acid (DBA flakes)",
+      "aliases": [
+        "dba-flakes",
+        "di-basic-acid",
+        "dibasic acid",
+        "mixed dicarboxylic acids"
+      ],
+      "hs_codes": [
+        "3824.99",
+        "2917.19"
+      ],
+      "categories": [
+        "cat:carboxylic-acids"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Byproduct dicarboxylic acid mixture (adipic/glutaric/succinic) from adipic acid manufacture; traded as DBA flakes or liquid for polyester polyols, DBE solvents, and coatings."
+    },
+    "sub:dibutyl-phthalate": {
+      "kind": "substance",
+      "label": "Dibutyl phthalate",
+      "aliases": [
+        "dbp"
+      ],
+      "hs_codes": [
+        "2917.34"
+      ],
+      "categories": [
+        "cat:plasticizers"
+      ],
+      "consumed_in": [
+        "end:pvc-compound"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:dichloromethane": {
+      "kind": "substance",
+      "label": "Dichloromethane",
+      "aliases": [
+        "mdc",
+        "methylene chloride",
+        "dcm",
+        "dichloromethane"
+      ],
+      "hs_codes": [
+        "2903.12"
+      ],
+      "categories": [
+        "cat:chlorinated-monomers",
+        "cat:solvents"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma",
+        "end:flexible-pu-foam"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:dicyandiamide": {
+      "kind": "substance",
+      "label": "Dicyandiamide",
+      "aliases": [
+        "dcda",
+        "cyanoguanidine",
+        "dicyandiamide"
+      ],
+      "hs_codes": [
+        "2926.20"
+      ],
+      "categories": [
+        "cat:amides",
+        "cat:chemical-intermediates"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma",
+        "end:resins-laminates",
+        "end:adhesives-sealants"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:diesel": {
+      "kind": "substance",
+      "label": "Diesel",
+      "aliases": [
+        "gasoil",
+        "gas oil",
+        "ulsd"
+      ],
+      "hs_codes": [
+        "2710.19"
+      ],
+      "categories": [
+        "cat:fuel-oils"
+      ],
+      "consumed_in": [
+        "end:biodiesel-blend"
+      ],
+      "transport_profile": "product_or_crude_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:diethanolamine": {
+      "kind": "substance",
+      "label": "Diethanolamine",
+      "aliases": [
+        "dea",
+        "diethanolamine"
+      ],
+      "hs_codes": [
+        "2922.12"
+      ],
+      "categories": [
+        "cat:ethanolamines"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma",
+        "end:detergents",
+        "end:metalworking-fluids"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:diethyl-malonate": {
+      "kind": "substance",
+      "label": "Diethyl malonate",
+      "aliases": [
+        "dem",
+        "diethyl-malonate",
+        "malonic ester"
+      ],
+      "hs_codes": [
+        "2917.19"
+      ],
+      "categories": [
+        "cat:esters",
+        "cat:chemical-intermediates"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:diethylamine": {
+      "kind": "substance",
+      "label": "Diethylamine",
+      "aliases": [
+        "dea amine",
+        "di-ethyl-amine"
+      ],
+      "hs_codes": [
+        "2921.19"
+      ],
+      "categories": [
+        "cat:amines"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:diethylene-glycol": {
+      "kind": "substance",
+      "label": "Diethylene glycol",
+      "aliases": [
+        "deg",
+        "di-ethylene-glycol"
+      ],
+      "hs_codes": [
+        "2909.41"
+      ],
+      "categories": [
+        "cat:glycols",
+        "cat:ethers"
+      ],
+      "consumed_in": [
+        "end:polyester-pet",
+        "end:coolants-antifreeze"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:diisopropanolamine": {
+      "kind": "substance",
+      "label": "Diisopropanolamine",
+      "aliases": [
+        "dipa",
+        "di-isopropanolamine"
+      ],
+      "hs_codes": [
+        "2922.19"
+      ],
+      "categories": [
+        "cat:amines"
+      ],
+      "consumed_in": [
+        "end:construction-admixtures",
+        "end:metalworking-fluids"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:dimethylacetamide": {
+      "kind": "substance",
+      "label": "Dimethylacetamide",
+      "aliases": [
+        "dmac",
+        "n,n-dimethylacetamide",
+        "dimethylacetamide"
+      ],
+      "hs_codes": [
+        "2924.19"
+      ],
+      "categories": [
+        "cat:amides",
+        "cat:solvents"
+      ],
+      "consumed_in": [
+        "end:nylon-fibers-textiles",
+        "end:agrochemicals-pharma"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:dimethylformamide": {
+      "kind": "substance",
+      "label": "Dimethylformamide",
+      "aliases": [
+        "dmf",
+        "n,n-dimethylformamide",
+        "dimethylformamide"
+      ],
+      "hs_codes": [
+        "2924.19"
+      ],
+      "categories": [
+        "cat:amides",
+        "cat:solvents"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma",
+        "end:nylon-fibers-textiles"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:dinp": {
+      "kind": "substance",
+      "label": "Diisononyl phthalate",
+      "aliases": [
+        "dinp"
+      ],
+      "hs_codes": [
+        "2917.33"
+      ],
+      "categories": [
+        "cat:plasticizers"
+      ],
+      "consumed_in": [
+        "end:pvc-compound"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:dipropylene-glycol": {
+      "kind": "substance",
+      "label": "Dipropylene glycol",
+      "aliases": [
+        "dpg",
+        "di-propylene-glycol"
+      ],
+      "hs_codes": [
+        "2909.49"
+      ],
+      "categories": [
+        "cat:glycols",
+        "cat:ethers"
+      ],
+      "consumed_in": [
+        "end:personal-care"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:dop": {
+      "kind": "substance",
+      "label": "Dioctyl phthalate",
+      "aliases": [
+        "dop",
+        "dehp",
+        "bis(2-ethylhexyl) phthalate"
+      ],
+      "hs_codes": [
+        "2917.32"
+      ],
+      "categories": [
+        "cat:plasticizers"
+      ],
+      "consumed_in": [
+        "end:pvc-compound"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:epichlorohydrin": {
+      "kind": "substance",
+      "label": "Epichlorohydrin",
+      "aliases": [
+        "ech"
+      ],
+      "hs_codes": [
+        "2910.30"
+      ],
+      "categories": [
+        "cat:chlorinated-monomers",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:epoxy-resin"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:epoxy-resin": {
+      "kind": "substance",
+      "label": "Epoxy resin",
+      "aliases": [
+        "epoxy"
+      ],
+      "hs_codes": [
+        "3907.30"
+      ],
+      "categories": [
+        "cat:epoxies"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:adhesives-sealants",
+        "end:resins-laminates"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:ethane": {
+      "kind": "substance",
+      "label": "Ethane",
+      "aliases": [
+        "c2h6"
+      ],
+      "hs_codes": [
+        "2901.10",
+        "2711.19"
+      ],
+      "categories": [
+        "cat:aliphatic-compounds",
+        "cat:petrochemicals"
+      ],
+      "derived_to": [
+        "sub:ethylene"
+      ],
+      "consumed_in": [
+        "proc:cracking"
+      ],
+      "transport_profile": "cryogenic_gas",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:ethanol": {
+      "kind": "substance",
+      "label": "Ethanol",
+      "aliases": [
+        "ethyl alcohol",
+        "industrial ethanol",
+        "denatured alcohol"
+      ],
+      "hs_codes": [
+        "2207.10",
+        "2207.20"
+      ],
+      "categories": [
+        "cat:alcohol-solvents"
+      ],
+      "derived_to": [
+        "sub:ethyl-acetate",
+        "sub:diethylamine",
+        "sub:triethylamine"
+      ],
+      "consumed_in": [
+        "proc:esterification",
+        "end:personal-care",
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:ethyl-acetate": {
+      "kind": "substance",
+      "label": "Ethyl acetate",
+      "aliases": [
+        "etac"
+      ],
+      "hs_codes": [
+        "2915.31"
+      ],
+      "categories": [
+        "cat:acetates",
+        "cat:ester-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:ethylbenzene": {
+      "kind": "substance",
+      "label": "Ethylbenzene",
+      "hs_codes": [
+        "2902.60"
+      ],
+      "categories": [
+        "cat:aromatics"
+      ],
+      "derived_to": [
+        "sub:styrene"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:ethylene": {
+      "kind": "substance",
+      "label": "Ethylene",
+      "aliases": [
+        "ethene"
+      ],
+      "hs_codes": [
+        "2901.21"
+      ],
+      "categories": [
+        "cat:olefins",
+        "cat:monomers"
+      ],
+      "derived_to": [
+        "sub:ethylene-oxide",
+        "sub:ethylene-glycol",
+        "sub:polyethylene",
+        "sub:ethylene-dichloride",
+        "sub:vinyl-chloride",
+        "sub:vinyl-acetate-monomer",
+        "sub:ethylbenzene",
+        "sub:alpha-olefin",
+        "sub:n-propanol",
+        "sub:propionic-acid"
+      ],
+      "consumed_in": [
+        "proc:polymerization"
+      ],
+      "transport_profile": "cryogenic_gas",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:ethylene-dichloride": {
+      "kind": "substance",
+      "label": "Ethylene dichloride",
+      "aliases": [
+        "edc",
+        "1,2-dichloroethane",
+        "ethylene-di-chloride"
+      ],
+      "hs_codes": [
+        "2903.15"
+      ],
+      "categories": [
+        "cat:chlorinated-monomers",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:vinyl-chloride"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:ethylene-glycol": {
+      "kind": "substance",
+      "label": "Ethylene glycol",
+      "aliases": [
+        "monoethylene glycol",
+        "meg",
+        "mono-ethylene-glycol"
+      ],
+      "hs_codes": [
+        "2905.31"
+      ],
+      "categories": [
+        "cat:glycols"
+      ],
+      "consumed_in": [
+        "end:coolants-antifreeze",
+        "end:polyester-pet"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:ethylene-oxide": {
+      "kind": "substance",
+      "label": "Ethylene oxide",
+      "aliases": [
+        "eo",
+        "oxirane"
+      ],
+      "hs_codes": [
+        "2910.10"
+      ],
+      "categories": [
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:ethylene-glycol",
+        "sub:diethylene-glycol",
+        "sub:polyethylene-glycol",
+        "sub:monoethanolamine",
+        "sub:diethanolamine",
+        "sub:triethanolamine",
+        "sub:butyl-glycol-ether",
+        "sub:butoxy-diglycol-ether",
+        "sub:butoxy-triglycol",
+        "sub:nonylphenol-ethoxylate",
+        "sub:alkyl-alcohol-ethoxylate",
+        "sub:lauryl-alcohol-ethoxylate",
+        "sub:vpeg-2400",
+        "sub:polyether-polyol",
+        "sub:sles"
+      ],
+      "consumed_in": [
+        "proc:ethoxylation"
+      ],
+      "transport_profile": "pipeline_or_captive",
+      "merchant_liquidity": "captive",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:fatty-alcohol": {
+      "kind": "substance",
+      "label": "Fatty alcohol",
+      "aliases": [
+        "lauryl alcohol",
+        "cetyl alcohol",
+        "stearyl alcohol",
+        "c12-14 fatty alcohol"
+      ],
+      "hs_codes": [
+        "3823.70",
+        "2905.17"
+      ],
+      "categories": [
+        "cat:fatty-alcohols"
+      ],
+      "derived_to": [
+        "sub:lauryl-alcohol-ethoxylate",
+        "sub:alkyl-alcohol-ethoxylate"
+      ],
+      "consumed_in": [
+        "proc:ethoxylation",
+        "proc:sulphonation"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:formaldehyde": {
+      "kind": "substance",
+      "label": "Formaldehyde",
+      "aliases": [
+        "methanal",
+        "formalin"
+      ],
+      "hs_codes": [
+        "2912.11"
+      ],
+      "categories": [
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:mdi",
+        "sub:neopentyl-glycol",
+        "sub:pentaerythritol"
+      ],
+      "consumed_in": [
+        "end:resins-laminates"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "low",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:formic-acid": {
+      "kind": "substance",
+      "label": "Formic acid",
+      "aliases": [
+        "methanoic acid",
+        "formic-acid"
+      ],
+      "hs_codes": [
+        "2915.11"
+      ],
+      "categories": [
+        "cat:carboxylic-acids"
+      ],
+      "consumed_in": [
+        "proc:esterification",
+        "end:agrochemicals-pharma",
+        "end:nylon-fibers-textiles",
+        "end:food-feed-preservatives"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:fuel-oil": {
+      "kind": "substance",
+      "label": "Fuel oil",
+      "aliases": [
+        "heavy fuel oil",
+        "hfo",
+        "bunker fuel",
+        "vlsfo"
+      ],
+      "hs_codes": [
+        "2710.19"
+      ],
+      "categories": [
+        "cat:fuel-oils"
+      ],
+      "derived_to": [
+        "sub:carbon-black"
+      ],
+      "consumed_in": [
+        "proc:blending"
+      ],
+      "transport_profile": "product_or_crude_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:glycerin": {
+      "kind": "substance",
+      "label": "Glycerin",
+      "aliases": [
+        "glycerine",
+        "glycerol",
+        "crude glycerin",
+        "refined glycerin",
+        "refined-glycerine"
+      ],
+      "hs_codes": [
+        "2905.45",
+        "1520.00"
+      ],
+      "categories": [
+        "cat:oleochemicals",
+        "cat:alcohols"
+      ],
+      "derived_to": [
+        "sub:polyether-polyol",
+        "sub:epichlorohydrin"
+      ],
+      "consumed_in": [
+        "end:personal-care"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:hexane": {
+      "kind": "substance",
+      "label": "Hexane",
+      "aliases": [
+        "n-hexane",
+        "food grade hexane",
+        "hexane"
+      ],
+      "hs_codes": [
+        "2901.10",
+        "2710.12"
+      ],
+      "categories": [
+        "cat:aliphatic-compounds",
+        "cat:solvents"
+      ],
+      "consumed_in": [
+        "end:adhesives-sealants"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:hydrochloric-acid": {
+      "kind": "substance",
+      "label": "Hydrochloric acid",
+      "aliases": [
+        "hcl",
+        "muriatic acid"
+      ],
+      "hs_codes": [
+        "2806.10"
+      ],
+      "categories": [
+        "cat:acids"
+      ],
+      "derived_to": [
+        "sub:vinyl-chloride"
+      ],
+      "transport_profile": "specialized_acid_tanker",
+      "merchant_liquidity": "low",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:hydrogen": {
+      "kind": "substance",
+      "label": "Hydrogen",
+      "aliases": [
+        "h2"
+      ],
+      "hs_codes": [
+        "2804.10"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "derived_to": [
+        "sub:ammonia",
+        "sub:hydrochloric-acid"
+      ],
+      "consumed_in": [
+        "proc:hydrogenation",
+        "proc:hydrodealkylation"
+      ],
+      "transport_profile": "pipeline_or_captive",
+      "merchant_liquidity": "captive",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:hydrogen-peroxide": {
+      "kind": "substance",
+      "label": "Hydrogen peroxide",
+      "aliases": [
+        "h2o2"
+      ],
+      "hs_codes": [
+        "2847.00"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "derived_to": [
+        "sub:propylene-oxide"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:isobutyl-acetate": {
+      "kind": "substance",
+      "label": "Isobutyl acetate",
+      "aliases": [
+        "ibac",
+        "iso-butyl-acetate"
+      ],
+      "hs_codes": [
+        "2915.39"
+      ],
+      "categories": [
+        "cat:acetates",
+        "cat:ester-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:isobutyl-alcohol": {
+      "kind": "substance",
+      "label": "Isobutyl alcohol",
+      "aliases": [
+        "isobutanol",
+        "iba",
+        "iso-butyl-alcohol"
+      ],
+      "hs_codes": [
+        "2905.14"
+      ],
+      "categories": [
+        "cat:alcohol-solvents"
+      ],
+      "derived_to": [
+        "sub:isobutyl-acetate"
+      ],
+      "consumed_in": [
+        "proc:esterification",
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:isobutyraldehyde": {
+      "kind": "substance",
+      "label": "Isobutyraldehyde",
+      "aliases": [
+        "ibal",
+        "iso-butyraldehyde",
+        "iso-butyladehyde"
+      ],
+      "hs_codes": [
+        "2912.19"
+      ],
+      "categories": [
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:isobutyl-alcohol",
+        "sub:neopentyl-glycol"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:isomer-mx": {
+      "kind": "substance",
+      "label": "Isomer-grade mixed xylene",
+      "aliases": [
+        "isomer-mx",
+        "isomer mx",
+        "isomer xylene"
+      ],
+      "hs_codes": [
+        "2902.44"
+      ],
+      "categories": [
+        "cat:aromatics"
+      ],
+      "derived_to": [
+        "sub:orthoxylene",
+        "sub:purified-isophthalic-acid"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:isophorone": {
+      "kind": "substance",
+      "label": "Isophorone",
+      "aliases": [
+        "3,5,5-trimethylcyclohex-2-en-1-one",
+        "isophorone"
+      ],
+      "hs_codes": [
+        "2914.29"
+      ],
+      "categories": [
+        "cat:ketones",
+        "cat:solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:isopropanol": {
+      "kind": "substance",
+      "label": "Isopropanol",
+      "aliases": [
+        "isopropyl alcohol",
+        "ipa",
+        "iso-propyl-alcohol"
+      ],
+      "hs_codes": [
+        "2905.12"
+      ],
+      "categories": [
+        "cat:alcohol-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:personal-care"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:isotridecanol": {
+      "kind": "substance",
+      "label": "Isotridecanol",
+      "aliases": [
+        "isotridecyl alcohol",
+        "itda",
+        "iso-tridecanol"
+      ],
+      "hs_codes": [
+        "2905.19"
+      ],
+      "categories": [
+        "cat:alcohols",
+        "cat:chemical-intermediates"
+      ],
+      "consumed_in": [
+        "proc:ethoxylation"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:labsa": {
+      "kind": "substance",
+      "label": "Linear alkylbenzene sulphonic acid",
+      "aliases": [
+        "labsa",
+        "ddbsa"
+      ],
+      "hs_codes": [
+        "3402.31"
+      ],
+      "categories": [
+        "cat:anionic-surfactants"
+      ],
+      "consumed_in": [
+        "end:detergents"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:lauryl-alcohol-ethoxylate": {
+      "kind": "substance",
+      "label": "Lauryl alcohol ethoxylate",
+      "aliases": [
+        "lae",
+        "laureth",
+        "lauryl-alcohol-ethoxylate"
+      ],
+      "hs_codes": [
+        "3402.42"
+      ],
+      "categories": [
+        "cat:ethoxylates-propoxylates",
+        "cat:nonionic-surfactants"
+      ],
+      "derived_to": [
+        "sub:sles"
+      ],
+      "consumed_in": [
+        "proc:sulphonation",
+        "end:detergents",
+        "end:personal-care"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:linear-alkylbenzene": {
+      "kind": "substance",
+      "label": "Linear alkylbenzene",
+      "aliases": [
+        "lab",
+        "linear alkyl benzene"
+      ],
+      "hs_codes": [
+        "3817.00"
+      ],
+      "categories": [
+        "cat:aromatics"
+      ],
+      "derived_to": [
+        "sub:labsa"
+      ],
+      "consumed_in": [
+        "proc:sulphonation"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:lubricant-additives": {
+      "kind": "substance",
+      "label": "Lubricant additives",
+      "aliases": [
+        "lube additives",
+        "additive packages"
+      ],
+      "hs_codes": [
+        "3811.21",
+        "3811.29"
+      ],
+      "categories": [
+        "cat:lubricants"
+      ],
+      "consumed_in": [
+        "proc:blending"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:maleic-anhydride": {
+      "kind": "substance",
+      "label": "Maleic anhydride",
+      "aliases": [
+        "man",
+        "ma",
+        "maleic-anhydride"
+      ],
+      "hs_codes": [
+        "2917.14"
+      ],
+      "categories": [
+        "cat:chemical-intermediates"
+      ],
+      "consumed_in": [
+        "end:polyester-pet",
+        "end:paints-coatings"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:mdi": {
+      "kind": "substance",
+      "label": "Methylene diphenyl diisocyanate",
+      "aliases": [
+        "mdi",
+        "polymeric mdi",
+        "pmdi"
+      ],
+      "hs_codes": [
+        "2929.10"
+      ],
+      "categories": [
+        "cat:isocyanates"
+      ],
+      "consumed_in": [
+        "end:rigid-pu-foam",
+        "end:flexible-pu-foam",
+        "end:adhesives-sealants",
+        "end:automotive-appliances"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:mek": {
+      "kind": "substance",
+      "label": "Methyl ethyl ketone",
+      "aliases": [
+        "mek",
+        "butanone",
+        "methyl-ethyl-ketone"
+      ],
+      "hs_codes": [
+        "2914.12"
+      ],
+      "categories": [
+        "cat:ketones"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:melamine": {
+      "kind": "substance",
+      "label": "Melamine",
+      "aliases": [
+        "melamine crystal",
+        "melamine"
+      ],
+      "hs_codes": [
+        "2933.61"
+      ],
+      "categories": [
+        "cat:amides",
+        "cat:chemical-intermediates"
+      ],
+      "consumed_in": [
+        "end:resins-laminates"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:methanol": {
+      "kind": "substance",
+      "label": "Methanol",
+      "aliases": [
+        "methyl alcohol",
+        "wood alcohol",
+        "meoh"
+      ],
+      "hs_codes": [
+        "2905.11"
+      ],
+      "categories": [
+        "cat:alcohol-solvents"
+      ],
+      "derived_to": [
+        "sub:formaldehyde",
+        "sub:acetic-acid",
+        "sub:methyl-methacrylate",
+        "sub:methyl-acetate",
+        "sub:methyl-acrylate",
+        "sub:formic-acid",
+        "sub:dimethylformamide",
+        "sub:dichloromethane",
+        "sub:pgmea",
+        "sub:ethylene",
+        "sub:propylene"
+      ],
+      "consumed_in": [
+        "proc:transesterification",
+        "proc:esterification",
+        "proc:mto"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:methyl-acetate": {
+      "kind": "substance",
+      "label": "Methyl acetate",
+      "aliases": [
+        "meac",
+        "methyl-acetate"
+      ],
+      "hs_codes": [
+        "2915.39"
+      ],
+      "categories": [
+        "cat:acetates",
+        "cat:ester-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:methyl-acrylate": {
+      "kind": "substance",
+      "label": "Methyl acrylate",
+      "aliases": [
+        "mam",
+        "methyl-acrylate"
+      ],
+      "hs_codes": [
+        "2916.12"
+      ],
+      "categories": [
+        "cat:acrylates",
+        "cat:monomers"
+      ],
+      "consumed_in": [
+        "proc:polymerization",
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:methyl-isobutyl-carbinol": {
+      "kind": "substance",
+      "label": "Methyl isobutyl carbinol",
+      "aliases": [
+        "mibc",
+        "4-methyl-2-pentanol",
+        "methyl-isobutyl-carbinol"
+      ],
+      "hs_codes": [
+        "2905.19"
+      ],
+      "categories": [
+        "cat:alcohol-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:methyl-methacrylate": {
+      "kind": "substance",
+      "label": "Methyl methacrylate",
+      "aliases": [
+        "mma",
+        "methyl-methacrylate"
+      ],
+      "hs_codes": [
+        "2916.14"
+      ],
+      "categories": [
+        "cat:acrylates",
+        "cat:monomers"
+      ],
+      "consumed_in": [
+        "proc:polymerization",
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:mibk": {
+      "kind": "substance",
+      "label": "Methyl isobutyl ketone",
+      "aliases": [
+        "mibk",
+        "methyl-iso-butyl-ketone"
+      ],
+      "hs_codes": [
+        "2914.13"
+      ],
+      "categories": [
+        "cat:ketones"
+      ],
+      "derived_to": [
+        "sub:methyl-isobutyl-carbinol"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:adhesives-sealants",
+        "end:tires-rubber"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:mono-n-butylamine": {
+      "kind": "substance",
+      "label": "Mono-n-butylamine",
+      "aliases": [
+        "mba",
+        "n-butylamine",
+        "mono-n-butylamine"
+      ],
+      "hs_codes": [
+        "2921.19"
+      ],
+      "categories": [
+        "cat:amines"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:monoethanolamine": {
+      "kind": "substance",
+      "label": "Monoethanolamine",
+      "aliases": [
+        "mea",
+        "monoethanolamine"
+      ],
+      "hs_codes": [
+        "2922.11"
+      ],
+      "categories": [
+        "cat:ethanolamines"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma",
+        "end:detergents",
+        "end:metalworking-fluids"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:mp-diol": {
+      "kind": "substance",
+      "label": "2-Methyl-1,3-propanediol",
+      "aliases": [
+        "mp-diol",
+        "mp diol",
+        "mpd"
+      ],
+      "hs_codes": [
+        "2905.39"
+      ],
+      "categories": [
+        "cat:glycols"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:polyester-pet"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:n-butanol": {
+      "kind": "substance",
+      "label": "n-Butanol",
+      "aliases": [
+        "butanol",
+        "butyl alcohol",
+        "nba",
+        "normal-butanol"
+      ],
+      "hs_codes": [
+        "2905.13"
+      ],
+      "categories": [
+        "cat:alcohol-solvents"
+      ],
+      "derived_to": [
+        "sub:butyl-acrylate",
+        "sub:butyl-acetate",
+        "sub:dibutyl-phthalate",
+        "sub:butyl-glycol-ether",
+        "sub:butoxy-diglycol-ether",
+        "sub:mono-n-butylamine",
+        "sub:di-n-butylamine",
+        "sub:tri-n-butylamine"
+      ],
+      "consumed_in": [
+        "proc:esterification",
+        "proc:ethoxylation"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:n-butyric-acid": {
+      "kind": "substance",
+      "label": "n-Butyric acid",
+      "aliases": [
+        "butyric acid",
+        "butanoic acid",
+        "n-butyric-acid"
+      ],
+      "hs_codes": [
+        "2915.60"
+      ],
+      "categories": [
+        "cat:carboxylic-acids"
+      ],
+      "consumed_in": [
+        "proc:esterification",
+        "end:food-feed-preservatives"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:n-paraffins": {
+      "kind": "substance",
+      "label": "Normal paraffins",
+      "aliases": [
+        "n-paraffin",
+        "n-paraffins",
+        "c10-c13 normal paraffin"
+      ],
+      "hs_codes": [
+        "2710.19",
+        "2901.10"
+      ],
+      "categories": [
+        "cat:aliphatic-compounds"
+      ],
+      "derived_to": [
+        "sub:linear-alkylbenzene"
+      ],
+      "transport_profile": "product_or_crude_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:n-propanol": {
+      "kind": "substance",
+      "label": "n-Propanol",
+      "aliases": [
+        "1-propanol",
+        "npa",
+        "n-propyl alcohol",
+        "n-propanol"
+      ],
+      "hs_codes": [
+        "2905.12"
+      ],
+      "categories": [
+        "cat:alcohol-solvents"
+      ],
+      "derived_to": [
+        "sub:n-propyl-acetate"
+      ],
+      "consumed_in": [
+        "proc:esterification",
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:n-propyl-acetate": {
+      "kind": "substance",
+      "label": "n-Propyl acetate",
+      "aliases": [
+        "npac",
+        "n-propyl-acetate"
+      ],
+      "hs_codes": [
+        "2915.39"
+      ],
+      "categories": [
+        "cat:acetates",
+        "cat:ester-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:naphtha": {
+      "kind": "substance",
+      "label": "Naphtha",
+      "aliases": [
+        "petroleum naphtha"
+      ],
+      "hs_codes": [
+        "2710.12"
+      ],
+      "categories": [
+        "cat:petrochemicals"
+      ],
+      "derived_to": [
+        "sub:ethylene",
+        "sub:propylene",
+        "sub:butadiene",
+        "sub:benzene",
+        "sub:toluene",
+        "sub:xylene",
+        "sub:orthoxylene",
+        "sub:isomer-mx",
+        "sub:solvent-mx",
+        "sub:solvent-c9",
+        "sub:hexane",
+        "sub:n-paraffins"
+      ],
+      "consumed_in": [
+        "proc:cracking",
+        "proc:catalytic-reforming"
+      ],
+      "transport_profile": "product_or_crude_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:natural-gas": {
+      "kind": "substance",
+      "label": "Natural gas / LNG",
+      "aliases": [
+        "natural gas",
+        "natural-gas",
+        "methane",
+        "lng"
+      ],
+      "hs_codes": [
+        "2711.11",
+        "2711.21"
+      ],
+      "categories": [
+        "cat:petrochemicals"
+      ],
+      "derived_to": [
+        "sub:ammonia",
+        "sub:methanol",
+        "sub:hydrogen",
+        "sub:ethane"
+      ],
+      "transport_profile": "cryogenic_gas",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:neopentyl-glycol": {
+      "kind": "substance",
+      "label": "Neopentyl glycol",
+      "aliases": [
+        "npg",
+        "neopentyl-glycol"
+      ],
+      "hs_codes": [
+        "2905.39"
+      ],
+      "categories": [
+        "cat:glycols"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:nitric-acid": {
+      "kind": "substance",
+      "label": "Nitric acid",
+      "hs_codes": [
+        "2808.00"
+      ],
+      "categories": [
+        "cat:acids"
+      ],
+      "derived_to": [
+        "sub:aniline",
+        "sub:toluene-diisocyanate"
+      ],
+      "consumed_in": [
+        "end:fertilizers"
+      ],
+      "transport_profile": "specialized_acid_tanker",
+      "merchant_liquidity": "low",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:nonylphenol-ethoxylate": {
+      "kind": "substance",
+      "label": "Nonylphenol ethoxylate",
+      "aliases": [
+        "npe",
+        "nonylphenol ethoxylates",
+        "nonyl-phenol-ethoxylate"
+      ],
+      "hs_codes": [
+        "3402.42"
+      ],
+      "categories": [
+        "cat:ethoxylates-propoxylates",
+        "cat:nonionic-surfactants"
+      ],
+      "consumed_in": [
+        "end:detergents"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:orthoxylene": {
+      "kind": "substance",
+      "label": "Ortho-xylene",
+      "aliases": [
+        "o-xylene",
+        "ox",
+        "orthoxylene"
+      ],
+      "hs_codes": [
+        "2902.41"
+      ],
+      "categories": [
+        "cat:aromatics"
+      ],
+      "derived_to": [
+        "sub:phthalic-anhydride"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:palm-kernel-oil": {
+      "kind": "substance",
+      "label": "Palm kernel oil",
+      "aliases": [
+        "pko",
+        "cpko",
+        "rbdpko"
+      ],
+      "hs_codes": [
+        "1513.21",
+        "1513.29"
+      ],
+      "categories": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "derived_to": [
+        "cat:fatty-acids",
+        "sub:glycerin",
+        "cat:biodiesel"
+      ],
+      "consumed_in": [
+        "proc:fat-splitting",
+        "proc:transesterification"
+      ],
+      "transport_profile": "vegetable_oil_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:palm-oil": {
+      "kind": "substance",
+      "label": "Palm oil",
+      "aliases": [
+        "crude palm oil",
+        "cpo",
+        "rbd palm oil"
+      ],
+      "hs_codes": [
+        "1511.10",
+        "1511.90"
+      ],
+      "categories": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "derived_to": [
+        "sub:pfad",
+        "cat:fatty-acids",
+        "sub:glycerin",
+        "cat:biodiesel"
+      ],
+      "consumed_in": [
+        "proc:transesterification",
+        "proc:fat-splitting"
+      ],
+      "transport_profile": "vegetable_oil_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:pentaerythritol": {
+      "kind": "substance",
+      "label": "Pentaerythritol",
+      "aliases": [
+        "penta",
+        "pentaerythritol-mono",
+        "pentaerythritol 98%"
+      ],
+      "hs_codes": [
+        "2905.42"
+      ],
+      "categories": [
+        "cat:alcohols"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:pfad": {
+      "kind": "substance",
+      "label": "Palm fatty acid distillate",
+      "aliases": [
+        "pfad"
+      ],
+      "hs_codes": [
+        "3823.19"
+      ],
+      "categories": [
+        "cat:fatty-acids"
+      ],
+      "derived_to": [
+        "cat:fatty-acids",
+        "cat:biodiesel"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:pgmea": {
+      "kind": "substance",
+      "label": "Propylene glycol monomethyl ether acetate",
+      "aliases": [
+        "pgmea",
+        "pma",
+        "propylene-glycol-monomethyl-ether-acetate"
+      ],
+      "hs_codes": [
+        "2915.39"
+      ],
+      "categories": [
+        "cat:acetates",
+        "cat:glycol-ethers",
+        "cat:ester-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:phenol": {
+      "kind": "substance",
+      "label": "Phenol",
+      "aliases": [
+        "carbolic acid"
+      ],
+      "hs_codes": [
+        "2907.11"
+      ],
+      "categories": [
+        "cat:aromatics",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:bisphenol-a",
+        "sub:salicylic-acid",
+        "sub:cyclohexanol"
+      ],
+      "consumed_in": [
+        "end:resins-laminates"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:phosphoric-acid": {
+      "kind": "substance",
+      "label": "Phosphoric acid",
+      "hs_codes": [
+        "2809.20"
+      ],
+      "categories": [
+        "cat:acids"
+      ],
+      "consumed_in": [
+        "end:fertilizers"
+      ],
+      "transport_profile": "specialized_acid_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:phthalic-acid": {
+      "kind": "substance",
+      "label": "Phthalic acid",
+      "aliases": [
+        "ortho-phthalic acid",
+        "phthalic-acid"
+      ],
+      "hs_codes": [
+        "2917.39"
+      ],
+      "categories": [
+        "cat:carboxylic-acids",
+        "cat:aromatics"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:phthalic-anhydride": {
+      "kind": "substance",
+      "label": "Phthalic anhydride",
+      "aliases": [
+        "pa",
+        "pan",
+        "pthalic-anhydride",
+        "phthalic-anhydride"
+      ],
+      "hs_codes": [
+        "2917.35"
+      ],
+      "categories": [
+        "cat:aromatics",
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:dibutyl-phthalate",
+        "sub:dop",
+        "sub:dinp",
+        "sub:phthalic-acid"
+      ],
+      "consumed_in": [
+        "proc:esterification",
+        "end:paints-coatings"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:polyether-polyol": {
+      "kind": "substance",
+      "label": "Polyether polyol",
+      "aliases": [
+        "polyol",
+        "polyether polyols",
+        "ppg"
+      ],
+      "hs_codes": [
+        "3907.29"
+      ],
+      "categories": [
+        "cat:polyurethanes",
+        "cat:ethers"
+      ],
+      "consumed_in": [
+        "end:flexible-pu-foam",
+        "end:rigid-pu-foam",
+        "end:adhesives-sealants",
+        "end:automotive-appliances"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:polyethylene": {
+      "kind": "substance",
+      "label": "Polyethylene",
+      "aliases": [
+        "pe",
+        "hdpe",
+        "ldpe",
+        "lldpe"
+      ],
+      "hs_codes": [
+        "3901.10",
+        "3901.20"
+      ],
+      "categories": [
+        "cat:polyolefins"
+      ],
+      "consumed_in": [
+        "end:packaging-film",
+        "end:pipes-profiles"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:polyethylene-glycol": {
+      "kind": "substance",
+      "label": "Polyethylene glycol",
+      "aliases": [
+        "peg",
+        "poly-ethylene-glycol",
+        "peg 400",
+        "peg 6000"
+      ],
+      "hs_codes": [
+        "3907.29",
+        "3404.20"
+      ],
+      "categories": [
+        "cat:ethoxylates-propoxylates",
+        "cat:ethers"
+      ],
+      "consumed_in": [
+        "end:personal-care",
+        "end:construction-admixtures"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:polymer-polyol": {
+      "kind": "substance",
+      "label": "Polymer polyol",
+      "aliases": [
+        "pop",
+        "polymer-polyols",
+        "graft polyol"
+      ],
+      "hs_codes": [
+        "3907.29"
+      ],
+      "categories": [
+        "cat:polyurethanes"
+      ],
+      "consumed_in": [
+        "end:flexible-pu-foam",
+        "end:automotive-appliances"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:polypropylene": {
+      "kind": "substance",
+      "label": "Polypropylene",
+      "aliases": [
+        "pp"
+      ],
+      "hs_codes": [
+        "3902.10",
+        "3902.30"
+      ],
+      "categories": [
+        "cat:polyolefins"
+      ],
+      "consumed_in": [
+        "end:packaging-film",
+        "end:pipes-profiles",
+        "end:automotive-appliances"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:polystyrene": {
+      "kind": "substance",
+      "label": "Polystyrene",
+      "aliases": [
+        "ps",
+        "gpps",
+        "hips",
+        "eps"
+      ],
+      "hs_codes": [
+        "3903.11",
+        "3903.19"
+      ],
+      "categories": [
+        "cat:styrenics"
+      ],
+      "consumed_in": [
+        "end:packaging-film",
+        "end:automotive-appliances"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:potassium-carbonate": {
+      "kind": "substance",
+      "label": "Potassium carbonate",
+      "aliases": [
+        "potash carbonate",
+        "potassium-carbonate-powder",
+        "k2co3"
+      ],
+      "hs_codes": [
+        "2836.40"
+      ],
+      "categories": [
+        "cat:alkalis"
+      ],
+      "consumed_in": [
+        "end:glass",
+        "end:fertilizers"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:propionic-acid": {
+      "kind": "substance",
+      "label": "Propionic acid",
+      "aliases": [
+        "propanoic acid",
+        "propionic-acid"
+      ],
+      "hs_codes": [
+        "2915.50"
+      ],
+      "categories": [
+        "cat:carboxylic-acids"
+      ],
+      "consumed_in": [
+        "proc:esterification",
+        "end:food-feed-preservatives",
+        "end:agrochemicals-pharma"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:propylene": {
+      "kind": "substance",
+      "label": "Propylene",
+      "aliases": [
+        "propene"
+      ],
+      "hs_codes": [
+        "2901.22"
+      ],
+      "categories": [
+        "cat:olefins",
+        "cat:monomers"
+      ],
+      "derived_to": [
+        "sub:acrylic-acid",
+        "sub:acrylonitrile",
+        "sub:polypropylene",
+        "sub:propylene-oxide",
+        "sub:propylene-glycol",
+        "sub:cumene",
+        "sub:n-butanol",
+        "sub:isobutyraldehyde",
+        "sub:n-butyric-acid",
+        "sub:2-ethylhexanol",
+        "sub:isopropanol",
+        "sub:epichlorohydrin"
+      ],
+      "consumed_in": [
+        "proc:polymerization"
+      ],
+      "transport_profile": "cryogenic_gas",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:propylene-glycol": {
+      "kind": "substance",
+      "label": "Propylene glycol",
+      "aliases": [
+        "monopropylene glycol",
+        "mpg",
+        "propylene-glycol"
+      ],
+      "hs_codes": [
+        "2905.32"
+      ],
+      "categories": [
+        "cat:glycols"
+      ],
+      "consumed_in": [
+        "end:coolants-antifreeze",
+        "end:food-feed-preservatives"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:propylene-oxide": {
+      "kind": "substance",
+      "label": "Propylene oxide",
+      "aliases": [
+        "po",
+        "methyloxirane"
+      ],
+      "hs_codes": [
+        "2910.20"
+      ],
+      "categories": [
+        "cat:chemical-intermediates"
+      ],
+      "derived_to": [
+        "sub:propylene-glycol",
+        "sub:dipropylene-glycol",
+        "sub:pgmea",
+        "sub:diisopropanolamine",
+        "sub:polyether-polyol",
+        "sub:polymer-polyol",
+        "sub:mp-diol"
+      ],
+      "consumed_in": [
+        "proc:ethoxylation"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "low",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:purified-isophthalic-acid": {
+      "kind": "substance",
+      "label": "Purified isophthalic acid",
+      "aliases": [
+        "pia",
+        "ipa acid",
+        "purified-iso-phthalic-acid"
+      ],
+      "hs_codes": [
+        "2917.39"
+      ],
+      "categories": [
+        "cat:carboxylic-acids",
+        "cat:aromatics"
+      ],
+      "consumed_in": [
+        "end:polyester-pet",
+        "end:paints-coatings",
+        "end:nylon-fibers-textiles"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:pvc-resin": {
+      "kind": "substance",
+      "label": "PVC resin",
+      "aliases": [
+        "polyvinyl chloride resin",
+        "s-pvc",
+        "suspension pvc"
+      ],
+      "hs_codes": [
+        "3904.10"
+      ],
+      "categories": [
+        "cat:pvc"
+      ],
+      "consumed_in": [
+        "proc:compounding",
+        "end:pvc-compound",
+        "end:cable-wire",
+        "end:pipes-profiles"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:salicylic-acid": {
+      "kind": "substance",
+      "label": "Salicylic acid",
+      "aliases": [
+        "2-hydroxybenzoic acid",
+        "salicylic-acid"
+      ],
+      "hs_codes": [
+        "2918.21"
+      ],
+      "categories": [
+        "cat:carboxylic-acids",
+        "cat:aromatics"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma",
+        "end:personal-care"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:salt": {
+      "kind": "substance",
+      "label": "Salt",
+      "aliases": [
+        "sodium chloride",
+        "industrial salt"
+      ],
+      "hs_codes": [
+        "2501.00"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "consumed_in": [
+        "proc:chlor-alkali"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:sles": {
+      "kind": "substance",
+      "label": "Sodium laureth sulfate",
+      "aliases": [
+        "sles",
+        "sodium lauryl ether sulfate"
+      ],
+      "hs_codes": [
+        "3402.39"
+      ],
+      "categories": [
+        "cat:anionic-surfactants"
+      ],
+      "consumed_in": [
+        "end:detergents",
+        "end:personal-care"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:soap-noodles": {
+      "kind": "substance",
+      "label": "Soap noodles",
+      "aliases": [
+        "toilet soap noodles",
+        "laundry soap noodles",
+        "soap base"
+      ],
+      "hs_codes": [
+        "3401.20"
+      ],
+      "categories": [
+        "cat:soap"
+      ],
+      "consumed_in": [
+        "end:soap"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:soda-ash": {
+      "kind": "substance",
+      "label": "Soda ash",
+      "aliases": [
+        "sodium carbonate",
+        "dense soda ash",
+        "light soda ash"
+      ],
+      "hs_codes": [
+        "2836.20"
+      ],
+      "categories": [
+        "cat:alkalis"
+      ],
+      "consumed_in": [
+        "end:detergents",
+        "end:glass"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:sodium-benzoate": {
+      "kind": "substance",
+      "label": "Sodium benzoate",
+      "aliases": [
+        "e211",
+        "sodium-benzoate"
+      ],
+      "hs_codes": [
+        "2916.31"
+      ],
+      "categories": [
+        "cat:carboxylic-acids"
+      ],
+      "consumed_in": [
+        "end:food-feed-preservatives"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:sodium-gluconate": {
+      "kind": "substance",
+      "label": "Sodium gluconate",
+      "aliases": [
+        "sodium gluconate",
+        "gluconic acid sodium salt"
+      ],
+      "hs_codes": [
+        "2918.16"
+      ],
+      "categories": [
+        "cat:carboxylic-acids"
+      ],
+      "consumed_in": [
+        "end:construction-admixtures",
+        "end:detergents"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:solvent-c9": {
+      "kind": "substance",
+      "label": "Solvent C9 (Aromatic naphtha 100)",
+      "aliases": [
+        "c9",
+        "solvent-c9",
+        "c9 aromatics",
+        "aromatic 100"
+      ],
+      "hs_codes": [
+        "2707.50"
+      ],
+      "categories": [
+        "cat:aromatics",
+        "cat:aromatic-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:agrochemicals-pharma"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:solvent-mx": {
+      "kind": "substance",
+      "label": "Solvent-grade mixed xylene",
+      "aliases": [
+        "solvent-mx",
+        "solvent mx",
+        "solvent xylene"
+      ],
+      "hs_codes": [
+        "2902.44"
+      ],
+      "categories": [
+        "cat:aromatics",
+        "cat:aromatic-solvents"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:styrene": {
+      "kind": "substance",
+      "label": "Styrene",
+      "aliases": [
+        "styrene monomer",
+        "styrene-monomer",
+        "vinylbenzene"
+      ],
+      "hs_codes": [
+        "2902.50"
+      ],
+      "categories": [
+        "cat:aromatics",
+        "cat:monomers"
+      ],
+      "derived_to": [
+        "sub:polystyrene"
+      ],
+      "consumed_in": [
+        "proc:polymerization",
+        "end:tires-rubber"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:sulphuric-acid": {
+      "kind": "substance",
+      "label": "Sulphuric acid",
+      "aliases": [
+        "sulfuric acid",
+        "oleum"
+      ],
+      "hs_codes": [
+        "2807.00"
+      ],
+      "categories": [
+        "cat:acids"
+      ],
+      "derived_to": [
+        "sub:phosphoric-acid"
+      ],
+      "consumed_in": [
+        "proc:sulphonation",
+        "end:fertilizers"
+      ],
+      "transport_profile": "specialized_acid_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:tallow": {
+      "kind": "substance",
+      "label": "Tallow",
+      "aliases": [
+        "animal tallow",
+        "beef tallow"
+      ],
+      "hs_codes": [
+        "1502.10"
+      ],
+      "categories": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "derived_to": [
+        "cat:biodiesel",
+        "cat:fatty-acids",
+        "sub:glycerin"
+      ],
+      "consumed_in": [
+        "proc:transesterification",
+        "proc:fat-splitting"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:tetrahydrofuran": {
+      "kind": "substance",
+      "label": "Tetrahydrofuran",
+      "aliases": [
+        "thf",
+        "tetrahydrofuron-flakes",
+        "tetrahydrofuran"
+      ],
+      "hs_codes": [
+        "2932.11"
+      ],
+      "categories": [
+        "cat:ethers",
+        "cat:solvents"
+      ],
+      "consumed_in": [
+        "end:nylon-fibers-textiles",
+        "end:agrochemicals-pharma",
+        "end:adhesives-sealants"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high",
+      "expert_note": "Pure THF (2932.11) is a liquid cyclic ether solvent/monomer; flaked solid form in commercial catalogs often denotes downstream PTMEG (3907.29) for spandex."
+    },
+    "sub:titanium-dioxide": {
+      "kind": "substance",
+      "label": "Titanium dioxide",
+      "aliases": [
+        "tio2",
+        "titanium white",
+        "rutile",
+        "anatase"
+      ],
+      "hs_codes": [
+        "3206.11",
+        "2823.00"
+      ],
+      "categories": [
+        "cat:inorganics"
+      ],
+      "consumed_in": [
+        "end:paints-coatings"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:toluene": {
+      "kind": "substance",
+      "label": "Toluene",
+      "aliases": [
+        "toluol",
+        "methylbenzene"
+      ],
+      "hs_codes": [
+        "2902.30"
+      ],
+      "categories": [
+        "cat:aromatics",
+        "cat:aromatic-solvents"
+      ],
+      "derived_to": [
+        "sub:benzene",
+        "sub:toluene-diisocyanate",
+        "sub:benzoic-acid"
+      ],
+      "consumed_in": [
+        "proc:hydrodealkylation",
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:toluene-diisocyanate": {
+      "kind": "substance",
+      "label": "Toluene diisocyanate",
+      "aliases": [
+        "tdi",
+        "tdi 80/20",
+        "toluene-di-isocyanate"
+      ],
+      "hs_codes": [
+        "2929.10"
+      ],
+      "categories": [
+        "cat:isocyanates"
+      ],
+      "consumed_in": [
+        "end:flexible-pu-foam"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "seed",
+      "confidence": "high"
+    },
+    "sub:tri-n-butylamine": {
+      "kind": "substance",
+      "label": "Tri-n-butylamine",
+      "aliases": [
+        "tnba",
+        "tributylamine",
+        "tri-n-butyl-amine"
+      ],
+      "hs_codes": [
+        "2921.19"
+      ],
+      "categories": [
+        "cat:amines"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:tri-n-propylamine": {
+      "kind": "substance",
+      "label": "Tri-n-propylamine",
+      "aliases": [
+        "tnpa",
+        "tripropylamine",
+        "tri-n-propyl-amine"
+      ],
+      "hs_codes": [
+        "2921.19"
+      ],
+      "categories": [
+        "cat:amines"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:triethanolamine": {
+      "kind": "substance",
+      "label": "Triethanolamine",
+      "aliases": [
+        "tea",
+        "triethanolamine"
+      ],
+      "hs_codes": [
+        "2922.15"
+      ],
+      "categories": [
+        "cat:ethanolamines"
+      ],
+      "consumed_in": [
+        "end:personal-care",
+        "end:detergents",
+        "end:metalworking-fluids",
+        "end:construction-admixtures"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:triethylamine": {
+      "kind": "substance",
+      "label": "Triethylamine",
+      "aliases": [
+        "tea amine",
+        "tri-ethyl-amine"
+      ],
+      "hs_codes": [
+        "2921.19"
+      ],
+      "categories": [
+        "cat:amines"
+      ],
+      "consumed_in": [
+        "end:agrochemicals-pharma"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:urea": {
+      "kind": "substance",
+      "label": "Urea",
+      "aliases": [
+        "carbamide",
+        "prilled urea",
+        "granular urea"
+      ],
+      "hs_codes": [
+        "3102.10"
+      ],
+      "categories": [
+        "cat:petrochemicals"
+      ],
+      "derived_to": [
+        "sub:melamine"
+      ],
+      "consumed_in": [
+        "end:fertilizers",
+        "end:resins-laminates"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:used-cooking-oil": {
+      "kind": "substance",
+      "label": "Used cooking oil",
+      "aliases": [
+        "uco",
+        "waste cooking oil"
+      ],
+      "hs_codes": [
+        "1518.00"
+      ],
+      "categories": [
+        "cat:oleochemical-feedstocks"
+      ],
+      "derived_to": [
+        "cat:biodiesel",
+        "cat:fatty-acids",
+        "sub:glycerin"
+      ],
+      "consumed_in": [
+        "proc:transesterification",
+        "proc:fat-splitting"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:vinyl-acetate-monomer": {
+      "kind": "substance",
+      "label": "Vinyl acetate monomer",
+      "aliases": [
+        "vam",
+        "vinyl-acetate-monomer"
+      ],
+      "hs_codes": [
+        "2915.32"
+      ],
+      "categories": [
+        "cat:esters",
+        "cat:monomers"
+      ],
+      "consumed_in": [
+        "proc:polymerization",
+        "end:paints-coatings",
+        "end:adhesives-sealants",
+        "end:packaging-film"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:vinyl-chloride": {
+      "kind": "substance",
+      "label": "Vinyl chloride monomer",
+      "aliases": [
+        "vcm",
+        "vinyl chloride"
+      ],
+      "hs_codes": [
+        "2903.21"
+      ],
+      "categories": [
+        "cat:chlorinated-monomers",
+        "cat:monomers"
+      ],
+      "derived_to": [
+        "sub:pvc-resin"
+      ],
+      "consumed_in": [
+        "proc:polymerization"
+      ],
+      "transport_profile": "cryogenic_gas",
+      "merchant_liquidity": "medium",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:vpeg-2400": {
+      "kind": "substance",
+      "label": "VPEG-2400 (Vinylpolyethylene glycol macromonomer)",
+      "aliases": [
+        "vpeg-2400",
+        "vpeg",
+        "epeg",
+        "hpeg",
+        "pce macromonomer"
+      ],
+      "hs_codes": [
+        "3907.29",
+        "3404.20"
+      ],
+      "categories": [
+        "cat:ethoxylates-propoxylates",
+        "cat:monomers"
+      ],
+      "consumed_in": [
+        "proc:polymerization",
+        "end:construction-admixtures"
+      ],
+      "transport_profile": "container_or_dry_bulk",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "high"
+    },
+    "sub:xylene": {
+      "kind": "substance",
+      "label": "Xylene (all isomers)",
+      "aliases": [
+        "xylenes",
+        "mixed xylene"
+      ],
+      "hs_codes": [
+        "2902.44",
+        "2902.41",
+        "2902.42",
+        "2902.43"
+      ],
+      "categories": [
+        "cat:aromatics",
+        "cat:aromatic-solvents"
+      ],
+      "derived_to": [
+        "sub:phthalic-anhydride"
+      ],
+      "consumed_in": [
+        "end:paints-coatings",
+        "end:adhesives-sealants"
+      ],
+      "transport_profile": "liquid_chemical_tanker",
+      "merchant_liquidity": "high",
+      "status": "proposed",
+      "source": "llm-review",
+      "confidence": "medium"
+    }
+  }
+}

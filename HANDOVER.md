@@ -337,7 +337,7 @@ gate is **on by default**.
 ## 2026-11-18 — curated ontology merged (machine review applied)
 
 The domain review (`review notes.md`) and the edited document (`edited_ontology.json`) were merged
-into `data/chemicals.json` through the tooling, with my delta kept as
+into `data/Chem_KG.json` through the tooling, with my delta kept as
 `data/curation-2026-11-18.json`. **162 nodes** (81 substances, 43 categories, 17 processes,
 21 end-products), **0 lint errors**, 5 warnings (shared HS headings; every node still `proposed`).
 
@@ -391,7 +391,7 @@ searched) — is being replaced by a curated graph. Everything below is additive
 agent reads the graph yet, so runtime behaviour is unchanged until the curated document lands.
 
 - **`internal/ontology/`** — the document is the single source of truth (embedded
-  `data/chemicals.json`, strict decode, schema version, unknown fields rejected). Four node kinds:
+  `data/Chem_KG.json`, strict decode, schema version, unknown fields rejected). Four node kinds:
   `substance` (canonical names, aliases, HS codes), `category` (nested petrochemical /
   oleochemical / inorganic families), `process` (blending, refining, esterification,
   transesterification, chlor-alkali, …) and `end-product` (the value-chain leaves whose

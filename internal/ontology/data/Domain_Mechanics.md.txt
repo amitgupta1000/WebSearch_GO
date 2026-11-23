@@ -1,0 +1,171 @@
+## Part 3: Domain Mechanics of Petrochemical, Specialty Intermediate & Oleochemical Trade Flows
+
+Global chemical trade is governed by five coupled forces operating on **different temporal clocks**:
+1. **Timeless Physical & Chemical Invariants (`Layer 0`):** Stoichiometry, co-product coupling, physical state/containment physics, and port-to-chokepoint geography.
+2. **Slow Structural Supply & Demand Topology (`Layer 1`, 1–5 years):** Feedstock cost curves, capex cycles, FTA treaties, and multi-year end-use substitution.
+3. **Time-Bounded Policy & Seasonal Regimes (`Layer 2`, 1–12 months):** Statutory tariffs/ADDs/MIPs (`effective_from` $\to$ `effective_to`), export tax rebates, carbon/biofuel mandates, and repeating agricultural/construction demand calendars.
+4. **Dynamic Market, Freight & Operational State (`Layer 3`, hours–weeks):** Spot/contract spreads, chokepoint closures/reroutes, CPP tanker swing tightness, plant outages, and macro/inventory activity proxies.
+
+**Core Modeling Rule:** Static Knowledge Graphs (`chem_kb.json`, `trade_kg.json`) encode **Layers 0–1**. Any Layer 2–3 fact (such as 2026 chokepoint risk, MIP price floors, or seasonal restocking) must reside in **time-bounded relational tables** queried by `obs_date`—both to adapt immediately when real-world conditions change and to prevent **look-ahead bias** during historical backtesting.
+
+---
+
+### 3.1 Global Feedstock Cost Curves & Regional Supply Archetypes (`Layer 1`)
+
+#### 1. Ethane & Natural Gas-Advantaged Exporters (`geo:us`, `geo:sa`, `geo:qa`, `geo:ae`, `geo:om`, `geo:tt`, `geo:eg`)
+* **Cost Advantage:** USGC shale NGLs (Mont Belvieu `sub:ethane`) and discounted Middle East gas anchor the bottom quartile of global ethylene, methanol, ammonia, urea, and EO-derivative cost curves.
+* **Commodity & Derivative Export Mechanics:**
+  * **Polymers & C1/C2 Derivatives:** `geo:us` exports >55% of `sub:polyethylene` alongside `sub:pvc-resin`, `sub:caustic-soda`, `sub:methanol`, `sub:ethanol`, `sub:vinyl-acetate-monomer` (`VAM`), and `sub:base-oil`. `geo:sa` (SABIC/Sadara/Sipchem) and `geo:qa` anchor seaborne `PE`, `PP`, `MEG`, `DEG`, `EDC`, `polyols`, `ethanolamines` (`MEA/DEA/TEA`), `alpha-olefins`, `n-paraffins`, `melamine`, `urea`, and `ammonia`.
+  * **Oxo-Alcohols & Aromatics Outside Chokepoints:** `geo:om` (OQ Sohar) operates major oxo-alcohol (`sub:2-ethylhexanol`, `sub:n-butanol`, `sub:isobutyl-alcohol`, `sub:isobutyraldehyde`) and aromatics (`sub:orthoxylene`, `sub:isomer-mx`) capacity outside the Strait of Hormuz.
+  * **Feedstock-as-a-Commodity (`VLEC` Trade):** `geo:us` exports >800 kb/d of cryogenic `sub:ethane` and `sub:ethylene` to feed gas-adapted crackers in `geo:be` (Antwerp), `geo:cn`, and `geo:in`.
+* **Structural Aromatics Deficit:** Because ethane cracking yields ~78–80% ethylene and <3% propylene or aromatics, `geo:us` is structurally short `sub:benzene` and Group III `sub:base-oil`, pulling tanker imports from `geo:kr` (`flow:kr-us-aromatics-baseoil`).
+
+#### 2. China's Dual-Engine Swing Complex (`geo:cn`)
+* **Dual Feedstock Architecture:** Combines inland coal-to-chemicals (`CTO`, `MTO`, coal-to-MEG, calcium-carbide PVC, coal-derived `DMF`/`formic-acid`/`melamine`) with coastal mega-refineries, PDH units, ethane crackers, and integrated fine-chemical parks.
+* **The MTO Marginal Cost Floor (`proc:mto`):** Coastal Chinese MTO plants buy seaborne `sub:methanol` (`~3.0 MT methanol -> 1.0 MT mixed ethylene+propylene`). When olefin/polymer margins fall below MTO cash costs, MTO run-cuts cap methanol demand and tighten regional olefins.
+* **Structural Export Dominance:** Multi-year mega-capacity flipped `geo:cn` into a dominant net exporter across commodity resins (`sub:polypropylene`, `sub:pvc-resin`, `sub:styrene`, `sub:titanium-dioxide`, `sub:caustic-soda`) **and** specialty intermediates (`sub:acrylonitrile`, `sub:adipic-acid`, `sub:dibasic-acid`, `sub:dimethylformamide`, `sub:dimethylacetamide`, `sub:melamine`, `sub:dicyandiamide`, `sub:dichloromethane`, `sub:tetrahydrofuran`, `sub:vpeg-2400`, `sub:sodium-gluconate`, `sub:benzoic-acid`, `sub:salicylic-acid`, `sub:potassium-carbonate`, alkylamines, and acrylate/acetate esters)—while continuing to import `sub:ethane`, specialty `PE`, `sub:methanol`, and palm oleochemicals.
+* **Policy-Shifted Export Parity (Regime Example):** China's April 1, 2026 abolition of export VAT rebates (previously up to 13%) across 249 product categories—including `sub:pvc-resin`, `sub:methanol`, and `sub:ethylene-glycol`—immediately shifted Chinese FOB export floors upward relative to domestic RMB pricing.
+
+#### 3. Naphtha-Cracking & Integrated Hubs (`geo:nl`, `geo:be`, `geo:de`, `geo:kr`, `geo:jp`, `geo:tw`, `geo:sg`, `geo:th`)
+* **Naphtha Economics:** Naphtha crackers depend heavily on co-product credits (`sub:propylene`, `sub:butadiene`, `BTX`) to offset crude-linked naphtha costs.
+* **European Consolidation & Specialty Pivot:** High energy costs and aging crackers drove ~37 Mt/yr of cumulative European capacity closure announcements since 2022 (~17.2 Mt/yr in 2025 alone), locking `geo:nl`/`geo:be`/`geo:de` into deep structural import dependence for commodity olefins, polymers, and methanol. However, `geo:de` and `geo:nl` remain vital exporters of **high-purity specialty intermediates** (`sub:neopentyl-glycol`, `sub:isophorone`, `sub:2-ethylhexanoic-acid`, `sub:propionic-acid`, `sub:mp-diol`, `sub:polyether-polyol`, `sub:polymer-polyol`, and `cat:ethoxylates-propoxylates`) into `geo:in`.
+* **Northeast Asia & ASEAN Pivots:** Facing Chinese CTO competition, `geo:kr`, `geo:jp`, `geo:tw`, `geo:sg`, and `geo:my` rely on:
+  1. **FTA-Protected Corridors into `geo:in`:** (`Korea-India CEPA`, `Japan-India CEPA`, `ASEAN AIFTA`) for `sub:pvc-resin`, `sub:orthoxylene`, `sub:isomer-mx`, `sub:solvent-c9`, `sub:purified-isophthalic-acid`, `sub:vinyl-acetate-monomer`, `sub:butyl-acrylate`, `sub:2-ethylhexanol`, `sub:cyclohexanone`, `sub:phenol`/`sub:acetone`, and `sub:vpeg-2400`.
+  2. **Integrated ASEAN Complexes:** `geo:sg` (Jurong Island) anchors `C9`, `glycol ethers/acetates` (`BG`, `BDG`, `BGA`, `PGMEA`), `n-propanol`, `VAM`, and `base-oil`; `geo:my` (BASF-Petronas Kuantan + Pengerang) anchors `acrylic-acid`, `butyl-acrylate`, `2-EHA`, `oxo-alcohols`, and `lauryl-alcohol-ethoxylate`.
+
+#### 4. High-Growth Deficit & Trade-Defense Markets (`geo:in`, `geo:vn`, `geo:br`, `geo:tr`, `geo:pk`, `geo:mx`)
+* **India (`geo:in` — `INDIAN-EQUITIES` Anchor):** Structural deficits span commodity polymers (`sub:pvc-resin` ~3.1 Mt/yr), petrochemical intermediates (`EDC`, `methanol`, `styrene`, `phenol`, `VAM`, `ACN`), coatings/adhesive monomers & solvents (`oxo-alcohols`, `acrylates`, `acetates`, `glycol ethers`, `cyclohexanone`, `isophorone`, `PIA`, `NPG`, `pentaerythritol`), API/agro intermediates (`DMF`, `DMAC`, `DCM`, `DEM`, `amines`, `salicylic/propionic/formic acids`), and construction chemicals (`VPEG-2400`, `sodium-gluconate`). India actively balances domestic producers against downstream converters using **DGTR Anti-Dumping Duties (ADDs)** and **DGFT Minimum Import Prices (MIPs)**.
+* **Turkey (`geo:tr`) — Dual-Role Swing Hub:** Major net importer of polymers, `styrene`, `methanol`, and `caustic-soda`, *and* a top-2 global exporter of low-cost natural trona **`sub:soda-ash`** (>5 Mt/yr) displacing synthetic European Solvay capacity (`flow:tr-nl-soda-ash`, `flow:tr-in-soda-ash`).
+
+#### 5. Oleochemical & Bio-Energy Producers (`geo:id`, `geo:my`, `geo:co`)
+* `geo:id` and `geo:my` control ~85% of global `sub:palm-oil` and `sub:palm-kernel-oil` (`PKO`). `C12/C14` lauric fractions from PKO/`sub:coconut-oil` are irreplaceable feedstocks for natural `sub:fatty-alcohol` $\to$ `sub:lauryl-alcohol-ethoxylate` $\to$ `sub:sles`.
+* Indonesian biodiesel mandates (B40/B50 trajectory + export levies) tighten exportable CPO/`PFAD` surpluses, lifting `geo:my`'s share of downstream oleochemical exports and prompting Indian refiners to test South American origins (`geo:co`).
+
+---
+
+### 3.2 Co-Product Coupling, Joint Production & "Inverse Supply" Shocks (`Layer 0`)
+
+Many watchlist chemicals are co-produced in fixed stoichiometric ratios. Weak demand in Product A restricts supply and spikes the price of Product B:
+
+| Process / Chain | Fixed Co-Product Ratio / Coupling | Asymmetric Drivers | Trade & Pricing Consequence |
+| :--- | :--- | :--- | :--- |
+| **`proc:chlor-alkali` (ECU)** | `1.00 MT Cl₂` + **`1.10 dmt NaOH`** (`sub:caustic-soda`) + `0.028 MT H₂` | **Cl₂:** `sub:pvc-resin` / `EDC`, `MDI`/`TDI`.<br>**NaOH:** Alumina, pulp, soaps, textiles, mineral processing. | Cl₂ cannot be stored long-term. Construction/PVC slumps force chlor-alkali run cuts, **starving merchant `sub:caustic-soda` supply** and spiking NaOH export prices during weak PMIs (and vice versa). |
+| **`proc:cracking` (Naphtha vs. Ethane)** | **Naphtha:** `0.31 C₂=`, `0.16 C₃=`, `0.05 C₄=`, `0.22 pygas/BTX`.<br>**Ethane:** `0.78 C₂=`, `<0.03 C₃=`, `0.02 C₄=`. | C₂= follows packaging/PE; C₃=/C₄= follow auto/appliances/tires; BTX follows octane & styrenics/PU. | Switching crackers from naphtha to ethane (`geo:us`, `geo:be`, `geo:cn`) structurally starves global **`sub:propylene`**, **`sub:butadiene`**, and **`sub:benzene`**. |
+| **Cumene Oxidation** | `1.00 MT sub:phenol` + **`0.62 MT sub:acetone`** | **Phenol:** `BPA`/epoxy, phenolic laminates.<br>**Acetone:** `MMA`, `MIBK`, `isophorone`, `IPA`. | Strong epoxy/BPA runs flood the market with `sub:acetone`; weak phenol runs tighten `sub:acetone`, lifting `MIBK`, `MIBC`, and `isophorone` costs. |
+| **Ethylene Oxide (`EO`) Derivative Basket** | Captive `sub:ethylene-oxide` $\to$ `MEG` (~90%) + **`DEG` (~10% co-product)** + `MEA/DEA/TEA` + `BG/BDG/BTG` + `LAE/AEO/VPEG` | `MEG` follows polyester fibers (`end:polyester-pet`); `DEG` follows UPR/polyols/antifreeze; `EO` is captive. | Because `EO` cannot trade deep-sea, `EO` tightness or `MEG` run-cuts ripple immediately into **`sub:diethylene-glycol`**, **`cat:ethanolamines`**, **`cat:glycol-ethers`**, and **`sub:vpeg-2400`** import parity. |
+| **Propylene Oxo-Alcohols** | Hydroformylation yields **`n-butyraldehyde`** ($\to$ `n-BuOH`, `2-EH`) + **`sub:isobutyraldehyde`** ($\to$ `IBA`, `NPG`) in `~85:15` ratio | `2-EH`/`n-BuOH` follow `DOP`/`butyl-acrylate`/`2-EHA`; `IBA`/`NPG` follow powder coatings & isobutyl acetate. | High `2-EH` / acrylate demand generates co-product `sub:isobutyraldehyde` / `sub:isobutyl-alcohol` surpluses; oxo outages hit both `2-EH` and `NPG` simultaneously. |
+| **Adipic Acid $\to$ `DBA` Flakes** | Cyclohexane/cyclohexanol oxidation $\to$ `sub:adipic-acid` + **`sub:dibasic-acid` (`DBA`)** byproduct | **Adipic:** Nylon 6,6 & PU.<br>**DBA:** Coatings/DBE solvents, polyester polyols. | Nylon 6,6 downturns in China/EU cut adipic acid operating rates, tightening byproduct `sub:dibasic-acid` flake exports. |
+| **`proc:catalytic-reforming` & Xylenes** | Reformate $\to$ `benzene`, `toluene`, **`isomer-MX`** vs. **`solvent-MX`**, **`orthoxylene`**, **`solvent-C9`** | **Chemical extraction** (PX/PTA, OX/PA, PIA) vs. **Gasoline octane blending**. | Summer driving gasoline cracks pull `sub:toluene`, `sub:solvent-mx`, and `sub:solvent-c9` into the fuel pool, raising chemical solvent floors and shrinking OX/PIA isomerization margins. |
+| **Oleochemical vs. Petro Surfactants** | Triglyceride $\to$ `0.95` Fatty Acid/FAME + **`0.10 sub:glycerin`**; `n-paraffin + benzene` $\to$ `LAB` vs. `PKO` $\to$ `fatty-alcohol` $\to$ `LAE/SLES` | Biodiesel mandates (`B40/B50`) flood crude `sub:glycerin`; PKO/CNO weather drives `LAE/SLES` vs. crude/naphtha driving `LAB/LABSA`. | Mandatory biodiesel expansion crushes `sub:glycerin` prices (favoring bio-GTE `epichlorohydrin`); sharp `PKO`-to-`n-paraffin` spreads shift detergent formulators between `SLES` and `LABSA`. |
+
+---
+
+### 3.3 Demand Drivers, Seasonal Clocks & `INDIAN-EQUITIES` Margin Transmission (`Layers 1–3`)
+
+Supply and cost curves only explain *what producers want to charge*; **demand regimes determine whether destination buyers actually absorb cargoes or reject them**.
+
+#### 1. End-Use Demand Weighting (`demand_share_pct`, `Layer 1`)
+Each `sub:*` $\to$ `end:*` link carries vastly unequal weight:
+* `sub:ethylene-glycol`: `~85%` `end:polyester-pet` vs. `~10%` `end:coolants-antifreeze`.
+* `sub:pvc-resin`: `~65%` `end:pipes-profiles` vs. `~15%` `end:cable-wire` vs. `~20%` `end:pvc-compound`.
+* `sub:vpeg-2400` & `sub:sodium-gluconate`: `~85–95%` `end:construction-admixtures`.
+* `sub:dimethylformamide` & `sub:dichloromethane`: heavily weighted to `end:agrochemicals-pharma` (API solvents) and `end:nylon-fibers-textiles` (spandex/PU leather).
+
+#### 2. Deterministic Seasonal Demand Calendars (`Layer 2`)
+Chemical import demand—especially in `geo:in`—follows repeating annual clocks that must be queried deterministically on `run_date`:
+
+| Geo / Window | Seasonal Mechanism | Primary Affected Nodes |
+| :--- | :--- | :--- |
+| **India: Mar–May & Oct–Feb** | **Pre- & Post-Monsoon Irrigation / Infra Pipe & Concrete Restocking** | `end:pipes-profiles`, `end:construction-admixtures` $\to$ `sub:pvc-resin`, `sub:polyethylene`, `sub:vpeg-2400`, `sub:sodium-gluconate`, `sub:triethanolamine` |
+| **India: Jun–Sep** | **Southwest Monsoon Construction & Exterior Coatings Lull** | `end:paints-coatings`, `end:pipes-profiles`, `end:construction-admixtures` $\to$ dampens `TiO2`, `butyl-acrylate`, `VAM`, `solvents`, `PVC` import pull |
+| **India: May–Jul (Kharif) & Oct–Dec (Rabi)** | **Agrochemical & Fertilizer Application Windows** | `end:agrochemicals-pharma`, `end:fertilizers` $\to$ `urea`, `phosphoric-acid`, `DMF`, `DCM`, `diethyl-malonate`, `ethyl/butyl/propyl amines`, `solvent-c9` |
+| **India: Sep–Nov** | **Pre-Diwali Decorative Coatings & Consumer Packaging Peak** | `end:paints-coatings`, `end:packaging-film` $\to$ `TiO2`, `VAM`, `butyl-acrylate`, `acetates`, `PE`, `PP` |
+| **Global: May–Sep** | **Northern Hemisphere Summer Driving Octane Pull** | `sub:toluene`, `sub:solvent-mx`, `sub:solvent-c9` |
+| **Global: Oct–Jan** | **Winter Antifreeze & Heating** | `end:coolants-antifreeze` $\to$ `MEG`, `DEG`, `MPG` |
+| **China: Jan–Mar** | **Lunar New Year Factory Shutdown & Post-Holiday Restocking** | Broad NE Asia pull/pause across `polyester-pet`, `nylon-fibers-textiles`, `paints-coatings`, `pvc-compound` |
+
+#### 3. High-Frequency Activity & Inventory Proxies (`Layer 3`)
+* **Downstream Macro Proxies:** India core-sector **Cement & Steel** output (`end:construction-admixtures`, `end:pipes-profiles`), **SIAM Auto Dispatches** (`end:tires-rubber`, `end:automotive-appliances`, `sub:base-oil`), **IMD Monsoon Rainfall & Reservoir Storage %** (`end:agrochemicals-pharma`, `end:fertilizers`), and **Manufacturing PMI New Orders** (`India`, `China`, `EU`).
+* **Port Tank Inventories & Loom Rates:** East China coastal tank stocks (`MEG`, `styrene`, `methanol`) and polyester loom operating rates provide immediate verification of whether Asian cargoes are clearing into real consumption.
+* **Discretionary Elasticity Spreads:** E.g., the **POGO Spread (`Palm Oil - Gasoil`)** directly measures whether non-mandated `end:biodiesel-blend` demand is shutting off.
+
+#### 4. Demand-Pull vs. Cost-Push Arbitrage & the `INDIAN-EQUITIES` Margin Lens
+* **Arbitrage Conviction Classification:**
+  * `DEMAND_PULL`: Positive netback arb **+** positive destination seasonal/activity demand $\to$ high durability; destination buyers absorb cargoes across the voyage.
+  * `COST_PUSH_SQUEEZE`: Positive netback arb driven solely by an origin outage/freight spike while destination `end:*` demand is in seasonal lull or destocking $\to$ high risk of CFR price collapse before vessel arrival.
+* **Equity Margin Transmission (`INDIAN-EQUITIES`):** The same landed-cost shift hits Indian listed companies asymmetrically:
+  * **Downstream Importer-Converters** (paints, coatings, adhesives, PVC pipes, PCE admixtures, API/agro formulators) **expand gross margins** when Chinese/Korean/ASEAN landed parity for `TiO2`, `VAM`, `butyl-acrylate`, `2-EH`, `DMF`, or `PVC` drops while domestic end-demand is strong.
+  * **Domestic Primary Producers** (chlor-alkali, amines, oxo-alcohols, melamine, phthalic anhydride, LAB, PVC) suffer **margin compression** when Chinese/Korean landed parity undercuts domestic cash costs—making **DGTR ADD / DGFT MIP** announcements critical upside equity catalysts.
+
+---
+
+### 3.4 Physical State, Vessel Economics & Chemical Logistics (`Layer 0 & Layer 3`)
+
+| `transport_profile` | Containment / Vessel Class | Key Watchlist Substances | Commercial & Freight Mechanics |
+| :--- | :--- | :--- | :--- |
+| **`cryogenic_gas`** | VLEC (`-104°C` Ethane), Ethylene Carriers, MGC/VLGC (`NH₃`, `VCM`) | `sub:ethane`, `sub:ethylene`, `sub:propylene`, `sub:butadiene`, `sub:vinyl-chloride`, `sub:ammonia` | High capital/terminal barriers require wide arbitrage floors (`$60–$150+/MT`). |
+| **`liquid_chemical_tanker`** | IMO II/III Parcel Tankers (Stainless Steel vs. Epoxy/Zinc Coated; 500–5,000 MT parcels) & `20–24 MT` ISO Tanks | `methanol`, `MEG`, `DEG`, `phenol`, `acetone`, `MEK`, `MIBK`, `isophorone`, `DMF`, `DMAC`, `DCM`, `THF`, `acrylates`, `acetates`, `oxo-alcohols`, `glycol-ethers`, `amines`, `caustic-soda` (50%), `fatty-acids`, `LAE`, `SLES` | **Stainless tanks** required for corrosive/high-purity (`acetic-acid`, `acrylic-acid`, `formic/propionic-acid`, `MDI`, `aniline`, `caustic`). **Coated tanks** carry alcohols, aromatics, and veg oils—and compete directly with **Clean Petroleum Product (`CPP`)** tankers. |
+| **`vegetable_oil_tanker`** | FOSFA-compliant Heated Coated/Stainless Tankers | `sub:palm-oil`, `sub:palm-kernel-oil`, `sub:coconut-oil` | Strict previous-cargo hygiene rules bar loading edible/lauric oils after toxic petrochemicals without costly tank cleaning. |
+| **`specialized_acid_tanker`** | Rubber-lined / 316L-904L Alloy Tankers | `sub:phosphoric-acid`, `sub:sulphuric-acid`, `sub:nitric-acid`, `sub:hydrochloric-acid` | Contract-dominated fleet (`flow:ma-in-phosphates`); minimal spot charter elasticity. |
+| **`product_or_crude_tanker`** | MR / LR1 / LR2 Product & Crude Tankers | `sub:crude-oil`, `sub:naphtha`, `sub:diesel`, `sub:fuel-oil`, `sub:base-oil`, `sub:n-paraffins` | High liquidity; `base-oil` and `n-paraffins` require dry, segregated 3–15 kt MR/parcel lots. |
+| **`container_or_dry_bulk`** | 20ft/40ft Containers (`24–26 MT/FEU`), Jumbo FIBC Bags, Handymax Bulk | `PE`, `PP`, `PS`, `PVC`, `urea`, `soda-ash`, `TiO2`, `melamine`, `adipic-acid`, `DBA-flakes`, `PIA`, `NPG`, `pentaerythritol`, `VPEG-2400`, `sodium-gluconate`, `potassium-carbonate` | Lowest transoceanic freight hurdle (`~$25–$65/MT`) and highest global spot elasticity. |
+
+#### Critical Chemical Shipping Constraints
+* **Thermal & Polymerization Spoilage:** `sub:phenol` (m.p. `41°C`), `sub:caustic-soda` 50% (freezes `~12°C`), `sub:mdi` (`~38–42°C`), and stearic `cat:fatty-acids` require heated coils; conversely, inhibited monomers (`sub:styrene`, `sub:acrylic-acid`, `sub:butyl-acrylate`, `sub:2-ethylhexyl-acrylate`, `sub:methyl-acrylate`, `sub:methyl-methacrylate`, `sub:vinyl-acetate-monomer`) risk exothermic self-polymerization if delayed on hot voyages (e.g., Suez $\to$ Cape rerouting) as inhibitor (`TBC`/`MEHQ`) depletes.
+* **CPP-to-Chemical Swing Tonnage:** When clean petroleum product (`diesel`/`naphtha`) tanker rates surge, IMO-III coated tankers exit `methanol`/`MEG`/`palm-oil` trades, spiking chemical parcel rates non-linearly.
+* **Fronthaul vs. Backhaul Asymmetry:** Asia $\to$ US/EU fronthaul container/tanker rates run `2–4x` higher than USGC/Europe $\to$ Asia backhaul rates, subsidizing US/European exports (`geo:us` / `geo:de` $\to$ `geo:in`).
+* **Specialty Packaging Tiering (`ISO Tank / Drums` vs. `Bulk Parcel`):** Smaller-volume watchlist intermediates (`amines`, `DMAC`, `isophorone`, `BGA`/`BDGA`, `MP-diol`) move frequently in ISO tanks or drummed containers, carrying a **`+$70–$180/MT`** packaging/return-logistics premium over 3–5 kt bulk tanker quotes.
+
+---
+
+### 3.5 Maritime Chokepoints & Dynamic Rerouting (`Layer 0` Topology $\times$ `Layer 3` State)
+
+Static geography (`trade_kg.json`) defines *which* chokepoints lie along a route and *which* bypass ports exist; the time-series table `chokepoint_status(obs_date, chokepoint_id)` determines whether penalties are currently active:
+
+| Chokepoint (`chokepoint:*`) | Exposed Corridors & Products (Static Topology) | Bypass / Reroute Option | Dynamic Impact When Restricted (`Layer 3`) |
+| :--- | :--- | :--- | :--- |
+| **`chokepoint:hormuz`** | `geo:sa` (Jubail), `geo:qa`, `geo:ae` (Ruwais/Jebel Ali), `geo:ir` $\to$ Asia, India, Europe (`methanol`, `urea`, `MEG`, `EDC`, `polyolefins`, `ammonia`, `LAB`/`n-paraffins`). | `geo:om` (Sohar), `geo:sa` **Yanbu**, `geo:ae` **Fujairah**; non-Gulf `geo:us`, `geo:eg`, `geo:ru`, `geo:my`. | Direct supply curtailment + war-risk insurance premiums; creates wide spreads between trapped Gulf FOB and non-Hormuz origins. |
+| **`chokepoint:bab-el-mandeb`** & **`chokepoint:suez-canal`** | Asia/India/Gulf $\leftrightarrow$ Europe/USEC; `geo:sa` Yanbu south (`Bab el-Mandeb`) vs. north (`Suez`). | **Cape of Good Hope** (`+10–14 days`, `+3,000–3,500 nm`). | Inflates voyage price-risk ($\text{VaR} \propto \sqrt{T}$), absorbs 8–12% fleet capacity, elevates bunker burn (~25–35%), and raises monomer polymerization risk. |
+| **`chokepoint:malacca`** | Middle East/India/EU $\leftrightarrow$ NE Asia & ID/MY oleochemicals. | **Sunda / Lombok Strait** (`+1–3 days`). | Congestion/draft delays along core `CN/KR/JP/TW/SG/MY -> IN` lanes. |
+| **`chokepoint:panama`** | `geo:us` (USGC) $\leftrightarrow$ NE Asia (`ethane`, `ethylene`, `PE`, `caustic`, `benzene`). | **Suez or Cape** (`+10–18 days`). | Drought draft caps / slot auctions divert USGC cargoes toward `geo:nl`, `geo:be`, `geo:tr`, and `geo:br`. |
+
+---
+
+### 3.6 Trade Policy, Customs Valuation & Regulatory Regimes (`Layer 2`)
+
+All statutory barriers live in **`tariff_rules` with hard `effective_from` and `effective_to` dates**:
+
+1. **CIF-Based Cascading Duty Math:**
+   $$\text{CIF}_{\text{base}} = P_{\text{orig, FOB}} + \text{Freight}_{A \to B} + \text{Insurance}(\approx 0.12\% \cdot P_{\text{orig, FOB}})$$
+   $$\text{Landed}_{A \to B} = \text{CIF}_{\text{base}} \times \left(1 + d_{\text{customs}} \cdot (1 + s_{\text{surcharge}})\right) + \text{ADD}_{A \to B} + \text{Carbon/Levy}_{A \to B}$$
+   *(Creditable GST/VAT is excluded from net cash cost; non-creditable surcharges such as India's 10% Social Welfare Surcharge on BCD, ADDs, and export levies are included.)*
+2. **FTA Preference Matrices & Rules of Origin (`RoO`):**
+   `India–Korea CEPA`, `India–Japan CEPA`, `India–UAE CEPA`, `ASEAN AIFTA`, `USMCA`, and the `EU–US` zero PE tariff create `$40–$90/MT` landed edges over MFN origins—subject to substantial transformation (`RoO` blocks pure hub re-exports from `geo:sg`/`geo:nl` claiming FTA zero duty).
+3. **Price Floors & Trade Defense (Dated Regime Examples):**
+   * **Minimum Import Prices (MIPs):** Set an effective CIF floor $\text{CIF}_{\text{eff}} = \max(\text{CIF}_{\text{base}}, \text{MIP}_{\text{CIF}})$ (e.g., India DGFT Notification 25/2026-27 S-PVC `$766/MT` CIF MIP, July 2026–Jan 2027).
+   * **Anti-Dumping Duties (ADDs):** Producer- and origin-specific cash duties—spanning Indian DGTR investigations/duties across Chinese **`sub:melamine`** (`$245–$403/MT` recommended Sept 2026), **`sub:phthalic-anhydride`** (China/Korea/Thailand/Taiwan), **`sub:aniline`** (China), **`sub:dichloromethane`** (China/Russia), **`sub:isopropanol`** (US/SG/NL), **`sub:vinyl-acetate-monomer`** (SG/Iran), **`sub:pvc-resin`**, and **`sub:titanium-dioxide`**.
+   * **Quality Standards Rescission Tracking:** India rescinded mandatory BIS QCOs on 14 major polymers/intermediates (`PE`, `PP`, `PVC`, `MEG`, `PTA`) on Nov 12, 2025, requiring explicit `effective_to` dates on QCO rules.
+   * **Carbon & Sustainability Borders:** **EU CBAM** (definitive financial phase from Jan 1, 2026 on `ammonia`, `urea`, `nitric acid`) penalizes coal-based nitrogen routes (`geo:cn`) vs. gas-based routes (`geo:eg`, `geo:us`); **EUDR** requires deforestation-free traceability on palm oleochemicals entering `geo:nl`/`geo:de`.
+4. **Waterbed Diversion ("Squeeze Here, Spill There"):**
+   Any tariff/MIP barrier creates both an **inbound premium vacuum** (pulling FTA-exempt or non-penalized origins like `KR`, `JP`, `TW`, `OM`, `US` into `geo:in`) and an **outbound dumping wave** (pushing displaced `CN` supply into `geo:vn`, `geo:tr`, `geo:br`, `geo:pk`).
+
+---
+
+### 3.7 Ten Critical Modeling, Customs & Temporal Traps
+
+1. **Entrepôt & Re-Export Mirage (`geo:sg`, `geo:nl`, `geo:be`, `geo:ae`):** Hub exports reflect import parity + breakbulk/terminal fees, not primary local feedstock economics (`flow_type: "re_export_hub"`).
+2. **6-Digit HS Code Collisions:** `2710.19` merges `base-oil`, `diesel`, `fuel-oil`, and `n-paraffins`; `2929.10` merges `MDI` and `TDI`; `3823.19` merges `PFAD` and distilled fatty acids. Requires 8-digit national codes (Indian ITCHS) for customs parsing.
+3. **Same-HS Specialty Collisions & SKU Ambiguity (Watchlist Trap):**
+   * `2902.44` lumps **`sub:isomer-mx`** (priced off PX/PTA/OX) with **`sub:solvent-mx`** (priced off gasoline/coatings).
+   * `2915.39` lumps **six distinct acetates** (`methyl`, `n-propyl`, `isobutyl`, `BGA`, `BDGA`, `PGMEA`).
+   * `2921.19` lumps **six alkylamines** (`diethylamine`, `triethylamine`, `MBA`, `DBA`, `TBA`, `TPA`).
+   * `3907.29` lumps **`polyether-polyol`**, **`polymer-polyol`**, **`PEG`**, and **`VPEG-2400`**.
+   * `sub:tetrahydrofuran` (`2932.11` liquid) vs. catalog `"TETRAHYDROFURON-FLAKES"` (solid `PTMEG`, `3907.29`).
+   * **Guard:** Never map 6-digit customs unit values directly onto specialty `price_series` without 8-digit ITCHS + product-description regex/NLP classification.
+4. **Captive Integration vs. Merchant Liquidity (`merchant_liquidity` gate):** Block `captive` substances (`sub:chlorine`, `sub:ethylene-oxide`, `sub:hydrogen`) from spatial arbitrage; apply elevated netback hurdles on `medium` cryogenic/acid corridors.
+5. **Dry Metric Ton (`dmt`) vs. Aqueous Solution Weight Trap:** `sub:caustic-soda` trades in `USD/dmt` (100% NaOH) but ships as **50% aqueous solution** (`2.0x` wet freight multiplier!). Same dilution scaling applies to `formalin` (37–50%), `HCl` (31–33%), and `phosphoric-acid` (52–54% $\text{P}_2\text{O}_5$).
+6. **Domestic VAT-Inclusive vs. Export Parity:** Strip 13% Chinese domestic VAT (`P_RMB / 1.13 / FX`) and account for unrebated export VAT post-April 1, 2026 on affected HS codes.
+7. **Contract Formula vs. Spot Assessment Timing Lag:** Never compare lagging monthly NWE/USGC contract prices directly against daily Asian spot quotes without flagging `pricing_basis_mismatch`.
+8. **Grade, Packaging & Stabilization Drift:** Match `grade_spec` and `packaging_basis` (`bulk parcel` vs. `ISO tank / drummed` specialty `+$70–$180/MT`, `K67` vs `K57` PVC, `Group I` vs `Group III` base oil).
+9. **Feedstock-to-Derivative Substitution:** Pair finished polymer/chemical netbacks with destination make-vs-buy conversion spreads (`PVC vs. VCM/EDC`, `PE vs. Ethane/Ethylene`, `Fatty Acids vs. CPO/PKO`, `SLES vs. LAE/Fatty Alcohol`).
+10. **Temporal Regime Leakage & Look-Ahead Bias:** Never embed dated policy/chokepoint/seasonal assumptions inside static graph nodes. Enforce strict point-in-time queries (`WHERE obs_date BETWEEN effective_from AND effective_to`) across `chokepoint_status`, `tariff_rules`, `seasonal_demand_calendar`, and `temporal_events` so both live signals and 3–5 year backtests remain strictly causal.

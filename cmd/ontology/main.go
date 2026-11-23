@@ -1,10 +1,10 @@
 // Command ontology drives the chemical value-chain review roundtrip:
 //
-//	go run ./cmd/ontology lint   -file internal/ontology/data/chemicals.json
-//	go run ./cmd/ontology emit   -file internal/ontology/data/chemicals.json -out internal/ontology/data/chemicals.json
-//	go run ./cmd/ontology review -file internal/ontology/data/chemicals.json -out internal/ontology/data/REVIEW.md
-//	go run ./cmd/ontology merge  -base data/chemicals.json -patch curated.json -out data/chemicals.json
-//	go run ./cmd/ontology diff   -before data/chemicals.json -after curated.json
+//	go run ./cmd/ontology lint   -file internal/ontology/data/Chem_KG.json
+//	go run ./cmd/ontology emit   -file internal/ontology/data/Chem_KG.json -out internal/ontology/data/Chem_KG.json
+//	go run ./cmd/ontology review -file internal/ontology/data/Chem_KG.json -out internal/ontology/data/REVIEW.md
+//	go run ./cmd/ontology merge  -base data/Chem_KG.json -patch curated.json -out data/Chem_KG.json
+//	go run ./cmd/ontology diff   -before data/Chem_KG.json -after curated.json
 //	go run ./cmd/ontology harvest -out data/harvest.json
 //
 // Nothing here invents chemistry: the commands validate, serialise and merge the
@@ -455,4 +455,3 @@ func runExplain(args []string) error {
 	}
 	return nil
 }
-

@@ -6,7 +6,7 @@ and the code only reads it.
 
 ## The document
 
-`internal/ontology/data/chemicals.json` is the single source of truth (schema version 1). It is
+`internal/ontology/data/Chem_KG.json` is the single source of truth (schema version 1). It is
 embedded in the binary, strictly decoded (unknown fields are an error), linted on load, and
 regenerated only by the tooling below.
 
@@ -38,22 +38,22 @@ Every node carries `status` (`proposed` | `approved` | `rejected`), `source` (`s
 
 ```powershell
 # 1. what the domain expert reviews
-go run ./cmd/ontology review -file internal/ontology/data/chemicals.json -out internal/ontology/data/REVIEW.md
+go run ./cmd/ontology review -file internal/ontology/data/Chem_KG.json -out internal/ontology/data/REVIEW.md
 
 # 2. what came back (whole file, or a corrections-only block)
-go run ./cmd/ontology diff   -before internal/ontology/data/chemicals.json -after <returned file>
-go run ./cmd/ontology merge  -base   internal/ontology/data/chemicals.json -patch <returned file> -out internal/ontology/data/chemicals.json
+go run ./cmd/ontology diff   -before internal/ontology/data/Chem_KG.json -after <returned file>
+go run ./cmd/ontology merge  -base   internal/ontology/data/Chem_KG.json -patch <returned file> -out internal/ontology/data/Chem_KG.json
 
 # 3. validate + refresh the artifacts
-go run ./cmd/ontology lint   -file internal/ontology/data/chemicals.json -out internal/ontology/data/LINT.md
-go run ./cmd/ontology review -file internal/ontology/data/chemicals.json -out internal/ontology/data/REVIEW.md
+go run ./cmd/ontology lint   -file internal/ontology/data/Chem_KG.json -out internal/ontology/data/LINT.md
+go run ./cmd/ontology review -file internal/ontology/data/Chem_KG.json -out internal/ontology/data/REVIEW.md
 
 # 4. sign off: mark every proposed node approved and record who did it
-go run ./cmd/ontology approve -file internal/ontology/data/chemicals.json -by "domain expert"
+go run ./cmd/ontology approve -file internal/ontology/data/Chem_KG.json -by "domain expert"
 
 # 5. add the trade DB's canonical product names as proposed substances
 go run ./cmd/ontology harvest -out internal/ontology/data/harvest.json   # needs TRADE_DB_API_URL
-go run ./cmd/ontology merge -base internal/ontology/data/chemicals.json -patch internal/ontology/data/harvest.json -out internal/ontology/data/chemicals.json
+go run ./cmd/ontology merge -base internal/ontology/data/Chem_KG.json -patch internal/ontology/data/harvest.json -out internal/ontology/data/Chem_KG.json
 ```
 
 Two read-only commands help the roundtrip: `go run ./cmd/ontology explain -activity "n-butanol" [-mode seller|buyer] [-json]` prints the resolution a run would take (deterministic, no model call), and `go run ./cmd/ontology graph [-activity X | -seed ID] [-out kg.html|.svg|.json]` draws the knowledge graph.

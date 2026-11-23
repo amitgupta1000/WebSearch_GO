@@ -38,7 +38,7 @@ func TestSeedLoadsAndLintsClean(t *testing.T) {
 // reviewer must judge appears in the review markdown, and the lint report
 // carries each issue.
 func TestReviewArtifactsCoverEveryNode(t *testing.T) {
-	document, err := LoadFile(filepath.Join("data", "chemicals.json"))
+	document, err := LoadFile(filepath.Join("data", "Chem_KG.json"))
 	if err != nil {
 		t.Fatalf("LoadFile: %v", err)
 	}
