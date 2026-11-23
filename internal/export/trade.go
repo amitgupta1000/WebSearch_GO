@@ -16,7 +16,7 @@ import (
 func writeTradeSections(b *strings.Builder, activity string, importers, suppliers []models.MarketLandscapeCompany, cell func(string) string) {
 	if len(importers) > 0 {
 		fmt.Fprintf(b, "## trade record importers (%d)\n\n", len(importers))
-		fmt.Fprintf(b, "Indian importers of %s named by the Crystal trade DB. An importer may equally be a reseller (distributor, wholesaler or trader) — the operator decides; these rows are separate from verified results and the coverage floor.\n\n", activity)
+		fmt.Fprintf(b, "Indian importers of %s named by the Crystal trade DB. An importer may equally be a reseller (distributor, wholesaler or trader) — the operator decides; these rows are separate from verified results and the coverage floor. Coverage: declaration dates 01 Mar 2023 through 31 Jan 2026.\n\n", activity)
 		b.WriteString("| Company | Country | Role tags | Shipments | Value (USD) | Quantity (MT) | Rank | Status |\n| :--- | :--- | :--- | ---: | ---: | ---: | ---: | :--- |\n")
 		for _, row := range importers {
 			fmt.Fprintf(b, "| %s | %s | %s | %d | %.0f | %.0f | %d | %s |\n",
@@ -27,7 +27,7 @@ func writeTradeSections(b *strings.Builder, activity string, importers, supplier
 	}
 	if len(suppliers) > 0 {
 		fmt.Fprintf(b, "## trade record suppliers (%d)\n\n", len(suppliers))
-		fmt.Fprintf(b, "Exporters of %s into India named by the Crystal trade DB, origin-scoped where the records carry a country. These rows are separate from verified seller results and the coverage floor.\n\n", activity)
+		fmt.Fprintf(b, "Exporters of %s into India named by the Crystal trade DB, origin-scoped where the records carry a country. These rows are separate from verified seller results and the coverage floor. Coverage: declaration dates 01 Mar 2023 through 31 Jan 2026.\n\n", activity)
 		b.WriteString("| Company | Origin | Shipments | Value (USD) | Quantity (MT) | Rank | Status |\n| :--- | :--- | ---: | ---: | ---: | ---: | :--- |\n")
 		for _, row := range suppliers {
 			fmt.Fprintf(b, "| %s | %s | %d | %.0f | %.0f | %d | %s |\n",

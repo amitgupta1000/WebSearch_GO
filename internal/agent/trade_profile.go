@@ -189,7 +189,10 @@ func BuildTradeProfile(ctx context.Context, client TradeDBSource, llm LLMClient,
 
 	// The operator's pick wins outright.
 	if override, ok := lookupTradeEntityOverride(name); ok {
-		background, summary := buildTradeProfileForEntity(ctx, client, name, override.name, override.direction)
+		background, summary := buildTradeProfileForEntities(ctx, client, name, []tradeEntityMatch{
+			{name: override.name, direction: models.TradeDirectionImporter},
+			{name: override.name, direction: models.TradeDirectionSupplier},
+		})
 		if background != nil {
 			tradeProfileMemo.put(key, tradeProfileEntry{background: background, summary: summary})
 		}
@@ -218,11 +221,40 @@ func BuildTradeProfile(ctx context.Context, client TradeDBSource, llm LLMClient,
 		return background, summary
 	}
 
-	background, summary := buildTradeProfileForEntity(ctx, client, name, match.name, match.direction)
+	matches := []tradeEntityMatch{match}
+	for _, direction := range []string{models.TradeDirectionImporter, models.TradeDirectionSupplier} {
+		if direction == match.direction {
+			continue
+		}
+		result := resolveTradeEntityDirection(ctx, client, name, direction)
+		if result.match.name != "" {
+			matches = append(matches, result.match)
+		}
+	}
+	background, summary := buildTradeProfileForEntities(ctx, client, name, matches)
 	if background != nil {
 		tradeProfileMemo.put(key, tradeProfileEntry{background: background, summary: summary})
 	}
 	return background, summary
+}
+
+func buildTradeProfileForEntities(ctx context.Context, client TradeDBSource, requested string, matches []tradeEntityMatch) (*models.TradeBackground, string) {
+	background := &models.TradeBackground{CheckedAt: time.Now(), Present: len(matches) > 0}
+	for _, match := range matches {
+		side := buildTradeProfileSide(ctx, client, match.name, match.direction)
+		background.Directions = append(background.Directions, match.direction)
+		background.MatchedName = match.name
+		background.Sides = append(background.Sides, side)
+		background.TransactionCount += side.TransactionCount
+		background.ProductCount += side.ProductCount
+		background.TotalValueUSD += side.TotalValueUSD
+		background.TotalQuantityMT += side.TotalQuantityMT
+		if background.GlobalRank == 0 {
+			background.GlobalRank = side.GlobalRank
+			background.TopProducts = side.TopProducts
+		}
+	}
+	return background, tradeProfileSummary(requested, strings.Join(background.Directions, " + "), background)
 }
 
 // buildTradeProfileForEntity aggregates the profile and the product mix for a
@@ -230,66 +262,77 @@ func BuildTradeProfile(ctx context.Context, client TradeDBSource, llm LLMClient,
 // operator's pick. Presence is reported on that side; the other side is not
 // consulted, because the resolver already searched both.
 func buildTradeProfileForEntity(ctx context.Context, client TradeDBSource, requested, entityName, direction string) (*models.TradeBackground, string) {
+	side := buildTradeProfileSide(ctx, client, entityName, direction)
 	background := &models.TradeBackground{
-		CheckedAt:   time.Now(),
-		Present:     true,
-		MatchedName: entityName,
-		Directions:  []string{direction},
+		CheckedAt: time.Now(), Present: true, MatchedName: entityName,
+		Directions: []string{direction}, Sides: []models.TradeBackgroundSide{side},
+		GlobalRank: side.GlobalRank, TransactionCount: side.TransactionCount,
+		ProductCount: side.ProductCount, TotalValueUSD: side.TotalValueUSD,
+		TotalQuantityMT: side.TotalQuantityMT, TopProducts: side.TopProducts,
 	}
-	// The aggregate profile and the product mix are independent lookups against
-	// the same DB, and a profile build sits on the run's critical path (the
-	// dossier waits for it), so they run concurrently rather than back to back.
+	return background, tradeProfileSummary(requested, direction, background)
+}
+
+func buildTradeProfileSide(ctx context.Context, client TradeDBSource, entityName, direction string) models.TradeBackgroundSide {
+	side := models.TradeBackgroundSide{MatchedName: entityName, Direction: direction}
 	var (
 		profiles     []models.TradeEntityProfile
 		profilesErr  error
 		breakdown    models.TradeEntityBreakdown
 		breakdownErr error
-		wg           sync.WaitGroup
+		profileName  = entityName
 	)
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		profiles, profilesErr = client.EntityProfiles(ctx, direction, entityName, true, tradeProfileNamesLimit)
-	}()
-	go func() {
-		defer wg.Done()
-		breakdown, breakdownErr = client.EntityProducts(ctx, direction, entityName, tradeProfileProductsLimit)
-	}()
-	wg.Wait()
+	profiles, profilesErr = client.EntityProfiles(ctx, direction, entityName, true, tradeProfileNamesLimit)
+	if profilesErr == nil && len(profiles) == 0 {
+		// Exact matching is safer, but an ILIKE fallback supports legal
+		// suffixes and punctuation variants that the stored spelling may
+		// not preserve.
+		profiles, profilesErr = client.EntityProfiles(ctx, direction, entityName, false, tradeProfileNamesLimit)
+	}
+	if len(profiles) > 0 {
+		for _, profile := range profiles {
+			if tradeNameMatches(profile.Name, entityName) {
+				profileName = profile.Name
+				break
+			}
+		}
+		if profileName == entityName && profiles[0].Name != "" {
+			profileName = profiles[0].Name
+		}
+	}
+	side.MatchedName = profileName
+	breakdown, breakdownErr = client.EntityProducts(ctx, direction, profileName, tradeProfileProductsLimit)
 	// The aggregate profile row (profiled top set only).
 	if profilesErr == nil {
 		for _, profile := range profiles {
-			if tradeNameMatches(profile.Name, entityName) {
-				background.GlobalRank = profile.GlobalRank
-				background.TransactionCount = profile.TransactionCount
-				background.ProductCount = profile.ProductCount
-				background.TotalValueUSD = profile.TotalValueUSD
-				background.TotalQuantityMT = profile.TotalQuantityMT
+			if tradeNameMatches(profile.Name, entityName) || profile.Name == profileName {
+				side.GlobalRank = profile.GlobalRank
+				side.TransactionCount = profile.TransactionCount
+				side.ProductCount = profile.ProductCount
+				side.TotalValueUSD = profile.TotalValueUSD
+				side.TotalQuantityMT = profile.TotalQuantityMT
 				break
 			}
 		}
 	} else {
-		background.Note = fmt.Sprintf("the aggregate profile lookup failed: %v", profilesErr)
+		// The caller retains the other side when only one endpoint fails.
 	}
 	// The product mix answers for any name the data carries.
 	if breakdownErr == nil && breakdown.TotalCount > 0 {
-		background.TopProducts = breakdown.Products
-		if background.TransactionCount == 0 {
+		side.TopProducts = breakdown.Products
+		if side.TransactionCount == 0 {
 			// Outside the profiled set: the breakdown's own totals stand in
 			// for the aggregate profile, and the product count is the
 			// breakdown's row count.
 			for _, product := range breakdown.Products {
-				background.TransactionCount += product.TransactionCount
-				background.TotalValueUSD += product.TotalValueUSD
-				background.TotalQuantityMT += product.TotalQuantityMT
+				side.TransactionCount += product.TransactionCount
+				side.TotalValueUSD += product.TotalValueUSD
+				side.TotalQuantityMT += product.TotalQuantityMT
 			}
-			background.ProductCount = breakdown.TotalCount
+			side.ProductCount = breakdown.TotalCount
 		}
-	} else if breakdownErr != nil && background.Note == "" {
-		background.Note = fmt.Sprintf("the product breakdown lookup failed: %v", breakdownErr)
 	}
-	summary := tradeProfileSummary(requested, direction, background)
-	return background, summary
+	return side
 }
 
 // tradeProfileSummary lines the profile up for the console log: the aggregates

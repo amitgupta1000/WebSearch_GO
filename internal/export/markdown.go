@@ -80,11 +80,28 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 
 	if bg := chart.TradeBackground; bg != nil && bg.Present {
 		builder.WriteString("## Trade DB background\n\n")
-		fmt.Fprintf(&builder, "Matched in the Crystal customs entity vocabulary as **%s** (side: %s).\n\n", bg.MatchedName, strings.Join(bg.Directions, ", "))
-		if bg.TransactionCount > 0 || bg.TotalValueUSD > 0 {
-			fmt.Fprintf(&builder, "Shipments: %d · products: %d · value: USD %.0f · quantity: %.0f MT", bg.TransactionCount, bg.ProductCount, bg.TotalValueUSD, bg.TotalQuantityMT)
-			if bg.GlobalRank > 0 {
-				fmt.Fprintf(&builder, " · rank #%d among the profiled top set", bg.GlobalRank)
+		fmt.Fprintf(&builder, "Matched in the Crystal customs entity vocabulary on: **%s**.\n\n", strings.Join(bg.Directions, " and "))
+		for _, side := range bg.Sides {
+			fmt.Fprintf(&builder, "### %s side (%s)\n\n", strings.Title(side.Direction), side.MatchedName)
+			fmt.Fprintf(&builder, "Shipments: %d · products: %d · value: USD %.0f · quantity: %.0f MT", side.TransactionCount, side.ProductCount, side.TotalValueUSD, side.TotalQuantityMT)
+			if side.GlobalRank > 0 {
+				fmt.Fprintf(&builder, " · rank #%d among the profiled top set", side.GlobalRank)
+			}
+			builder.WriteString("\n\n")
+			if len(side.TopProducts) > 0 {
+				builder.WriteString("| Product | Shipments | Value (USD) | Quantity (MT) |\n| :--- | ---: | ---: | ---: |\n")
+				for _, product := range side.TopProducts {
+					fmt.Fprintf(&builder, "| %s | %d | %.0f | %.0f |\n", product.Name, product.TransactionCount, product.TotalValueUSD, product.TotalQuantityMT)
+				}
+				builder.WriteString("\n")
+			}
+		}
+		if len(bg.Sides) == 0 {
+			if bg.TransactionCount > 0 || bg.TotalValueUSD > 0 {
+				fmt.Fprintf(&builder, "Shipments: %d · products: %d · value: USD %.0f · quantity: %.0f MT", bg.TransactionCount, bg.ProductCount, bg.TotalValueUSD, bg.TotalQuantityMT)
+				if bg.GlobalRank > 0 {
+					fmt.Fprintf(&builder, " · rank #%d among the profiled top set", bg.GlobalRank)
+				}
 			}
 			builder.WriteString("\n\n")
 		}
@@ -96,6 +113,7 @@ func renderCompanyMarkdown(chart *models.OrgChart) string {
 			builder.WriteString("\n")
 		}
 		builder.WriteString("_Aggregated first-party customs records; an importer may equally be a reseller._\n\n")
+		builder.WriteString("_TradeDB coverage: declaration dates 01 Mar 2023 through 31 Jan 2026; results are limited to records available in that period._\n\n")
 	}
 
 	if len(chart.Leadership) > 0 {

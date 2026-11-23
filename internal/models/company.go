@@ -93,11 +93,26 @@ type TradeBackground struct {
 	// TopProducts is the entity's own product ranking — what it actually
 	// trades, by shipment count and value, canonical names throughout.
 	TopProducts []TradeEntityProduct `json:"top_products,omitempty"`
+	// Sides contains a separate aggregate for each customs direction in which
+	// the company was found.
+	Sides []TradeBackgroundSide `json:"sides,omitempty"`
 	// Candidates are the customs entities the resolver considered but could
 	// not confirm automatically, ranked (see TradeEntityCandidate). The
 	// operator picks one when Present is false; the pick is then used for the
 	// profile fetch.
 	Candidates []TradeEntityCandidate `json:"candidates,omitempty"`
+}
+
+// TradeBackgroundSide is one direction-specific company aggregate.
+type TradeBackgroundSide struct {
+	Direction        string               `json:"direction"`
+	MatchedName      string               `json:"matched_name"`
+	GlobalRank       int                  `json:"global_rank,omitempty"`
+	TransactionCount int                  `json:"transaction_count,omitempty"`
+	ProductCount     int                  `json:"product_count,omitempty"`
+	TotalValueUSD    float64              `json:"total_value_usd,omitempty"`
+	TotalQuantityMT  float64              `json:"total_quantity_mt,omitempty"`
+	TopProducts      []TradeEntityProduct `json:"top_products,omitempty"`
 }
 
 // CompanyProfile is the concise business brief synthesized alongside the org chart.

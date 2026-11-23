@@ -318,12 +318,12 @@
 	</div>{{end}}
 	{{if .TradeImporters}}<div class="space-y-3 border-l-2 border-amber-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-amber-400 font-semibold">trade record importers <span class="text-slate-600">({{len .TradeImporters}})</span></div>
-		<p class="text-xs text-slate-500">Indian importers of {{.Activity}} named by the Crystal trade DB. An importer may equally be a reseller (distributor, wholesaler or trader) — the operator decides; these rows are separate from the verified seller results and the coverage floor.</p>
+		<p class="text-xs text-slate-500">Indian importers of {{.Activity}} named by the Crystal trade DB. An importer may equally be a reseller (distributor, wholesaler or trader) — the operator decides; these rows are separate from the verified seller results and the coverage floor. Coverage: declaration dates 01 Mar 2023 through 31 Jan 2026.</p>
 		<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .TradeImporters}}{{template "category_result_card" (dict "Company" . "Audience" "producer" "Geography" $.Geography)}}{{end}}</div>
 	</div>{{end}}
 	{{if .TradeSuppliers}}<div class="space-y-3 border-l-2 border-amber-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-amber-400 font-semibold">trade record suppliers <span class="text-slate-600">({{len .TradeSuppliers}})</span></div>
-		<p class="text-xs text-slate-500">Exporters of {{.Activity}} into India named by the Crystal trade DB, origin-scoped where the records carry a country. Separate from the verified seller results and the coverage floor.</p>
+		<p class="text-xs text-slate-500">Exporters of {{.Activity}} into India named by the Crystal trade DB, origin-scoped where the records carry a country. Separate from the verified seller results and the coverage floor. Coverage: declaration dates 01 Mar 2023 through 31 Jan 2026.</p>
 		<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .TradeSuppliers}}{{template "category_result_card" (dict "Company" . "Audience" "producer" "Geography" $.Geography)}}{{end}}</div>
 	</div>{{end}}
 	{{if .Results}}
@@ -454,7 +454,7 @@
 	</div>{{end}}
 	{{if .TradeImporters}}<div class="space-y-3 border-l-2 border-amber-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-amber-400 font-semibold">trade record importers <span class="text-slate-600">({{len .TradeImporters}})</span></div>
-		<p class="text-xs text-slate-500">Indian importers of the product named by the Crystal trade DB. An importer may equally be a reseller (distributor, wholesaler or trader) — the operator decides; these rows are separate from the verified buyer results and stage coverage.</p>
+		<p class="text-xs text-slate-500">Indian importers of the product named by the Crystal trade DB. An importer may equally be a reseller (distributor, wholesaler or trader) — the operator decides; these rows are separate from the verified buyer results and stage coverage. Coverage: declaration dates 01 Mar 2023 through 31 Jan 2026.</p>
 		<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .TradeImporters}}{{template "category_result_card" (dict "Company" . "Audience" "buyer" "Geography" $.Geography)}}{{end}}</div>
 	</div>{{end}}
 	{{if .Results}}<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">{{range .Results}}
@@ -641,7 +641,7 @@
 		<table class="w-full mt-1 text-[10px] text-slate-300"><thead><tr class="text-slate-500"><th class="text-left">Product</th><th class="text-right">Shipments</th><th class="text-right">Value (USD)</th><th class="text-right">Quantity (MT)</th></tr></thead>
 		<tbody>{{range .Background.TopProducts}}<tr class="border-t border-slate-800"><td>{{.Name}}</td><td class="text-right">{{.TransactionCount}}</td><td class="text-right">{{printf "%.0f" .TotalValueUSD}}</td><td class="text-right">{{printf "%.0f" .TotalQuantityMT}}</td></tr>{{end}}</tbody></table>
 	</div>{{end}}
-	<p class="text-[10px] text-slate-500">Aggregated first-party customs records (Crystal trade DB) — an importer may equally be a reseller; the operator decides. Checked {{.Background.CheckedAt.Format "02 Jan 2006 15:04"}}.</p>
+	<p class="text-[10px] text-slate-500">Aggregated first-party customs records (Crystal trade DB) — an importer may equally be a reseller; the operator decides. Checked {{.Background.CheckedAt.Format "02 Jan 2006 15:04"}}. Coverage: declaration dates 01 Mar 2023 through 31 Jan 2026.</p>
 </div>
 {{if and (not .Background.Present) .Background.Candidates}}<div class="trade-entity-pick">{{template "trade_entity_pick" (dict "Candidates" .Background.Candidates "CompanyName" .Company)}}</div>{{end}}
 </div>{{end}}
@@ -761,7 +761,7 @@
 		{{else}}<p class="text-xs text-slate-500">No exact match in the Crystal customs entity vocabulary{{if .TradeBackground.Note}} — {{.TradeBackground.Note}}{{end}}.</p>{{end}}
 		{{if .TradeBackground.NameVariants}}<p class="text-xs text-slate-500">Closest customs names: {{range $i, $v := .TradeBackground.NameVariants}}{{if $i}} · {{end}}{{$v}}{{end}}</p>{{end}}
 		{{if and (not .TradeBackground.Present) .TradeBackground.Candidates}}<div class="trade-entity-pick">{{template "trade_entity_pick" (dict "Candidates" .TradeBackground.Candidates "CompanyName" .CompanyName)}}</div>{{end}}
-		<p class="text-[11px] text-slate-600">Checked {{.TradeBackground.CheckedAt.Format "02 Jan 2006 15:04 MST"}} — aggregated first-party customs records; an importer may equally be a reseller.</p>
+		<p class="text-[11px] text-slate-600">Checked {{.TradeBackground.CheckedAt.Format "02 Jan 2006 15:04 MST"}} — aggregated first-party customs records; an importer may equally be a reseller. Coverage: declaration dates 01 Mar 2023 through 31 Jan 2026.</p>
 	</div>{{end}}
 	<div class="border-l-2 border-indigo-500 pl-3">
 		<div class="text-[11px] uppercase tracking-[.2em] text-indigo-400 font-semibold">Results</div>

@@ -1,5 +1,10 @@
 package models
 
+// TradeDBDataPeriodNote records the date coverage observed in the live
+// Crystal TradeDB data source; it should be refreshed if the source is
+// reloaded with a different declaration range.
+const TradeDBDataPeriodNote = "TradeDB data currently covers declaration dates 01 Mar 2023 through 31 Jan 2026; results are limited to records available in that period."
+
 // Trade directions. The Crystal import-export DB is Indian customs data: an
 // importer row names the Indian buyer of the product, and a supplier row names
 // the foreign exporter that shipped it into India. Importer records are only

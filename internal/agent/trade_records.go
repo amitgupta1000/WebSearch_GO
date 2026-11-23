@@ -361,6 +361,7 @@ func collectTradeSuppliers(ctx context.Context, client TradeDBSource, activity s
 		fmt.Sprintf("%d record row(s) returned for product %q across %d port filter(s) (window: the %d most recent declaration(s))", len(records), activity, len(ports), tradeRecordPageLimit),
 		"trade-db", "query-records")
 	companies, warnings := aggregateTradeSuppliers(records, activity, region, regionCountries, limit)
+	warnings = append(warnings, models.TradeDBDataPeriodNote)
 	if windowWarning := tradeSupplierWindowWarning(activity, len(records)); windowWarning != "" {
 		warnings = append(warnings, windowWarning)
 	}
@@ -488,6 +489,9 @@ func (a *DemandChainAgent) attachTradeImporters(ctx context.Context, query model
 		companies = companies[:limit]
 	}
 	report.Warnings = append(report.Warnings, warnings...)
+	if len(companies) > 0 {
+		report.Warnings = append(report.Warnings, models.TradeDBDataPeriodNote)
+	}
 	for _, company := range companies {
 		report.TradeImporters = append(report.TradeImporters, *company)
 	}
@@ -536,6 +540,9 @@ func (a *MarketLandscapeAgent) attachTradePartners(ctx context.Context, query mo
 	wg.Wait()
 	report.Warnings = append(report.Warnings, importerWarn...)
 	report.Warnings = append(report.Warnings, supplierWarn...)
+	if len(importers) > 0 || len(suppliers) > 0 {
+		report.Warnings = append(report.Warnings, models.TradeDBDataPeriodNote)
+	}
 	// The cap is enforced here as well as in the requests: the API's rank
 	// limit is advisory, and the budget is a hard promise per section. Each
 	// section keeps the full cap, so a seller report is guaranteed up to the

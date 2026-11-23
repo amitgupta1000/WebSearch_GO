@@ -270,8 +270,8 @@ func TestSetTradeEntityOverrideWins(t *testing.T) {
 	if background.MatchedName != "SASOL CHEMICALS (PTY) LTD" || background.GlobalRank != 12 {
 		t.Errorf("background = %+v, want the chosen entity's aggregates", background)
 	}
-	if len(background.Directions) != 1 || background.Directions[0] != models.TradeDirectionSupplier {
-		t.Errorf("directions = %v, want the chosen side only", background.Directions)
+	if len(background.Directions) != 2 || background.Directions[0] != models.TradeDirectionImporter || background.Directions[1] != models.TradeDirectionSupplier {
+		t.Errorf("directions = %v, want both available sides", background.Directions)
 	}
 	if len(client.queries) != 0 {
 		t.Errorf("queries = %v, want no typeahead calls after an explicit pick", client.queries)
